@@ -1,5 +1,6 @@
 import { loadConfig } from "./config.js";
 import { connectDb, closeDb } from "./db/client.js";
+import { ensureIndexes } from "./db/collections.js";
 import { buildApp } from "./server.js";
 
 async function main() {
@@ -8,6 +9,10 @@ async function main() {
   console.log("Connecting to MongoDB...");
   await connectDb(config.MONGODB_URI);
   console.log("MongoDB connected");
+
+  console.log("Creating indexes...");
+  await ensureIndexes();
+  console.log("Indexes ready");
 
   const app = await buildApp();
 
