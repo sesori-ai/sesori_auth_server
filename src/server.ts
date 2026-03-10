@@ -1,5 +1,6 @@
 import Fastify, { FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
+import { tokenRoutes } from "./auth/token.js";
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -11,10 +12,15 @@ export async function buildApp(): Promise<FastifyInstance> {
     origin: true,
   });
 
+  // Decorate request with user for auth middleware (must be before routes)
+  app.decorateRequest("user", null);
+
   // Health check endpoint
   app.get("/health", async (request, reply) => {
     return { status: "ok" };
   });
+
+  await app.register(tokenRoutes);
 
   // Global error handler
   app.setErrorHandler((error, request, reply) => {

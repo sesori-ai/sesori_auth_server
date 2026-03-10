@@ -2,6 +2,7 @@ import { loadConfig } from "./config.js";
 import { connectDb, closeDb } from "./db/client.js";
 import { ensureIndexes } from "./db/collections.js";
 import { buildApp } from "./server.js";
+import { loadKeys } from "./auth/jwt.js";
 
 async function main() {
   const config = loadConfig();
@@ -13,6 +14,9 @@ async function main() {
   console.log("Creating indexes...");
   await ensureIndexes();
   console.log("Indexes ready");
+
+  loadKeys(config.JWT_PRIVATE_KEY_PATH, config.JWT_PUBLIC_KEY_PATH);
+  console.log("JWT keys loaded");
 
   const app = await buildApp();
 
