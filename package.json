@@ -1,0 +1,28 @@
+{
+  "name": "auth-backend",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Node.js auth backend for Claude Code",
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=22.22.0"
+  },
+  "scripts": {
+    "start": "node --loader ts-node/esm src/index.ts",
+    "build": "tsc",
+    "dev": "node --watch --loader ts-node/esm src/index.ts"
+  },
+  "dependencies": {
+    "fastify": "^4.25.2",
+    "@fastify/cors": "^8.5.0",
+    "zod": "^3.22.4",
+    "mongodb": "^6.3.0",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "@types/node": "^20.10.6",
+    "@types/jsonwebtoken": "^9.0.7",
+    "ts-node": "^10.9.2"
+  }
+}
