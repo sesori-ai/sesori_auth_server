@@ -1,6 +1,8 @@
 import Fastify, { FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import { tokenRoutes } from "./auth/token.js";
+import { githubRoutes } from "./auth/github.js";
+import { googleRoutes } from "./auth/google.js";
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -21,6 +23,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   });
 
   await app.register(tokenRoutes);
+  await app.register(githubRoutes);
+  await app.register(googleRoutes);
 
   // Global error handler
   app.setErrorHandler((error, request, reply) => {
