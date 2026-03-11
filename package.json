@@ -23,6 +23,7 @@
     "@fastify/cors": "^8.5.0",
     "fastify": "^4.25.2",
     "jsonwebtoken": "^9.0.2",
+    "lru-cache": "^11.2.6",
     "mongodb": "^6.3.0",
     "zod": "^3.22.4"
   },

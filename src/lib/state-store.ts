@@ -1,36 +1,25 @@
 import * as crypto from "node:crypto";
+import { LRUCache } from "lru-cache";
 
 const STATE_TTL_MS = 10 * 60 * 1000;
+const MAX_STATES = 10_000;
 
-const states = new Map<string, { createdAt: number }>();
-
-function purgeExpiredStates(now: number): void {
-  for (const [state, value] of states.entries()) {
-    if (now - value.createdAt > STATE_TTL_MS) {
-      states.delete(state);
-    }
-  }
-}
+const states = new LRUCache<string, true>({
+  max: MAX_STATES,
+  ttl: STATE_TTL_MS,
+});
 
 export function createState(): string {
-  const now = Date.now();
-  purgeExpiredStates(now);
-
   const state = crypto.randomBytes(32).toString("hex");
-  states.set(state, { createdAt: now });
-
+  states.set(state, true);
   return state;
 }
 
 export function validateState(state: string): boolean {
-  const now = Date.now();
-  purgeExpiredStates(now);
-
-  const existing = states.get(state);
-  if (!existing) {
+  if (!states.has(state)) {
     return false;
   }
 
   states.delete(state);
-  return now - existing.createdAt <= STATE_TTL_MS;
+  return true;
 }
