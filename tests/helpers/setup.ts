@@ -3,9 +3,6 @@ import { DatabaseAccessor } from "../../src/db/collections.js";
 import { buildApp } from "../../src/server.js";
 import { TokenService } from "../../src/services/token-service.js";
 import { ObjectId } from "mongodb";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import * as crypto from "node:crypto";
 import jwt from "jsonwebtoken";
 import type { FastifyInstance } from "fastify";
@@ -29,11 +26,6 @@ export type TestContext = {
 };
 
 export async function createTestApp(): Promise<TestContext> {
-  // Generate a temporary RSA-2048 key pair for this test run
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "auth-test-"));
-  const privatePath = path.join(tmpDir, "private.pem");
-  const publicPath = path.join(tmpDir, "public.pem");
-
   const { privateKey: privPem, publicKey: pubPem } =
     crypto.generateKeyPairSync("rsa", {
       modulusLength: 2048,
@@ -41,23 +33,19 @@ export async function createTestApp(): Promise<TestContext> {
       privateKeyEncoding: { type: "pkcs8", format: "pem" },
     });
 
-  fs.writeFileSync(privatePath, privPem);
-  fs.writeFileSync(publicPath, pubPem);
-
   // Configure environment — must be done before buildApp() calls loadConfig()
   const mongoUri =
     process.env.MONGODB_URI_TEST ?? "mongodb://localhost:27017/auth-backend-test";
   process.env.MONGODB_URI = mongoUri;
-  process.env.JWT_PRIVATE_KEY_PATH = privatePath;
-  process.env.JWT_PUBLIC_KEY_PATH = publicPath;
+  process.env.JWT_PRIVATE_KEY = privPem;
+  process.env.JWT_PUBLIC_KEY = pubPem;
   process.env.GITHUB_CLIENT_ID ??= "test-github-client-id";
   process.env.GITHUB_CLIENT_SECRET ??= "test-github-client-secret";
   process.env.GOOGLE_CLIENT_ID ??= "test-google-client-id";
   process.env.GOOGLE_CLIENT_SECRET ??= "test-google-client-secret";
   process.env.RELAY_URL ??= "ws://localhost:8080";
 
-  // Load JWT keys into the jwt module's in-memory cache
-  TokenService.loadKeys(privatePath, publicPath);
+  TokenService.setKeys(privPem, pubPem);
 
   // Connect to test MongoDB and start with a clean slate
   const mongoClient = await DbClient.connect(mongoUri);
@@ -122,7 +110,6 @@ export async function createTestApp(): Promise<TestContext> {
     await app.close();
     await mongoClient.db().dropDatabase();
     await DbClient.close();
-    fs.rmSync(tmpDir, { recursive: true });
   }
 
   return { app, cleanup, createUser, createExpiredRefreshToken };
