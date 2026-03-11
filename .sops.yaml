@@ -1,0 +1,19 @@
+# SOPS configuration — encrypted environment variable management
+# Docs: https://github.com/getsops/sops
+#
+# Encrypted env files live in env/app/ (runtime config with secrets).
+# All end with .env so sops auto-detects the dotenv format (keys visible, only values encrypted).
+#
+# To add a new team member:
+#   1. They generate a key:  age-keygen -o ~/.config/sops/age/keys.txt
+#   2. They share their PUBLIC key (age1...)
+#   3. Add the public key below under "age:"
+#   4. Run:  npm run env:update-keys
+#   5. Commit .sops.yaml + all env/app/*.env files
+
+creation_rules:
+  - path_regex: ^env/app/.*\.env$
+    # Recipients: 1) Alex D (MB PRO M4)  2) Vlad
+    age: >-
+      age1dkctgyzc5wmlrdfjf3vjdssgsujxp63v4f7zg7dlk2c4sdpyh3dqrasafn,
+      age1wxry4mczfm9pdsavpa56tnad5cr22kn4wyuuqrxzdqh3tu3ghunsx9c6tm

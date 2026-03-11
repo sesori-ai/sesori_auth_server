@@ -1,0 +1,37 @@
+{
+  "name": "auth-backend",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Node.js auth backend for Claude Code",
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=22.22.0"
+  },
+  "scripts": {
+    "start": "node --loader ts-node/esm src/index.ts",
+    "start:local": "sops exec-env env/app/local.env 'node --loader ts-node/esm src/index.ts'",
+    "start:prod": "sops exec-env env/app/prod.env 'node --loader ts-node/esm src/index.ts'",
+    "build": "tsc",
+    "dev": "node --watch --loader ts-node/esm src/index.ts",
+    "test": "node --import tsx --test --test-concurrency=1 tests/**/*.test.ts",
+    "env:init": "bash ./scripts/env-init.sh",
+    "env:decrypt": "sh -c 'sops decrypt env/app/${ENV:-local}.env > .env && echo \"Decrypted env/app/${ENV:-local}.env → .env\"'",
+    "env:edit": "sh -c 'sops edit env/app/${ENV:-local}.env'",
+    "env:update-keys": "sh -c 'for f in env/app/*.env; do [ -f \"$f\" ] && sops updatekeys -y \"$f\"; done'"
+  },
+  "dependencies": {
+    "@fastify/cors": "^8.5.0",
+    "fastify": "^4.25.2",
+    "jsonwebtoken": "^9.0.2",
+    "lru-cache": "^11.2.6",
+    "mongodb": "^6.3.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node": "^20.10.6",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.3.3"
+  }
+}

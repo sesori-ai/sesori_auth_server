@@ -1,0 +1,14 @@
+node_modules/
+dist/
+
+# Plaintext env files (never commit)
+.env
+.env.*
+
+# sops-encrypted env files (safe to commit — values are encrypted)
+!env/app/*.env
+!env/app/.gitkeep
+
+# RSA keys (generated locally, never commit)
+keys/
+*.pem
