@@ -15,8 +15,8 @@ export class TokenService {
   private constructor() {}
 
   static setKeys(privateKeyPem: string, publicKeyPem: string): void {
-    TokenService.privateKey = privateKeyPem;
-    TokenService.publicKey = publicKeyPem;
+    TokenService.privateKey = privateKeyPem.replace(/\\n/g, "\n");
+    TokenService.publicKey = publicKeyPem.replace(/\\n/g, "\n");
   }
 
   static signAccessToken(payload: {
