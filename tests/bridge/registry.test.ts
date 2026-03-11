@@ -6,7 +6,7 @@ import { DatabaseAccessor } from "../../src/db/collections.js";
 
 const VALID_BRIDGE_PAYLOAD = {
   relayUrl: "wss://relay.example.com/ws",
-  roomCode: "ROOM-001",
+  roomCode: "01a2-55c2",
   publicKey: "test-public-key-base64",
 };
 
