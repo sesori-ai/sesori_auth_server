@@ -3,8 +3,8 @@ import { z } from "zod";
 const configSchema = z.object({
   PORT: z.coerce.number().default(3001),
   MONGODB_URI: z.string().min(1, "MONGODB_URI is required"),
-  JWT_PRIVATE_KEY_PATH: z.string().min(1, "JWT_PRIVATE_KEY_PATH is required"),
-  JWT_PUBLIC_KEY_PATH: z.string().min(1, "JWT_PUBLIC_KEY_PATH is required"),
+  JWT_PRIVATE_KEY: z.string().min(1, "JWT_PRIVATE_KEY is required"),
+  JWT_PUBLIC_KEY: z.string().min(1, "JWT_PUBLIC_KEY is required"),
   GITHUB_CLIENT_ID: z.string().min(1, "GITHUB_CLIENT_ID is required"),
   GITHUB_CLIENT_SECRET: z.string().min(1, "GITHUB_CLIENT_SECRET is required"),
   GOOGLE_CLIENT_ID: z.string().min(1, "GOOGLE_CLIENT_ID is required"),

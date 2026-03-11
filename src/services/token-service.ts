@@ -1,5 +1,3 @@
-import * as crypto from "node:crypto";
-import * as fs from "node:fs";
 import jwt from "jsonwebtoken";
 import {
   type AccessTokenPayload,
@@ -16,26 +14,9 @@ export class TokenService {
 
   private constructor() {}
 
-  static generateKeyPair(privatePath: string, publicPath: string): void {
-    const { privateKey: priv, publicKey: pub } = crypto.generateKeyPairSync("rsa", {
-      modulusLength: 2048,
-      publicKeyEncoding: {
-        type: "spki",
-        format: "pem",
-      },
-      privateKeyEncoding: {
-        type: "pkcs8",
-        format: "pem",
-      },
-    });
-
-    fs.writeFileSync(privatePath, priv, { mode: 0o600 });
-    fs.writeFileSync(publicPath, pub);
-  }
-
-  static loadKeys(privatePath: string, publicPath: string): void {
-    TokenService.privateKey = fs.readFileSync(privatePath, "utf-8");
-    TokenService.publicKey = fs.readFileSync(publicPath, "utf-8");
+  static setKeys(privateKeyPem: string, publicKeyPem: string): void {
+    TokenService.privateKey = privateKeyPem.replace(/\\n/g, "\n");
+    TokenService.publicKey = publicKeyPem.replace(/\\n/g, "\n");
   }
 
   static signAccessToken(payload: {
@@ -44,7 +25,7 @@ export class TokenService {
     providerUserId: string;
   }): string {
     if (!TokenService.privateKey) {
-      throw new Error("Private key not loaded. Call loadKeys() first.");
+      throw new Error("Private key not loaded. Call setKeys() first.");
     }
 
     const now = Math.floor(Date.now() / 1000);
@@ -66,7 +47,7 @@ export class TokenService {
 
   static signRefreshToken(payload: { userId: string; tokenVersion: number }): string {
     if (!TokenService.privateKey) {
-      throw new Error("Private key not loaded. Call loadKeys() first.");
+      throw new Error("Private key not loaded. Call setKeys() first.");
     }
 
     const now = Math.floor(Date.now() / 1000);
@@ -87,7 +68,7 @@ export class TokenService {
 
   static signBridgeToken(payload: { userId: string }): string {
     if (!TokenService.privateKey) {
-      throw new Error("Private key not loaded. Call loadKeys() first.");
+      throw new Error("Private key not loaded. Call setKeys() first.");
     }
 
     const now = Math.floor(Date.now() / 1000);
@@ -107,7 +88,7 @@ export class TokenService {
 
   static verifyToken(token: string): Record<string, unknown> {
     if (!TokenService.publicKey) {
-      throw new Error("Public key not loaded. Call loadKeys() first.");
+      throw new Error("Public key not loaded. Call setKeys() first.");
     }
 
     return jwt.verify(token, TokenService.publicKey, {
@@ -118,7 +99,7 @@ export class TokenService {
 
   static getPublicKey(): string {
     if (!TokenService.publicKey) {
-      throw new Error("Public key not loaded. Call loadKeys() first.");
+      throw new Error("Public key not loaded. Call setKeys() first.");
     }
 
     return TokenService.publicKey;
