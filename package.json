@@ -14,6 +14,7 @@
     "build": "tsc",
     "dev": "node --watch --loader ts-node/esm src/index.ts",
     "test": "node --import tsx --test --test-concurrency=1 tests/**/*.test.ts",
+    "generate-keys": "bash ./scripts/generate-keys.sh",
     "env:init": "bash ./scripts/env-init.sh",
     "env:decrypt": "sh -c 'sops decrypt env/app/${ENV:-local}.env > .env && echo \"Decrypted env/app/${ENV:-local}.env → .env\"'",
     "env:edit": "sh -c 'sops edit env/app/${ENV:-local}.env'",
