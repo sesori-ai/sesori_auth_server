@@ -9,7 +9,6 @@ import {
 } from "../clients/github-client.js";
 import { refreshTokenPayloadSchema } from "../models/jwt.js";
 import {
-  findByProvider,
   findByUserId,
   upsert as upsertOauthAccount,
 } from "../repositories/oauth-account-repo.js";
@@ -151,25 +150,10 @@ export async function upsertFromOAuth(params: {
   refreshToken?: string;
   persistRefreshToken: boolean;
 }): Promise<AuthResult> {
-  const existingOauthAccount = await findByProvider(
-    params.provider,
-    params.providerUserId
-  );
+  const potentialUserId = new ObjectId();
 
-  let userId: ObjectId;
-  let tokenVersion: number;
-  if (existingOauthAccount) {
-    userId = existingOauthAccount.userId;
-    const user = await findById(userId);
-    tokenVersion = user?.tokenVersion ?? 0;
-  } else {
-    const user = await createUser();
-    userId = user._id;
-    tokenVersion = 0;
-  }
-
-  await upsertOauthAccount({
-    userId,
+  const account = await upsertOauthAccount({
+    potentialUserId,
     provider: params.provider,
     providerUserId: params.providerUserId,
     providerUsername: params.providerUsername,
@@ -179,8 +163,18 @@ export async function upsertFromOAuth(params: {
       : undefined,
   });
 
+  const isNewUser = account.userId.equals(potentialUserId);
+  let tokenVersion = 0;
+
+  if (isNewUser) {
+    await createUser(potentialUserId);
+  } else {
+    const user = await findById(account.userId);
+    tokenVersion = user?.tokenVersion ?? 0;
+  }
+
   return signTokensForUser({
-    userId: userId.toHexString(),
+    userId: account.userId.toHexString(),
     provider: params.provider,
     providerUserId: params.providerUserId,
     providerUsername: params.providerUsername,

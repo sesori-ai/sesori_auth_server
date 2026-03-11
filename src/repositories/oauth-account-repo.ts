@@ -14,13 +14,13 @@ export async function findByUserId(userId: ObjectId): Promise<OAuthAccount | nul
 }
 
 export async function upsert(params: {
-  userId: ObjectId;
+  potentialUserId: ObjectId;
   provider: string;
   providerUserId: string;
   providerUsername: string | null;
   accessToken: string;
   refreshToken?: string;
-}): Promise<void> {
+}): Promise<OAuthAccount> {
   const now = new Date();
   const set: {
     accessToken: string;
@@ -37,7 +37,7 @@ export async function upsert(params: {
     set.refreshToken = params.refreshToken;
   }
 
-  await oauthAccounts().updateOne(
+  const result = await oauthAccounts().findOneAndUpdate(
     {
       provider: params.provider,
       providerUserId: params.providerUserId,
@@ -46,13 +46,19 @@ export async function upsert(params: {
       $set: set,
       $setOnInsert: {
         _id: new ObjectId(),
-        userId: params.userId,
+        userId: params.potentialUserId,
         provider: params.provider,
         providerUserId: params.providerUserId,
         createdAt: now,
         refreshToken: params.refreshToken ?? null,
       },
     },
-    { upsert: true }
+    { upsert: true, returnDocument: "after" }
   );
+
+  if (!result) {
+    throw new Error("findOneAndUpdate with upsert returned null");
+  }
+
+  return result;
 }

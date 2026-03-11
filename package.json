@@ -13,7 +13,7 @@
     "start:prod": "sops exec-env env/app/prod.env 'node --loader ts-node/esm src/index.ts'",
     "build": "tsc",
     "dev": "node --watch --loader ts-node/esm src/index.ts",
-    "test": "node --import tsx --test --test-concurrency=1 tests/auth/token.test.ts tests/auth/github.test.ts tests/auth/google.test.ts tests/bridge/registry.test.ts",
+    "test": "node --import tsx --test --test-concurrency=1 tests/**/*.test.ts",
     "env:init": "bash ./scripts/env-init.sh",
     "env:decrypt": "sh -c 'sops decrypt env/app/${ENV:-local}.env > .env && echo \"Decrypted env/app/${ENV:-local}.env → .env\"'",
     "env:edit": "sh -c 'sops edit env/app/${ENV:-local}.env'",

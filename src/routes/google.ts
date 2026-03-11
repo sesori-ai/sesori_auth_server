@@ -22,6 +22,13 @@ const googleCallbackBodySchema = z.object({
   redirectUri: z.string().min(1),
 });
 
+const GOOGLE_ERRORS: Record<string, string> = {
+  GOOGLE_TOKEN_EXCHANGE_FAILED: "Google token exchange failed",
+  INVALID_GOOGLE_TOKEN_RESPONSE: "Invalid Google token response",
+  INVALID_GOOGLE_ID_TOKEN: "Failed to decode Google ID token",
+  INVALID_GOOGLE_ID_TOKEN_PAYLOAD: "Invalid Google ID token payload",
+};
+
 export const googleRoutes: FastifyPluginAsync = async (fastify) => {
   const config = loadConfig();
 
@@ -77,25 +84,9 @@ export const googleRoutes: FastifyPluginAsync = async (fastify) => {
         clientSecret: config.GOOGLE_CLIENT_SECRET,
       });
     } catch (error) {
-      if (error instanceof AuthServiceError) {
-        if (error.code === "GOOGLE_TOKEN_EXCHANGE_FAILED") {
-          request.log.warn(error, "Google token exchange failed");
-          return reply.status(502).send({ error: "Google token exchange failed" });
-        }
-        if (error.code === "INVALID_GOOGLE_TOKEN_RESPONSE") {
-          request.log.warn(error, "Invalid Google token response");
-          return reply.status(502).send({ error: "Invalid Google token response" });
-        }
-        if (error.code === "INVALID_GOOGLE_ID_TOKEN") {
-          request.log.warn(error, "Failed to decode Google ID token");
-          return reply.status(502).send({ error: "Invalid Google ID token" });
-        }
-        if (error.code === "INVALID_GOOGLE_ID_TOKEN_PAYLOAD") {
-          request.log.warn(error, "Invalid Google ID token payload");
-          return reply
-            .status(502)
-            .send({ error: "Invalid Google ID token payload" });
-        }
+      if (error instanceof AuthServiceError && error.code in GOOGLE_ERRORS) {
+        request.log.warn(error, GOOGLE_ERRORS[error.code]);
+        return reply.status(502).send({ error: error.code.toLowerCase() });
       }
 
       throw error;

@@ -22,6 +22,13 @@ const githubCallbackBodySchema = z.object({
   redirectUri: z.string().min(1),
 });
 
+const GITHUB_ERRORS: Record<string, string> = {
+  GITHUB_TOKEN_EXCHANGE_FAILED: "GitHub token exchange failed",
+  INVALID_GITHUB_TOKEN_RESPONSE: "Invalid GitHub token response",
+  GITHUB_USER_FETCH_FAILED: "GitHub user fetch failed",
+  INVALID_GITHUB_USER_RESPONSE: "Invalid GitHub user response",
+};
+
 export const githubRoutes: FastifyPluginAsync = async (fastify) => {
   const config = loadConfig();
 
@@ -74,23 +81,9 @@ export const githubRoutes: FastifyPluginAsync = async (fastify) => {
         clientSecret: config.GITHUB_CLIENT_SECRET,
       });
     } catch (error) {
-      if (error instanceof AuthServiceError) {
-        if (error.code === "GITHUB_TOKEN_EXCHANGE_FAILED") {
-          request.log.warn(error, "GitHub token exchange failed");
-          return reply.status(502).send({ error: "GitHub token exchange failed" });
-        }
-        if (error.code === "INVALID_GITHUB_TOKEN_RESPONSE") {
-          request.log.warn(error, "Invalid GitHub token response");
-          return reply.status(502).send({ error: "Invalid GitHub token response" });
-        }
-        if (error.code === "GITHUB_USER_FETCH_FAILED") {
-          request.log.warn(error, "GitHub user fetch failed");
-          return reply.status(502).send({ error: "GitHub user fetch failed" });
-        }
-        if (error.code === "INVALID_GITHUB_USER_RESPONSE") {
-          request.log.warn(error, "Invalid GitHub user response");
-          return reply.status(502).send({ error: "Invalid GitHub user response" });
-        }
+      if (error instanceof AuthServiceError && error.code in GITHUB_ERRORS) {
+        request.log.warn(error, GITHUB_ERRORS[error.code]);
+        return reply.status(502).send({ error: error.code.toLowerCase() });
       }
 
       throw error;

@@ -6,10 +6,10 @@ export async function findById(userId: ObjectId): Promise<User | null> {
   return users().findOne({ _id: userId });
 }
 
-export async function create(): Promise<User> {
+export async function create(id?: ObjectId): Promise<User> {
   const now = new Date();
   const user: User = {
-    _id: new ObjectId(),
+    _id: id ?? new ObjectId(),
     tokenVersion: 0,
     createdAt: now,
     updatedAt: now,

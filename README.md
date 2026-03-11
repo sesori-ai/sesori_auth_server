@@ -109,39 +109,50 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 
 ```
 src/
-├── auth/
-│   ├── github.ts        GitHub OAuth2 + PKCE routes
-│   ├── google.ts        Google OAuth2 + PKCE routes
-│   ├── jwt.ts           RS256 key loading, sign/verify
-│   ├── state-store.ts   In-memory OAuth state with TTL
-│   ├── token.ts         Refresh, /auth/me, logout, public-key routes
-│   └── token-schemas.ts Zod schemas for JWT payloads
-├── bridge/
-│   └── registry.ts      Register, heartbeat, deregister, GET /mine
+├── clients/
+│   ├── github-client.ts        GitHub API client (token exchange, user fetch)
+│   └── google-client.ts        Google API client (token exchange, id_token decode)
 ├── db/
-│   ├── client.ts        MongoDB client
-│   ├── collections.ts   Collection accessors + ensureIndexes
-│   └── schemas.ts       Zod document schemas
+│   ├── client.ts               MongoDB client (connect/close/getDb)
+│   └── collections.ts          Collection accessors + ensureIndexes
+├── lib/
+│   └── state-store.ts          OAuth state store (LRU cache with TTL)
 ├── middleware/
-│   └── auth.ts          requireAuth preHandler hook
-├── config.ts            Zod-validated env config
-├── index.ts             Entry point (loads keys + DB + app)
-└── server.ts            Fastify app with all route plugins
+│   └── auth.ts                 requireAuth preHandler hook
+├── models/
+│   ├── documents.ts            Zod document schemas (User, OAuthAccount, BridgeRegistration)
+│   └── jwt.ts                  JWT payload schemas + constants
+├── repositories/
+│   ├── bridge-registration-repo.ts  Bridge registration CRUD
+│   ├── oauth-account-repo.ts       OAuth account find/upsert
+│   └── user-repo.ts                User create/find/tokenVersion
+├── routes/
+│   ├── bridge.ts               Bridge register/heartbeat/mine/deregister routes
+│   ├── github.ts               GitHub OAuth2 + PKCE routes
+│   ├── google.ts               Google OAuth2 + PKCE routes
+│   └── token.ts                Refresh, /auth/me, logout, public-key routes
+├── services/
+│   ├── auth-service.ts         OAuth signup/login orchestration
+│   ├── bridge-service.ts       Bridge registration business logic
+│   └── token-service.ts        RS256 key loading, JWT sign/verify
+├── config.ts                   Zod-validated env config
+├── index.ts                    Entry point (loads keys + DB + app)
+└── server.ts                   Fastify app with all route plugins
 
 env/
 └── app/
-    └── local.env        SOPS-encrypted local environment
+    └── local.env               SOPS-encrypted local environment
 
 scripts/
-└── env-init.sh          First-time sops + age setup
+└── env-init.sh                 First-time sops + age setup
 
 tests/
 ├── auth/
-│   ├── token.test.ts    Token refresh/validate/logout tests
-│   ├── github.test.ts   GitHub OAuth route tests
-│   └── google.test.ts   Google OAuth route tests
+│   ├── token.test.ts           Token refresh/validate/logout tests
+│   ├── github.test.ts          GitHub OAuth route tests
+│   └── google.test.ts          Google OAuth route tests
 └── bridge/
-    └── registry.test.ts Bridge registry API tests
+    └── registry.test.ts        Bridge registry API tests
 ```
 
 ## Tests

@@ -117,6 +117,7 @@ else
     if [ -z "$KEY_ALIAS" ]; then
         KEY_ALIAS="developer"
     fi
+    KEY_ALIAS=$(echo "$KEY_ALIAS" | tr -cd 'a-zA-Z0-9_-')
 
     LAST_KEY_LINENUM=$(grep -n "^      age1" "$SOPS_YAML" | tail -1 | cut -d: -f1)
 

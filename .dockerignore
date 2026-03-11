@@ -1,0 +1,10 @@
+node_modules
+dist
+.git
+.env*
+env/
+keys/
+*.md
+tests/
+scripts/
+.sops.yaml
