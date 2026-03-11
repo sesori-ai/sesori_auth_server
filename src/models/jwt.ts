@@ -5,8 +5,8 @@ export const accessTokenPayloadSchema = z.object({
   userId: z.string(),
   provider: z.string(),
   providerUserId: z.string(),
-  iss: z.string(),
-  aud: z.string(),
+  iss: z.literal("auth-backend"),
+  aud: z.literal("mobile"),
   exp: z.number(),
   iat: z.number(),
 });
@@ -17,8 +17,8 @@ export const refreshTokenPayloadSchema = z.object({
   tokenType: z.literal("refresh"),
   userId: z.string(),
   tokenVersion: z.number(),
-  iss: z.string(),
-  aud: z.string(),
+  iss: z.literal("auth-backend"),
+  aud: z.literal("mobile"),
   exp: z.number(),
   iat: z.number(),
 });
@@ -28,7 +28,7 @@ export type RefreshTokenPayload = z.infer<typeof refreshTokenPayloadSchema>;
 export const bridgeTokenPayloadSchema = z.object({
   tokenType: z.literal("bridge"),
   userId: z.string(),
-  iss: z.string(),
+  iss: z.literal("auth-backend"),
   aud: z.literal("bridge"),
   exp: z.number(),
   iat: z.number(),

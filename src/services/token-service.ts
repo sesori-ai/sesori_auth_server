@@ -26,7 +26,7 @@ export function generateKeyPair(privatePath: string, publicPath: string): void {
     },
   });
 
-  fs.writeFileSync(privatePath, priv);
+  fs.writeFileSync(privatePath, priv, { mode: 0o600 });
   fs.writeFileSync(publicPath, pub);
 }
 
@@ -107,7 +107,10 @@ export function verifyToken(token: string): Record<string, unknown> {
     throw new Error("Public key not loaded. Call loadKeys() first.");
   }
 
-  return jwt.verify(token, publicKey, { algorithms: ["RS256"] }) as Record<
+  return jwt.verify(token, publicKey, {
+    algorithms: ["RS256"],
+    issuer: "auth-backend",
+  }) as Record<
     string,
     unknown
   >;
