@@ -1,43 +1,47 @@
 import { ObjectId, type UpdateResult } from "mongodb";
-import { bridgeRegistrations } from "../db/collections.js";
+import { DatabaseAccessor } from "../db/collections.js";
 import type { BridgeRegistration } from "../models/documents.js";
 
-export async function upsert(params: {
-  userId: ObjectId;
-  relayUrl: string;
-  roomCode: string;
-  publicKey: string;
-}): Promise<UpdateResult<BridgeRegistration>> {
-  return bridgeRegistrations().updateOne(
-    { userId: params.userId },
-    {
-      $set: {
-        relayUrl: params.relayUrl,
-        roomCode: params.roomCode,
-        publicKey: params.publicKey,
-        lastHeartbeat: new Date(),
+export class BridgeRegistrationRepository {
+  private constructor() {}
+
+  static async upsert(params: {
+    userId: ObjectId;
+    relayUrl: string;
+    roomCode: string;
+    publicKey: string;
+  }): Promise<UpdateResult<BridgeRegistration>> {
+    return DatabaseAccessor.bridgeRegistrations().updateOne(
+      { userId: params.userId },
+      {
+        $set: {
+          relayUrl: params.relayUrl,
+          roomCode: params.roomCode,
+          publicKey: params.publicKey,
+          lastHeartbeat: new Date(),
+        },
+        $setOnInsert: { createdAt: new Date() },
       },
-      $setOnInsert: { createdAt: new Date() },
-    },
-    { upsert: true }
-  );
-}
+      { upsert: true }
+    );
+  }
 
-export async function findByUserId(
-  userId: ObjectId
-): Promise<BridgeRegistration | null> {
-  return bridgeRegistrations().findOne({ userId });
-}
+  static async findByUserId(
+    userId: ObjectId
+  ): Promise<BridgeRegistration | null> {
+    return DatabaseAccessor.bridgeRegistrations().findOne({ userId });
+  }
 
-export async function deleteByUserId(userId: ObjectId): Promise<void> {
-  await bridgeRegistrations().deleteOne({ userId });
-}
+  static async deleteByUserId(userId: ObjectId): Promise<void> {
+    await DatabaseAccessor.bridgeRegistrations().deleteOne({ userId });
+  }
 
-export async function updateHeartbeat(userId: ObjectId): Promise<number> {
-  const result = await bridgeRegistrations().updateOne(
-    { userId },
-    { $set: { lastHeartbeat: new Date() } }
-  );
+  static async updateHeartbeat(userId: ObjectId): Promise<number> {
+    const result = await DatabaseAccessor.bridgeRegistrations().updateOne(
+      { userId },
+      { $set: { lastHeartbeat: new Date() } }
+    );
 
-  return result.matchedCount;
+    return result.matchedCount;
+  }
 }

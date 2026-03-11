@@ -1,15 +1,7 @@
-import { connectDb, closeDb } from "../../src/db/client.js";
-import {
-  ensureIndexes,
-  users,
-  oauthAccounts,
-} from "../../src/db/collections.js";
+import { DbClient } from "../../src/db/client.js";
+import { DatabaseAccessor } from "../../src/db/collections.js";
 import { buildApp } from "../../src/server.js";
-import {
-  loadKeys,
-  signAccessToken,
-  signRefreshToken,
-} from "../../src/services/token-service.js";
+import { TokenService } from "../../src/services/token-service.js";
 import { ObjectId } from "mongodb";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -65,12 +57,12 @@ export async function createTestApp(): Promise<TestContext> {
   process.env.RELAY_URL ??= "ws://localhost:8080";
 
   // Load JWT keys into the jwt module's in-memory cache
-  loadKeys(privatePath, publicPath);
+  TokenService.loadKeys(privatePath, publicPath);
 
   // Connect to test MongoDB and start with a clean slate
-  const mongoClient = await connectDb(mongoUri);
+  const mongoClient = await DbClient.connect(mongoUri);
   await mongoClient.db().dropDatabase();
-  await ensureIndexes();
+  await DatabaseAccessor.ensureIndexes();
 
   // Build and ready the Fastify app
   const app = await buildApp();
@@ -85,8 +77,8 @@ export async function createTestApp(): Promise<TestContext> {
     const userId = new ObjectId();
     const now = new Date();
 
-    await users().insertOne({ _id: userId, tokenVersion: 0, createdAt: now, updatedAt: now });
-    await oauthAccounts().insertOne({
+    await DatabaseAccessor.users().insertOne({ _id: userId, tokenVersion: 0, createdAt: now, updatedAt: now });
+    await DatabaseAccessor.oauthAccounts().insertOne({
       _id: new ObjectId(),
       userId,
       provider,
@@ -99,12 +91,12 @@ export async function createTestApp(): Promise<TestContext> {
     });
 
     const userIdStr = userId.toHexString();
-    const accessToken = signAccessToken({
+    const accessToken = TokenService.signAccessToken({
       userId: userIdStr,
       provider,
       providerUserId,
     });
-    const refreshToken = signRefreshToken({ userId: userIdStr, tokenVersion: 0 });
+    const refreshToken = TokenService.signRefreshToken({ userId: userIdStr, tokenVersion: 0 });
 
     return { userId: userIdStr, accessToken, refreshToken, provider, providerUserId };
   }
@@ -129,7 +121,7 @@ export async function createTestApp(): Promise<TestContext> {
   async function cleanup(): Promise<void> {
     await app.close();
     await mongoClient.db().dropDatabase();
-    await closeDb();
+    await DbClient.close();
     fs.rmSync(tmpDir, { recursive: true });
   }
 

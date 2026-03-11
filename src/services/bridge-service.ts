@@ -1,59 +1,60 @@
 import { ObjectId } from "mongodb";
-import {
-  deleteByUserId,
-  findByUserId,
-  updateHeartbeat,
-  upsert,
-} from "../repositories/bridge-registration-repo.js";
+import { BridgeRegistrationRepository } from "../repositories/bridge-registration-repo.js";
 
-export async function register(params: {
-  userId: string;
-  relayUrl: string;
-  roomCode: string;
-  publicKey: string;
-}): Promise<{ bridgeId: string }> {
-  const userObjectId = new ObjectId(params.userId);
-  await upsert({
-    userId: userObjectId,
-    relayUrl: params.relayUrl,
-    roomCode: params.roomCode,
-    publicKey: params.publicKey,
-  });
+export class BridgeService {
+  private constructor() {}
 
-  const doc = await findByUserId(userObjectId);
-  return { bridgeId: doc!._id.toHexString() };
-}
+  static async register(params: {
+    userId: string;
+    relayUrl: string;
+    roomCode: string;
+    publicKey: string;
+  }): Promise<{ bridgeId: string }> {
+    const userObjectId = new ObjectId(params.userId);
+    await BridgeRegistrationRepository.upsert({
+      userId: userObjectId,
+      relayUrl: params.relayUrl,
+      roomCode: params.roomCode,
+      publicKey: params.publicKey,
+    });
 
-export async function heartbeat(userId: string): Promise<boolean> {
-  const matchedCount = await updateHeartbeat(new ObjectId(userId));
-  return matchedCount > 0;
-}
-
-export async function deregister(userId: string): Promise<void> {
-  await deleteByUserId(new ObjectId(userId));
-}
-
-export async function findByUser(userId: string): Promise<{
-  bridgeId: string;
-  relayUrl: string;
-  roomCode: string;
-  publicKey: string;
-} | null> {
-  const doc = await findByUserId(new ObjectId(userId));
-  if (!doc) {
-    return null;
+    const doc = await BridgeRegistrationRepository.findByUserId(userObjectId);
+    return { bridgeId: doc!._id.toHexString() };
   }
 
-  const ttlSeconds = 60;
-  const age = (Date.now() - doc.lastHeartbeat.getTime()) / 1000;
-  if (age > ttlSeconds) {
-    return null;
+  static async heartbeat(userId: string): Promise<boolean> {
+    const matchedCount = await BridgeRegistrationRepository.updateHeartbeat(
+      new ObjectId(userId)
+    );
+    return matchedCount > 0;
   }
 
-  return {
-    bridgeId: doc._id.toHexString(),
-    relayUrl: doc.relayUrl,
-    roomCode: doc.roomCode,
-    publicKey: doc.publicKey,
-  };
+  static async deregister(userId: string): Promise<void> {
+    await BridgeRegistrationRepository.deleteByUserId(new ObjectId(userId));
+  }
+
+  static async findByUser(userId: string): Promise<{
+    bridgeId: string;
+    relayUrl: string;
+    roomCode: string;
+    publicKey: string;
+  } | null> {
+    const doc = await BridgeRegistrationRepository.findByUserId(new ObjectId(userId));
+    if (!doc) {
+      return null;
+    }
+
+    const ttlSeconds = 60;
+    const age = (Date.now() - doc.lastHeartbeat.getTime()) / 1000;
+    if (age > ttlSeconds) {
+      return null;
+    }
+
+    return {
+      bridgeId: doc._id.toHexString(),
+      relayUrl: doc.relayUrl,
+      roomCode: doc.roomCode,
+      publicKey: doc.publicKey,
+    };
+  }
 }

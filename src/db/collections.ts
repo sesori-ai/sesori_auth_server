@@ -1,38 +1,34 @@
 import { Collection } from "mongodb";
-import { getDb } from "./client.js";
+import { DbClient } from "./client.js";
 import { User, OAuthAccount, BridgeRegistration } from "../models/documents.js";
 
-export function users(): Collection<User> {
-  return getDb().collection<User>("users");
-}
+export class DatabaseAccessor {
+  private constructor() {}
 
-export function oauthAccounts(): Collection<OAuthAccount> {
-  return getDb().collection<OAuthAccount>("oauthAccounts");
-}
+  static users(): Collection<User> {
+    return DbClient.getDb().collection<User>("users");
+  }
 
-export function bridgeRegistrations(): Collection<BridgeRegistration> {
-  return getDb().collection<BridgeRegistration>("bridgeRegistrations");
-}
+  static oauthAccounts(): Collection<OAuthAccount> {
+    return DbClient.getDb().collection<OAuthAccount>("oauthAccounts");
+  }
 
-export async function ensureIndexes(): Promise<void> {
-  // Create indexes for oauthAccounts collection
-  const oauthAccountsCollection = oauthAccounts();
-  
-  // Unique compound index on (provider, providerUserId)
-  await oauthAccountsCollection.createIndex(
-    { provider: 1, providerUserId: 1 },
-    { unique: true }
-  );
-  
-  // Index on userId for lookups
-  await oauthAccountsCollection.createIndex({ userId: 1 });
-  
-  // Create unique index for bridgeRegistrations collection
-  const bridgeRegistrationsCollection = bridgeRegistrations();
-  
-  // Unique index on userId (one bridge per user)
-  await bridgeRegistrationsCollection.createIndex(
-    { userId: 1 },
-    { unique: true }
-  );
+  static bridgeRegistrations(): Collection<BridgeRegistration> {
+    return DbClient.getDb().collection<BridgeRegistration>("bridgeRegistrations");
+  }
+
+  static async ensureIndexes(): Promise<void> {
+    const oauthAccountsCollection = DatabaseAccessor.oauthAccounts();
+    await oauthAccountsCollection.createIndex(
+      { provider: 1, providerUserId: 1 },
+      { unique: true }
+    );
+    await oauthAccountsCollection.createIndex({ userId: 1 });
+
+    const bridgeRegistrationsCollection = DatabaseAccessor.bridgeRegistrations();
+    await bridgeRegistrationsCollection.createIndex(
+      { userId: 1 },
+      { unique: true }
+    );
+  }
 }

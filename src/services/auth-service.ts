@@ -1,27 +1,10 @@
 import { ObjectId } from "mongodb";
-import {
-  decodeIdToken,
-  exchangeCode as exchangeGoogleCode,
-} from "../clients/google-client.js";
-import {
-  exchangeCode as exchangeGithubCode,
-  fetchUser as fetchGithubUser,
-} from "../clients/github-client.js";
+import { GoogleClient } from "../clients/google-client.js";
+import { GithubClient } from "../clients/github-client.js";
 import { refreshTokenPayloadSchema } from "../models/jwt.js";
-import {
-  findByUserId,
-  upsert as upsertOauthAccount,
-} from "../repositories/oauth-account-repo.js";
-import {
-  create as createUser,
-  findById,
-  incrementTokenVersion,
-} from "../repositories/user-repo.js";
-import {
-  signAccessToken,
-  signRefreshToken,
-  verifyToken,
-} from "./token-service.js";
+import { OAuthAccountRepository } from "../repositories/oauth-account-repo.js";
+import { UserRepository } from "../repositories/user-repo.js";
+import { TokenService } from "./token-service.js";
 
 export class AuthServiceError extends Error {
   constructor(public readonly code: string, cause?: unknown) {
@@ -43,236 +26,239 @@ type AuthResult = {
   };
 };
 
-export async function authenticateGithub(params: {
-  code: string;
-  codeVerifier: string;
-  redirectUri: string;
-  clientId: string;
-  clientSecret: string;
-}): Promise<AuthResult> {
-  let accessToken: string;
+export class AuthService {
+  private constructor() {}
 
-  try {
-    const result = await exchangeGithubCode(
-      params.code,
-      params.codeVerifier,
-      params.redirectUri,
-      params.clientId,
-      params.clientSecret
-    );
-    accessToken = result.accessToken;
-  } catch (error) {
-    if (error instanceof Error && error.message === "GITHUB_TOKEN_EXCHANGE_FAILED") {
-      throw new AuthServiceError("GITHUB_TOKEN_EXCHANGE_FAILED", error);
+  static async authenticateGithub(params: {
+    code: string;
+    codeVerifier: string;
+    redirectUri: string;
+    clientId: string;
+    clientSecret: string;
+  }): Promise<AuthResult> {
+    let accessToken: string;
+
+    try {
+      const result = await GithubClient.exchangeCode(
+        params.code,
+        params.codeVerifier,
+        params.redirectUri,
+        params.clientId,
+        params.clientSecret
+      );
+      accessToken = result.accessToken;
+    } catch (error) {
+      if (error instanceof Error && error.message === "GITHUB_TOKEN_EXCHANGE_FAILED") {
+        throw new AuthServiceError("GITHUB_TOKEN_EXCHANGE_FAILED", error);
+      }
+      if (error instanceof Error && error.message === "INVALID_GITHUB_TOKEN_RESPONSE") {
+        throw new AuthServiceError("INVALID_GITHUB_TOKEN_RESPONSE", error);
+      }
+      throw error;
     }
-    if (error instanceof Error && error.message === "INVALID_GITHUB_TOKEN_RESPONSE") {
-      throw new AuthServiceError("INVALID_GITHUB_TOKEN_RESPONSE", error);
+
+    try {
+      const githubUser = await GithubClient.fetchUser(accessToken);
+      return AuthService.upsertFromOAuth({
+        provider: "github",
+        providerUserId: githubUser.id,
+        providerUsername: githubUser.login,
+        accessToken,
+        refreshToken: undefined,
+        persistRefreshToken: false,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === "GITHUB_USER_FETCH_FAILED") {
+        throw new AuthServiceError("GITHUB_USER_FETCH_FAILED", error);
+      }
+      if (error instanceof Error && error.message === "INVALID_GITHUB_USER_RESPONSE") {
+        throw new AuthServiceError("INVALID_GITHUB_USER_RESPONSE", error);
+      }
+      throw error;
     }
-    throw error;
   }
 
-  try {
-    const githubUser = await fetchGithubUser(accessToken);
-    return upsertFromOAuth({
-      provider: "github",
-      providerUserId: githubUser.id,
-      providerUsername: githubUser.login,
-      accessToken,
-      refreshToken: undefined,
-      persistRefreshToken: false,
+  static async authenticateGoogle(params: {
+    code: string;
+    codeVerifier: string;
+    redirectUri: string;
+    clientId: string;
+    clientSecret: string;
+  }): Promise<AuthResult> {
+    let tokenData: { accessToken: string; idToken: string; refreshToken?: string };
+
+    try {
+      tokenData = await GoogleClient.exchangeCode(
+        params.code,
+        params.codeVerifier,
+        params.redirectUri,
+        params.clientId,
+        params.clientSecret
+      );
+    } catch (error) {
+      if (error instanceof Error && error.message === "GOOGLE_TOKEN_EXCHANGE_FAILED") {
+        throw new AuthServiceError("GOOGLE_TOKEN_EXCHANGE_FAILED", error);
+      }
+      if (error instanceof Error && error.message === "INVALID_GOOGLE_TOKEN_RESPONSE") {
+        throw new AuthServiceError("INVALID_GOOGLE_TOKEN_RESPONSE", error);
+      }
+      throw error;
+    }
+
+    let googleUser: { sub: string; name?: string };
+    try {
+      googleUser = GoogleClient.decodeIdToken(tokenData.idToken, params.clientId);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === "INVALID_GOOGLE_ID_TOKEN_PAYLOAD"
+      ) {
+        throw new AuthServiceError("INVALID_GOOGLE_ID_TOKEN_PAYLOAD", error);
+      }
+      throw new AuthServiceError("INVALID_GOOGLE_ID_TOKEN", error);
+    }
+
+    return AuthService.upsertFromOAuth({
+      provider: "google",
+      providerUserId: googleUser.sub,
+      providerUsername: googleUser.name ?? null,
+      accessToken: tokenData.accessToken,
+      refreshToken: tokenData.refreshToken,
+      persistRefreshToken: tokenData.refreshToken !== undefined,
     });
-  } catch (error) {
-    if (error instanceof Error && error.message === "GITHUB_USER_FETCH_FAILED") {
-      throw new AuthServiceError("GITHUB_USER_FETCH_FAILED", error);
-    }
-    if (error instanceof Error && error.message === "INVALID_GITHUB_USER_RESPONSE") {
-      throw new AuthServiceError("INVALID_GITHUB_USER_RESPONSE", error);
-    }
-    throw error;
-  }
-}
-
-export async function authenticateGoogle(params: {
-  code: string;
-  codeVerifier: string;
-  redirectUri: string;
-  clientId: string;
-  clientSecret: string;
-}): Promise<AuthResult> {
-  let tokenData: { accessToken: string; idToken: string; refreshToken?: string };
-
-  try {
-    tokenData = await exchangeGoogleCode(
-      params.code,
-      params.codeVerifier,
-      params.redirectUri,
-      params.clientId,
-      params.clientSecret
-    );
-  } catch (error) {
-    if (error instanceof Error && error.message === "GOOGLE_TOKEN_EXCHANGE_FAILED") {
-      throw new AuthServiceError("GOOGLE_TOKEN_EXCHANGE_FAILED", error);
-    }
-    if (error instanceof Error && error.message === "INVALID_GOOGLE_TOKEN_RESPONSE") {
-      throw new AuthServiceError("INVALID_GOOGLE_TOKEN_RESPONSE", error);
-    }
-    throw error;
   }
 
-  let googleUser: { sub: string; name?: string };
-  try {
-    googleUser = decodeIdToken(tokenData.idToken, params.clientId);
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message === "INVALID_GOOGLE_ID_TOKEN_PAYLOAD"
-    ) {
-      throw new AuthServiceError("INVALID_GOOGLE_ID_TOKEN_PAYLOAD", error);
-    }
-    throw new AuthServiceError("INVALID_GOOGLE_ID_TOKEN", error);
-  }
+  static async upsertFromOAuth(params: {
+    provider: OAuthProvider;
+    providerUserId: string;
+    providerUsername: string | null;
+    accessToken: string;
+    refreshToken?: string;
+    persistRefreshToken: boolean;
+  }): Promise<AuthResult> {
+    const potentialUserId = new ObjectId();
 
-  return upsertFromOAuth({
-    provider: "google",
-    providerUserId: googleUser.sub,
-    providerUsername: googleUser.name ?? null,
-    accessToken: tokenData.accessToken,
-    refreshToken: tokenData.refreshToken,
-    persistRefreshToken: tokenData.refreshToken !== undefined,
-  });
-}
-
-export async function upsertFromOAuth(params: {
-  provider: OAuthProvider;
-  providerUserId: string;
-  providerUsername: string | null;
-  accessToken: string;
-  refreshToken?: string;
-  persistRefreshToken: boolean;
-}): Promise<AuthResult> {
-  const potentialUserId = new ObjectId();
-
-  const account = await upsertOauthAccount({
-    potentialUserId,
-    provider: params.provider,
-    providerUserId: params.providerUserId,
-    providerUsername: params.providerUsername,
-    accessToken: params.accessToken,
-    refreshToken: params.persistRefreshToken
-      ? (params.refreshToken ?? undefined)
-      : undefined,
-  });
-
-  const isNewUser = account.userId.equals(potentialUserId);
-  let tokenVersion = 0;
-
-  if (isNewUser) {
-    await createUser(potentialUserId);
-  } else {
-    const user = await findById(account.userId);
-    tokenVersion = user?.tokenVersion ?? 0;
-  }
-
-  return signTokensForUser({
-    userId: account.userId.toHexString(),
-    provider: params.provider,
-    providerUserId: params.providerUserId,
-    providerUsername: params.providerUsername,
-    tokenVersion,
-  });
-}
-
-export function signTokensForUser(params: {
-  userId: string;
-  provider: string;
-  providerUserId: string;
-  providerUsername: string | null;
-  tokenVersion: number;
-}): AuthResult {
-  const accessToken = signAccessToken({
-    userId: params.userId,
-    provider: params.provider,
-    providerUserId: params.providerUserId,
-  });
-  const refreshToken = signRefreshToken({
-    userId: params.userId,
-    tokenVersion: params.tokenVersion,
-  });
-
-  return {
-    accessToken,
-    refreshToken,
-    user: {
-      id: params.userId,
+    const account = await OAuthAccountRepository.upsert({
+      potentialUserId,
       provider: params.provider,
       providerUserId: params.providerUserId,
       providerUsername: params.providerUsername,
-    },
-  };
-}
+      accessToken: params.accessToken,
+      refreshToken: params.persistRefreshToken
+        ? (params.refreshToken ?? undefined)
+        : undefined,
+    });
 
-export async function refreshAuthTokens(refreshToken: string): Promise<AuthResult> {
-  let userId: string;
-  let tokenVersion: number;
-  try {
-    const raw = verifyToken(refreshToken);
-    const payload = refreshTokenPayloadSchema.parse(raw);
-    userId = payload.userId;
-    tokenVersion = payload.tokenVersion;
-  } catch (error) {
-    throw new AuthServiceError("UNAUTHORIZED", error);
+    const isNewUser = account.userId.equals(potentialUserId);
+    let tokenVersion = 0;
+
+    if (isNewUser) {
+      await UserRepository.create(potentialUserId);
+    } else {
+      const user = await UserRepository.findById(account.userId);
+      tokenVersion = user?.tokenVersion ?? 0;
+    }
+
+    return AuthService.signTokensForUser({
+      userId: account.userId.toHexString(),
+      provider: params.provider,
+      providerUserId: params.providerUserId,
+      providerUsername: params.providerUsername,
+      tokenVersion,
+    });
   }
 
-  const userObjectId = new ObjectId(userId);
-  const user = await findById(userObjectId);
-  if (!user) {
-    throw new AuthServiceError("UNAUTHORIZED");
+  static signTokensForUser(params: {
+    userId: string;
+    provider: string;
+    providerUserId: string;
+    providerUsername: string | null;
+    tokenVersion: number;
+  }): AuthResult {
+    const accessToken = TokenService.signAccessToken({
+      userId: params.userId,
+      provider: params.provider,
+      providerUserId: params.providerUserId,
+    });
+    const refreshToken = TokenService.signRefreshToken({
+      userId: params.userId,
+      tokenVersion: params.tokenVersion,
+    });
+
+    return {
+      accessToken,
+      refreshToken,
+      user: {
+        id: params.userId,
+        provider: params.provider,
+        providerUserId: params.providerUserId,
+        providerUsername: params.providerUsername,
+      },
+    };
   }
 
-  // Reject refresh tokens from before the last logout
-  if (user.tokenVersion !== tokenVersion) {
-    throw new AuthServiceError("UNAUTHORIZED");
+  static async refreshAuthTokens(refreshToken: string): Promise<AuthResult> {
+    let userId: string;
+    let tokenVersion: number;
+    try {
+      const raw = TokenService.verifyToken(refreshToken);
+      const payload = refreshTokenPayloadSchema.parse(raw);
+      userId = payload.userId;
+      tokenVersion = payload.tokenVersion;
+    } catch (error) {
+      throw new AuthServiceError("UNAUTHORIZED", error);
+    }
+
+    const userObjectId = new ObjectId(userId);
+    const user = await UserRepository.findById(userObjectId);
+    if (!user) {
+      throw new AuthServiceError("UNAUTHORIZED");
+    }
+
+    if (user.tokenVersion !== tokenVersion) {
+      throw new AuthServiceError("UNAUTHORIZED");
+    }
+
+    const oauthAccount = await OAuthAccountRepository.findByUserId(userObjectId);
+    if (!oauthAccount) {
+      throw new AuthServiceError("UNAUTHORIZED");
+    }
+
+    return AuthService.signTokensForUser({
+      userId,
+      provider: oauthAccount.provider,
+      providerUserId: oauthAccount.providerUserId,
+      providerUsername: oauthAccount.providerUsername,
+      tokenVersion: user.tokenVersion,
+    });
   }
 
-  const oauthAccount = await findByUserId(userObjectId);
-  if (!oauthAccount) {
-    throw new AuthServiceError("UNAUTHORIZED");
+  static async logoutUser(userId: string): Promise<void> {
+    await UserRepository.incrementTokenVersion(new ObjectId(userId));
   }
 
-  return signTokensForUser({
-    userId,
-    provider: oauthAccount.provider,
-    providerUserId: oauthAccount.providerUserId,
-    providerUsername: oauthAccount.providerUsername,
-    tokenVersion: user.tokenVersion,
-  });
-}
+  static async findUserAuthProfile(userId: string): Promise<{
+    id: string;
+    provider: string;
+    providerUserId: string;
+    providerUsername: string | null;
+  } | null> {
+    const userObjectId = new ObjectId(userId);
+    const user = await UserRepository.findById(userObjectId);
+    if (!user) {
+      return null;
+    }
 
-export async function logoutUser(userId: string): Promise<void> {
-  await incrementTokenVersion(new ObjectId(userId));
-}
+    const oauthAccount = await OAuthAccountRepository.findByUserId(userObjectId);
+    if (!oauthAccount) {
+      return null;
+    }
 
-export async function findUserAuthProfile(userId: string): Promise<{
-  id: string;
-  provider: string;
-  providerUserId: string;
-  providerUsername: string | null;
-} | null> {
-  const userObjectId = new ObjectId(userId);
-  const user = await findById(userObjectId);
-  if (!user) {
-    return null;
+    return {
+      id: userId,
+      provider: oauthAccount.provider,
+      providerUserId: oauthAccount.providerUserId,
+      providerUsername: oauthAccount.providerUsername,
+    };
   }
-
-  const oauthAccount = await findByUserId(userObjectId);
-  if (!oauthAccount) {
-    return null;
-  }
-
-  return {
-    id: userId,
-    provider: oauthAccount.provider,
-    providerUserId: oauthAccount.providerUserId,
-    providerUsername: oauthAccount.providerUsername,
-  };
 }

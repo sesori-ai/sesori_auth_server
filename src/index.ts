@@ -1,21 +1,21 @@
 import { loadConfig } from "./config.js";
-import { connectDb, closeDb } from "./db/client.js";
-import { ensureIndexes } from "./db/collections.js";
+import { DbClient } from "./db/client.js";
+import { DatabaseAccessor } from "./db/collections.js";
 import { buildApp } from "./server.js";
-import { loadKeys } from "./services/token-service.js";
+import { TokenService } from "./services/token-service.js";
 
 async function main() {
   const config = loadConfig();
 
   console.log("Connecting to MongoDB...");
-  await connectDb(config.MONGODB_URI);
+  await DbClient.connect(config.MONGODB_URI);
   console.log("MongoDB connected");
 
   console.log("Creating indexes...");
-  await ensureIndexes();
+  await DatabaseAccessor.ensureIndexes();
   console.log("Indexes ready");
 
-  loadKeys(config.JWT_PRIVATE_KEY_PATH, config.JWT_PUBLIC_KEY_PATH);
+  TokenService.loadKeys(config.JWT_PRIVATE_KEY_PATH, config.JWT_PUBLIC_KEY_PATH);
   console.log("JWT keys loaded");
 
   const app = await buildApp();
@@ -29,7 +29,7 @@ async function main() {
     process.on(signal, async () => {
       console.log(`Received ${signal}, shutting down gracefully...`);
       await app.close();
-      await closeDb();
+      await DbClient.close();
       process.exit(0);
     });
   }

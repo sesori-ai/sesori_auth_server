@@ -1,12 +1,7 @@
 import { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { requireAuth } from "../middleware/auth.js";
-import {
-  deregister,
-  findByUser,
-  heartbeat,
-  register,
-} from "../services/bridge-service.js";
+import { BridgeService } from "../services/bridge-service.js";
 
 const registerBodySchema = z.object({
   relayUrl: z.string().url().max(500),
@@ -27,7 +22,7 @@ export const bridgeRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      return register({
+      return BridgeService.register({
         userId: request.user!.userId,
         relayUrl: bodyResult.data.relayUrl,
         roomCode: bodyResult.data.roomCode,
@@ -40,7 +35,7 @@ export const bridgeRoutes: FastifyPluginAsync = async (fastify) => {
     "/bridge/heartbeat",
     { preHandler: [requireAuth] },
     async (request, reply) => {
-      const updated = await heartbeat(request.user!.userId);
+      const updated = await BridgeService.heartbeat(request.user!.userId);
       if (!updated) {
         return reply.status(404).send({ error: "no_bridge_registered" });
       }
@@ -53,7 +48,7 @@ export const bridgeRoutes: FastifyPluginAsync = async (fastify) => {
     "/bridge/deregister",
     { preHandler: [requireAuth] },
     async (request) => {
-      await deregister(request.user!.userId);
+      await BridgeService.deregister(request.user!.userId);
       return { ok: true };
     }
   );
@@ -62,7 +57,7 @@ export const bridgeRoutes: FastifyPluginAsync = async (fastify) => {
     "/bridge/mine",
     { preHandler: [requireAuth] },
     async (request, reply) => {
-      const registration = await findByUser(request.user!.userId);
+      const registration = await BridgeService.findByUser(request.user!.userId);
       if (!registration) {
         return reply.status(404).send({ error: "no_bridge_online" });
       }
