@@ -1,5 +1,5 @@
 import { ObjectId } from "mongodb";
-import { Collections } from "../db/collections.js";
+import { DatabaseAccessor } from "../db/collections.js";
 import type { OAuthAccount } from "../models/documents.js";
 
 export class OAuthAccountRepository {
@@ -9,11 +9,11 @@ export class OAuthAccountRepository {
     provider: string,
     providerUserId: string
   ): Promise<OAuthAccount | null> {
-    return Collections.oauthAccounts().findOne({ provider, providerUserId });
+    return DatabaseAccessor.oauthAccounts().findOne({ provider, providerUserId });
   }
 
   static async findByUserId(userId: ObjectId): Promise<OAuthAccount | null> {
-    return Collections.oauthAccounts().findOne({ userId });
+    return DatabaseAccessor.oauthAccounts().findOne({ userId });
   }
 
   static async upsert(params: {
@@ -40,7 +40,7 @@ export class OAuthAccountRepository {
       set.refreshToken = params.refreshToken;
     }
 
-    const result = await Collections.oauthAccounts().findOneAndUpdate(
+    const result = await DatabaseAccessor.oauthAccounts().findOneAndUpdate(
       {
         provider: params.provider,
         providerUserId: params.providerUserId,

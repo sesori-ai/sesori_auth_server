@@ -2,7 +2,7 @@ import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { ObjectId } from "mongodb";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
-import { Collections } from "../../src/db/collections.js";
+import { DatabaseAccessor } from "../../src/db/collections.js";
 
 const VALID_BRIDGE_PAYLOAD = {
   relayUrl: "wss://relay.example.com/ws",
@@ -84,7 +84,7 @@ describe("Bridge registry routes", () => {
       assert.ok(body.bridgeId, "Should return a bridgeId");
 
       // Verify the document was persisted
-      const doc = await Collections.bridgeRegistrations().findOne({
+      const doc = await DatabaseAccessor.bridgeRegistrations().findOne({
         userId: new ObjectId(user.userId),
       });
       assert.ok(doc, "Bridge registration should exist in DB");
@@ -126,13 +126,13 @@ describe("Bridge registry routes", () => {
       assert.equal(res.statusCode, 200);
 
       // Should still have exactly one document for this user
-      const count = await Collections.bridgeRegistrations().countDocuments({
+      const count = await DatabaseAccessor.bridgeRegistrations().countDocuments({
         userId: new ObjectId(user.userId),
       });
       assert.equal(count, 1, "Should have exactly one bridge registration");
 
       // Should reflect the updated relayUrl
-      const doc = await Collections.bridgeRegistrations().findOne({
+      const doc = await DatabaseAccessor.bridgeRegistrations().findOne({
         userId: new ObjectId(user.userId),
       });
       assert.equal(doc!.relayUrl, updatedPayload.relayUrl);
@@ -156,7 +156,7 @@ describe("Bridge registry routes", () => {
         payload: JSON.stringify(VALID_BRIDGE_PAYLOAD),
       });
 
-      const before = await Collections.bridgeRegistrations().findOne({
+      const before = await DatabaseAccessor.bridgeRegistrations().findOne({
         userId: new ObjectId(user.userId),
       });
       const beforeTime = before!.lastHeartbeat.getTime();
@@ -173,7 +173,7 @@ describe("Bridge registry routes", () => {
       assert.equal(res.statusCode, 200);
       assert.deepEqual(res.json(), { ok: true });
 
-      const after = await Collections.bridgeRegistrations().findOne({
+      const after = await DatabaseAccessor.bridgeRegistrations().findOne({
         userId: new ObjectId(user.userId),
       });
       assert.ok(
@@ -248,7 +248,7 @@ describe("Bridge registry routes", () => {
       const user = await ctx.createUser();
 
       // Insert a stale bridge registration directly into the DB
-      await Collections.bridgeRegistrations().insertOne({
+      await DatabaseAccessor.bridgeRegistrations().insertOne({
         _id: new ObjectId(),
         userId: new ObjectId(user.userId),
         relayUrl: VALID_BRIDGE_PAYLOAD.relayUrl,
@@ -296,7 +296,7 @@ describe("Bridge registry routes", () => {
       assert.deepEqual(res.json(), { ok: true });
 
       // Verify the document was removed
-      const doc = await Collections.bridgeRegistrations().findOne({
+      const doc = await DatabaseAccessor.bridgeRegistrations().findOne({
         userId: new ObjectId(user.userId),
       });
       assert.equal(doc, null, "Bridge registration should be deleted");
@@ -356,7 +356,7 @@ describe("Bridge registry routes", () => {
       assert.equal(res.statusCode, 404);
 
       // User A's registration should still be intact
-      const doc = await Collections.bridgeRegistrations().findOne({
+      const doc = await DatabaseAccessor.bridgeRegistrations().findOne({
         userId: new ObjectId(userA.userId),
       });
       assert.ok(doc, "User A's bridge registration should still exist");

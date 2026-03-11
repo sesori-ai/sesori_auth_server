@@ -1,5 +1,5 @@
 import { DbClient } from "../../src/db/client.js";
-import { Collections } from "../../src/db/collections.js";
+import { DatabaseAccessor } from "../../src/db/collections.js";
 import { buildApp } from "../../src/server.js";
 import { TokenService } from "../../src/services/token-service.js";
 import { ObjectId } from "mongodb";
@@ -62,7 +62,7 @@ export async function createTestApp(): Promise<TestContext> {
   // Connect to test MongoDB and start with a clean slate
   const mongoClient = await DbClient.connect(mongoUri);
   await mongoClient.db().dropDatabase();
-  await Collections.ensureIndexes();
+  await DatabaseAccessor.ensureIndexes();
 
   // Build and ready the Fastify app
   const app = await buildApp();
@@ -77,8 +77,8 @@ export async function createTestApp(): Promise<TestContext> {
     const userId = new ObjectId();
     const now = new Date();
 
-    await Collections.users().insertOne({ _id: userId, tokenVersion: 0, createdAt: now, updatedAt: now });
-    await Collections.oauthAccounts().insertOne({
+    await DatabaseAccessor.users().insertOne({ _id: userId, tokenVersion: 0, createdAt: now, updatedAt: now });
+    await DatabaseAccessor.oauthAccounts().insertOne({
       _id: new ObjectId(),
       userId,
       provider,

@@ -1,5 +1,5 @@
 import { ObjectId, type UpdateResult } from "mongodb";
-import { Collections } from "../db/collections.js";
+import { DatabaseAccessor } from "../db/collections.js";
 import type { BridgeRegistration } from "../models/documents.js";
 
 export class BridgeRegistrationRepository {
@@ -11,7 +11,7 @@ export class BridgeRegistrationRepository {
     roomCode: string;
     publicKey: string;
   }): Promise<UpdateResult<BridgeRegistration>> {
-    return Collections.bridgeRegistrations().updateOne(
+    return DatabaseAccessor.bridgeRegistrations().updateOne(
       { userId: params.userId },
       {
         $set: {
@@ -29,15 +29,15 @@ export class BridgeRegistrationRepository {
   static async findByUserId(
     userId: ObjectId
   ): Promise<BridgeRegistration | null> {
-    return Collections.bridgeRegistrations().findOne({ userId });
+    return DatabaseAccessor.bridgeRegistrations().findOne({ userId });
   }
 
   static async deleteByUserId(userId: ObjectId): Promise<void> {
-    await Collections.bridgeRegistrations().deleteOne({ userId });
+    await DatabaseAccessor.bridgeRegistrations().deleteOne({ userId });
   }
 
   static async updateHeartbeat(userId: ObjectId): Promise<number> {
-    const result = await Collections.bridgeRegistrations().updateOne(
+    const result = await DatabaseAccessor.bridgeRegistrations().updateOne(
       { userId },
       { $set: { lastHeartbeat: new Date() } }
     );

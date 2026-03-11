@@ -1,6 +1,6 @@
 import { loadConfig } from "./config.js";
 import { DbClient } from "./db/client.js";
-import { Collections } from "./db/collections.js";
+import { DatabaseAccessor } from "./db/collections.js";
 import { buildApp } from "./server.js";
 import { TokenService } from "./services/token-service.js";
 
@@ -12,7 +12,7 @@ async function main() {
   console.log("MongoDB connected");
 
   console.log("Creating indexes...");
-  await Collections.ensureIndexes();
+  await DatabaseAccessor.ensureIndexes();
   console.log("Indexes ready");
 
   TokenService.loadKeys(config.JWT_PRIVATE_KEY_PATH, config.JWT_PUBLIC_KEY_PATH);

@@ -2,7 +2,7 @@ import { Collection } from "mongodb";
 import { DbClient } from "./client.js";
 import { User, OAuthAccount, BridgeRegistration } from "../models/documents.js";
 
-export class Collections {
+export class DatabaseAccessor {
   private constructor() {}
 
   static users(): Collection<User> {
@@ -18,14 +18,14 @@ export class Collections {
   }
 
   static async ensureIndexes(): Promise<void> {
-    const oauthAccountsCollection = Collections.oauthAccounts();
+    const oauthAccountsCollection = DatabaseAccessor.oauthAccounts();
     await oauthAccountsCollection.createIndex(
       { provider: 1, providerUserId: 1 },
       { unique: true }
     );
     await oauthAccountsCollection.createIndex({ userId: 1 });
 
-    const bridgeRegistrationsCollection = Collections.bridgeRegistrations();
+    const bridgeRegistrationsCollection = DatabaseAccessor.bridgeRegistrations();
     await bridgeRegistrationsCollection.createIndex(
       { userId: 1 },
       { unique: true }
