@@ -122,7 +122,7 @@ export async function authenticateGoogle(params: {
 
   let googleUser: { sub: string; name?: string };
   try {
-    googleUser = decodeIdToken(tokenData.idToken);
+    googleUser = decodeIdToken(tokenData.idToken, params.clientId);
   } catch (error) {
     if (
       error instanceof Error &&

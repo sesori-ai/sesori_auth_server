@@ -12,6 +12,9 @@ const googleTokenResponseSchema = z.object({
 });
 
 const googleIdTokenPayloadSchema = z.object({
+  iss: z.enum(["accounts.google.com", "https://accounts.google.com"]),
+  aud: z.string().min(1),
+  exp: z.number(),
   sub: z.string().min(1),
   name: z.string().optional(),
   given_name: z.string().optional(),
@@ -71,11 +74,19 @@ export async function exchangeCode(
   };
 }
 
-export function decodeIdToken(idToken: string): { sub: string; name?: string } {
+export function decodeIdToken(idToken: string, clientId: string): { sub: string; name?: string } {
   const payloadRaw = decodeJwtPayload(idToken);
   const payload = googleIdTokenPayloadSchema.safeParse(payloadRaw);
   if (!payload.success) {
     throw new Error("INVALID_GOOGLE_ID_TOKEN_PAYLOAD");
+  }
+
+  if (payload.data.aud !== clientId) {
+    throw new Error("GOOGLE_ID_TOKEN_AUDIENCE_MISMATCH");
+  }
+
+  if (payload.data.exp <= Math.floor(Date.now() / 1000)) {
+    throw new Error("GOOGLE_ID_TOKEN_EXPIRED");
   }
 
   return {
