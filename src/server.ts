@@ -1,9 +1,9 @@
 import Fastify, { FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
-import { tokenRoutes } from "./auth/token.js";
-import { githubRoutes } from "./auth/github.js";
-import { googleRoutes } from "./auth/google.js";
-import { bridgeRoutes } from "./bridge/registry.js";
+import { tokenRoutes } from "./routes/token.js";
+import { githubRoutes } from "./routes/github.js";
+import { googleRoutes } from "./routes/google.js";
+import { bridgeRoutes } from "./routes/bridge.js";
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({

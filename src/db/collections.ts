@@ -1,6 +1,6 @@
 import { Collection } from "mongodb";
 import { getDb } from "./client.js";
-import { User, OAuthAccount, BridgeRegistration } from "./schemas.js";
+import { User, OAuthAccount, BridgeRegistration } from "../models/documents.js";
 
 export function users(): Collection<User> {
   return getDb().collection<User>("users");

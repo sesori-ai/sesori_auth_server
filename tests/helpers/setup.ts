@@ -9,7 +9,7 @@ import {
   loadKeys,
   signAccessToken,
   signRefreshToken,
-} from "../../src/auth/jwt.js";
+} from "../../src/services/token-service.js";
 import { ObjectId } from "mongodb";
 import * as fs from "node:fs";
 import * as os from "node:os";

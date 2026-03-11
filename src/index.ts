@@ -2,7 +2,7 @@ import { loadConfig } from "./config.js";
 import { connectDb, closeDb } from "./db/client.js";
 import { ensureIndexes } from "./db/collections.js";
 import { buildApp } from "./server.js";
-import { loadKeys } from "./auth/jwt.js";
+import { loadKeys } from "./services/token-service.js";
 
 async function main() {
   const config = loadConfig();

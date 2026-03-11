@@ -1,7 +1,6 @@
-import { z } from "zod";
 import { ObjectId } from "mongodb";
+import { z } from "zod";
 
-// User document schema
 export const userSchema = z.object({
   _id: z.instanceof(ObjectId),
   createdAt: z.date(),
@@ -10,7 +9,6 @@ export const userSchema = z.object({
 
 export type User = z.infer<typeof userSchema>;
 
-// OAuth account document schema
 export const oauthAccountSchema = z.object({
   _id: z.instanceof(ObjectId),
   userId: z.instanceof(ObjectId),
@@ -25,7 +23,6 @@ export const oauthAccountSchema = z.object({
 
 export type OAuthAccount = z.infer<typeof oauthAccountSchema>;
 
-// Bridge registration document schema
 export const bridgeRegistrationSchema = z.object({
   _id: z.instanceof(ObjectId),
   userId: z.instanceof(ObjectId),

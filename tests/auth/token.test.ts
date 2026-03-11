@@ -83,7 +83,7 @@ describe("Token routes", () => {
 
     it("returns 401 for a valid-format token referencing a non-existent user", async () => {
       // Sign a refresh token for a userId that doesn't exist in the DB
-      const { signRefreshToken } = await import("../../src/auth/jwt.js");
+      const { signRefreshToken } = await import("../../src/services/token-service.js");
       const ghostToken = signRefreshToken({
         userId: "000000000000000000000000",
       });

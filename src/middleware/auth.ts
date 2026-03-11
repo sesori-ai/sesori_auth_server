@@ -1,9 +1,9 @@
 import { FastifyRequest, FastifyReply } from "fastify";
-import { verifyToken } from "../auth/jwt.js";
+import { verifyToken } from "../services/token-service.js";
 import {
   accessTokenPayloadSchema,
   type AccessTokenPayload,
-} from "../auth/token-schemas.js";
+} from "../models/jwt.js";
 
 declare module "fastify" {
   interface FastifyRequest {
