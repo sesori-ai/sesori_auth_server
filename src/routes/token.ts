@@ -1,13 +1,8 @@
 import { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { requireAuth } from "../middleware/auth.js";
-import {
-  AuthServiceError,
-  findUserAuthProfile,
-  logoutUser,
-  refreshAuthTokens,
-} from "../services/auth-service.js";
-import { getPublicKey } from "../services/token-service.js";
+import { AuthService, AuthServiceError } from "../services/auth-service.js";
+import { TokenService } from "../services/token-service.js";
 
 const refreshBodySchema = z.object({
   refreshToken: z.string(),
@@ -24,7 +19,7 @@ export const tokenRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     try {
-      return await refreshAuthTokens(bodyResult.data.refreshToken);
+      return await AuthService.refreshAuthTokens(bodyResult.data.refreshToken);
     } catch (error) {
       if (error instanceof AuthServiceError && error.code === "UNAUTHORIZED") {
         request.log.warn(error, "Refresh token verification failed");
@@ -36,7 +31,7 @@ export const tokenRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   fastify.get("/auth/me", { preHandler: requireAuth }, async (request, reply) => {
-    const profile = await findUserAuthProfile(request.user!.userId);
+    const profile = await AuthService.findUserAuthProfile(request.user!.userId);
     if (!profile) {
       return reply.status(404).send({ error: "User not found" });
     }
@@ -47,14 +42,14 @@ export const tokenRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     "/auth/logout",
     { preHandler: requireAuth },
-    async (request, reply) => {
-      await logoutUser(request.user!.userId);
+    async (request) => {
+      await AuthService.logoutUser(request.user!.userId);
       return { success: true };
     }
   );
 
-  fastify.get("/auth/public-key", async (request, reply) => {
-    const key = getPublicKey();
+  fastify.get("/auth/public-key", async (_request, reply) => {
+    const key = TokenService.getPublicKey();
     return reply.type("text/plain").send(key);
   });
 };

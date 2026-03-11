@@ -1,5 +1,5 @@
 import { FastifyRequest, FastifyReply } from "fastify";
-import { verifyToken } from "../services/token-service.js";
+import { TokenService } from "../services/token-service.js";
 import {
   accessTokenPayloadSchema,
   type AccessTokenPayload,
@@ -25,7 +25,7 @@ export async function requireAuth(
   const token = authHeader.slice(7);
 
   try {
-    const raw = verifyToken(token);
+    const raw = TokenService.verifyToken(token);
     const result = accessTokenPayloadSchema.safeParse(raw);
     if (!result.success) {
       request.log.warn(

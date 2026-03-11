@@ -33,64 +33,68 @@ function decodeJwtPayload(idToken: string): unknown {
   return JSON.parse(payloadJson) as unknown;
 }
 
-export async function exchangeCode(
-  code: string,
-  codeVerifier: string,
-  redirectUri: string,
-  clientId: string,
-  clientSecret: string
-): Promise<{ accessToken: string; idToken: string; refreshToken?: string }> {
-  const tokenParams = new URLSearchParams({
-    code,
-    client_id: clientId,
-    client_secret: clientSecret,
-    redirect_uri: redirectUri,
-    grant_type: "authorization_code",
-    code_verifier: codeVerifier,
-  });
+export class GoogleClient {
+  private constructor() {}
 
-  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: tokenParams.toString(),
-  });
+  static async exchangeCode(
+    code: string,
+    codeVerifier: string,
+    redirectUri: string,
+    clientId: string,
+    clientSecret: string
+  ): Promise<{ accessToken: string; idToken: string; refreshToken?: string }> {
+    const tokenParams = new URLSearchParams({
+      code,
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: redirectUri,
+      grant_type: "authorization_code",
+      code_verifier: codeVerifier,
+    });
 
-  if (!tokenResponse.ok) {
-    throw new Error("GOOGLE_TOKEN_EXCHANGE_FAILED");
+    const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: tokenParams.toString(),
+    });
+
+    if (!tokenResponse.ok) {
+      throw new Error("GOOGLE_TOKEN_EXCHANGE_FAILED");
+    }
+
+    const tokenJson = await tokenResponse.json();
+    const tokenParse = googleTokenResponseSchema.safeParse(tokenJson);
+    if (!tokenParse.success || tokenParse.data.error) {
+      throw new Error("INVALID_GOOGLE_TOKEN_RESPONSE");
+    }
+
+    return {
+      accessToken: tokenParse.data.access_token,
+      idToken: tokenParse.data.id_token,
+      refreshToken: tokenParse.data.refresh_token,
+    };
   }
 
-  const tokenJson = await tokenResponse.json();
-  const tokenParse = googleTokenResponseSchema.safeParse(tokenJson);
-  if (!tokenParse.success || tokenParse.data.error) {
-    throw new Error("INVALID_GOOGLE_TOKEN_RESPONSE");
+  static decodeIdToken(idToken: string, clientId: string): { sub: string; name?: string } {
+    const payloadRaw = decodeJwtPayload(idToken);
+    const payload = googleIdTokenPayloadSchema.safeParse(payloadRaw);
+    if (!payload.success) {
+      throw new Error("INVALID_GOOGLE_ID_TOKEN_PAYLOAD");
+    }
+
+    if (payload.data.aud !== clientId) {
+      throw new Error("GOOGLE_ID_TOKEN_AUDIENCE_MISMATCH");
+    }
+
+    if (payload.data.exp <= Math.floor(Date.now() / 1000)) {
+      throw new Error("GOOGLE_ID_TOKEN_EXPIRED");
+    }
+
+    return {
+      sub: payload.data.sub,
+      name: payload.data.name ?? payload.data.given_name,
+    };
   }
-
-  return {
-    accessToken: tokenParse.data.access_token,
-    idToken: tokenParse.data.id_token,
-    refreshToken: tokenParse.data.refresh_token,
-  };
-}
-
-export function decodeIdToken(idToken: string, clientId: string): { sub: string; name?: string } {
-  const payloadRaw = decodeJwtPayload(idToken);
-  const payload = googleIdTokenPayloadSchema.safeParse(payloadRaw);
-  if (!payload.success) {
-    throw new Error("INVALID_GOOGLE_ID_TOKEN_PAYLOAD");
-  }
-
-  if (payload.data.aud !== clientId) {
-    throw new Error("GOOGLE_ID_TOKEN_AUDIENCE_MISMATCH");
-  }
-
-  if (payload.data.exp <= Math.floor(Date.now() / 1000)) {
-    throw new Error("GOOGLE_ID_TOKEN_EXPIRED");
-  }
-
-  return {
-    sub: payload.data.sub,
-    name: payload.data.name ?? payload.data.given_name,
-  };
 }

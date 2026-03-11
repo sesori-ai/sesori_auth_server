@@ -1,31 +1,35 @@
 import { MongoClient, Db } from "mongodb";
 
-let client: MongoClient | null = null;
-let db: Db | null = null;
+export class DbClient {
+  private static client: MongoClient | null = null;
+  private static db: Db | null = null;
 
-export async function connectDb(uri: string): Promise<MongoClient> {
-  if (client) {
-    return client;
+  private constructor() {}
+
+  static async connect(uri: string): Promise<MongoClient> {
+    if (DbClient.client) {
+      return DbClient.client;
+    }
+
+    DbClient.client = new MongoClient(uri);
+    await DbClient.client.connect();
+    DbClient.db = DbClient.client.db();
+
+    return DbClient.client;
   }
 
-  client = new MongoClient(uri);
-  await client.connect();
-  db = client.db();
-
-  return client;
-}
-
-export function getDb(): Db {
-  if (!db) {
-    throw new Error("Database not connected. Call connectDb() first.");
+  static getDb(): Db {
+    if (!DbClient.db) {
+      throw new Error("Database not connected. Call connectDb() first.");
+    }
+    return DbClient.db;
   }
-  return db;
-}
 
-export async function closeDb(): Promise<void> {
-  if (client) {
-    await client.close();
-    client = null;
-    db = null;
+  static async close(): Promise<void> {
+    if (DbClient.client) {
+      await DbClient.client.close();
+      DbClient.client = null;
+      DbClient.db = null;
+    }
   }
 }
