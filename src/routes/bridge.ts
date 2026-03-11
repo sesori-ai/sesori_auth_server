@@ -9,9 +9,9 @@ import {
 } from "../services/bridge-service.js";
 
 const registerBodySchema = z.object({
-  relayUrl: z.string(),
-  roomCode: z.string(),
-  publicKey: z.string(),
+  relayUrl: z.string().url().max(500),
+  roomCode: z.string().regex(/^[A-Z0-9-]{4,20}$/).max(20),
+  publicKey: z.string().min(1).max(2048),
 });
 
 export const bridgeRoutes: FastifyPluginAsync = async (fastify) => {
@@ -52,7 +52,7 @@ export const bridgeRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete(
     "/bridge/deregister",
     { preHandler: [requireAuth] },
-    async (request, reply) => {
+    async (request) => {
       await deregister(request.user!.userId);
       return { ok: true };
     }

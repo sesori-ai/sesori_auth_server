@@ -12,7 +12,7 @@ const githubInitQuerySchema = z.object({
   code_challenge: z
     .string()
     .regex(/^[A-Za-z0-9\-._~]{43,128}$/, "Invalid PKCE code_challenge"),
-  code_challenge_method: z.enum(["S256", "plain"]).default("S256"),
+  code_challenge_method: z.literal("S256").default("S256"),
 });
 
 const githubCallbackBodySchema = z.object({

@@ -12,7 +12,7 @@ const googleInitQuerySchema = z.object({
   code_challenge: z
     .string()
     .regex(/^[A-Za-z0-9\-._~]{43,128}$/, "Invalid PKCE code_challenge"),
-  code_challenge_method: z.enum(["S256", "plain"]).default("S256"),
+  code_challenge_method: z.literal("S256").default("S256"),
 });
 
 const googleCallbackBodySchema = z.object({
@@ -35,8 +35,8 @@ export const googleRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     const { redirect_uri, code_challenge, code_challenge_method } = queryResult.data;
-    const state = createState();
 
+    const state = createState();
     const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     authUrl.searchParams.set("client_id", config.GOOGLE_CLIENT_ID);
     authUrl.searchParams.set("redirect_uri", redirect_uri);
