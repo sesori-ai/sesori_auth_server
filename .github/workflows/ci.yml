@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Run tests
+        run: npm test
+        env:
+          MONGODB_URI_TEST: mongodb://localhost:27017/auth-backend-test
+
+  docker:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: auth-backend:ci
+
+      - name: Generate JWT keys
+        run: |
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /tmp/private.pem 2>/dev/null
+          openssl rsa -in /tmp/private.pem -pubout -out /tmp/public.pem 2>/dev/null
+          echo "JWT_PRIVATE_KEY=$(awk 'NR>1{printf "\\n"}{printf "%s",$0}' /tmp/private.pem)" >> "$GITHUB_ENV"
+          echo "JWT_PUBLIC_KEY=$(awk 'NR>1{printf "\\n"}{printf "%s",$0}' /tmp/public.pem)" >> "$GITHUB_ENV"
+
+      - name: Start services
+        run: |
+          docker network create ci-net
+          docker run -d --name mongo-ci --network ci-net mongo:7
+          sleep 3
+          docker run -d --name auth-ci --network ci-net -p 3001:3001 \
+            -e MONGODB_URI=mongodb://mongo-ci:27017/auth-ci \
+            -e JWT_PRIVATE_KEY="$JWT_PRIVATE_KEY" \
+            -e JWT_PUBLIC_KEY="$JWT_PUBLIC_KEY" \
+            -e GITHUB_CLIENT_ID=ci-test \
+            -e GITHUB_CLIENT_SECRET=ci-test \
+            -e GOOGLE_CLIENT_ID=ci-test \
+            -e GOOGLE_CLIENT_SECRET=ci-test \
+            -e RELAY_URL=ws://localhost:8080 \
+            auth-backend:ci
+          sleep 3
+
+      - name: Health check
+        run: |
+          response=$(curl -sf http://localhost:3001/health)
+          echo "Health response: $response"
+          echo "$response" | jq -e '.status == "ok"'
+
+      - name: Stop services
+        if: always()
+        run: |
+          docker rm -f auth-ci mongo-ci || true
+          docker network rm ci-net || true
