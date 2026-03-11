@@ -23,15 +23,3 @@ export const oauthAccountSchema = z.object({
 });
 
 export type OAuthAccount = z.infer<typeof oauthAccountSchema>;
-
-export const bridgeRegistrationSchema = z.object({
-  _id: z.instanceof(ObjectId),
-  userId: z.instanceof(ObjectId),
-  relayUrl: z.string(),
-  roomCode: z.string(),
-  publicKey: z.string(),
-  lastHeartbeat: z.date(),
-  createdAt: z.date(),
-});
-
-export type BridgeRegistration = z.infer<typeof bridgeRegistrationSchema>;

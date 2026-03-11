@@ -3,7 +3,6 @@ import cors from "@fastify/cors";
 import { tokenRoutes } from "./routes/token.js";
 import { githubRoutes } from "./routes/github.js";
 import { googleRoutes } from "./routes/google.js";
-import { bridgeRoutes } from "./routes/bridge.js";
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
     logger: true,
@@ -25,7 +24,6 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(tokenRoutes);
   await app.register(githubRoutes);
   await app.register(googleRoutes);
-  await app.register(bridgeRoutes);
 
   // Global error handler
   app.setErrorHandler((error, _request, reply) => {
