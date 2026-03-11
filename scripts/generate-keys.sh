@@ -9,6 +9,6 @@ openssl rsa -in "$TMPDIR/private.pem" -pubout -out "$TMPDIR/public.pem" 2>/dev/n
 
 echo "# Paste into .env or Docker config"
 echo ""
-echo "JWT_PRIVATE_KEY=\"$(awk '{printf "%s\\n", $0}' "$TMPDIR/private.pem")\""
+printf 'JWT_PRIVATE_KEY="%s"\n' "$(awk 'NR>1{printf "\\n"}{printf "%s",$0}' "$TMPDIR/private.pem")"
 echo ""
-echo "JWT_PUBLIC_KEY=\"$(awk '{printf "%s\\n", $0}' "$TMPDIR/public.pem")\""
+printf 'JWT_PUBLIC_KEY="%s"\n' "$(awk 'NR>1{printf "\\n"}{printf "%s",$0}' "$TMPDIR/public.pem")"
