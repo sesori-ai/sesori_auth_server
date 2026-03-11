@@ -82,8 +82,10 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 |----------|-------------|
 | `PORT` | Server port (default: 3001) |
 | `MONGODB_URI` | MongoDB connection string |
-| `JWT_PRIVATE_KEY_PATH` | Path to RS256 private key (PEM) |
-| `JWT_PUBLIC_KEY_PATH` | Path to RS256 public key (PEM) |
+| `JWT_PRIVATE_KEY` | Inline RS256 private key (PEM string) — preferred for Docker |
+| `JWT_PUBLIC_KEY` | Inline RS256 public key (PEM string) — preferred for Docker |
+| `JWT_PRIVATE_KEY_PATH` | Path to RS256 private key file — alternative to inline |
+| `JWT_PUBLIC_KEY_PATH` | Path to RS256 public key file — alternative to inline |
 | `GITHUB_CLIENT_ID` | GitHub OAuth app client ID |
 | `GITHUB_CLIENT_SECRET` | GitHub OAuth app client secret |
 | `GOOGLE_CLIENT_ID` | Google OAuth app client ID |

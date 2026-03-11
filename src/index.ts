@@ -15,8 +15,13 @@ async function main() {
   await DatabaseAccessor.ensureIndexes();
   console.log("Indexes ready");
 
-  TokenService.loadKeys(config.JWT_PRIVATE_KEY_PATH, config.JWT_PUBLIC_KEY_PATH);
-  console.log("JWT keys loaded");
+  if (config.JWT_PRIVATE_KEY && config.JWT_PUBLIC_KEY) {
+    TokenService.setKeys(config.JWT_PRIVATE_KEY, config.JWT_PUBLIC_KEY);
+    console.log("JWT keys loaded (inline)");
+  } else {
+    TokenService.loadKeys(config.JWT_PRIVATE_KEY_PATH!, config.JWT_PUBLIC_KEY_PATH!);
+    console.log("JWT keys loaded (from files)");
+  }
 
   const app = await buildApp();
 

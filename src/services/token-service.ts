@@ -38,6 +38,11 @@ export class TokenService {
     TokenService.publicKey = fs.readFileSync(publicPath, "utf-8");
   }
 
+  static setKeys(privateKeyPem: string, publicKeyPem: string): void {
+    TokenService.privateKey = privateKeyPem;
+    TokenService.publicKey = publicKeyPem;
+  }
+
   static signAccessToken(payload: {
     userId: string;
     provider: string;
