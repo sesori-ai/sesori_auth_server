@@ -10,10 +10,18 @@ export async function create(): Promise<User> {
   const now = new Date();
   const user: User = {
     _id: new ObjectId(),
+    tokenVersion: 0,
     createdAt: now,
     updatedAt: now,
   };
 
   await users().insertOne(user);
   return user;
+}
+
+export async function incrementTokenVersion(userId: ObjectId): Promise<void> {
+  await users().updateOne(
+    { _id: userId },
+    { $inc: { tokenVersion: 1 }, $set: { updatedAt: new Date() } }
+  );
 }

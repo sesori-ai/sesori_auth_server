@@ -4,6 +4,7 @@ import { requireAuth } from "../middleware/auth.js";
 import {
   AuthServiceError,
   findUserAuthProfile,
+  logoutUser,
   refreshAuthTokens,
 } from "../services/auth-service.js";
 import { getPublicKey } from "../services/token-service.js";
@@ -47,6 +48,7 @@ export const tokenRoutes: FastifyPluginAsync = async (fastify) => {
     "/auth/logout",
     { preHandler: requireAuth },
     async (request, reply) => {
+      await logoutUser(request.user!.userId);
       return { success: true };
     }
   );

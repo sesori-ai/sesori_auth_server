@@ -86,6 +86,7 @@ describe("Token routes", () => {
       const { signRefreshToken } = await import("../../src/services/token-service.js");
       const ghostToken = signRefreshToken({
         userId: "000000000000000000000000",
+        tokenVersion: 0,
       });
 
       const res = await ctx.app.inject({

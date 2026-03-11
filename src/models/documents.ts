@@ -3,6 +3,7 @@ import { z } from "zod";
 
 export const userSchema = z.object({
   _id: z.instanceof(ObjectId),
+  tokenVersion: z.number(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });

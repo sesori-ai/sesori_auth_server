@@ -85,7 +85,7 @@ export async function createTestApp(): Promise<TestContext> {
     const userId = new ObjectId();
     const now = new Date();
 
-    await users().insertOne({ _id: userId, createdAt: now, updatedAt: now });
+    await users().insertOne({ _id: userId, tokenVersion: 0, createdAt: now, updatedAt: now });
     await oauthAccounts().insertOne({
       _id: new ObjectId(),
       userId,
@@ -104,7 +104,7 @@ export async function createTestApp(): Promise<TestContext> {
       provider,
       providerUserId,
     });
-    const refreshToken = signRefreshToken({ userId: userIdStr });
+    const refreshToken = signRefreshToken({ userId: userIdStr, tokenVersion: 0 });
 
     return { userId: userIdStr, accessToken, refreshToken, provider, providerUserId };
   }
@@ -113,7 +113,9 @@ export async function createTestApp(): Promise<TestContext> {
     const now = Math.floor(Date.now() / 1000);
     return jwt.sign(
       {
+        tokenType: "refresh",
         userId,
+        tokenVersion: 0,
         iss: "auth-backend",
         aud: "mobile",
         iat: now - 7200,

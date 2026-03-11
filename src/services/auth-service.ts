@@ -13,7 +13,11 @@ import {
   findByUserId,
   upsert as upsertOauthAccount,
 } from "../repositories/oauth-account-repo.js";
-import { create as createUser, findById } from "../repositories/user-repo.js";
+import {
+  create as createUser,
+  findById,
+  incrementTokenVersion,
+} from "../repositories/user-repo.js";
 import {
   signAccessToken,
   signRefreshToken,
@@ -153,11 +157,15 @@ export async function upsertFromOAuth(params: {
   );
 
   let userId: ObjectId;
+  let tokenVersion: number;
   if (existingOauthAccount) {
     userId = existingOauthAccount.userId;
+    const user = await findById(userId);
+    tokenVersion = user?.tokenVersion ?? 0;
   } else {
     const user = await createUser();
     userId = user._id;
+    tokenVersion = 0;
   }
 
   await upsertOauthAccount({
@@ -176,6 +184,7 @@ export async function upsertFromOAuth(params: {
     provider: params.provider,
     providerUserId: params.providerUserId,
     providerUsername: params.providerUsername,
+    tokenVersion,
   });
 }
 
@@ -184,13 +193,17 @@ export function signTokensForUser(params: {
   provider: string;
   providerUserId: string;
   providerUsername: string | null;
+  tokenVersion: number;
 }): AuthResult {
   const accessToken = signAccessToken({
     userId: params.userId,
     provider: params.provider,
     providerUserId: params.providerUserId,
   });
-  const refreshToken = signRefreshToken({ userId: params.userId });
+  const refreshToken = signRefreshToken({
+    userId: params.userId,
+    tokenVersion: params.tokenVersion,
+  });
 
   return {
     accessToken,
@@ -206,10 +219,12 @@ export function signTokensForUser(params: {
 
 export async function refreshAuthTokens(refreshToken: string): Promise<AuthResult> {
   let userId: string;
+  let tokenVersion: number;
   try {
     const raw = verifyToken(refreshToken);
     const payload = refreshTokenPayloadSchema.parse(raw);
     userId = payload.userId;
+    tokenVersion = payload.tokenVersion;
   } catch (error) {
     throw new AuthServiceError("UNAUTHORIZED", error);
   }
@@ -217,6 +232,11 @@ export async function refreshAuthTokens(refreshToken: string): Promise<AuthResul
   const userObjectId = new ObjectId(userId);
   const user = await findById(userObjectId);
   if (!user) {
+    throw new AuthServiceError("UNAUTHORIZED");
+  }
+
+  // Reject refresh tokens from before the last logout
+  if (user.tokenVersion !== tokenVersion) {
     throw new AuthServiceError("UNAUTHORIZED");
   }
 
@@ -230,7 +250,12 @@ export async function refreshAuthTokens(refreshToken: string): Promise<AuthResul
     provider: oauthAccount.provider,
     providerUserId: oauthAccount.providerUserId,
     providerUsername: oauthAccount.providerUsername,
+    tokenVersion: user.tokenVersion,
   });
+}
+
+export async function logoutUser(userId: string): Promise<void> {
+  await incrementTokenVersion(new ObjectId(userId));
 }
 
 export async function findUserAuthProfile(userId: string): Promise<{

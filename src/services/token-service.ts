@@ -48,6 +48,7 @@ export function signAccessToken(payload: {
   const expiresIn = 15 * 60;
 
   const tokenPayload: AccessTokenPayload = accessTokenPayloadSchema.parse({
+    tokenType: "access",
     userId: payload.userId,
     provider: payload.provider,
     providerUserId: payload.providerUserId,
@@ -60,7 +61,7 @@ export function signAccessToken(payload: {
   return jwt.sign(tokenPayload, privateKey, { algorithm: "RS256" });
 }
 
-export function signRefreshToken(payload: { userId: string }): string {
+export function signRefreshToken(payload: { userId: string; tokenVersion: number }): string {
   if (!privateKey) {
     throw new Error("Private key not loaded. Call loadKeys() first.");
   }
@@ -69,7 +70,9 @@ export function signRefreshToken(payload: { userId: string }): string {
   const expiresIn = 30 * 24 * 60 * 60;
 
   const tokenPayload: RefreshTokenPayload = refreshTokenPayloadSchema.parse({
+    tokenType: "refresh",
     userId: payload.userId,
+    tokenVersion: payload.tokenVersion,
     iss: "auth-backend",
     aud: "mobile",
     iat: now,
@@ -88,6 +91,7 @@ export function signBridgeToken(payload: { userId: string }): string {
   const expiresIn = 24 * 60 * 60;
 
   const tokenPayload: BridgeTokenPayload = bridgeTokenPayloadSchema.parse({
+    tokenType: "bridge",
     userId: payload.userId,
     iss: "auth-backend",
     aud: "bridge",

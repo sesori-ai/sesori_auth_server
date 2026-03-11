@@ -13,14 +13,15 @@ export async function register(params: {
   publicKey: string;
 }): Promise<{ bridgeId: string }> {
   const userObjectId = new ObjectId(params.userId);
-  const result = await upsert({
+  await upsert({
     userId: userObjectId,
     relayUrl: params.relayUrl,
     roomCode: params.roomCode,
     publicKey: params.publicKey,
   });
 
-  return { bridgeId: result.upsertedId?.toHexString() ?? params.userId };
+  const doc = await findByUserId(userObjectId);
+  return { bridgeId: doc!._id.toHexString() };
 }
 
 export async function heartbeat(userId: string): Promise<boolean> {
