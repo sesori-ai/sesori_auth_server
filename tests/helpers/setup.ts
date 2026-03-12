@@ -1,5 +1,5 @@
-import { DbClient, DatabaseName } from "../../src/db/client.js";
-import { DatabaseAccessor } from "../../src/db/collections.js";
+import { dbClient, DatabaseName } from "../../src/db/db-client.js";
+import { DatabaseAccessor } from "../../src/db/database-accessor.js";
 import { buildApp } from "../../src/server.js";
 import { TokenService } from "../../src/services/token-service.js";
 import { ObjectId } from "mongodb";
@@ -48,7 +48,7 @@ export async function createTestApp(): Promise<TestContext> {
   TokenService.setKeys(privPem, pubPem);
 
   // Connect to test MongoDB and start with a clean slate
-  const mongoClient = await DbClient.connect(mongoUri);
+  const mongoClient = await dbClient.connect(mongoUri);
     await mongoClient.db(DatabaseName.OAuth).dropDatabase();
   await DatabaseAccessor.ensureIndexes();
 
@@ -109,7 +109,7 @@ export async function createTestApp(): Promise<TestContext> {
   async function cleanup(): Promise<void> {
     await app.close();
   await mongoClient.db(DatabaseName.OAuth).dropDatabase();
-    await DbClient.close();
+    await dbClient.close();
   }
 
   return { app, cleanup, createUser, createExpiredRefreshToken };

@@ -1,5 +1,5 @@
 import { ObjectId } from "mongodb";
-import { DatabaseAccessor } from "../db/collections.js";
+import { DatabaseAccessor } from "../db/database-accessor.js";
 import type { OAuthAccount } from "../models/documents.js";
 
 export class OAuthAccountRepository {
