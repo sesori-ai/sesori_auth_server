@@ -9,7 +9,10 @@ export class OAuthAccountRepository {
     provider: string,
     providerUserId: string
   ): Promise<OAuthAccount | null> {
-    return DatabaseAccessor.oauthAccounts().findOne({ provider, providerUserId });
+    return DatabaseAccessor.oauthAccounts().findOne({
+      provider,
+      providerUserId,
+    });
   }
 
   static async findByUserId(userId: ObjectId): Promise<OAuthAccount | null> {

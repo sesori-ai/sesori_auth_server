@@ -14,9 +14,14 @@ const configSchema = z.object({
 
 export type Config = z.infer<typeof configSchema>;
 
+let cached: Config | null = null;
+
 export function loadConfig(): Config {
+  if (cached) return cached;
+
   try {
-    return configSchema.parse(process.env);
+    cached = configSchema.parse(process.env);
+    return cached;
   } catch (error) {
     if (error instanceof z.ZodError) {
       const missingVars = error.errors

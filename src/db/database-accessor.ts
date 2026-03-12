@@ -1,16 +1,16 @@
 import { Collection } from "mongodb";
-import { dbClient } from "./db-client.js";
+import { oAuthDbClient, OAuthAccountCollection } from "./db-client.js";
 import { User, OAuthAccount } from "../models/documents.js";
 
 export class DatabaseAccessor {
   private constructor() {}
 
   static users(): Collection<User> {
-    return dbClient.getDb().collection<User>("users");
+    return oAuthDbClient.getCollection(OAuthAccountCollection.Users);
   }
 
   static oauthAccounts(): Collection<OAuthAccount> {
-    return dbClient.getDb().collection<OAuthAccount>("oauthAccounts");
+    return oAuthDbClient.getCollection(OAuthAccountCollection.OAuthAccounts);
   }
 
   static async ensureIndexes(): Promise<void> {

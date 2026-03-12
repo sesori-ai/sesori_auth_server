@@ -1,42 +1,43 @@
-import { MongoClient, Db } from "mongodb";
+import { Collection, Db } from "mongodb";
+import { getMongoDbConnector, MongoDBDatabase } from "./mongo-db-connector.js";
+import { User, OAuthAccount } from "../models/documents.js";
 
-export enum DatabaseName {
-  OAuth = "oauth",
+export { MongoDBDatabase } from "./mongo-db-connector.js";
+export { closeMongoDbConnector as closeDb } from "./mongo-db-connector.js";
+
+export enum OAuthAccountCollection {
+  Users = "users",
+  OAuthAccounts = "oauthAccounts",
 }
 
-let sharedClient: MongoClient | null = null;
+type DatabaseCollectionMap = {
+  [MongoDBDatabase.OAuth]: OAuthAccountCollection;
+};
 
-class DbClient {
-  private readonly dbName: DatabaseName;
+type CollectionFor<D extends MongoDBDatabase> = DatabaseCollectionMap[D];
 
-  constructor(dbName: DatabaseName) {
-    this.dbName = dbName;
+type CollectionDocumentMap = {
+  [OAuthAccountCollection.Users]: User;
+  [OAuthAccountCollection.OAuthAccounts]: OAuthAccount;
+};
+
+class DbClient<D extends MongoDBDatabase> {
+  private readonly db: D;
+
+  constructor(db: D) {
+    this.db = db;
   }
 
-  async connect(uri: string): Promise<MongoClient> {
-    if (sharedClient) {
-      return sharedClient;
-    }
-
-    sharedClient = new MongoClient(uri);
-    await sharedClient.connect();
-
-    return sharedClient;
+  getDatabase(): Db {
+    return getMongoDbConnector().getDb(this.db);
   }
 
-  getDb(): Db {
-    if (!sharedClient) {
-      throw new Error("Database not connected. Call connect() first.");
-    }
-    return sharedClient.db(this.dbName);
-  }
-
-  async close(): Promise<void> {
-    if (sharedClient) {
-      await sharedClient.close();
-      sharedClient = null;
-    }
+  getCollection<N extends CollectionFor<D> & keyof CollectionDocumentMap>(
+    name: N
+  ): Collection<CollectionDocumentMap[N]> {
+    const db = this.getDatabase();
+    return db.collection(name);
   }
 }
 
-export const dbClient = new DbClient(DatabaseName.OAuth);
+export const oAuthDbClient = new DbClient(MongoDBDatabase.OAuth);

@@ -1,4 +1,4 @@
-import { dbClient, DatabaseName } from "../../src/db/db-client.js";
+import { closeDb, oAuthDbClient } from "../../src/db/db-client.js";
 import { DatabaseAccessor } from "../../src/db/database-accessor.js";
 import { buildApp } from "../../src/server.js";
 import { TokenService } from "../../src/services/token-service.js";
@@ -26,16 +26,18 @@ export type TestContext = {
 };
 
 export async function createTestApp(): Promise<TestContext> {
-  const { privateKey: privPem, publicKey: pubPem } =
-    crypto.generateKeyPairSync("rsa", {
+  const { privateKey: privPem, publicKey: pubPem } = crypto.generateKeyPairSync(
+    "rsa",
+    {
       modulusLength: 2048,
       publicKeyEncoding: { type: "spki", format: "pem" },
       privateKeyEncoding: { type: "pkcs8", format: "pem" },
-    });
+    }
+  );
 
-  // Configure environment — must be done before buildApp() calls loadConfig()
   const mongoUri =
-    process.env.MONGODB_URI_TEST ?? "mongodb://localhost:27017/auth-backend-test";
+    process.env.MONGODB_URI_TEST ??
+    "mongodb://localhost:27017/auth-backend-test";
   process.env.MONGODB_URI = mongoUri;
   process.env.JWT_PRIVATE_KEY = privPem;
   process.env.JWT_PUBLIC_KEY = pubPem;
@@ -47,12 +49,10 @@ export async function createTestApp(): Promise<TestContext> {
 
   TokenService.setKeys(privPem, pubPem);
 
-  // Connect to test MongoDB and start with a clean slate
-  const mongoClient = await dbClient.connect(mongoUri);
-    await mongoClient.db(DatabaseName.OAuth).dropDatabase();
+  const db = oAuthDbClient.getDatabase();
+  await db.dropDatabase();
   await DatabaseAccessor.ensureIndexes();
 
-  // Build and ready the Fastify app
   const app = await buildApp();
   await app.ready();
 
@@ -60,12 +60,16 @@ export async function createTestApp(): Promise<TestContext> {
     opts: { provider?: string; providerUserId?: string } = {}
   ): Promise<TestUser> {
     const provider = opts.provider ?? "github";
-    const providerUserId =
-      opts.providerUserId ?? new ObjectId().toHexString();
+    const providerUserId = opts.providerUserId ?? new ObjectId().toHexString();
     const userId = new ObjectId();
     const now = new Date();
 
-    await DatabaseAccessor.users().insertOne({ _id: userId, tokenVersion: 0, createdAt: now, updatedAt: now });
+    await DatabaseAccessor.users().insertOne({
+      _id: userId,
+      tokenVersion: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
     await DatabaseAccessor.oauthAccounts().insertOne({
       _id: new ObjectId(),
       userId,
@@ -84,9 +88,18 @@ export async function createTestApp(): Promise<TestContext> {
       provider,
       providerUserId,
     });
-    const refreshToken = TokenService.signRefreshToken({ userId: userIdStr, tokenVersion: 0 });
+    const refreshToken = TokenService.signRefreshToken({
+      userId: userIdStr,
+      tokenVersion: 0,
+    });
 
-    return { userId: userIdStr, accessToken, refreshToken, provider, providerUserId };
+    return {
+      userId: userIdStr,
+      accessToken,
+      refreshToken,
+      provider,
+      providerUserId,
+    };
   }
 
   function createExpiredRefreshToken(userId: string): string {
@@ -108,8 +121,9 @@ export async function createTestApp(): Promise<TestContext> {
 
   async function cleanup(): Promise<void> {
     await app.close();
-  await mongoClient.db(DatabaseName.OAuth).dropDatabase();
-    await dbClient.close();
+    const db = oAuthDbClient.getDatabase();
+    await db.dropDatabase();
+    await closeDb();
   }
 
   return { app, cleanup, createUser, createExpiredRefreshToken };
