@@ -1,4 +1,4 @@
-import { DbClient } from "../../src/db/client.js";
+import { DbClient, DatabaseName } from "../../src/db/client.js";
 import { DatabaseAccessor } from "../../src/db/collections.js";
 import { buildApp } from "../../src/server.js";
 import { TokenService } from "../../src/services/token-service.js";
@@ -49,7 +49,7 @@ export async function createTestApp(): Promise<TestContext> {
 
   // Connect to test MongoDB and start with a clean slate
   const mongoClient = await DbClient.connect(mongoUri);
-  await mongoClient.db("oauth").dropDatabase();
+    await mongoClient.db(DatabaseName.OAuth).dropDatabase();
   await DatabaseAccessor.ensureIndexes();
 
   // Build and ready the Fastify app
@@ -108,7 +108,7 @@ export async function createTestApp(): Promise<TestContext> {
 
   async function cleanup(): Promise<void> {
     await app.close();
-    await mongoClient.db("oauth").dropDatabase();
+  await mongoClient.db(DatabaseName.OAuth).dropDatabase();
     await DbClient.close();
   }
 
