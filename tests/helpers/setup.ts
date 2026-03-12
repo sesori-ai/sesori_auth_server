@@ -66,8 +66,6 @@ export async function createTestApp(): Promise<TestContext> {
       provider,
       providerUserId,
       providerUsername: `testuser_${userId.toHexString()}`,
-      accessToken: null,
-      refreshToken: null,
       createdAt: now,
       updatedAt: now,
     });
