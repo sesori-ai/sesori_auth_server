@@ -77,10 +77,7 @@ export class GoogleClient {
     };
   }
 
-  static decodeIdToken(
-    idToken: string,
-    clientId: string,
-  ): { sub: string; name?: string } {
+  static decodeIdToken(idToken: string, clientId: string): { sub: string; name?: string } {
     const payloadRaw = decodeJwtPayload(idToken);
     const payload = googleIdTokenPayloadSchema.safeParse(payloadRaw);
     if (!payload.success) {

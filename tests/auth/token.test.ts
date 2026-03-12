@@ -25,10 +25,7 @@ describe("Token routes", () => {
         res.headers["content-type"]?.toString().includes("text/plain"),
         `Expected text/plain, got: ${res.headers["content-type"]}`,
       );
-      assert.ok(
-        res.payload.includes("-----BEGIN PUBLIC KEY-----"),
-        "Response should contain PEM public key header",
-      );
+      assert.ok(res.payload.includes("-----BEGIN PUBLIC KEY-----"), "Response should contain PEM public key header");
     });
   });
 
@@ -83,8 +80,7 @@ describe("Token routes", () => {
 
     it("returns 401 for a valid-format token referencing a non-existent user", async () => {
       // Sign a refresh token for a userId that doesn't exist in the DB
-      const { TokenService } =
-        await import("../../src/services/token-service.js");
+      const { TokenService } = await import("../../src/services/token-service.js");
       const ghostToken = TokenService.signRefreshToken({
         userId: "000000000000000000000000",
         tokenVersion: 0,

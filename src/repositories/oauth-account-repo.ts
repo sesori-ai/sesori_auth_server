@@ -5,10 +5,7 @@ import type { OAuthAccount } from "../models/documents.js";
 export class OAuthAccountRepository {
   private constructor() {}
 
-  static async findByProvider(
-    provider: string,
-    providerUserId: string,
-  ): Promise<OAuthAccount | null> {
+  static async findByProvider(provider: string, providerUserId: string): Promise<OAuthAccount | null> {
     return DatabaseAccessor.oauthAccounts().findOne({
       provider,
       providerUserId,

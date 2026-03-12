@@ -19,8 +19,7 @@ export class MongoDbConnector {
   #closed = false;
 
   constructor(options: MongoDbConnectorOptions) {
-    const { connectionString, clientOptions, onError, onOpen, onClose } =
-      options;
+    const { connectionString, clientOptions, onError, onOpen, onClose } = options;
 
     const mongoClient = new MongoClient(connectionString, clientOptions);
 

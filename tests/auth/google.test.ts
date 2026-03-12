@@ -46,10 +46,7 @@ describe("Google OAuth routes", () => {
       const body = res.json<{ authUrl: string; state: string }>();
       const url = new URL(body.authUrl);
       assert.equal(url.searchParams.get("redirect_uri"), VALID_REDIRECT_URI);
-      assert.equal(
-        url.searchParams.get("code_challenge"),
-        VALID_CODE_CHALLENGE,
-      );
+      assert.equal(url.searchParams.get("code_challenge"), VALID_CODE_CHALLENGE);
       assert.equal(url.searchParams.get("state"), body.state);
       assert.equal(url.searchParams.get("response_type"), "code");
     });
@@ -108,10 +105,7 @@ describe("Google OAuth routes", () => {
       });
 
       assert.equal(res.statusCode, 400);
-      assert.equal(
-        res.json<{ error: string }>().error,
-        "Invalid or expired state",
-      );
+      assert.equal(res.json<{ error: string }>().error, "Invalid or expired state");
     });
 
     it("returns 400 when required body fields are missing", async () => {
@@ -162,9 +156,7 @@ describe("Google OAuth routes", () => {
 
       // Should NOT fail with "Invalid or expired state" — state was valid
       assert.ok(
-        callbackRes.statusCode !== 400 ||
-          callbackRes.json<{ error: string }>().error !==
-            "Invalid or expired state",
+        callbackRes.statusCode !== 400 || callbackRes.json<{ error: string }>().error !== "Invalid or expired state",
         "Should not fail on state validation when using a real state token",
       );
     });

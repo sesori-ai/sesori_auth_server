@@ -51,16 +51,10 @@ export class AuthService {
       );
       accessToken = result.accessToken;
     } catch (error) {
-      if (
-        error instanceof Error &&
-        error.message === "GITHUB_TOKEN_EXCHANGE_FAILED"
-      ) {
+      if (error instanceof Error && error.message === "GITHUB_TOKEN_EXCHANGE_FAILED") {
         throw new AuthServiceError("GITHUB_TOKEN_EXCHANGE_FAILED", error);
       }
-      if (
-        error instanceof Error &&
-        error.message === "INVALID_GITHUB_TOKEN_RESPONSE"
-      ) {
+      if (error instanceof Error && error.message === "INVALID_GITHUB_TOKEN_RESPONSE") {
         throw new AuthServiceError("INVALID_GITHUB_TOKEN_RESPONSE", error);
       }
       throw error;
@@ -77,16 +71,10 @@ export class AuthService {
         persistRefreshToken: false,
       });
     } catch (error) {
-      if (
-        error instanceof Error &&
-        error.message === "GITHUB_USER_FETCH_FAILED"
-      ) {
+      if (error instanceof Error && error.message === "GITHUB_USER_FETCH_FAILED") {
         throw new AuthServiceError("GITHUB_USER_FETCH_FAILED", error);
       }
-      if (
-        error instanceof Error &&
-        error.message === "INVALID_GITHUB_USER_RESPONSE"
-      ) {
+      if (error instanceof Error && error.message === "INVALID_GITHUB_USER_RESPONSE") {
         throw new AuthServiceError("INVALID_GITHUB_USER_RESPONSE", error);
       }
       throw error;
@@ -115,16 +103,10 @@ export class AuthService {
         params.clientSecret,
       );
     } catch (error) {
-      if (
-        error instanceof Error &&
-        error.message === "GOOGLE_TOKEN_EXCHANGE_FAILED"
-      ) {
+      if (error instanceof Error && error.message === "GOOGLE_TOKEN_EXCHANGE_FAILED") {
         throw new AuthServiceError("GOOGLE_TOKEN_EXCHANGE_FAILED", error);
       }
-      if (
-        error instanceof Error &&
-        error.message === "INVALID_GOOGLE_TOKEN_RESPONSE"
-      ) {
+      if (error instanceof Error && error.message === "INVALID_GOOGLE_TOKEN_RESPONSE") {
         throw new AuthServiceError("INVALID_GOOGLE_TOKEN_RESPONSE", error);
       }
       throw error;
@@ -132,15 +114,9 @@ export class AuthService {
 
     let googleUser: { sub: string; name?: string };
     try {
-      googleUser = GoogleClient.decodeIdToken(
-        tokenData.idToken,
-        params.clientId,
-      );
+      googleUser = GoogleClient.decodeIdToken(tokenData.idToken, params.clientId);
     } catch (error) {
-      if (
-        error instanceof Error &&
-        error.message === "INVALID_GOOGLE_ID_TOKEN_PAYLOAD"
-      ) {
+      if (error instanceof Error && error.message === "INVALID_GOOGLE_ID_TOKEN_PAYLOAD") {
         throw new AuthServiceError("INVALID_GOOGLE_ID_TOKEN_PAYLOAD", error);
       }
       throw new AuthServiceError("INVALID_GOOGLE_ID_TOKEN", error);
@@ -172,9 +148,7 @@ export class AuthService {
       providerUserId: params.providerUserId,
       providerUsername: params.providerUsername,
       accessToken: params.accessToken,
-      refreshToken: params.persistRefreshToken
-        ? (params.refreshToken ?? undefined)
-        : undefined,
+      refreshToken: params.persistRefreshToken ? (params.refreshToken ?? undefined) : undefined,
     });
 
     const isNewUser = account.userId.equals(potentialUserId);
@@ -247,8 +221,7 @@ export class AuthService {
       throw new AuthServiceError("UNAUTHORIZED");
     }
 
-    const oauthAccount =
-      await OAuthAccountRepository.findByUserId(userObjectId);
+    const oauthAccount = await OAuthAccountRepository.findByUserId(userObjectId);
     if (!oauthAccount) {
       throw new AuthServiceError("UNAUTHORIZED");
     }
@@ -282,8 +255,7 @@ export class AuthService {
       return null;
     }
 
-    const oauthAccount =
-      await OAuthAccountRepository.findByUserId(userObjectId);
+    const oauthAccount = await OAuthAccountRepository.findByUserId(userObjectId);
     if (!oauthAccount) {
       return null;
     }

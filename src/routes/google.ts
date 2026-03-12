@@ -6,9 +6,7 @@ import { AuthService, AuthServiceError } from "../services/auth-service.js";
 
 const googleInitQuerySchema = z.object({
   redirect_uri: z.string().min(1),
-  code_challenge: z
-    .string()
-    .regex(/^[A-Za-z0-9\-._~]{43,128}$/, "Invalid PKCE code_challenge"),
+  code_challenge: z.string().regex(/^[A-Za-z0-9\-._~]{43,128}$/, "Invalid PKCE code_challenge"),
   code_challenge_method: z.literal("S256").default("S256"),
 });
 
@@ -38,8 +36,7 @@ export const googleRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    const { redirect_uri, code_challenge, code_challenge_method } =
-      queryResult.data;
+    const { redirect_uri, code_challenge, code_challenge_method } = queryResult.data;
 
     const state = StateStore.createState();
     const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");

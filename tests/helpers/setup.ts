@@ -18,26 +18,18 @@ export type TestUser = {
 export type TestContext = {
   app: FastifyInstance;
   cleanup: () => Promise<void>;
-  createUser: (opts?: {
-    provider?: string;
-    providerUserId?: string;
-  }) => Promise<TestUser>;
+  createUser: (opts?: { provider?: string; providerUserId?: string }) => Promise<TestUser>;
   createExpiredRefreshToken: (userId: string) => string;
 };
 
 export async function createTestApp(): Promise<TestContext> {
-  const { privateKey: privPem, publicKey: pubPem } = crypto.generateKeyPairSync(
-    "rsa",
-    {
-      modulusLength: 2048,
-      publicKeyEncoding: { type: "spki", format: "pem" },
-      privateKeyEncoding: { type: "pkcs8", format: "pem" },
-    },
-  );
+  const { privateKey: privPem, publicKey: pubPem } = crypto.generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: "spki", format: "pem" },
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+  });
 
-  const mongoUri =
-    process.env.MONGODB_URI_TEST ??
-    "mongodb://localhost:27017/auth-backend-test";
+  const mongoUri = process.env.MONGODB_URI_TEST ?? "mongodb://localhost:27017/auth-backend-test";
   process.env.MONGODB_URI = mongoUri;
   process.env.JWT_PRIVATE_KEY = privPem;
   process.env.JWT_PUBLIC_KEY = pubPem;
@@ -56,9 +48,7 @@ export async function createTestApp(): Promise<TestContext> {
   const app = await buildApp();
   await app.ready();
 
-  async function createUser(
-    opts: { provider?: string; providerUserId?: string } = {},
-  ): Promise<TestUser> {
+  async function createUser(opts: { provider?: string; providerUserId?: string } = {}): Promise<TestUser> {
     const provider = opts.provider ?? "github";
     const providerUserId = opts.providerUserId ?? new ObjectId().toHexString();
     const userId = new ObjectId();
