@@ -1,15 +1,15 @@
 import { ObjectId } from "mongodb";
-import { DatabaseAccessor } from "../db/collections.js";
+import { DatabaseAccessor } from "../db/database-accessor.js";
 import type { OAuthAccount } from "../models/documents.js";
 
 export class OAuthAccountRepository {
   private constructor() {}
 
-  static async findByProvider(
-    provider: string,
-    providerUserId: string
-  ): Promise<OAuthAccount | null> {
-    return DatabaseAccessor.oauthAccounts().findOne({ provider, providerUserId });
+  static async findByProvider(provider: string, providerUserId: string): Promise<OAuthAccount | null> {
+    return DatabaseAccessor.oauthAccounts().findOne({
+      provider,
+      providerUserId,
+    });
   }
 
   static async findByUserId(userId: ObjectId): Promise<OAuthAccount | null> {
@@ -56,7 +56,7 @@ export class OAuthAccountRepository {
           refreshToken: params.refreshToken ?? null,
         },
       },
-      { upsert: true, returnDocument: "after" }
+      { upsert: true, returnDocument: "after" },
     );
 
     if (!result) {

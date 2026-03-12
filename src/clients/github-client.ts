@@ -21,7 +21,7 @@ export class GithubClient {
     codeVerifier: string,
     redirectUri: string,
     clientId: string,
-    clientSecret: string
+    clientSecret: string,
   ): Promise<{ accessToken: string }> {
     const tokenParams = new URLSearchParams({
       client_id: clientId,
@@ -53,9 +53,7 @@ export class GithubClient {
     return { accessToken: tokenParse.data.access_token };
   }
 
-  static async fetchUser(
-    accessToken: string
-  ): Promise<{ id: string; login: string | null }> {
+  static async fetchUser(accessToken: string): Promise<{ id: string; login: string | null }> {
     const userResponse = await fetch("https://api.github.com/user", {
       headers: {
         Authorization: `token ${accessToken}`,

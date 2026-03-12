@@ -28,10 +28,7 @@ describe("GitHub OAuth routes", () => {
 
       assert.equal(res.statusCode, 200);
       const body = res.json<{ authUrl: string; state: string }>();
-      assert.ok(
-        body.authUrl.includes("github.com"),
-        `authUrl should point to github.com, got: ${body.authUrl}`
-      );
+      assert.ok(body.authUrl.includes("github.com"), `authUrl should point to github.com, got: ${body.authUrl}`);
       assert.ok(body.state, "state should be present");
       assert.ok(body.state.length > 0, "state should be non-empty");
     });
@@ -104,10 +101,7 @@ describe("GitHub OAuth routes", () => {
       });
 
       assert.equal(res.statusCode, 400);
-      assert.equal(
-        res.json<{ error: string }>().error,
-        "Invalid or expired state"
-      );
+      assert.equal(res.json<{ error: string }>().error, "Invalid or expired state");
     });
 
     it("returns 400 when required body fields are missing", async () => {
@@ -159,9 +153,8 @@ describe("GitHub OAuth routes", () => {
       // State is valid, so we get past state validation.
       // The GitHub token exchange will fail (502) since we're not mocking GitHub.
       assert.ok(
-        callbackRes.statusCode !== 400 ||
-          callbackRes.json<{ error: string }>().error !== "Invalid or expired state",
-        "Should not fail on state validation when using a real state token"
+        callbackRes.statusCode !== 400 || callbackRes.json<{ error: string }>().error !== "Invalid or expired state",
+        "Should not fail on state validation when using a real state token",
       );
     });
   });

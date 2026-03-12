@@ -23,12 +23,9 @@ describe("Token routes", () => {
       assert.equal(res.statusCode, 200);
       assert.ok(
         res.headers["content-type"]?.toString().includes("text/plain"),
-        `Expected text/plain, got: ${res.headers["content-type"]}`
+        `Expected text/plain, got: ${res.headers["content-type"]}`,
       );
-      assert.ok(
-        res.payload.includes("-----BEGIN PUBLIC KEY-----"),
-        "Response should contain PEM public key header"
-      );
+      assert.ok(res.payload.includes("-----BEGIN PUBLIC KEY-----"), "Response should contain PEM public key header");
     });
   });
 

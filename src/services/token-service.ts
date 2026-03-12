@@ -19,11 +19,7 @@ export class TokenService {
     TokenService.publicKey = publicKeyPem.replace(/\\n/g, "\n");
   }
 
-  static signAccessToken(payload: {
-    userId: string;
-    provider: string;
-    providerUserId: string;
-  }): string {
+  static signAccessToken(payload: { userId: string; provider: string; providerUserId: string }): string {
     if (!TokenService.privateKey) {
       throw new Error("Private key not loaded. Call setKeys() first.");
     }
@@ -42,7 +38,9 @@ export class TokenService {
       exp: now + expiresIn,
     });
 
-    return jwt.sign(tokenPayload, TokenService.privateKey, { algorithm: "RS256" });
+    return jwt.sign(tokenPayload, TokenService.privateKey, {
+      algorithm: "RS256",
+    });
   }
 
   static signRefreshToken(payload: { userId: string; tokenVersion: number }): string {
@@ -63,7 +61,9 @@ export class TokenService {
       exp: now + expiresIn,
     });
 
-    return jwt.sign(tokenPayload, TokenService.privateKey, { algorithm: "RS256" });
+    return jwt.sign(tokenPayload, TokenService.privateKey, {
+      algorithm: "RS256",
+    });
   }
 
   static signBridgeToken(payload: { userId: string }): string {
@@ -83,7 +83,9 @@ export class TokenService {
       exp: now + expiresIn,
     });
 
-    return jwt.sign(tokenPayload, TokenService.privateKey, { algorithm: "RS256" });
+    return jwt.sign(tokenPayload, TokenService.privateKey, {
+      algorithm: "RS256",
+    });
   }
 
   static verifyToken(token: string): Record<string, unknown> {

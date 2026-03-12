@@ -14,14 +14,17 @@ const configSchema = z.object({
 
 export type Config = z.infer<typeof configSchema>;
 
+let cached: Config | null = null;
+
 export function loadConfig(): Config {
+  if (cached) return cached;
+
   try {
-    return configSchema.parse(process.env);
+    cached = configSchema.parse(process.env);
+    return cached;
   } catch (error) {
     if (error instanceof z.ZodError) {
-      const missingVars = error.errors
-        .map((err) => `${err.path.join(".")}: ${err.message}`)
-        .join("\n");
+      const missingVars = error.errors.map((err) => `${err.path.join(".")}: ${err.message}`).join("\n");
       console.error("Configuration validation failed:\n" + missingVars);
       process.exit(1);
     }

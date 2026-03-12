@@ -1,9 +1,6 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import { TokenService } from "../services/token-service.js";
-import {
-  accessTokenPayloadSchema,
-  type AccessTokenPayload,
-} from "../models/jwt.js";
+import { accessTokenPayloadSchema, type AccessTokenPayload } from "../models/jwt.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -11,10 +8,7 @@ declare module "fastify" {
   }
 }
 
-export async function requireAuth(
-  request: FastifyRequest,
-  reply: FastifyReply
-): Promise<void> {
+export async function requireAuth(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const authHeader = request.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -30,7 +24,7 @@ export async function requireAuth(
     if (!result.success) {
       request.log.warn(
         { reason: "invalid_payload", issues: result.error.issues },
-        "Auth token payload validation failed"
+        "Auth token payload validation failed",
       );
       await reply.status(401).send({ error: "unauthorized" });
       return;

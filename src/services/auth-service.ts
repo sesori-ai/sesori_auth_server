@@ -7,7 +7,10 @@ import { UserRepository } from "../repositories/user-repo.js";
 import { TokenService } from "./token-service.js";
 
 export class AuthServiceError extends Error {
-  constructor(public readonly code: string, cause?: unknown) {
+  constructor(
+    public readonly code: string,
+    cause?: unknown,
+  ) {
     super(code);
     this.cause = cause;
   }
@@ -44,7 +47,7 @@ export class AuthService {
         params.codeVerifier,
         params.redirectUri,
         params.clientId,
-        params.clientSecret
+        params.clientSecret,
       );
       accessToken = result.accessToken;
     } catch (error) {
@@ -85,7 +88,11 @@ export class AuthService {
     clientId: string;
     clientSecret: string;
   }): Promise<AuthResult> {
-    let tokenData: { accessToken: string; idToken: string; refreshToken?: string };
+    let tokenData: {
+      accessToken: string;
+      idToken: string;
+      refreshToken?: string;
+    };
 
     try {
       tokenData = await GoogleClient.exchangeCode(
@@ -93,7 +100,7 @@ export class AuthService {
         params.codeVerifier,
         params.redirectUri,
         params.clientId,
-        params.clientSecret
+        params.clientSecret,
       );
     } catch (error) {
       if (error instanceof Error && error.message === "GOOGLE_TOKEN_EXCHANGE_FAILED") {
@@ -109,10 +116,7 @@ export class AuthService {
     try {
       googleUser = GoogleClient.decodeIdToken(tokenData.idToken, params.clientId);
     } catch (error) {
-      if (
-        error instanceof Error &&
-        error.message === "INVALID_GOOGLE_ID_TOKEN_PAYLOAD"
-      ) {
+      if (error instanceof Error && error.message === "INVALID_GOOGLE_ID_TOKEN_PAYLOAD") {
         throw new AuthServiceError("INVALID_GOOGLE_ID_TOKEN_PAYLOAD", error);
       }
       throw new AuthServiceError("INVALID_GOOGLE_ID_TOKEN", error);
@@ -144,9 +148,7 @@ export class AuthService {
       providerUserId: params.providerUserId,
       providerUsername: params.providerUsername,
       accessToken: params.accessToken,
-      refreshToken: params.persistRefreshToken
-        ? (params.refreshToken ?? undefined)
-        : undefined,
+      refreshToken: params.persistRefreshToken ? (params.refreshToken ?? undefined) : undefined,
     });
 
     const isNewUser = account.userId.equals(potentialUserId);

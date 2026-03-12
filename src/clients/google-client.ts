@@ -41,7 +41,7 @@ export class GoogleClient {
     codeVerifier: string,
     redirectUri: string,
     clientId: string,
-    clientSecret: string
+    clientSecret: string,
   ): Promise<{ accessToken: string; idToken: string; refreshToken?: string }> {
     const tokenParams = new URLSearchParams({
       code,
