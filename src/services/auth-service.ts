@@ -237,6 +237,10 @@ export class AuthService {
     await UserRepository.incrementTokenVersion(new ObjectId(userId));
   }
 
+  static async revoke(userId: string): Promise<void> {
+    await AuthService.logoutUser(userId);
+  }
+
   static async findUserAuthProfile(userId: string): Promise<{
     id: string;
     provider: string;

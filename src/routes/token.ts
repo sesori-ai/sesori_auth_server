@@ -48,6 +48,15 @@ export const tokenRoutes: FastifyPluginAsync = async (fastify) => {
     }
   );
 
+  fastify.post(
+    "/auth/revoke",
+    { preHandler: requireAuth },
+    async (request) => {
+      await AuthService.revoke(request.user!.userId);
+      return { success: true };
+    }
+  );
+
   fastify.get("/auth/public-key", async (_request, reply) => {
     const key = TokenService.getPublicKey();
     return reply.type("text/plain").send(key);

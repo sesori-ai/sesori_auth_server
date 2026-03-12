@@ -1,13 +1,12 @@
 # OpenCode Auth Backend
 
-Authentication and bridge registry service for [OpenCode Mobile](https://github.com/opencode-mobile/opencode-mobile). Manages user accounts via social login (GitHub, Google) and tracks bridge registrations so phones can discover bridges without QR codes.
+Authentication service for [OpenCode Mobile](https://github.com/opencode-mobile/opencode-mobile). Manages user accounts via social login (GitHub, Google) and issues JWT tokens for relay authentication.
 
 ## What it does
 
 - **Social login** — GitHub and Google OAuth2 with PKCE (Authorization Code flow)
 - **JWT tokens** — RS256 access + refresh tokens; relay verifies with the public key
-- **Bridge registry** — bridges register their room code + public key; phones query `GET /bridge/mine`
-- **Heartbeat** — bridges send periodic heartbeats; stale registrations are TTL'd out
+- **Token revocation** — revoke all tokens for a user account (used by bridge when account is compromised)
 
 ## Tech stack
 
@@ -64,15 +63,8 @@ npm run start:local
 | `POST` | `/auth/refresh` | No | Refresh access token (requires `refreshToken` body) |
 | `GET` | `/auth/me` | Bearer | Get current user profile |
 | `POST` | `/auth/logout` | Bearer | Logout (clears refresh token) |
+| `POST` | `/auth/revoke` | Bearer | Revoke all tokens (increments token version) |
 | `GET` | `/auth/public-key` | No | Get RS256 public key (PEM) — used by relay for JWT verification |
-
-### Bridge Registry
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `POST` | `/bridge/register` | Bearer | Register bridge (room code, relay URL, public key) |
-| `POST` | `/bridge/heartbeat` | Bearer | Bridge heartbeat (keeps registration alive) |
-| `GET` | `/bridge/mine` | Bearer | Get current user's bridge registration |
-| `DELETE` | `/bridge/deregister` | Bearer | Remove bridge registration |
 
 ## Environment variables
 
@@ -120,20 +112,17 @@ src/
 ├── middleware/
 │   └── auth.ts                 requireAuth preHandler hook
 ├── models/
-│   ├── documents.ts            Zod document schemas (User, OAuthAccount, BridgeRegistration)
+│   ├── documents.ts            Zod document schemas (User, OAuthAccount)
 │   └── jwt.ts                  JWT payload schemas + constants
 ├── repositories/
-│   ├── bridge-registration-repo.ts  Bridge registration CRUD
 │   ├── oauth-account-repo.ts       OAuth account find/upsert
 │   └── user-repo.ts                User create/find/tokenVersion
 ├── routes/
-│   ├── bridge.ts               Bridge register/heartbeat/mine/deregister routes
 │   ├── github.ts               GitHub OAuth2 + PKCE routes
 │   ├── google.ts               Google OAuth2 + PKCE routes
-│   └── token.ts                Refresh, /auth/me, logout, public-key routes
+│   └── token.ts                Refresh, /auth/me, logout, revoke, public-key routes
 ├── services/
-│   ├── auth-service.ts         OAuth signup/login orchestration
-│   ├── bridge-service.ts       Bridge registration business logic
+│   ├── auth-service.ts         OAuth signup/login orchestration + token revocation
 │   └── token-service.ts        RS256 key loading, JWT sign/verify
 ├── config.ts                   Zod-validated env config
 ├── index.ts                    Entry point (loads keys + DB + app)
@@ -150,9 +139,8 @@ tests/
 ├── auth/
 │   ├── token.test.ts           Token refresh/validate/logout tests
 │   ├── github.test.ts          GitHub OAuth route tests
-│   └── google.test.ts          Google OAuth route tests
-└── bridge/
-    └── registry.test.ts        Bridge registry API tests
+│   ├── google.test.ts          Google OAuth route tests
+│   └── revoke.test.ts          Token revocation + bridge removal tests
 ```
 
 ## Tests
@@ -162,7 +150,7 @@ tests/
 npm test
 ```
 
-46 tests across 4 suites covering all API endpoints.
+36 tests across 4 suites covering all API endpoints.
 
 ## Related
 
