@@ -16,8 +16,6 @@ export const oauthAccountSchema = z.object({
   provider: z.string(),
   providerUserId: z.string(),
   providerUsername: z.string().nullable(),
-  accessToken: z.string().nullable(),
-  refreshToken: z.string().nullable(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });

@@ -66,9 +66,6 @@ export class AuthService {
         provider: "github",
         providerUserId: githubUser.id,
         providerUsername: githubUser.login,
-        accessToken,
-        refreshToken: undefined,
-        persistRefreshToken: false,
       });
     } catch (error) {
       if (error instanceof Error && error.message === "GITHUB_USER_FETCH_FAILED") {
@@ -126,9 +123,6 @@ export class AuthService {
       provider: "google",
       providerUserId: googleUser.sub,
       providerUsername: googleUser.name ?? null,
-      accessToken: tokenData.accessToken,
-      refreshToken: tokenData.refreshToken,
-      persistRefreshToken: tokenData.refreshToken !== undefined,
     });
   }
 
@@ -136,9 +130,6 @@ export class AuthService {
     provider: OAuthProvider;
     providerUserId: string;
     providerUsername: string | null;
-    accessToken: string;
-    refreshToken?: string;
-    persistRefreshToken: boolean;
   }): Promise<AuthResult> {
     const potentialUserId = new ObjectId();
 
@@ -147,8 +138,6 @@ export class AuthService {
       provider: params.provider,
       providerUserId: params.providerUserId,
       providerUsername: params.providerUsername,
-      accessToken: params.accessToken,
-      refreshToken: params.persistRefreshToken ? (params.refreshToken ?? undefined) : undefined,
     });
 
     const isNewUser = account.userId.equals(potentialUserId);
