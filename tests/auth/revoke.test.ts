@@ -57,6 +57,18 @@ describe("POST /auth/revoke", () => {
     assert.equal(refreshRes.statusCode, 401);
     assert.equal(refreshRes.json<{ error: string }>().error, "unauthorized");
   });
+});
+
+describe("Bridge endpoint removal", () => {
+  let ctx: TestContext;
+
+  before(async () => {
+    ctx = await createTestApp();
+  });
+
+  after(async () => {
+    await ctx.cleanup();
+  });
 
   it("bridge endpoints return 404 after removal", async () => {
     const user = await ctx.createUser();
