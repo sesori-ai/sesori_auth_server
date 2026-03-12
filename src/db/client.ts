@@ -13,7 +13,7 @@ export class DbClient {
 
     DbClient.client = new MongoClient(uri);
     await DbClient.client.connect();
-    DbClient.db = DbClient.client.db();
+    DbClient.db = DbClient.client.db("oauth");
 
     return DbClient.client;
   }

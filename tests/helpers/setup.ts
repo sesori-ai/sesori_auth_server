@@ -49,7 +49,7 @@ export async function createTestApp(): Promise<TestContext> {
 
   // Connect to test MongoDB and start with a clean slate
   const mongoClient = await DbClient.connect(mongoUri);
-  await mongoClient.db().dropDatabase();
+  await mongoClient.db("oauth").dropDatabase();
   await DatabaseAccessor.ensureIndexes();
 
   // Build and ready the Fastify app
@@ -108,7 +108,7 @@ export async function createTestApp(): Promise<TestContext> {
 
   async function cleanup(): Promise<void> {
     await app.close();
-    await mongoClient.db().dropDatabase();
+    await mongoClient.db("oauth").dropDatabase();
     await DbClient.close();
   }
 
