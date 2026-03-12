@@ -33,7 +33,7 @@ class DbClient<D extends MongoDBDatabase> {
   }
 
   getCollection<N extends CollectionFor<D> & keyof CollectionDocumentMap>(
-    name: N
+    name: N,
   ): Collection<CollectionDocumentMap[N]> {
     const db = this.getDatabase();
     return db.collection(name);

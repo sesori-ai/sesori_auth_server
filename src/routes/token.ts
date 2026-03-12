@@ -30,32 +30,30 @@ export const tokenRoutes: FastifyPluginAsync = async (fastify) => {
     }
   });
 
-  fastify.get("/auth/me", { preHandler: requireAuth }, async (request, reply) => {
-    const profile = await AuthService.findUserAuthProfile(request.user!.userId);
-    if (!profile) {
-      return reply.status(404).send({ error: "User not found" });
-    }
+  fastify.get(
+    "/auth/me",
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const profile = await AuthService.findUserAuthProfile(
+        request.user!.userId,
+      );
+      if (!profile) {
+        return reply.status(404).send({ error: "User not found" });
+      }
 
-    return { user: profile };
+      return { user: profile };
+    },
+  );
+
+  fastify.post("/auth/logout", { preHandler: requireAuth }, async (request) => {
+    await AuthService.logoutUser(request.user!.userId);
+    return { success: true };
   });
 
-  fastify.post(
-    "/auth/logout",
-    { preHandler: requireAuth },
-    async (request) => {
-      await AuthService.logoutUser(request.user!.userId);
-      return { success: true };
-    }
-  );
-
-  fastify.post(
-    "/auth/revoke",
-    { preHandler: requireAuth },
-    async (request) => {
-      await AuthService.revoke(request.user!.userId);
-      return { success: true };
-    }
-  );
+  fastify.post("/auth/revoke", { preHandler: requireAuth }, async (request) => {
+    await AuthService.revoke(request.user!.userId);
+    return { success: true };
+  });
 
   fastify.get("/auth/public-key", async (_request, reply) => {
     const key = TokenService.getPublicKey();

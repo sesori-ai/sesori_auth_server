@@ -17,7 +17,7 @@ export class DatabaseAccessor {
     const oauthAccountsCollection = DatabaseAccessor.oauthAccounts();
     await oauthAccountsCollection.createIndex(
       { provider: 1, providerUserId: 1 },
-      { unique: true }
+      { unique: true },
     );
     await oauthAccountsCollection.createIndex({ userId: 1 });
   }

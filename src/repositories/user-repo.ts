@@ -25,7 +25,7 @@ export class UserRepository {
   static async incrementTokenVersion(userId: ObjectId): Promise<void> {
     await DatabaseAccessor.users().updateOne(
       { _id: userId },
-      { $inc: { tokenVersion: 1 }, $set: { updatedAt: new Date() } }
+      { $inc: { tokenVersion: 1 }, $set: { updatedAt: new Date() } },
     );
   }
 }

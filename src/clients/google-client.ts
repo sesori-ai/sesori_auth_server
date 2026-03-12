@@ -41,7 +41,7 @@ export class GoogleClient {
     codeVerifier: string,
     redirectUri: string,
     clientId: string,
-    clientSecret: string
+    clientSecret: string,
   ): Promise<{ accessToken: string; idToken: string; refreshToken?: string }> {
     const tokenParams = new URLSearchParams({
       code,
@@ -77,7 +77,10 @@ export class GoogleClient {
     };
   }
 
-  static decodeIdToken(idToken: string, clientId: string): { sub: string; name?: string } {
+  static decodeIdToken(
+    idToken: string,
+    clientId: string,
+  ): { sub: string; name?: string } {
     const payloadRaw = decodeJwtPayload(idToken);
     const payload = googleIdTokenPayloadSchema.safeParse(payloadRaw);
     if (!payload.success) {

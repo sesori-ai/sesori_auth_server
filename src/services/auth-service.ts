@@ -7,7 +7,10 @@ import { UserRepository } from "../repositories/user-repo.js";
 import { TokenService } from "./token-service.js";
 
 export class AuthServiceError extends Error {
-  constructor(public readonly code: string, cause?: unknown) {
+  constructor(
+    public readonly code: string,
+    cause?: unknown,
+  ) {
     super(code);
     this.cause = cause;
   }
@@ -44,14 +47,20 @@ export class AuthService {
         params.codeVerifier,
         params.redirectUri,
         params.clientId,
-        params.clientSecret
+        params.clientSecret,
       );
       accessToken = result.accessToken;
     } catch (error) {
-      if (error instanceof Error && error.message === "GITHUB_TOKEN_EXCHANGE_FAILED") {
+      if (
+        error instanceof Error &&
+        error.message === "GITHUB_TOKEN_EXCHANGE_FAILED"
+      ) {
         throw new AuthServiceError("GITHUB_TOKEN_EXCHANGE_FAILED", error);
       }
-      if (error instanceof Error && error.message === "INVALID_GITHUB_TOKEN_RESPONSE") {
+      if (
+        error instanceof Error &&
+        error.message === "INVALID_GITHUB_TOKEN_RESPONSE"
+      ) {
         throw new AuthServiceError("INVALID_GITHUB_TOKEN_RESPONSE", error);
       }
       throw error;
@@ -68,10 +77,16 @@ export class AuthService {
         persistRefreshToken: false,
       });
     } catch (error) {
-      if (error instanceof Error && error.message === "GITHUB_USER_FETCH_FAILED") {
+      if (
+        error instanceof Error &&
+        error.message === "GITHUB_USER_FETCH_FAILED"
+      ) {
         throw new AuthServiceError("GITHUB_USER_FETCH_FAILED", error);
       }
-      if (error instanceof Error && error.message === "INVALID_GITHUB_USER_RESPONSE") {
+      if (
+        error instanceof Error &&
+        error.message === "INVALID_GITHUB_USER_RESPONSE"
+      ) {
         throw new AuthServiceError("INVALID_GITHUB_USER_RESPONSE", error);
       }
       throw error;
@@ -85,7 +100,11 @@ export class AuthService {
     clientId: string;
     clientSecret: string;
   }): Promise<AuthResult> {
-    let tokenData: { accessToken: string; idToken: string; refreshToken?: string };
+    let tokenData: {
+      accessToken: string;
+      idToken: string;
+      refreshToken?: string;
+    };
 
     try {
       tokenData = await GoogleClient.exchangeCode(
@@ -93,13 +112,19 @@ export class AuthService {
         params.codeVerifier,
         params.redirectUri,
         params.clientId,
-        params.clientSecret
+        params.clientSecret,
       );
     } catch (error) {
-      if (error instanceof Error && error.message === "GOOGLE_TOKEN_EXCHANGE_FAILED") {
+      if (
+        error instanceof Error &&
+        error.message === "GOOGLE_TOKEN_EXCHANGE_FAILED"
+      ) {
         throw new AuthServiceError("GOOGLE_TOKEN_EXCHANGE_FAILED", error);
       }
-      if (error instanceof Error && error.message === "INVALID_GOOGLE_TOKEN_RESPONSE") {
+      if (
+        error instanceof Error &&
+        error.message === "INVALID_GOOGLE_TOKEN_RESPONSE"
+      ) {
         throw new AuthServiceError("INVALID_GOOGLE_TOKEN_RESPONSE", error);
       }
       throw error;
@@ -107,7 +132,10 @@ export class AuthService {
 
     let googleUser: { sub: string; name?: string };
     try {
-      googleUser = GoogleClient.decodeIdToken(tokenData.idToken, params.clientId);
+      googleUser = GoogleClient.decodeIdToken(
+        tokenData.idToken,
+        params.clientId,
+      );
     } catch (error) {
       if (
         error instanceof Error &&
@@ -219,7 +247,8 @@ export class AuthService {
       throw new AuthServiceError("UNAUTHORIZED");
     }
 
-    const oauthAccount = await OAuthAccountRepository.findByUserId(userObjectId);
+    const oauthAccount =
+      await OAuthAccountRepository.findByUserId(userObjectId);
     if (!oauthAccount) {
       throw new AuthServiceError("UNAUTHORIZED");
     }
@@ -253,7 +282,8 @@ export class AuthService {
       return null;
     }
 
-    const oauthAccount = await OAuthAccountRepository.findByUserId(userObjectId);
+    const oauthAccount =
+      await OAuthAccountRepository.findByUserId(userObjectId);
     if (!oauthAccount) {
       return null;
     }

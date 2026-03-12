@@ -7,7 +7,7 @@ export class OAuthAccountRepository {
 
   static async findByProvider(
     provider: string,
-    providerUserId: string
+    providerUserId: string,
   ): Promise<OAuthAccount | null> {
     return DatabaseAccessor.oauthAccounts().findOne({
       provider,
@@ -59,7 +59,7 @@ export class OAuthAccountRepository {
           refreshToken: params.refreshToken ?? null,
         },
       },
-      { upsert: true, returnDocument: "after" }
+      { upsert: true, returnDocument: "after" },
     );
 
     if (!result) {

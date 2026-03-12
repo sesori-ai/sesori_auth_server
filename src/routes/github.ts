@@ -38,7 +38,8 @@ export const githubRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    const { redirect_uri, code_challenge, code_challenge_method } = queryResult.data;
+    const { redirect_uri, code_challenge, code_challenge_method } =
+      queryResult.data;
 
     const state = StateStore.createState();
     const authUrl = new URL("https://github.com/login/oauth/authorize");

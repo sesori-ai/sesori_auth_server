@@ -13,7 +13,7 @@ declare module "fastify" {
 
 export async function requireAuth(
   request: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ): Promise<void> {
   const authHeader = request.headers.authorization;
 
@@ -30,7 +30,7 @@ export async function requireAuth(
     if (!result.success) {
       request.log.warn(
         { reason: "invalid_payload", issues: result.error.issues },
-        "Auth token payload validation failed"
+        "Auth token payload validation failed",
       );
       await reply.status(401).send({ error: "unauthorized" });
       return;

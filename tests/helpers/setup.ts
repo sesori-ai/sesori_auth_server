@@ -32,7 +32,7 @@ export async function createTestApp(): Promise<TestContext> {
       modulusLength: 2048,
       publicKeyEncoding: { type: "spki", format: "pem" },
       privateKeyEncoding: { type: "pkcs8", format: "pem" },
-    }
+    },
   );
 
   const mongoUri =
@@ -57,7 +57,7 @@ export async function createTestApp(): Promise<TestContext> {
   await app.ready();
 
   async function createUser(
-    opts: { provider?: string; providerUserId?: string } = {}
+    opts: { provider?: string; providerUserId?: string } = {},
   ): Promise<TestUser> {
     const provider = opts.provider ?? "github";
     const providerUserId = opts.providerUserId ?? new ObjectId().toHexString();
@@ -115,7 +115,7 @@ export async function createTestApp(): Promise<TestContext> {
         exp: now - 3600,
       },
       privPem,
-      { algorithm: "RS256" }
+      { algorithm: "RS256" },
     );
   }
 
