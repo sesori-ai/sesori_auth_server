@@ -1,6 +1,6 @@
-# OpenCode Auth Backend
+# Sesori Auth Server
 
-Authentication service for [OpenCode Mobile](https://github.com/opencode-mobile/opencode-mobile). Manages user accounts via social login (GitHub, Google) and issues JWT tokens for relay authentication.
+Authentication service for [Sesori Mobile App](https://github.com/sesori-ai/sesori_mobile). Manages user accounts via social login (GitHub, Google) and issues JWT tokens for relay authentication.
 
 ## What it does
 
@@ -154,6 +154,6 @@ npm test
 
 ## Related
 
-- [OpenCode Mobile](https://github.com/opencode-mobile/opencode-mobile) — Flutter mobile client
-- [OpenCode Relay](https://github.com/opencode-mobile/opencode-mobile-relay) — WebSocket relay server
-- [OpenCode Bridge](https://github.com/opencode-mobile/opencode-mobile-bridge) — Laptop-side bridge CLI
+- [Sesori Mobile App](https://github.com/sesori-ai/sesori_mobile) — Flutter mobile client
+- [Sesori Relay](https://github.com/sesori-ai/sesori_relay_server) — WebSocket relay server
+- [Sesori Bridge](https://github.com/sesori-ai/sesori_bridge) — Laptop-side bridge CLI

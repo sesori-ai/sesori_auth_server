@@ -2,7 +2,7 @@
   "name": "auth-backend",
   "version": "0.1.0",
   "type": "module",
-  "description": "Node.js auth backend for Claude Code",
+  "description": "Node.js auth server for Sesori Mobile App",
   "main": "dist/index.js",
   "engines": {
     "node": ">=22.22.0"
