@@ -38,6 +38,8 @@ export async function createTestApp(): Promise<TestContext> {
   process.env.GOOGLE_CLIENT_ID ??= "test-google-client-id";
   process.env.GOOGLE_CLIENT_SECRET ??= "test-google-client-secret";
   process.env.RELAY_URL ??= "ws://localhost:8080";
+  process.env.OPENAI_API_KEY ??= "test-openai-api-key";
+  process.env.OPENAI_TRANSCRIPTION_MODEL ??= "gpt-4o-mini-transcribe";
 
   TokenService.setKeys(privPem, pubPem);
 

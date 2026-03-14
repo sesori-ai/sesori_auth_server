@@ -8,11 +8,11 @@
     "node": ">=22.22.0"
   },
   "scripts": {
-    "start": "node --loader ts-node/esm src/index.ts",
-    "start:local": "sops exec-env env/app/local.env 'node --loader ts-node/esm src/index.ts'",
-    "start:prod": "sops exec-env env/app/prod.env 'node --loader ts-node/esm src/index.ts'",
+    "start": "tsx src/index.ts",
+    "start:local": "sops exec-env env/app/local.env 'tsx src/index.ts'",
+    "start:prod": "sops exec-env env/app/prod.env 'tsx src/index.ts'",
     "build": "tsc",
-    "dev": "node --watch --loader ts-node/esm src/index.ts",
+    "dev": "tsx --watch src/index.ts",
     "test": "node --import tsx --test --test-concurrency=1 tests/**/*.test.ts",
     "lint": "eslint src/ tests/",
     "lint:fix": "eslint --fix src/ tests/",
@@ -25,24 +25,25 @@
     "env:update-keys": "sh -c 'for f in env/app/*.env; do [ -f \"$f\" ] && sops updatekeys -y \"$f\"; done'"
   },
   "dependencies": {
-    "@fastify/cors": "^8.5.0",
-    "fastify": "^4.25.2",
-    "jsonwebtoken": "^9.0.2",
-    "lru-cache": "^11.2.6",
-    "mongodb": "^6.3.0",
-    "zod": "^3.22.4"
+    "@fastify/cors": "^11.2.0",
+    "@fastify/multipart": "^9.4.0",
+    "fastify": "^5.8.2",
+    "jsonwebtoken": "^9.0.3",
+    "lru-cache": "^11.2.7",
+    "mongodb": "^7.1.0",
+    "openai": "^6.29.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/jsonwebtoken": "^9.0.7",
-    "@types/node": "^20.10.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^22.19.15",
     "eslint": "^10.0.3",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.5",
     "prettier": "^3.8.1",
-    "ts-node": "^10.9.2",
     "tsx": "^4.21.0",
-    "typescript": "^5.3.3",
+    "typescript": "^5.9.3",
     "typescript-eslint": "^8.57.0"
   }
 }

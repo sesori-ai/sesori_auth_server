@@ -25,7 +25,7 @@ export const googleRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: OAuthInitQuery; Reply: OAuthInitReply }>("/auth/google", async (request) => {
     const queryResult = googleInitQuerySchema.safeParse(request.query);
     if (!queryResult.success) {
-      throw new BadRequestError({ debugMessage: "Invalid query parameters", nestedError: queryResult.error.errors });
+      throw new BadRequestError({ debugMessage: "Invalid query parameters", nestedError: queryResult.error.issues });
     }
 
     const { redirect_uri, code_challenge, code_challenge_method } = queryResult.data;
@@ -51,7 +51,7 @@ export const googleRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{ Body: OAuthCallbackBody; Reply: AuthTokensReply }>("/auth/google/callback", async (request) => {
     const bodyResult = googleCallbackBodySchema.safeParse(request.body);
     if (!bodyResult.success) {
-      throw new BadRequestError({ debugMessage: "Invalid request body", nestedError: bodyResult.error.errors });
+      throw new BadRequestError({ debugMessage: "Invalid request body", nestedError: bodyResult.error.issues });
     }
 
     const { code, codeVerifier, state, redirectUri } = bodyResult.data;

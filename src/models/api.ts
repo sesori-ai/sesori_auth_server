@@ -44,3 +44,27 @@ export type SuccessReply = {
 export type HealthReply = {
   status: "ok";
 };
+
+export type TranscribeReply = {
+  text: string;
+};
+
+export type GlossaryListReply = {
+  words: string[];
+};
+
+export type GlossaryAddBody = {
+  words: string[];
+};
+
+export type GlossaryAddReply = {
+  added: string[];
+};
+
+export type GlossaryRemoveBody = {
+  words: string[];
+};
+
+export type GlossaryRemoveReply = {
+  removed: number;
+};

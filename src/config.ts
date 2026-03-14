@@ -10,6 +10,8 @@ const configSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().min(1, "GOOGLE_CLIENT_ID is required"),
   GOOGLE_CLIENT_SECRET: z.string().min(1, "GOOGLE_CLIENT_SECRET is required"),
   RELAY_URL: z.string().min(1, "RELAY_URL is required"),
+  OPENAI_API_KEY: z.string().min(1, "OPENAI_API_KEY is required"),
+  OPENAI_TRANSCRIPTION_MODEL: z.string().min(1).default("gpt-4o-mini-transcribe"),
 });
 
 export type Config = z.infer<typeof configSchema>;
@@ -24,7 +26,7 @@ export function loadConfig(): Config {
     return cached;
   } catch (error) {
     if (error instanceof z.ZodError) {
-      const missingVars = error.errors.map((err) => `${err.path.join(".")}: ${err.message}`).join("\n");
+      const missingVars = error.issues.map((err) => `${err.path.join(".")}: ${err.message}`).join("\n");
       console.error("Configuration validation failed:\n" + missingVars);
       process.exit(1);
     }

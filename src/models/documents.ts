@@ -21,3 +21,12 @@ export const oauthAccountSchema = z.object({
 });
 
 export type OAuthAccount = z.infer<typeof oauthAccountSchema>;
+
+export const glossaryEntrySchema = z.object({
+  _id: z.instanceof(ObjectId),
+  userId: z.instanceof(ObjectId),
+  word: z.string(),
+  createdAt: z.date(),
+});
+
+export type GlossaryEntry = z.infer<typeof glossaryEntrySchema>;
