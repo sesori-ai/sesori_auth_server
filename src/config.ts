@@ -26,7 +26,7 @@ export function loadConfig(): Config {
     return cached;
   } catch (error) {
     if (error instanceof z.ZodError) {
-      const missingVars = error.errors.map((err) => `${err.path.join(".")}: ${err.message}`).join("\n");
+      const missingVars = error.issues.map((err) => `${err.path.join(".")}: ${err.message}`).join("\n");
       console.error("Configuration validation failed:\n" + missingVars);
       process.exit(1);
     }
