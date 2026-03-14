@@ -1,6 +1,6 @@
 import { Collection, Db } from "mongodb";
 import { getMongoDbConnector, MongoDBDatabase } from "./mongo-db-connector.js";
-import { User, OAuthAccount } from "../models/documents.js";
+import { User, OAuthAccount, GlossaryEntry } from "../models/documents.js";
 
 export { MongoDBDatabase } from "./mongo-db-connector.js";
 export { closeMongoDbConnector as closeDb } from "./mongo-db-connector.js";
@@ -8,6 +8,7 @@ export { closeMongoDbConnector as closeDb } from "./mongo-db-connector.js";
 export enum OAuthAccountCollection {
   Users = "users",
   OAuthAccounts = "oauthAccounts",
+  GlossaryEntries = "glossaryEntries",
 }
 
 type DatabaseCollectionMap = {
@@ -19,6 +20,7 @@ type CollectionFor<D extends MongoDBDatabase> = DatabaseCollectionMap[D];
 type CollectionDocumentMap = {
   [OAuthAccountCollection.Users]: User;
   [OAuthAccountCollection.OAuthAccounts]: OAuthAccount;
+  [OAuthAccountCollection.GlossaryEntries]: GlossaryEntry;
 };
 
 class DbClient<D extends MongoDBDatabase> {
