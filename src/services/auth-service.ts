@@ -1,11 +1,13 @@
 import { ObjectId } from "mongodb";
 import { GoogleClient } from "../clients/google-client.js";
 import { GithubClient } from "../clients/github-client.js";
+import { BadGatewayError, UnauthenticatedError } from "../lib/errors.js";
 import { refreshTokenPayloadSchema } from "../models/jwt.js";
 import { OAuthAccountRepository } from "../repositories/oauth-account-repo.js";
 import { UserRepository } from "../repositories/user-repo.js";
 import { TokenService } from "./token-service.js";
 
+/** @deprecated Kept temporarily for backward compatibility — will be removed once routes are migrated. */
 export class AuthServiceError extends Error {
   constructor(
     public readonly code: string,
@@ -51,13 +53,7 @@ export class AuthService {
       );
       accessToken = result.accessToken;
     } catch (error) {
-      if (error instanceof Error && error.message === "GITHUB_TOKEN_EXCHANGE_FAILED") {
-        throw new AuthServiceError("GITHUB_TOKEN_EXCHANGE_FAILED", error);
-      }
-      if (error instanceof Error && error.message === "INVALID_GITHUB_TOKEN_RESPONSE") {
-        throw new AuthServiceError("INVALID_GITHUB_TOKEN_RESPONSE", error);
-      }
-      throw error;
+      throw new BadGatewayError({ debugMessage: "GitHub token exchange failed", nestedError: error });
     }
 
     try {
@@ -68,13 +64,8 @@ export class AuthService {
         providerUsername: githubUser.login,
       });
     } catch (error) {
-      if (error instanceof Error && error.message === "GITHUB_USER_FETCH_FAILED") {
-        throw new AuthServiceError("GITHUB_USER_FETCH_FAILED", error);
-      }
-      if (error instanceof Error && error.message === "INVALID_GITHUB_USER_RESPONSE") {
-        throw new AuthServiceError("INVALID_GITHUB_USER_RESPONSE", error);
-      }
-      throw error;
+      if (error instanceof BadGatewayError) throw error;
+      throw new BadGatewayError({ debugMessage: "GitHub user fetch failed", nestedError: error });
     }
   }
 
@@ -100,30 +91,20 @@ export class AuthService {
         params.clientSecret,
       );
     } catch (error) {
-      if (error instanceof Error && error.message === "GOOGLE_TOKEN_EXCHANGE_FAILED") {
-        throw new AuthServiceError("GOOGLE_TOKEN_EXCHANGE_FAILED", error);
-      }
-      if (error instanceof Error && error.message === "INVALID_GOOGLE_TOKEN_RESPONSE") {
-        throw new AuthServiceError("INVALID_GOOGLE_TOKEN_RESPONSE", error);
-      }
-      throw error;
+      throw new BadGatewayError({ debugMessage: "Google token exchange failed", nestedError: error });
     }
 
-    let googleUser: { sub: string; name?: string };
     try {
-      googleUser = GoogleClient.decodeIdToken(tokenData.idToken, params.clientId);
+      const googleUser = GoogleClient.decodeIdToken(tokenData.idToken, params.clientId);
+      return AuthService.upsertFromOAuth({
+        provider: "google",
+        providerUserId: googleUser.sub,
+        providerUsername: googleUser.name ?? null,
+      });
     } catch (error) {
-      if (error instanceof Error && error.message === "INVALID_GOOGLE_ID_TOKEN_PAYLOAD") {
-        throw new AuthServiceError("INVALID_GOOGLE_ID_TOKEN_PAYLOAD", error);
-      }
-      throw new AuthServiceError("INVALID_GOOGLE_ID_TOKEN", error);
+      if (error instanceof BadGatewayError) throw error;
+      throw new BadGatewayError({ debugMessage: "Google ID token decode failed", nestedError: error });
     }
-
-    return AuthService.upsertFromOAuth({
-      provider: "google",
-      providerUserId: googleUser.sub,
-      providerUsername: googleUser.name ?? null,
-    });
   }
 
   static async upsertFromOAuth(params: {
@@ -197,22 +178,22 @@ export class AuthService {
       userId = payload.userId;
       tokenVersion = payload.tokenVersion;
     } catch (error) {
-      throw new AuthServiceError("UNAUTHORIZED", error);
+      throw new UnauthenticatedError({ debugMessage: "Refresh token verification failed", nestedError: error });
     }
 
     const userObjectId = new ObjectId(userId);
     const user = await UserRepository.findById(userObjectId);
     if (!user) {
-      throw new AuthServiceError("UNAUTHORIZED");
+      throw new UnauthenticatedError({ debugMessage: "User not found for refresh token" });
     }
 
     if (user.tokenVersion !== tokenVersion) {
-      throw new AuthServiceError("UNAUTHORIZED");
+      throw new UnauthenticatedError({ debugMessage: "Token version mismatch (revoked)" });
     }
 
     const oauthAccount = await OAuthAccountRepository.findByUserId(userObjectId);
     if (!oauthAccount) {
-      throw new AuthServiceError("UNAUTHORIZED");
+      throw new UnauthenticatedError({ debugMessage: "OAuth account not found for refresh token" });
     }
 
     return AuthService.signTokensForUser({
