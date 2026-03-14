@@ -1,22 +1,21 @@
 import Fastify, { FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
+import { ApiError } from "./lib/errors.js";
 import { tokenRoutes } from "./routes/token.js";
 import { githubRoutes } from "./routes/github.js";
 import { googleRoutes } from "./routes/google.js";
+
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: true,
+    disableRequestLogging: true,
   });
 
-  // Register CORS
   await app.register(cors, {
     origin: true,
   });
 
-  // Decorate request with user for auth middleware (must be before routes)
   app.decorateRequest("user", null);
 
-  // Health check endpoint
   app.get<{ Reply: { status: "ok" } }>("/health", async () => {
     return { status: "ok" };
   });
@@ -25,12 +24,16 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(githubRoutes);
   await app.register(googleRoutes);
 
-  // Global error handler
-  app.setErrorHandler((error, _request, reply) => {
-    app.log.error(error);
-    reply.status(500).send({
-      error: "Internal server error",
-    });
+  app.setErrorHandler((error, request, reply) => {
+    if (error instanceof ApiError) {
+      if (error.debugMessage || error.nestedError) {
+        console.error(`[${error.name}] ${error.debugMessage ?? error.message}`, error.nestedError ?? "");
+      }
+      return reply.status(error.errorCode).send({ error: error.message });
+    }
+
+    console.error("[UnhandledError]", error);
+    return reply.status(500).send({ error: "internal_server_error" });
   });
 
   return app;
