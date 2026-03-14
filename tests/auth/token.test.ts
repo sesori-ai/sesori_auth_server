@@ -64,7 +64,7 @@ describe("Token routes", () => {
       });
 
       assert.equal(res.statusCode, 401);
-      assert.equal(res.json<{ error: string }>().error, "unauthorized");
+      assert.equal(res.json<{ error: string }>().error, "unauthenticated");
     });
 
     it("returns 401 for a syntactically invalid token", async () => {

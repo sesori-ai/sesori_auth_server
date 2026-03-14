@@ -1,8 +1,10 @@
 import { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { loadConfig } from "../config.js";
+import { BadRequestError } from "../lib/errors.js";
 import { StateStore } from "../lib/state-store.js";
-import { AuthService, AuthServiceError } from "../services/auth-service.js";
+import type { OAuthInitQuery, OAuthInitReply, OAuthCallbackBody, AuthTokensReply } from "../models/api.js";
+import { AuthService } from "../services/auth-service.js";
 
 const googleInitQuerySchema = z.object({
   redirect_uri: z.string().min(1),
@@ -17,23 +19,13 @@ const googleCallbackBodySchema = z.object({
   redirectUri: z.string().min(1),
 });
 
-const GOOGLE_ERRORS: Record<string, string> = {
-  GOOGLE_TOKEN_EXCHANGE_FAILED: "Google token exchange failed",
-  INVALID_GOOGLE_TOKEN_RESPONSE: "Invalid Google token response",
-  INVALID_GOOGLE_ID_TOKEN: "Failed to decode Google ID token",
-  INVALID_GOOGLE_ID_TOKEN_PAYLOAD: "Invalid Google ID token payload",
-};
-
 export const googleRoutes: FastifyPluginAsync = async (fastify) => {
   const config = loadConfig();
 
-  fastify.get("/auth/google", async (request, reply) => {
+  fastify.get<{ Querystring: OAuthInitQuery; Reply: OAuthInitReply }>("/auth/google", async (request) => {
     const queryResult = googleInitQuerySchema.safeParse(request.query);
     if (!queryResult.success) {
-      return reply.status(400).send({
-        error: "Invalid query parameters",
-        details: queryResult.error.errors,
-      });
+      throw new BadRequestError({ debugMessage: "Invalid query parameters", nestedError: queryResult.error.errors });
     }
 
     const { redirect_uri, code_challenge, code_challenge_method } = queryResult.data;
@@ -56,35 +48,23 @@ export const googleRoutes: FastifyPluginAsync = async (fastify) => {
     };
   });
 
-  fastify.post("/auth/google/callback", async (request, reply) => {
+  fastify.post<{ Body: OAuthCallbackBody; Reply: AuthTokensReply }>("/auth/google/callback", async (request) => {
     const bodyResult = googleCallbackBodySchema.safeParse(request.body);
     if (!bodyResult.success) {
-      return reply.status(400).send({
-        error: "Invalid request body",
-        details: bodyResult.error.errors,
-      });
+      throw new BadRequestError({ debugMessage: "Invalid request body", nestedError: bodyResult.error.errors });
     }
 
     const { code, codeVerifier, state, redirectUri } = bodyResult.data;
     if (!StateStore.validateState(state)) {
-      return reply.status(400).send({ error: "Invalid or expired state" });
+      throw new BadRequestError({ debugMessage: "Invalid or expired state" });
     }
 
-    try {
-      return await AuthService.authenticateGoogle({
-        code,
-        codeVerifier,
-        redirectUri,
-        clientId: config.GOOGLE_CLIENT_ID,
-        clientSecret: config.GOOGLE_CLIENT_SECRET,
-      });
-    } catch (error) {
-      if (error instanceof AuthServiceError && error.code in GOOGLE_ERRORS) {
-        request.log.warn(error, GOOGLE_ERRORS[error.code]);
-        return reply.status(502).send({ error: error.code.toLowerCase() });
-      }
-
-      throw error;
-    }
+    return await AuthService.authenticateGoogle({
+      code,
+      codeVerifier,
+      redirectUri,
+      clientId: config.GOOGLE_CLIENT_ID,
+      clientSecret: config.GOOGLE_CLIENT_SECRET,
+    });
   });
 };

@@ -1,8 +1,10 @@
 import { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { loadConfig } from "../config.js";
+import { BadRequestError } from "../lib/errors.js";
 import { StateStore } from "../lib/state-store.js";
-import { AuthService, AuthServiceError } from "../services/auth-service.js";
+import type { OAuthInitQuery, OAuthInitReply, OAuthCallbackBody, AuthTokensReply } from "../models/api.js";
+import { AuthService } from "../services/auth-service.js";
 
 const githubInitQuerySchema = z.object({
   redirect_uri: z.string().min(1),
@@ -17,23 +19,13 @@ const githubCallbackBodySchema = z.object({
   redirectUri: z.string().min(1),
 });
 
-const GITHUB_ERRORS: Record<string, string> = {
-  GITHUB_TOKEN_EXCHANGE_FAILED: "GitHub token exchange failed",
-  INVALID_GITHUB_TOKEN_RESPONSE: "Invalid GitHub token response",
-  GITHUB_USER_FETCH_FAILED: "GitHub user fetch failed",
-  INVALID_GITHUB_USER_RESPONSE: "Invalid GitHub user response",
-};
-
 export const githubRoutes: FastifyPluginAsync = async (fastify) => {
   const config = loadConfig();
 
-  fastify.get("/auth/github", async (request, reply) => {
+  fastify.get<{ Querystring: OAuthInitQuery; Reply: OAuthInitReply }>("/auth/github", async (request) => {
     const queryResult = githubInitQuerySchema.safeParse(request.query);
     if (!queryResult.success) {
-      return reply.status(400).send({
-        error: "Invalid query parameters",
-        details: queryResult.error.errors,
-      });
+      throw new BadRequestError({ debugMessage: "Invalid query parameters", nestedError: queryResult.error.errors });
     }
 
     const { redirect_uri, code_challenge, code_challenge_method } = queryResult.data;
@@ -53,35 +45,23 @@ export const githubRoutes: FastifyPluginAsync = async (fastify) => {
     };
   });
 
-  fastify.post("/auth/github/callback", async (request, reply) => {
+  fastify.post<{ Body: OAuthCallbackBody; Reply: AuthTokensReply }>("/auth/github/callback", async (request) => {
     const bodyResult = githubCallbackBodySchema.safeParse(request.body);
     if (!bodyResult.success) {
-      return reply.status(400).send({
-        error: "Invalid request body",
-        details: bodyResult.error.errors,
-      });
+      throw new BadRequestError({ debugMessage: "Invalid request body", nestedError: bodyResult.error.errors });
     }
 
     const { code, codeVerifier, state, redirectUri } = bodyResult.data;
     if (!StateStore.validateState(state)) {
-      return reply.status(400).send({ error: "Invalid or expired state" });
+      throw new BadRequestError({ debugMessage: "Invalid or expired state" });
     }
 
-    try {
-      return await AuthService.authenticateGithub({
-        code,
-        codeVerifier,
-        redirectUri,
-        clientId: config.GITHUB_CLIENT_ID,
-        clientSecret: config.GITHUB_CLIENT_SECRET,
-      });
-    } catch (error) {
-      if (error instanceof AuthServiceError && error.code in GITHUB_ERRORS) {
-        request.log.warn(error, GITHUB_ERRORS[error.code]);
-        return reply.status(502).send({ error: error.code.toLowerCase() });
-      }
-
-      throw error;
-    }
+    return await AuthService.authenticateGithub({
+      code,
+      codeVerifier,
+      redirectUri,
+      clientId: config.GITHUB_CLIENT_ID,
+      clientSecret: config.GITHUB_CLIENT_SECRET,
+    });
   });
 };

@@ -55,7 +55,7 @@ describe("POST /auth/revoke", () => {
     });
 
     assert.equal(refreshRes.statusCode, 401);
-    assert.equal(refreshRes.json<{ error: string }>().error, "unauthorized");
+    assert.equal(refreshRes.json<{ error: string }>().error, "unauthenticated");
   });
 });
 

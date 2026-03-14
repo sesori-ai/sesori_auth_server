@@ -1,4 +1,5 @@
 import { FastifyRequest, FastifyReply } from "fastify";
+import { UnauthenticatedError } from "../lib/errors.js";
 import { TokenService } from "../services/token-service.js";
 import { accessTokenPayloadSchema, type AccessTokenPayload } from "../models/jwt.js";
 
@@ -8,12 +9,11 @@ declare module "fastify" {
   }
 }
 
-export async function requireAuth(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+export async function requireAuth(request: FastifyRequest, _reply: FastifyReply): Promise<void> {
   const authHeader = request.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    await reply.status(401).send({ error: "unauthorized" });
-    return;
+    throw new UnauthenticatedError();
   }
 
   const token = authHeader.slice(7);
@@ -22,16 +22,17 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply):
     const raw = TokenService.verifyToken(token);
     const result = accessTokenPayloadSchema.safeParse(raw);
     if (!result.success) {
-      request.log.warn(
-        { reason: "invalid_payload", issues: result.error.issues },
-        "Auth token payload validation failed",
-      );
-      await reply.status(401).send({ error: "unauthorized" });
-      return;
+      throw new UnauthenticatedError({
+        debugMessage: "Auth token payload validation failed",
+        nestedError: result.error.issues,
+      });
     }
     request.user = result.data;
-  } catch (e) {
-    request.log.warn(e, "Auth token verification failed");
-    await reply.status(401).send({ error: "unauthorized" });
+  } catch (error) {
+    if (error instanceof UnauthenticatedError) throw error;
+    throw new UnauthenticatedError({
+      debugMessage: "Auth token verification failed",
+      nestedError: error,
+    });
   }
 }
