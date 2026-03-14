@@ -7,17 +7,6 @@ import { OAuthAccountRepository } from "../repositories/oauth-account-repo.js";
 import { UserRepository } from "../repositories/user-repo.js";
 import { TokenService } from "./token-service.js";
 
-/** @deprecated Kept temporarily for backward compatibility — will be removed once routes are migrated. */
-export class AuthServiceError extends Error {
-  constructor(
-    public readonly code: string,
-    cause?: unknown,
-  ) {
-    super(code);
-    this.cause = cause;
-  }
-}
-
 type OAuthProvider = "github" | "google";
 
 type AuthResult = {

@@ -1,6 +1,7 @@
 import Fastify, { FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import { ApiError } from "./lib/errors.js";
+import type { HealthReply } from "./models/api.js";
 import { tokenRoutes } from "./routes/token.js";
 import { githubRoutes } from "./routes/github.js";
 import { googleRoutes } from "./routes/google.js";
@@ -16,7 +17,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.decorateRequest("user", null);
 
-  app.get<{ Reply: { status: "ok" } }>("/health", async () => {
+  app.get<{ Reply: HealthReply }>("/health", async () => {
     return { status: "ok" };
   });
 

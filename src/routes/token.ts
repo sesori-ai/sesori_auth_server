@@ -1,67 +1,29 @@
 import { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
+import { BadRequestError, NotFoundError } from "../lib/errors.js";
 import { requireAuth } from "../middleware/auth.js";
-import { AuthService, AuthServiceError } from "../services/auth-service.js";
+import type { RefreshBody, AuthTokensReply, MeReply, SuccessReply } from "../models/api.js";
+import { AuthService } from "../services/auth-service.js";
 import { TokenService } from "../services/token-service.js";
 
 const refreshBodySchema = z.object({
   refreshToken: z.string(),
 });
 
-type RefreshBody = z.infer<typeof refreshBodySchema>;
-type RefreshReply = {
-  accessToken: string;
-  refreshToken: string;
-  user: {
-    id: string;
-    provider: string;
-    providerUserId: string;
-    providerUsername: string | null;
-  };
-};
-
-type MeReply = {
-  user: {
-    id: string;
-    provider: string;
-    providerUserId: string;
-    providerUsername: string | null;
-  };
-};
-
-type SuccessReply = { success: true };
-
-type ErrorReply = { error: string; details?: unknown };
-
 export const tokenRoutes: FastifyPluginAsync = async (fastify) => {
-  fastify.post<{ Body: RefreshBody; Reply: RefreshReply | ErrorReply }>("/auth/refresh", async (request, reply) => {
+  fastify.post<{ Body: RefreshBody; Reply: AuthTokensReply }>("/auth/refresh", async (request) => {
     const bodyResult = refreshBodySchema.safeParse(request.body);
     if (!bodyResult.success) {
-      reply.status(400).send({
-        error: "Invalid request body",
-        details: bodyResult.error.errors,
-      });
-      return;
+      throw new BadRequestError({ debugMessage: "Invalid request body", nestedError: bodyResult.error.errors });
     }
 
-    try {
-      return await AuthService.refreshAuthTokens(bodyResult.data.refreshToken);
-    } catch (error) {
-      if (error instanceof AuthServiceError && error.code === "UNAUTHORIZED") {
-        request.log.warn(error, "Refresh token verification failed");
-        reply.status(401).send({ error: "unauthorized" });
-        return;
-      }
-
-      throw error;
-    }
+    return await AuthService.refreshAuthTokens(bodyResult.data.refreshToken);
   });
 
-  fastify.get<{ Reply: MeReply | ErrorReply }>("/auth/me", { preHandler: requireAuth }, async (request, reply) => {
+  fastify.get<{ Reply: MeReply }>("/auth/me", { preHandler: requireAuth }, async (request) => {
     const profile = await AuthService.findUserAuthProfile(request.user!.userId);
     if (!profile) {
-      reply.status(404).send({ error: "User not found" });
-      return;
+      throw new NotFoundError({ debugMessage: "User not found" });
     }
 
     return { user: profile };
