@@ -1,3 +1,4 @@
+import { OpenAIClient } from "./clients/openai-client.js";
 import { loadConfig } from "./config.js";
 import { closeDb } from "./db/db-client.js";
 import { DatabaseAccessor } from "./db/database-accessor.js";
@@ -13,6 +14,9 @@ async function main() {
 
   TokenService.setKeys(config.JWT_PRIVATE_KEY, config.JWT_PUBLIC_KEY);
   console.log("JWT keys loaded");
+
+  OpenAIClient.init({ apiKey: config.OPENAI_API_KEY, model: config.OPENAI_TRANSCRIPTION_MODEL });
+  console.log(`OpenAI client initialized (model: ${config.OPENAI_TRANSCRIPTION_MODEL})`);
 
   const app = await buildApp();
 
