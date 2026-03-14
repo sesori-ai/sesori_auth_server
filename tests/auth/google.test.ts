@@ -105,7 +105,7 @@ describe("Google OAuth routes", () => {
       });
 
       assert.equal(res.statusCode, 400);
-      assert.equal(res.json<{ error: string }>().error, "Invalid or expired state");
+      assert.equal(res.json<{ error: string }>().error, "bad_request");
     });
 
     it("returns 400 when required body fields are missing", async () => {
@@ -156,7 +156,7 @@ describe("Google OAuth routes", () => {
 
       // Should NOT fail with "Invalid or expired state" — state was valid
       assert.ok(
-        callbackRes.statusCode !== 400 || callbackRes.json<{ error: string }>().error !== "Invalid or expired state",
+        callbackRes.statusCode !== 400 || callbackRes.json<{ error: string }>().error !== "bad_request",
         "Should not fail on state validation when using a real state token",
       );
     });

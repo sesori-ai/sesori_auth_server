@@ -17,15 +17,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.decorateRequest("user", null);
 
-  app.get<{ Reply: HealthReply }>("/health", async () => {
-    return { status: "ok" };
-  });
-
-  await app.register(tokenRoutes);
-  await app.register(githubRoutes);
-  await app.register(googleRoutes);
-
-  app.setErrorHandler((error, request, reply) => {
+  app.setErrorHandler((error, _request, reply) => {
     if (error instanceof ApiError) {
       if (error.debugMessage || error.nestedError) {
         console.error(`[${error.name}] ${error.debugMessage ?? error.message}`, error.nestedError ?? "");
@@ -36,6 +28,14 @@ export async function buildApp(): Promise<FastifyInstance> {
     console.error("[UnhandledError]", error);
     return reply.status(500).send({ error: "internal_server_error" });
   });
+
+  app.get<{ Reply: HealthReply }>("/health", async () => {
+    return { status: "ok" };
+  });
+
+  await app.register(tokenRoutes);
+  await app.register(githubRoutes);
+  await app.register(googleRoutes);
 
   return app;
 }

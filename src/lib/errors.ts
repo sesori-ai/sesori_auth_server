@@ -6,6 +6,7 @@ export class ApiError extends Error {
     public readonly nestedError?: unknown,
   ) {
     super(message);
+    Object.setPrototypeOf(this, new.target.prototype);
     this.name = this.constructor.name;
   }
 }
