@@ -7,13 +7,19 @@ const MAX_GLOSSARY_SIZE = 500;
 export class VoiceService {
   private constructor() {}
 
-  static async transcribe(args: { userId: ObjectId; fileBuffer: Buffer; filename: string }): Promise<string> {
+  static async transcribe(args: {
+    userId: ObjectId;
+    fileBuffer: Buffer;
+    filename: string;
+    mimetype: string;
+  }): Promise<string> {
     const glossaryWords = await VoiceService.getGlossaryWords(args.userId);
     const prompt = VoiceService.buildTranscriptionPrompt(glossaryWords);
 
     return OpenAIClient.transcribe({
       fileBuffer: args.fileBuffer,
       filename: args.filename,
+      mimetype: args.mimetype,
       prompt: prompt ?? undefined,
     });
   }
@@ -31,7 +37,9 @@ export class VoiceService {
       return [];
     }
 
-    const wordsToAdd = args.words.slice(0, remaining);
+    const existingWords = new Set(currentEntries.map((e) => e.word));
+    const newWords = args.words.filter((w) => !existingWords.has(w));
+    const wordsToAdd = newWords.slice(0, remaining);
     return GlossaryEntryRepository.insertMany({ userId: args.userId, words: wordsToAdd });
   }
 

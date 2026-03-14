@@ -130,7 +130,7 @@ describe("POST /voice/transcribe", () => {
     mock.method(
       OpenAIClient,
       "transcribe",
-      async (args: { fileBuffer: Buffer; filename: string; prompt?: string }) => {
+      async (args: { fileBuffer: Buffer; filename: string; mimetype: string; prompt?: string }) => {
         capturedPrompt = args.prompt;
         return "Sesori uses XChaCha20 encryption.";
       },
@@ -166,7 +166,7 @@ describe("POST /voice/transcribe", () => {
     mock.method(
       OpenAIClient,
       "transcribe",
-      async (args: { fileBuffer: Buffer; filename: string; prompt?: string }) => {
+      async (args: { fileBuffer: Buffer; filename: string; mimetype: string; prompt?: string }) => {
         capturedPrompt = args.prompt;
         return "Hello world.";
       },

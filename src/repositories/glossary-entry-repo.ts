@@ -1,4 +1,4 @@
-import { ObjectId } from "mongodb";
+import { MongoBulkWriteError, ObjectId } from "mongodb";
 import { DatabaseAccessor } from "../db/database-accessor.js";
 import type { GlossaryEntry } from "../models/documents.js";
 
@@ -27,10 +27,11 @@ export class GlossaryEntryRepository {
       return docs.filter((d) => insertedIds.has(d._id.toHexString())).map((d) => d.word);
     } catch (error: unknown) {
       // ordered:false + duplicate key (11000) → throws but non-duplicate inserts still succeed.
-      if (isBulkWriteError(error)) {
+      if (error instanceof MongoBulkWriteError && error.code === 11000) {
         const insertedCount = error.result?.insertedCount ?? 0;
         if (insertedCount > 0) {
-          const failedIndices = new Set(error.writeErrors?.map((e: { index: number }) => e.index) ?? []);
+          const errors = Array.isArray(error.writeErrors) ? error.writeErrors : [error.writeErrors];
+          const failedIndices = new Set(errors.map((e) => e.index));
           return docs.filter((_, i) => !failedIndices.has(i)).map((d) => d.word);
         }
         return [];
@@ -49,17 +50,4 @@ export class GlossaryEntryRepository {
     });
     return result.deletedCount;
   }
-}
-
-function isBulkWriteError(error: unknown): error is {
-  code: number;
-  result?: { insertedCount: number };
-  writeErrors?: Array<{ index: number }>;
-} {
-  return (
-    error !== null &&
-    typeof error === "object" &&
-    "code" in error &&
-    (error as { code: unknown }).code === 11000
-  );
 }

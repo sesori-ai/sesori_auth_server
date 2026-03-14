@@ -15,12 +15,17 @@ export class OpenAIClient {
     transcriptionModel = args.model;
   }
 
-  static async transcribe(args: { fileBuffer: Buffer; filename: string; prompt?: string }): Promise<string> {
+  static async transcribe(args: {
+    fileBuffer: Buffer;
+    filename: string;
+    mimetype: string;
+    prompt?: string;
+  }): Promise<string> {
     if (!client) {
       throw new Error("OpenAI client not initialized — call OpenAIClient.init() first");
     }
 
-    const file = await toFile(args.fileBuffer, args.filename, { type: "audio/m4a" });
+    const file = await toFile(args.fileBuffer, args.filename, { type: args.mimetype });
 
     const response = await client.audio.transcriptions.create({
       file,

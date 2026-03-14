@@ -29,58 +29,54 @@ export const voiceRoutes: FastifyPluginAsync = async (fastify) => {
     limits: { fileSize: AUDIO_MAX_FILE_SIZE, files: 1 },
   });
 
-  fastify.post<{ Reply: TranscribeReply }>(
-    "/voice/transcribe",
-    { preHandler: requireAuth },
-    async (request) => {
-      let file;
-      try {
-        file = await request.file();
-      } catch {
-        throw new BadRequestError({ debugMessage: "Request must be multipart/form-data with an audio file" });
+  fastify.post<{ Reply: TranscribeReply }>("/voice/transcribe", { preHandler: requireAuth }, async (request) => {
+    let file;
+    try {
+      file = await request.file();
+    } catch (error) {
+      throw new BadRequestError({
+        debugMessage: "Request must be multipart/form-data with an audio file",
+        nestedError: error,
+      });
+    }
+    if (!file) {
+      throw new BadRequestError({ debugMessage: "No audio file provided" });
+    }
+
+    const buffer = await file.toBuffer();
+    if (buffer.length === 0) {
+      throw new BadRequestError({ debugMessage: "Audio file is empty" });
+    }
+
+    const userId = new ObjectId(request.user!.userId);
+
+    try {
+      const text = await VoiceService.transcribe({
+        userId,
+        fileBuffer: buffer,
+        filename: file.filename,
+        mimetype: file.mimetype,
+      });
+
+      if (!text || text.trim().length === 0) {
+        throw new InternalServerError({ debugMessage: "Transcription returned empty text" });
       }
-      if (!file) {
-        throw new BadRequestError({ debugMessage: "No audio file provided" });
-      }
 
-      const buffer = await file.toBuffer();
-      if (buffer.length === 0) {
-        throw new BadRequestError({ debugMessage: "Audio file is empty" });
-      }
+      return { text };
+    } catch (error) {
+      if (error instanceof BadRequestError || error instanceof InternalServerError) throw error;
+      throw new InternalServerError({
+        debugMessage: "Transcription failed",
+        nestedError: error,
+      });
+    }
+  });
 
-      const userId = new ObjectId(request.user!.userId);
-
-      try {
-        const text = await VoiceService.transcribe({
-          userId,
-          fileBuffer: buffer,
-          filename: file.filename,
-        });
-
-        if (!text || text.trim().length === 0) {
-          throw new InternalServerError({ debugMessage: "Transcription returned empty text" });
-        }
-
-        return { text };
-      } catch (error) {
-        if (error instanceof BadRequestError || error instanceof InternalServerError) throw error;
-        throw new InternalServerError({
-          debugMessage: "Transcription failed",
-          nestedError: error,
-        });
-      }
-    },
-  );
-
-  fastify.get<{ Reply: GlossaryListReply }>(
-    "/voice/glossary",
-    { preHandler: requireAuth },
-    async (request) => {
-      const userId = new ObjectId(request.user!.userId);
-      const words = await VoiceService.getGlossaryWords(userId);
-      return { words };
-    },
-  );
+  fastify.get<{ Reply: GlossaryListReply }>("/voice/glossary", { preHandler: requireAuth }, async (request) => {
+    const userId = new ObjectId(request.user!.userId);
+    const words = await VoiceService.getGlossaryWords(userId);
+    return { words };
+  });
 
   fastify.post<{ Body: GlossaryAddBody; Reply: GlossaryAddReply }>(
     "/voice/glossary",

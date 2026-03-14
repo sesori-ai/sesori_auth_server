@@ -82,6 +82,7 @@ jobs:
             -e GOOGLE_CLIENT_ID=ci-test \
             -e GOOGLE_CLIENT_SECRET=ci-test \
             -e RELAY_URL=ws://localhost:8080 \
+            -e OPENAI_API_KEY=ci-test \
             auth-backend:ci
           sleep 3
 
