@@ -14,7 +14,7 @@ export const tokenRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{ Body: RefreshBody; Reply: AuthTokensReply }>("/auth/refresh", async (request) => {
     const bodyResult = refreshBodySchema.safeParse(request.body);
     if (!bodyResult.success) {
-      throw new BadRequestError({ debugMessage: "Invalid request body", nestedError: bodyResult.error.errors });
+      throw new BadRequestError({ debugMessage: "Invalid request body", nestedError: bodyResult.error.issues });
     }
 
     return await AuthService.refreshAuthTokens(bodyResult.data.refreshToken);

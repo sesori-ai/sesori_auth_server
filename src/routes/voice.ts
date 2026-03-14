@@ -84,7 +84,7 @@ export const voiceRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       const bodyResult = glossaryAddBodySchema.safeParse(request.body);
       if (!bodyResult.success) {
-        throw new BadRequestError({ debugMessage: "Invalid request body", nestedError: bodyResult.error.errors });
+        throw new BadRequestError({ debugMessage: "Invalid request body", nestedError: bodyResult.error.issues });
       }
 
       const userId = new ObjectId(request.user!.userId);
@@ -99,7 +99,7 @@ export const voiceRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       const bodyResult = glossaryRemoveBodySchema.safeParse(request.body);
       if (!bodyResult.success) {
-        throw new BadRequestError({ debugMessage: "Invalid request body", nestedError: bodyResult.error.errors });
+        throw new BadRequestError({ debugMessage: "Invalid request body", nestedError: bodyResult.error.issues });
       }
 
       const userId = new ObjectId(request.user!.userId);
