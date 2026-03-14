@@ -8,14 +8,40 @@ const refreshBodySchema = z.object({
   refreshToken: z.string(),
 });
 
+type RefreshBody = z.infer<typeof refreshBodySchema>;
+type RefreshReply = {
+  accessToken: string;
+  refreshToken: string;
+  user: {
+    id: string;
+    provider: string;
+    providerUserId: string;
+    providerUsername: string | null;
+  };
+};
+
+type MeReply = {
+  user: {
+    id: string;
+    provider: string;
+    providerUserId: string;
+    providerUsername: string | null;
+  };
+};
+
+type SuccessReply = { success: true };
+
+type ErrorReply = { error: string; details?: unknown };
+
 export const tokenRoutes: FastifyPluginAsync = async (fastify) => {
-  fastify.post("/auth/refresh", async (request, reply) => {
+  fastify.post<{ Body: RefreshBody; Reply: RefreshReply | ErrorReply }>("/auth/refresh", async (request, reply) => {
     const bodyResult = refreshBodySchema.safeParse(request.body);
     if (!bodyResult.success) {
-      return reply.status(400).send({
+      reply.status(400).send({
         error: "Invalid request body",
         details: bodyResult.error.errors,
       });
+      return;
     }
 
     try {
@@ -23,34 +49,36 @@ export const tokenRoutes: FastifyPluginAsync = async (fastify) => {
     } catch (error) {
       if (error instanceof AuthServiceError && error.code === "UNAUTHORIZED") {
         request.log.warn(error, "Refresh token verification failed");
-        return reply.status(401).send({ error: "unauthorized" });
+        reply.status(401).send({ error: "unauthorized" });
+        return;
       }
 
       throw error;
     }
   });
 
-  fastify.get("/auth/me", { preHandler: requireAuth }, async (request, reply) => {
+  fastify.get<{ Reply: MeReply | ErrorReply }>("/auth/me", { preHandler: requireAuth }, async (request, reply) => {
     const profile = await AuthService.findUserAuthProfile(request.user!.userId);
     if (!profile) {
-      return reply.status(404).send({ error: "User not found" });
+      reply.status(404).send({ error: "User not found" });
+      return;
     }
 
     return { user: profile };
   });
 
-  fastify.post("/auth/logout", { preHandler: requireAuth }, async (request) => {
+  fastify.post<{ Body: void; Reply: SuccessReply }>("/auth/logout", { preHandler: requireAuth }, async (request) => {
     await AuthService.logoutUser(request.user!.userId);
     return { success: true };
   });
 
-  fastify.post("/auth/revoke", { preHandler: requireAuth }, async (request) => {
+  fastify.post<{ Body: void; Reply: SuccessReply }>("/auth/revoke", { preHandler: requireAuth }, async (request) => {
     await AuthService.revoke(request.user!.userId);
     return { success: true };
   });
 
-  fastify.get("/auth/public-key", async (_request, reply) => {
+  fastify.get<{ Reply: string }>("/auth/public-key", async (_request, reply) => {
     const key = TokenService.getPublicKey();
-    return reply.type("text/plain").send(key);
+    reply.type("text/plain").send(key);
   });
 };

@@ -17,7 +17,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.decorateRequest("user", null);
 
   // Health check endpoint
-  app.get("/health", async () => {
+  app.get<{ Reply: { status: "ok" } }>("/health", async () => {
     return { status: "ok" };
   });
 
