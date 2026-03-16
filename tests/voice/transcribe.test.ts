@@ -4,6 +4,9 @@ import { ObjectId } from "mongodb";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
 import { OpenAIClient } from "../../src/clients/openai-client.js";
 import { DatabaseAccessor } from "../../src/db/database-accessor.js";
+import { VoiceService } from "../../src/services/voice-service.js";
+import { BadGatewayError } from "../../src/lib/errors.js";
+import { todayUtcDateKey } from "../../src/repositories/transcription-usage-repo.js";
 
 const BOUNDARY = "----TestBoundary9876543210";
 
@@ -25,10 +28,6 @@ function buildMultipartPayload(args: { fieldName: string; filename: string; cont
     body: Buffer.concat(parts),
     contentType: `multipart/form-data; boundary=${BOUNDARY}`,
   };
-}
-
-function todayUtcDateKey(): string {
-  return new Date().toISOString().slice(0, 10);
 }
 
 describe("POST /voice/transcribe", () => {
@@ -231,6 +230,34 @@ describe("POST /voice/transcribe", () => {
     });
 
     assert.equal(res.statusCode, 500);
+  });
+
+  it("preserves original status code when service throws an ApiError subclass", async () => {
+    const user = await ctx.createUser();
+
+    mock.method(VoiceService, "transcribe", async () => {
+      throw new BadGatewayError({ debugMessage: "Upstream provider unavailable" });
+    });
+
+    const { body, contentType } = buildMultipartPayload({
+      fieldName: "audio",
+      filename: "test.m4a",
+      content: Buffer.from("fake-audio-data-for-testing"),
+      contentType: "audio/m4a",
+    });
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/voice/transcribe",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": contentType,
+      },
+      payload: body,
+    });
+
+    assert.equal(res.statusCode, 502);
+    assert.deepEqual(res.json(), { error: "bad_gateway" });
   });
 
   it("returns 500 when OpenAI throws an error", async () => {

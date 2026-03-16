@@ -1,7 +1,7 @@
 import { ObjectId } from "mongodb";
 import { DatabaseAccessor } from "../db/database-accessor.js";
 
-function todayUtcDateKey(): string {
+export function todayUtcDateKey(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
@@ -27,6 +27,9 @@ export class TranscriptionUsageRepository {
       },
       { upsert: true, returnDocument: "after" },
     );
-    return result!.usedSeconds;
+    if (!result) {
+      throw new Error("Failed to upsert transcription usage document");
+    }
+    return result.usedSeconds;
   }
 }
