@@ -47,6 +47,7 @@ export type HealthReply = {
 
 export type TranscribeReply = {
   text: string;
+  dailySecondsRemaining: number;
 };
 
 export type GlossaryListReply = {

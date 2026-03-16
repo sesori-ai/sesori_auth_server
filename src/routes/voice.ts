@@ -2,7 +2,7 @@ import { FastifyPluginAsync } from "fastify";
 import multipart from "@fastify/multipart";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
-import { BadRequestError, InternalServerError } from "../lib/errors.js";
+import { BadRequestError, InternalServerError, QuotaExceededError } from "../lib/errors.js";
 import { requireAuth } from "../middleware/auth.js";
 import type {
   TranscribeReply,
@@ -51,20 +51,25 @@ export const voiceRoutes: FastifyPluginAsync = async (fastify) => {
     const userId = new ObjectId(request.user!.userId);
 
     try {
-      const text = await VoiceService.transcribe({
+      const result = await VoiceService.transcribe({
         userId,
         fileBuffer: buffer,
         filename: file.filename,
         mimetype: file.mimetype,
       });
 
-      if (!text || text.trim().length === 0) {
+      if (!result.text || result.text.trim().length === 0) {
         throw new InternalServerError({ debugMessage: "Transcription returned empty text" });
       }
 
-      return { text };
+      return { text: result.text, dailySecondsRemaining: result.dailySecondsRemaining };
     } catch (error) {
-      if (error instanceof BadRequestError || error instanceof InternalServerError) throw error;
+      if (
+        error instanceof BadRequestError ||
+        error instanceof InternalServerError ||
+        error instanceof QuotaExceededError
+      )
+        throw error;
       throw new InternalServerError({
         debugMessage: "Transcription failed",
         nestedError: error,

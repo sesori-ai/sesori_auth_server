@@ -1,8 +1,11 @@
 import { ObjectId } from "mongodb";
 import { GlossaryEntryRepository } from "../repositories/glossary-entry-repo.js";
+import { TranscriptionUsageRepository } from "../repositories/transcription-usage-repo.js";
 import { OpenAIClient } from "../clients/openai-client.js";
+import { QuotaExceededError } from "../lib/errors.js";
 
 const MAX_GLOSSARY_SIZE = 500;
+const DAILY_TRANSCRIPTION_LIMIT_SECONDS = 3600;
 
 export class VoiceService {
   private constructor() {}
@@ -12,16 +15,29 @@ export class VoiceService {
     fileBuffer: Buffer;
     filename: string;
     mimetype: string;
-  }): Promise<string> {
+  }): Promise<{ text: string; dailySecondsRemaining: number }> {
+    const usedSeconds = await TranscriptionUsageRepository.getDailyUsedSeconds(args.userId);
+
+    if (usedSeconds >= DAILY_TRANSCRIPTION_LIMIT_SECONDS) {
+      throw new QuotaExceededError({
+        debugMessage: `Daily transcription limit reached: ${usedSeconds}/${DAILY_TRANSCRIPTION_LIMIT_SECONDS}s`,
+      });
+    }
+
     const glossaryWords = await VoiceService.getGlossaryWords(args.userId);
     const prompt = VoiceService.buildTranscriptionPrompt(glossaryWords);
 
-    return OpenAIClient.transcribe({
+    const { text, durationSeconds } = await OpenAIClient.transcribe({
       fileBuffer: args.fileBuffer,
       filename: args.filename,
       mimetype: args.mimetype,
       prompt: prompt ?? undefined,
     });
+
+    const newTotal = await TranscriptionUsageRepository.incrementDailyUsage(args.userId, durationSeconds);
+    const remaining = Math.max(0, DAILY_TRANSCRIPTION_LIMIT_SECONDS - newTotal);
+
+    return { text, dailySecondsRemaining: remaining };
   }
 
   static async getGlossaryWords(userId: ObjectId): Promise<string[]> {

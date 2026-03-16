@@ -1,7 +1,9 @@
 import { describe, it, before, after, mock, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { ObjectId } from "mongodb";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
 import { OpenAIClient } from "../../src/clients/openai-client.js";
+import { DatabaseAccessor } from "../../src/db/database-accessor.js";
 
 const BOUNDARY = "----TestBoundary9876543210";
 
@@ -23,6 +25,10 @@ function buildMultipartPayload(args: { fieldName: string; filename: string; cont
     body: Buffer.concat(parts),
     contentType: `multipart/form-data; boundary=${BOUNDARY}`,
   };
+}
+
+function todayUtcDateKey(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 describe("POST /voice/transcribe", () => {
@@ -87,10 +93,13 @@ describe("POST /voice/transcribe", () => {
     assert.equal(res.statusCode, 400);
   });
 
-  it("returns transcribed text on success", async () => {
+  it("returns transcribed text and dailySecondsRemaining on success", async () => {
     const user = await ctx.createUser();
 
-    mock.method(OpenAIClient, "transcribe", async () => "Hello world, this is a test.");
+    mock.method(OpenAIClient, "transcribe", async () => ({
+      text: "Hello world, this is a test.",
+      durationSeconds: 10,
+    }));
 
     const { body, contentType } = buildMultipartPayload({
       fieldName: "audio",
@@ -110,7 +119,10 @@ describe("POST /voice/transcribe", () => {
     });
 
     assert.equal(res.statusCode, 200);
-    assert.deepEqual(res.json(), { text: "Hello world, this is a test." });
+    const json = res.json();
+    assert.equal(json.text, "Hello world, this is a test.");
+    assert.equal(typeof json.dailySecondsRemaining, "number");
+    assert.equal(json.dailySecondsRemaining, 3590);
   });
 
   it("passes glossary words in the prompt to OpenAI", async () => {
@@ -132,7 +144,7 @@ describe("POST /voice/transcribe", () => {
       "transcribe",
       async (args: { fileBuffer: Buffer; filename: string; mimetype: string; prompt?: string }) => {
         capturedPrompt = args.prompt;
-        return "Sesori uses XChaCha20 encryption.";
+        return { text: "Sesori uses XChaCha20 encryption.", durationSeconds: 5 };
       },
     );
 
@@ -168,7 +180,7 @@ describe("POST /voice/transcribe", () => {
       "transcribe",
       async (args: { fileBuffer: Buffer; filename: string; mimetype: string; prompt?: string }) => {
         capturedPrompt = args.prompt;
-        return "Hello world.";
+        return { text: "Hello world.", durationSeconds: 3 };
       },
     );
 
@@ -196,7 +208,10 @@ describe("POST /voice/transcribe", () => {
   it("returns 500 when OpenAI returns empty text", async () => {
     const user = await ctx.createUser();
 
-    mock.method(OpenAIClient, "transcribe", async () => "");
+    mock.method(OpenAIClient, "transcribe", async () => ({
+      text: "",
+      durationSeconds: 0,
+    }));
 
     const { body, contentType } = buildMultipartPayload({
       fieldName: "audio",
@@ -243,5 +258,157 @@ describe("POST /voice/transcribe", () => {
     });
 
     assert.equal(res.statusCode, 500);
+  });
+
+  it("returns 429 when daily transcription quota is exceeded", async () => {
+    const user = await ctx.createUser();
+    const userId = new ObjectId(user.userId);
+
+    await DatabaseAccessor.transcriptionUsage().insertOne({
+      _id: new ObjectId(),
+      userId,
+      date: todayUtcDateKey(),
+      usedSeconds: 3600,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    mock.method(OpenAIClient, "transcribe", async () => ({
+      text: "Should not reach here.",
+      durationSeconds: 5,
+    }));
+
+    const { body, contentType } = buildMultipartPayload({
+      fieldName: "audio",
+      filename: "test.m4a",
+      content: Buffer.from("fake-audio-data-for-testing"),
+      contentType: "audio/m4a",
+    });
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/voice/transcribe",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": contentType,
+      },
+      payload: body,
+    });
+
+    assert.equal(res.statusCode, 429);
+    assert.deepEqual(res.json(), { error: "quota_exceeded" });
+  });
+
+  it("tracks usage in the database after successful transcription", async () => {
+    const user = await ctx.createUser();
+    const userId = new ObjectId(user.userId);
+
+    mock.method(OpenAIClient, "transcribe", async () => ({
+      text: "Tracked transcription.",
+      durationSeconds: 42.5,
+    }));
+
+    const { body, contentType } = buildMultipartPayload({
+      fieldName: "audio",
+      filename: "test.m4a",
+      content: Buffer.from("fake-audio-data-for-testing"),
+      contentType: "audio/m4a",
+    });
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/voice/transcribe",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": contentType,
+      },
+      payload: body,
+    });
+
+    assert.equal(res.statusCode, 200);
+
+    const usageDoc = await DatabaseAccessor.transcriptionUsage().findOne({
+      userId,
+      date: todayUtcDateKey(),
+    });
+
+    assert.ok(usageDoc, "Usage document should exist after transcription");
+    assert.equal(usageDoc.usedSeconds, 42.5);
+  });
+
+  it("accumulates usage across multiple transcriptions", async () => {
+    const user = await ctx.createUser();
+    const userId = new ObjectId(user.userId);
+
+    mock.method(OpenAIClient, "transcribe", async () => ({
+      text: "First transcription.",
+      durationSeconds: 100,
+    }));
+
+    const payload = buildMultipartPayload({
+      fieldName: "audio",
+      filename: "test.m4a",
+      content: Buffer.from("fake-audio-data-for-testing"),
+      contentType: "audio/m4a",
+    });
+
+    const headers = {
+      authorization: `Bearer ${user.accessToken}`,
+      "content-type": payload.contentType,
+    };
+
+    const res1 = await ctx.app.inject({ method: "POST", url: "/voice/transcribe", headers, payload: payload.body });
+    assert.equal(res1.statusCode, 200);
+    assert.equal(res1.json().dailySecondsRemaining, 3500);
+
+    const res2 = await ctx.app.inject({ method: "POST", url: "/voice/transcribe", headers, payload: payload.body });
+    assert.equal(res2.statusCode, 200);
+    assert.equal(res2.json().dailySecondsRemaining, 3400);
+
+    const usageDoc = await DatabaseAccessor.transcriptionUsage().findOne({
+      userId,
+      date: todayUtcDateKey(),
+    });
+    assert.ok(usageDoc);
+    assert.equal(usageDoc.usedSeconds, 200);
+  });
+
+  it("allows transcription when under quota but near limit", async () => {
+    const user = await ctx.createUser();
+    const userId = new ObjectId(user.userId);
+
+    await DatabaseAccessor.transcriptionUsage().insertOne({
+      _id: new ObjectId(),
+      userId,
+      date: todayUtcDateKey(),
+      usedSeconds: 3590,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    mock.method(OpenAIClient, "transcribe", async () => ({
+      text: "Allowed near limit.",
+      durationSeconds: 30,
+    }));
+
+    const { body, contentType } = buildMultipartPayload({
+      fieldName: "audio",
+      filename: "test.m4a",
+      content: Buffer.from("fake-audio-data-for-testing"),
+      contentType: "audio/m4a",
+    });
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/voice/transcribe",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": contentType,
+      },
+      payload: body,
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().dailySecondsRemaining, 0);
   });
 });

@@ -35,6 +35,12 @@ export class InternalServerError extends ApiError {
   }
 }
 
+export class QuotaExceededError extends ApiError {
+  constructor(opts?: { debugMessage?: string; nestedError?: unknown }) {
+    super("quota_exceeded", 429, opts?.debugMessage, opts?.nestedError);
+  }
+}
+
 export class BadGatewayError extends ApiError {
   constructor(opts?: { debugMessage?: string; nestedError?: unknown }) {
     super("bad_gateway", 502, opts?.debugMessage, opts?.nestedError);
