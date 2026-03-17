@@ -6,7 +6,8 @@ import { OpenAIClient } from "../../src/clients/openai-client.js";
 import { DatabaseAccessor } from "../../src/db/database-accessor.js";
 import { VoiceService } from "../../src/services/voice-service.js";
 import { BadGatewayError } from "../../src/lib/errors.js";
-import { todayUtcDateKey } from "../../src/repositories/transcription-usage-repo.js";
+import { todayUtcDateKey } from "../../src/repositories/daily-usage-repo.js";
+import { DailyUsageRepository } from "../../src/repositories/daily-usage-repo.js";
 
 const BOUNDARY = "----TestBoundary9876543210";
 
@@ -291,11 +292,11 @@ describe("POST /voice/transcribe", () => {
     const user = await ctx.createUser();
     const userId = new ObjectId(user.userId);
 
-    await DatabaseAccessor.transcriptionUsage().insertOne({
+    await DatabaseAccessor.dailyUsage().insertOne({
       _id: new ObjectId(),
       userId,
       date: todayUtcDateKey(),
-      usedSeconds: 3600,
+      transcriptionSeconds: 3600,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -323,7 +324,40 @@ describe("POST /voice/transcribe", () => {
     });
 
     assert.equal(res.statusCode, 429);
-    assert.deepEqual(res.json(), { error: "quota_exceeded" });
+    assert.deepEqual(res.json(), { error: "quota_exceeded", service: "transcription" });
+  });
+
+  it("returns 200 even if usage recording fails", async () => {
+    const user = await ctx.createUser();
+
+    mock.method(OpenAIClient, "transcribe", async () => ({
+      text: "Transcription succeeded.",
+      durationSeconds: 15,
+    }));
+    mock.method(DailyUsageRepository, "incrementTranscriptionSeconds", async () => {
+      throw new Error("MongoDB connection lost");
+    });
+
+    const { body, contentType } = buildMultipartPayload({
+      fieldName: "audio",
+      filename: "test.m4a",
+      content: Buffer.from("fake-audio-data-for-testing"),
+      contentType: "audio/m4a",
+    });
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/voice/transcribe",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": contentType,
+      },
+      payload: body,
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().text, "Transcription succeeded.");
+    assert.equal(typeof res.json().dailySecondsRemaining, "number");
   });
 
   it("tracks usage in the database after successful transcription", async () => {
@@ -354,13 +388,13 @@ describe("POST /voice/transcribe", () => {
 
     assert.equal(res.statusCode, 200);
 
-    const usageDoc = await DatabaseAccessor.transcriptionUsage().findOne({
+    const usageDoc = await DatabaseAccessor.dailyUsage().findOne({
       userId,
       date: todayUtcDateKey(),
     });
 
     assert.ok(usageDoc, "Usage document should exist after transcription");
-    assert.equal(usageDoc.usedSeconds, 42.5);
+    assert.equal(usageDoc.transcriptionSeconds, 42.5);
   });
 
   it("accumulates usage across multiple transcriptions", async () => {
@@ -392,23 +426,23 @@ describe("POST /voice/transcribe", () => {
     assert.equal(res2.statusCode, 200);
     assert.equal(res2.json().dailySecondsRemaining, 3400);
 
-    const usageDoc = await DatabaseAccessor.transcriptionUsage().findOne({
+    const usageDoc = await DatabaseAccessor.dailyUsage().findOne({
       userId,
       date: todayUtcDateKey(),
     });
     assert.ok(usageDoc);
-    assert.equal(usageDoc.usedSeconds, 200);
+    assert.equal(usageDoc.transcriptionSeconds, 200);
   });
 
   it("allows transcription when under quota but near limit", async () => {
     const user = await ctx.createUser();
     const userId = new ObjectId(user.userId);
 
-    await DatabaseAccessor.transcriptionUsage().insertOne({
+    await DatabaseAccessor.dailyUsage().insertOne({
       _id: new ObjectId(),
       userId,
       date: todayUtcDateKey(),
-      usedSeconds: 3590,
+      transcriptionSeconds: 3590,
       createdAt: new Date(),
       updatedAt: new Date(),
     });

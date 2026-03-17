@@ -1,4 +1,6 @@
 export class ApiError extends Error {
+  public responseBody?: Record<string, unknown>;
+
   constructor(
     message: string,
     public readonly errorCode: number,
@@ -36,8 +38,9 @@ export class InternalServerError extends ApiError {
 }
 
 export class QuotaExceededError extends ApiError {
-  constructor(opts?: { debugMessage?: string; nestedError?: unknown }) {
-    super("quota_exceeded", 429, opts?.debugMessage, opts?.nestedError);
+  constructor(opts: { service: string; debugMessage?: string; nestedError?: unknown }) {
+    super("quota_exceeded", 429, opts.debugMessage, opts.nestedError);
+    this.responseBody = { service: opts.service };
   }
 }
 

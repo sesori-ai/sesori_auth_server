@@ -1,6 +1,6 @@
 import { Collection } from "mongodb";
 import { oAuthDbClient, OAuthAccountCollection } from "./db-client.js";
-import { User, OAuthAccount, GlossaryEntry, TranscriptionUsage } from "../models/documents.js";
+import { User, OAuthAccount, GlossaryEntry, DailyUsage } from "../models/documents.js";
 
 export class DatabaseAccessor {
   private constructor() {}
@@ -17,8 +17,8 @@ export class DatabaseAccessor {
     return oAuthDbClient.getCollection(OAuthAccountCollection.GlossaryEntries);
   }
 
-  static transcriptionUsage(): Collection<TranscriptionUsage> {
-    return oAuthDbClient.getCollection(OAuthAccountCollection.TranscriptionUsage);
+  static dailyUsage(): Collection<DailyUsage> {
+    return oAuthDbClient.getCollection(OAuthAccountCollection.DailyUsage);
   }
 
   static async ensureIndexes(): Promise<void> {
@@ -30,7 +30,7 @@ export class DatabaseAccessor {
     await glossaryEntriesCollection.createIndex({ userId: 1, word: 1 }, { unique: true });
     await glossaryEntriesCollection.createIndex({ userId: 1 });
 
-    const transcriptionUsageCollection = DatabaseAccessor.transcriptionUsage();
-    await transcriptionUsageCollection.createIndex({ userId: 1, date: 1 }, { unique: true });
+    const dailyUsageCollection = DatabaseAccessor.dailyUsage();
+    await dailyUsageCollection.createIndex({ userId: 1, date: 1 }, { unique: true });
   }
 }

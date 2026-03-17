@@ -31,13 +31,13 @@ export const glossaryEntrySchema = z.object({
 
 export type GlossaryEntry = z.infer<typeof glossaryEntrySchema>;
 
-export const transcriptionUsageSchema = z.object({
+export const dailyUsageSchema = z.object({
   _id: z.instanceof(ObjectId),
   userId: z.instanceof(ObjectId),
   date: z.string(),
-  usedSeconds: z.number(),
+  transcriptionSeconds: z.number(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
 
-export type TranscriptionUsage = z.infer<typeof transcriptionUsageSchema>;
+export type DailyUsage = z.infer<typeof dailyUsageSchema>;

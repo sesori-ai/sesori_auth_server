@@ -1,11 +1,11 @@
 import { ObjectId } from "mongodb";
 import { GlossaryEntryRepository } from "../repositories/glossary-entry-repo.js";
-import { TranscriptionUsageRepository } from "../repositories/transcription-usage-repo.js";
+import { DailyUsageRepository } from "../repositories/daily-usage-repo.js";
 import { OpenAIClient } from "../clients/openai-client.js";
 import { QuotaExceededError } from "../lib/errors.js";
+import { loadConfig } from "../config.js";
 
 const MAX_GLOSSARY_SIZE = 500;
-const DAILY_TRANSCRIPTION_LIMIT_SECONDS = 3600;
 
 export class VoiceService {
   private constructor() {}
@@ -16,10 +16,13 @@ export class VoiceService {
     filename: string;
     mimetype: string;
   }): Promise<{ text: string; dailySecondsRemaining: number }> {
-    const usedSeconds = await TranscriptionUsageRepository.getDailyUsedSeconds(args.userId);
+    const { DAILY_TRANSCRIPTION_LIMIT_SECONDS } = loadConfig();
+
+    const usedSeconds = await DailyUsageRepository.getDailyTranscriptionSeconds(args.userId);
 
     if (usedSeconds >= DAILY_TRANSCRIPTION_LIMIT_SECONDS) {
       throw new QuotaExceededError({
+        service: "transcription",
         debugMessage: `Daily transcription limit reached: ${usedSeconds}/${DAILY_TRANSCRIPTION_LIMIT_SECONDS}s`,
       });
     }
@@ -34,8 +37,13 @@ export class VoiceService {
       prompt: prompt ?? undefined,
     });
 
-    const newTotal = await TranscriptionUsageRepository.incrementDailyUsage(args.userId, durationSeconds);
-    const remaining = Math.max(0, DAILY_TRANSCRIPTION_LIMIT_SECONDS - newTotal);
+    let remaining = Math.max(0, DAILY_TRANSCRIPTION_LIMIT_SECONDS - usedSeconds - durationSeconds);
+    try {
+      const newTotal = await DailyUsageRepository.incrementTranscriptionSeconds(args.userId, durationSeconds);
+      remaining = Math.max(0, DAILY_TRANSCRIPTION_LIMIT_SECONDS - newTotal);
+    } catch (error) {
+      console.error("[VoiceService] Failed to record transcription usage", error);
+    }
 
     return { text, dailySecondsRemaining: remaining };
   }

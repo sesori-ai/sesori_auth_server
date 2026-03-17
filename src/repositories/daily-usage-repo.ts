@@ -5,31 +5,31 @@ export function todayUtcDateKey(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-export class TranscriptionUsageRepository {
+export class DailyUsageRepository {
   private constructor() {}
 
-  static async getDailyUsedSeconds(userId: ObjectId): Promise<number> {
-    const doc = await DatabaseAccessor.transcriptionUsage().findOne({
+  static async getDailyTranscriptionSeconds(userId: ObjectId): Promise<number> {
+    const doc = await DatabaseAccessor.dailyUsage().findOne({
       userId,
       date: todayUtcDateKey(),
     });
-    return doc?.usedSeconds ?? 0;
+    return doc?.transcriptionSeconds ?? 0;
   }
 
-  static async incrementDailyUsage(userId: ObjectId, seconds: number): Promise<number> {
+  static async incrementTranscriptionSeconds(userId: ObjectId, seconds: number): Promise<number> {
     const now = new Date();
-    const result = await DatabaseAccessor.transcriptionUsage().findOneAndUpdate(
+    const result = await DatabaseAccessor.dailyUsage().findOneAndUpdate(
       { userId, date: todayUtcDateKey() },
       {
-        $inc: { usedSeconds: seconds },
+        $inc: { transcriptionSeconds: seconds },
         $setOnInsert: { _id: new ObjectId(), userId, createdAt: now },
         $set: { updatedAt: now },
       },
       { upsert: true, returnDocument: "after" },
     );
     if (!result) {
-      throw new Error("Failed to upsert transcription usage document");
+      throw new Error("Failed to upsert daily usage document");
     }
-    return result.usedSeconds;
+    return result.transcriptionSeconds;
   }
 }
