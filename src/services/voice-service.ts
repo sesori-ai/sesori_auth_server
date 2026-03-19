@@ -30,14 +30,17 @@ export class VoiceService {
   }
 
   async addGlossaryWords(args: { userId: string; words: string[] }): Promise<string[]> {
-    const currentCount = await this.#glossaryRepo.countByUserId(args.userId);
-    const remaining = MAX_GLOSSARY_SIZE - currentCount;
+    const existing = await this.#glossaryRepo.findByUserId(args.userId);
+    const remaining = MAX_GLOSSARY_SIZE - existing.length;
 
     if (remaining <= 0) {
       return [];
     }
 
-    const wordsToAdd = args.words.slice(0, remaining);
+    const existingWords = new Set(existing.map((e) => e.word));
+    const newWords = args.words.filter((w) => !existingWords.has(w));
+    const wordsToAdd = newWords.slice(0, remaining);
+
     return this.#glossaryRepo.insertMany({ userId: args.userId, words: wordsToAdd });
   }
 
