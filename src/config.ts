@@ -9,6 +9,10 @@ const configSchema = z.object({
   GITHUB_CLIENT_SECRET: z.string().min(1, "GITHUB_CLIENT_SECRET is required"),
   GOOGLE_CLIENT_ID: z.string().min(1, "GOOGLE_CLIENT_ID is required"),
   GOOGLE_CLIENT_SECRET: z.string().min(1, "GOOGLE_CLIENT_SECRET is required"),
+  ALLOWED_REDIRECT_URIS: z
+    .string()
+    .transform((value) => value.split(","))
+    .pipe(z.array(z.string().min(1)).min(1)),
   RELAY_URL: z.string().min(1, "RELAY_URL is required"),
   OPENAI_API_KEY: z.string().min(1, "OPENAI_API_KEY is required"),
   OPENAI_TRANSCRIPTION_MODEL: z.string().min(1).default("gpt-4o-mini-transcribe"),
