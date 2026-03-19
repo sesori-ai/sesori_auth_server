@@ -79,9 +79,7 @@ describe("Token routes", () => {
     });
 
     it("returns 401 for a valid-format token referencing a non-existent user", async () => {
-      // Sign a refresh token for a userId that doesn't exist in the DB
-      const { TokenService } = await import("../../src/services/token-service.js");
-      const ghostToken = TokenService.signRefreshToken({
+      const ghostToken = ctx.tokenService.signRefreshToken({
         userId: "000000000000000000000000",
         tokenVersion: 0,
       });
@@ -94,6 +92,27 @@ describe("Token routes", () => {
       });
 
       assert.equal(res.statusCode, 401);
+    });
+
+    it("returns 401 for refresh after logout (tokenVersion incremented)", async () => {
+      const user = await ctx.createUser();
+
+      const logoutRes = await ctx.app.inject({
+        method: "POST",
+        url: "/auth/logout",
+        headers: { authorization: `Bearer ${user.accessToken}` },
+      });
+      assert.equal(logoutRes.statusCode, 200);
+
+      const refreshRes = await ctx.app.inject({
+        method: "POST",
+        url: "/auth/refresh",
+        headers: { "content-type": "application/json" },
+        payload: JSON.stringify({ refreshToken: user.refreshToken }),
+      });
+
+      assert.equal(refreshRes.statusCode, 401);
+      assert.equal(refreshRes.json<{ error: string }>().error, "unauthenticated");
     });
 
     it("returns 400 when refreshToken field is missing from body", async () => {
@@ -156,6 +175,55 @@ describe("Token routes", () => {
       });
 
       assert.equal(res.statusCode, 401);
+    });
+
+    it("returns 401 for an expired access token on protected route", async () => {
+      const user = await ctx.createUser();
+      const expiredAccessToken = ctx.createExpiredAccessToken({
+        userId: user.userId,
+        provider: user.provider,
+        providerUserId: user.providerUserId,
+      });
+
+      const res = await ctx.app.inject({
+        method: "GET",
+        url: "/auth/me",
+        headers: { authorization: `Bearer ${expiredAccessToken}` },
+      });
+
+      assert.equal(res.statusCode, 401);
+      assert.equal(res.json<{ error: string }>().error, "unauthenticated");
+    });
+
+    it("returns 401 when access token has wrong audience", async () => {
+      const user = await ctx.createUser();
+      const bridgeToken = ctx.tokenService.signBridgeToken({ userId: user.userId });
+
+      const res = await ctx.app.inject({
+        method: "GET",
+        url: "/auth/me",
+        headers: { authorization: `Bearer ${bridgeToken}` },
+      });
+
+      assert.equal(res.statusCode, 401);
+      assert.equal(res.json<{ error: string }>().error, "unauthenticated");
+    });
+
+    it("returns 404 for /auth/me when access token user no longer exists", async () => {
+      const ghostAccessToken = ctx.tokenService.signAccessToken({
+        userId: "000000000000000000000000",
+        provider: "github",
+        providerUserId: "ghost-provider-user",
+      });
+
+      const res = await ctx.app.inject({
+        method: "GET",
+        url: "/auth/me",
+        headers: { authorization: `Bearer ${ghostAccessToken}` },
+      });
+
+      assert.equal(res.statusCode, 404);
+      assert.equal(res.json<{ error: string }>().error, "not_found");
     });
   });
 
