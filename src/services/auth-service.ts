@@ -1,13 +1,10 @@
-import { ObjectId } from "mongodb";
-import { GoogleClient } from "../clients/google-client.js";
-import { GithubClient } from "../clients/github-client.js";
+import type { OAuthClient } from "../clients/auth/oauth-client.js";
+import { OAuthProviderName, type OAuthExchangeParams } from "../types/oauth.js";
 import { BadGatewayError, UnauthenticatedError } from "../lib/errors.js";
 import { refreshTokenPayloadSchema } from "../models/jwt.js";
 import { OAuthAccountRepository } from "../repositories/oauth-account-repo.js";
 import { UserRepository } from "../repositories/user-repo.js";
 import { TokenService } from "./token-service.js";
-
-type OAuthProvider = "github" | "google";
 
 type AuthResult = {
   accessToken: string;
@@ -21,107 +18,65 @@ type AuthResult = {
 };
 
 export class AuthService {
-  private constructor() {}
+  readonly #tokenService: TokenService;
+  readonly #userRepo: UserRepository;
+  readonly #oauthAccountRepo: OAuthAccountRepository;
 
-  static async authenticateGithub(params: {
-    code: string;
-    codeVerifier: string;
-    redirectUri: string;
-    clientId: string;
-    clientSecret: string;
-  }): Promise<AuthResult> {
-    let accessToken: string;
+  constructor(deps: {
+    tokenService: TokenService;
+    userRepo: UserRepository;
+    oauthAccountRepo: OAuthAccountRepository;
+  }) {
+    this.#tokenService = deps.tokenService;
+    this.#userRepo = deps.userRepo;
+    this.#oauthAccountRepo = deps.oauthAccountRepo;
+  }
 
+  async authenticateOAuth(
+    providerName: OAuthProviderName,
+    provider: OAuthClient,
+    params: OAuthExchangeParams,
+  ): Promise<AuthResult> {
     try {
-      const result = await GithubClient.exchangeCode(
-        params.code,
-        params.codeVerifier,
-        params.redirectUri,
-        params.clientId,
-        params.clientSecret,
-      );
-      accessToken = result.accessToken;
-    } catch (error) {
-      throw new BadGatewayError({ debugMessage: "GitHub token exchange failed", nestedError: error });
-    }
-
-    try {
-      const githubUser = await GithubClient.fetchUser(accessToken);
-      return AuthService.upsertFromOAuth({
-        provider: "github",
-        providerUserId: githubUser.id,
-        providerUsername: githubUser.login,
+      const identity = await provider.authenticate(params);
+      return this.#upsertFromOAuth({
+        provider: providerName,
+        providerUserId: identity.providerUserId,
+        providerUsername: identity.providerUsername,
       });
     } catch (error) {
       if (error instanceof BadGatewayError) throw error;
-      throw new BadGatewayError({ debugMessage: "GitHub user fetch failed", nestedError: error });
-    }
-  }
-
-  static async authenticateGoogle(params: {
-    code: string;
-    codeVerifier: string;
-    redirectUri: string;
-    clientId: string;
-    clientSecret: string;
-  }): Promise<AuthResult> {
-    let tokenData: {
-      accessToken: string;
-      idToken: string;
-      refreshToken?: string;
-    };
-
-    try {
-      tokenData = await GoogleClient.exchangeCode(
-        params.code,
-        params.codeVerifier,
-        params.redirectUri,
-        params.clientId,
-        params.clientSecret,
-      );
-    } catch (error) {
-      throw new BadGatewayError({ debugMessage: "Google token exchange failed", nestedError: error });
-    }
-
-    try {
-      const googleUser = GoogleClient.decodeIdToken(tokenData.idToken, params.clientId);
-      return AuthService.upsertFromOAuth({
-        provider: "google",
-        providerUserId: googleUser.sub,
-        providerUsername: googleUser.name ?? null,
+      throw new BadGatewayError({
+        debugMessage: `${providerName} authentication failed`,
+        nestedError: error,
       });
-    } catch (error) {
-      if (error instanceof BadGatewayError) throw error;
-      throw new BadGatewayError({ debugMessage: "Google ID token decode failed", nestedError: error });
     }
   }
 
-  static async upsertFromOAuth(params: {
-    provider: OAuthProvider;
+  async #upsertFromOAuth(params: {
+    provider: string;
     providerUserId: string;
     providerUsername: string | null;
   }): Promise<AuthResult> {
-    const potentialUserId = new ObjectId();
-
-    const account = await OAuthAccountRepository.upsert({
-      potentialUserId,
+    const { account, potentialUserId } = await this.#oauthAccountRepo.upsert({
       provider: params.provider,
       providerUserId: params.providerUserId,
       providerUsername: params.providerUsername,
     });
 
-    const isNewUser = account.userId.equals(potentialUserId);
+    const accountUserId = account.userId.toHexString();
+    const isNewUser = accountUserId === potentialUserId;
     let tokenVersion = 0;
 
     if (isNewUser) {
-      await UserRepository.create(potentialUserId);
+      await this.#userRepo.create(potentialUserId);
     } else {
-      const user = await UserRepository.findById(account.userId);
+      const user = await this.#userRepo.findById(accountUserId);
       tokenVersion = user?.tokenVersion ?? 0;
     }
 
-    return AuthService.signTokensForUser({
-      userId: account.userId.toHexString(),
+    return this.#signTokensForUser({
+      userId: accountUserId,
       provider: params.provider,
       providerUserId: params.providerUserId,
       providerUsername: params.providerUsername,
@@ -129,19 +84,19 @@ export class AuthService {
     });
   }
 
-  static signTokensForUser(params: {
+  #signTokensForUser(params: {
     userId: string;
     provider: string;
     providerUserId: string;
     providerUsername: string | null;
     tokenVersion: number;
   }): AuthResult {
-    const accessToken = TokenService.signAccessToken({
+    const accessToken = this.#tokenService.signAccessToken({
       userId: params.userId,
       provider: params.provider,
       providerUserId: params.providerUserId,
     });
-    const refreshToken = TokenService.signRefreshToken({
+    const refreshToken = this.#tokenService.signRefreshToken({
       userId: params.userId,
       tokenVersion: params.tokenVersion,
     });
@@ -158,20 +113,29 @@ export class AuthService {
     };
   }
 
-  static async refreshAuthTokens(refreshToken: string): Promise<AuthResult> {
+  async refreshAuthTokens(refreshToken: string): Promise<AuthResult> {
     let userId: string;
     let tokenVersion: number;
     try {
-      const raw = TokenService.verifyToken(refreshToken);
-      const payload = refreshTokenPayloadSchema.parse(raw);
-      userId = payload.userId;
-      tokenVersion = payload.tokenVersion;
+      const raw = this.#tokenService.verifyRefreshToken(refreshToken);
+      const result = refreshTokenPayloadSchema.safeParse(raw);
+      if (!result.success) {
+        throw new UnauthenticatedError({
+          debugMessage: "Refresh token payload invalid",
+          nestedError: result.error.issues,
+        });
+      }
+      userId = result.data.userId;
+      tokenVersion = result.data.tokenVersion;
     } catch (error) {
       throw new UnauthenticatedError({ debugMessage: "Refresh token verification failed", nestedError: error });
     }
 
-    const userObjectId = new ObjectId(userId);
-    const user = await UserRepository.findById(userObjectId);
+    const [user, oauthAccount] = await Promise.all([
+      this.#userRepo.findById(userId),
+      this.#oauthAccountRepo.findByUserId(userId),
+    ]);
+
     if (!user) {
       throw new UnauthenticatedError({ debugMessage: "User not found for refresh token" });
     }
@@ -180,12 +144,11 @@ export class AuthService {
       throw new UnauthenticatedError({ debugMessage: "Token version mismatch (revoked)" });
     }
 
-    const oauthAccount = await OAuthAccountRepository.findByUserId(userObjectId);
     if (!oauthAccount) {
       throw new UnauthenticatedError({ debugMessage: "OAuth account not found for refresh token" });
     }
 
-    return AuthService.signTokensForUser({
+    return this.#signTokensForUser({
       userId,
       provider: oauthAccount.provider,
       providerUserId: oauthAccount.providerUserId,
@@ -194,28 +157,28 @@ export class AuthService {
     });
   }
 
-  static async logoutUser(userId: string): Promise<void> {
-    await UserRepository.incrementTokenVersion(new ObjectId(userId));
+  async logoutUser(userId: string): Promise<void> {
+    await this.#userRepo.incrementTokenVersion(userId);
   }
 
-  static async revoke(userId: string): Promise<void> {
-    await AuthService.logoutUser(userId);
+  // TODO: revoke() currently delegates to logoutUser(). Will diverge when relay
+  // integration lands (notify relay, invalidate bridge tokens, etc.)
+  async revoke(userId: string): Promise<void> {
+    await this.logoutUser(userId);
   }
 
-  static async findUserAuthProfile(userId: string): Promise<{
+  async findUserAuthProfile(userId: string): Promise<{
     id: string;
     provider: string;
     providerUserId: string;
     providerUsername: string | null;
   } | null> {
-    const userObjectId = new ObjectId(userId);
-    const user = await UserRepository.findById(userObjectId);
-    if (!user) {
-      return null;
-    }
+    const [user, oauthAccount] = await Promise.all([
+      this.#userRepo.findById(userId),
+      this.#oauthAccountRepo.findByUserId(userId),
+    ]);
 
-    const oauthAccount = await OAuthAccountRepository.findByUserId(userObjectId);
-    if (!oauthAccount) {
+    if (!user || !oauthAccount) {
       return null;
     }
 

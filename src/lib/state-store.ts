@@ -5,25 +5,27 @@ const STATE_TTL_MS = 10 * 60 * 1000;
 const MAX_STATES = 10_000;
 
 export class StateStore {
-  private static states = new LRUCache<string, true>({
+  readonly #states = new LRUCache<string, true>({
     max: MAX_STATES,
     ttl: STATE_TTL_MS,
   });
 
-  private constructor() {}
-
-  static createState(): string {
+  createState(): string {
     const state = crypto.randomBytes(32).toString("hex");
-    StateStore.states.set(state, true);
+    this.#states.set(state, true);
     return state;
   }
 
-  static validateState(state: string): boolean {
-    if (!StateStore.states.has(state)) {
+  validateState(state: string): boolean {
+    if (!this.#states.has(state)) {
       return false;
     }
 
-    StateStore.states.delete(state);
+    this.#states.delete(state);
     return true;
   }
 }
+
+const stateStore = new StateStore();
+
+export default stateStore;

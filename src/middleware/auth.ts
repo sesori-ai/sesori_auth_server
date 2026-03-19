@@ -9,30 +9,32 @@ declare module "fastify" {
   }
 }
 
-export async function requireAuth(request: FastifyRequest, _reply: FastifyReply): Promise<void> {
-  const authHeader = request.headers.authorization;
+export function createAuthMiddleware(tokenService: TokenService) {
+  return async function requireAuth(request: FastifyRequest, _reply: FastifyReply): Promise<void> {
+    const authHeader = request.headers.authorization;
 
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    throw new UnauthenticatedError();
-  }
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      throw new UnauthenticatedError();
+    }
 
-  const token = authHeader.slice(7);
+    const token = authHeader.slice(7);
 
-  try {
-    const raw = TokenService.verifyToken(token);
-    const result = accessTokenPayloadSchema.safeParse(raw);
-    if (!result.success) {
+    try {
+      const raw = tokenService.verifyAccessToken(token);
+      const result = accessTokenPayloadSchema.safeParse(raw);
+      if (!result.success) {
+        throw new UnauthenticatedError({
+          debugMessage: "Auth token payload validation failed",
+          nestedError: result.error.issues,
+        });
+      }
+      request.user = result.data;
+    } catch (error) {
+      if (error instanceof UnauthenticatedError) throw error;
       throw new UnauthenticatedError({
-        debugMessage: "Auth token payload validation failed",
-        nestedError: result.error.issues,
+        debugMessage: "Auth token verification failed",
+        nestedError: error,
       });
     }
-    request.user = result.data;
-  } catch (error) {
-    if (error instanceof UnauthenticatedError) throw error;
-    throw new UnauthenticatedError({
-      debugMessage: "Auth token verification failed",
-      nestedError: error,
-    });
-  }
+  };
 }
