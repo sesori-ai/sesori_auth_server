@@ -22,12 +22,15 @@
     "env:init": "bash ./scripts/env-init.sh",
     "env:decrypt": "sh -c 'sops decrypt env/app/${ENV:-local}.env > .env && echo \"Decrypted env/app/${ENV:-local}.env → .env\"'",
     "env:edit": "sh -c 'sops edit env/app/${ENV:-local}.env'",
-    "env:update-keys": "sh -c 'for f in env/app/*.env; do [ -f \"$f\" ] && sops updatekeys -y \"$f\"; done'"
+    "env:update-keys": "sh -c 'for f in env/app/*.env; do [ -f \"$f\" ] && sops updatekeys -y \"$f\"; done'",
+    "circular-dependencies": "madge --circular --ts-config ./tsconfig.json ./src/index.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",
     "@fastify/multipart": "^9.4.0",
+    "@fastify/rate-limit": "^10.3.0",
     "fastify": "^5.8.2",
+    "jose": "^6.2.1",
     "jsonwebtoken": "^9.0.3",
     "lru-cache": "^11.2.7",
     "mongodb": "^7.1.0",
@@ -41,6 +44,7 @@
     "eslint": "^10.0.3",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.5",
+    "madge": "^8.0.0",
     "prettier": "^3.8.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
