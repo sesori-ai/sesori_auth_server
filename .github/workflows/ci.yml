@@ -65,8 +65,13 @@ jobs:
         run: |
           openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /tmp/private.pem 2>/dev/null
           openssl rsa -in /tmp/private.pem -pubout -out /tmp/public.pem 2>/dev/null
-          echo "JWT_PRIVATE_KEY=$(awk 'NR>1{printf "\\n"}{printf "%s",$0}' /tmp/private.pem)" >> "$GITHUB_ENV"
-          echo "JWT_PUBLIC_KEY=$(awk 'NR>1{printf "\\n"}{printf "%s",$0}' /tmp/public.pem)" >> "$GITHUB_ENV"
+          JWT_PRIVATE_KEY=$(awk 'NR>1{printf "\\n"}{printf "%s",$0}' /tmp/private.pem)
+          JWT_PUBLIC_KEY=$(awk 'NR>1{printf "\\n"}{printf "%s",$0}' /tmp/public.pem)
+          echo "::add-mask::$JWT_PRIVATE_KEY"
+          echo "::add-mask::$JWT_PUBLIC_KEY"
+          echo "JWT_PRIVATE_KEY=$JWT_PRIVATE_KEY" >> "$GITHUB_ENV"
+          echo "JWT_PUBLIC_KEY=$JWT_PUBLIC_KEY" >> "$GITHUB_ENV"
+          rm /tmp/private.pem /tmp/public.pem
 
       - name: Start services
         run: |
@@ -81,16 +86,25 @@ jobs:
             -e GITHUB_CLIENT_SECRET=ci-test \
             -e GOOGLE_CLIENT_ID=ci-test \
             -e GOOGLE_CLIENT_SECRET=ci-test \
+            -e ALLOWED_REDIRECT_URIS=http://localhost:3000/callback \
             -e RELAY_URL=ws://localhost:8080 \
             -e OPENAI_API_KEY=ci-test \
             auth-backend:ci
-          sleep 3
+          sleep 5
 
       - name: Health check
         run: |
           response=$(curl -sf http://localhost:3001/health)
           echo "Health response: $response"
           echo "$response" | jq -e '.status == "ok"'
+
+      - name: Dump container logs on failure
+        if: failure()
+        run: |
+          echo "=== auth-ci logs ==="
+          docker logs auth-ci 2>&1 || true
+          echo "=== mongo-ci logs ==="
+          docker logs mongo-ci 2>&1 || true
 
       - name: Stop services
         if: always()
