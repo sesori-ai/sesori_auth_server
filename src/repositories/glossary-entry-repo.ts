@@ -1,28 +1,41 @@
-import { MongoBulkWriteError, ObjectId } from "mongodb";
-import { DatabaseAccessor } from "../db/database-accessor.js";
+import { Collection, MongoBulkWriteError, ObjectId } from "mongodb";
+import { MongoDbAccessor } from "../db/mongo-db-accessor.js";
 import type { GlossaryEntry } from "../models/documents.js";
+import { MongoDbDatabase, AuthDbCollection } from "../types/mongo.js";
 
 export class GlossaryEntryRepository {
-  private constructor() {}
+  readonly #collection: Collection<GlossaryEntry>;
 
-  static async findByUserId(userId: ObjectId): Promise<GlossaryEntry[]> {
-    return DatabaseAccessor.glossaryEntries().find({ userId }).sort({ word: 1 }).toArray();
+  constructor(accessor: MongoDbAccessor) {
+    this.#collection = accessor.getCollection<GlossaryEntry>(MongoDbDatabase.Auth, AuthDbCollection.GlossaryEntries);
   }
 
-  static async insertMany(args: { userId: ObjectId; words: string[] }): Promise<string[]> {
+  async findByUserId(userId: string): Promise<GlossaryEntry[]> {
+    return this.#collection
+      .find({ userId: new ObjectId(userId) })
+      .sort({ word: 1 })
+      .toArray();
+  }
+
+  async countByUserId(userId: string): Promise<number> {
+    return this.#collection.countDocuments({ userId: new ObjectId(userId) });
+  }
+
+  async insertMany(args: { userId: string; words: string[] }): Promise<string[]> {
     const { userId, words } = args;
     if (words.length === 0) return [];
+    const objectUserId = new ObjectId(userId);
 
     const now = new Date();
     const docs: GlossaryEntry[] = words.map((word) => ({
       _id: new ObjectId(),
-      userId,
+      userId: objectUserId,
       word,
       createdAt: now,
     }));
 
     try {
-      const result = await DatabaseAccessor.glossaryEntries().insertMany(docs, { ordered: false });
+      const result = await this.#collection.insertMany(docs, { ordered: false });
       const insertedIds = new Set(Object.values(result.insertedIds).map((id) => id.toHexString()));
       return docs.filter((d) => insertedIds.has(d._id.toHexString())).map((d) => d.word);
     } catch (error: unknown) {
@@ -40,12 +53,12 @@ export class GlossaryEntryRepository {
     }
   }
 
-  static async deleteMany(args: { userId: ObjectId; words: string[] }): Promise<number> {
+  async deleteMany(args: { userId: string; words: string[] }): Promise<number> {
     const { userId, words } = args;
     if (words.length === 0) return 0;
 
-    const result = await DatabaseAccessor.glossaryEntries().deleteMany({
-      userId,
+    const result = await this.#collection.deleteMany({
+      userId: new ObjectId(userId),
       word: { $in: words },
     });
     return result.deletedCount;

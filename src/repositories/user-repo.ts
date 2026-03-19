@@ -1,30 +1,35 @@
-import { ObjectId } from "mongodb";
-import { DatabaseAccessor } from "../db/database-accessor.js";
+import { Collection, ObjectId } from "mongodb";
+import { MongoDbAccessor } from "../db/mongo-db-accessor.js";
 import type { User } from "../models/documents.js";
+import { MongoDbDatabase, AuthDbCollection } from "../types/mongo.js";
 
 export class UserRepository {
-  private constructor() {}
+  readonly #collection: Collection<User>;
 
-  static async findById(userId: ObjectId): Promise<User | null> {
-    return DatabaseAccessor.users().findOne({ _id: userId });
+  constructor(accessor: MongoDbAccessor) {
+    this.#collection = accessor.getCollection<User>(MongoDbDatabase.Auth, AuthDbCollection.Users);
   }
 
-  static async create(id?: ObjectId): Promise<User> {
+  async findById(userId: string): Promise<User | null> {
+    return this.#collection.findOne({ _id: new ObjectId(userId) });
+  }
+
+  async create(id?: string): Promise<User> {
     const now = new Date();
     const user: User = {
-      _id: id ?? new ObjectId(),
+      _id: id ? new ObjectId(id) : new ObjectId(),
       tokenVersion: 0,
       createdAt: now,
       updatedAt: now,
     };
 
-    await DatabaseAccessor.users().insertOne(user);
+    await this.#collection.insertOne(user);
     return user;
   }
 
-  static async incrementTokenVersion(userId: ObjectId): Promise<void> {
-    await DatabaseAccessor.users().updateOne(
-      { _id: userId },
+  async incrementTokenVersion(userId: string): Promise<void> {
+    await this.#collection.updateOne(
+      { _id: new ObjectId(userId) },
       { $inc: { tokenVersion: 1 }, $set: { updatedAt: new Date() } },
     );
   }
