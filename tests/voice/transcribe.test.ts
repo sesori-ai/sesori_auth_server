@@ -90,7 +90,7 @@ describe("POST /voice/transcribe", () => {
   it("returns transcribed text on success", async () => {
     const user = await ctx.createUser();
 
-    mock.method(OpenAIClient, "transcribe", async () => "Hello world, this is a test.");
+    mock.method(OpenAIClient.prototype, "transcribe", async () => "Hello world, this is a test.");
 
     const { body, contentType } = buildMultipartPayload({
       fieldName: "audio",
@@ -128,7 +128,7 @@ describe("POST /voice/transcribe", () => {
 
     let capturedPrompt: string | undefined;
     mock.method(
-      OpenAIClient,
+      OpenAIClient.prototype,
       "transcribe",
       async (args: { fileBuffer: Buffer; filename: string; mimetype: string; prompt?: string }) => {
         capturedPrompt = args.prompt;
@@ -164,7 +164,7 @@ describe("POST /voice/transcribe", () => {
 
     let capturedPrompt: string | undefined;
     mock.method(
-      OpenAIClient,
+      OpenAIClient.prototype,
       "transcribe",
       async (args: { fileBuffer: Buffer; filename: string; mimetype: string; prompt?: string }) => {
         capturedPrompt = args.prompt;
@@ -196,7 +196,7 @@ describe("POST /voice/transcribe", () => {
   it("returns 500 when OpenAI returns empty text", async () => {
     const user = await ctx.createUser();
 
-    mock.method(OpenAIClient, "transcribe", async () => "");
+    mock.method(OpenAIClient.prototype, "transcribe", async () => "");
 
     const { body, contentType } = buildMultipartPayload({
       fieldName: "audio",
@@ -221,7 +221,7 @@ describe("POST /voice/transcribe", () => {
   it("returns 500 when OpenAI throws an error", async () => {
     const user = await ctx.createUser();
 
-    mock.method(OpenAIClient, "transcribe", async () => {
+    mock.method(OpenAIClient.prototype, "transcribe", async () => {
       throw new Error("OpenAI API rate limit exceeded");
     });
 
