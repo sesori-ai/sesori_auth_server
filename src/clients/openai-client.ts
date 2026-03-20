@@ -1,4 +1,5 @@
 import OpenAI, { toFile } from "openai";
+import { parseBuffer } from "music-metadata";
 
 let client: OpenAI | null = null;
 let transcriptionModel: string = "gpt-4o-mini-transcribe";
@@ -27,14 +28,26 @@ export class OpenAIClient {
 
     const file = await toFile(args.fileBuffer, args.filename, { type: args.mimetype });
 
-    const response = await client.audio.transcriptions.create({
-      file,
-      model: transcriptionModel,
-      language: "en",
-      response_format: "verbose_json",
-      ...(args.prompt ? { prompt: args.prompt } : {}),
-    });
+    const [response, durationSeconds] = await Promise.all([
+      client.audio.transcriptions.create({
+        file,
+        model: transcriptionModel,
+        language: "en",
+        response_format: "json",
+        ...(args.prompt ? { prompt: args.prompt } : {}),
+      }),
+      OpenAIClient.parseAudioDuration(args.fileBuffer, args.mimetype),
+    ]);
 
-    return { text: response.text, durationSeconds: response.duration ?? 0 };
+    return { text: response.text, durationSeconds };
+  }
+
+  private static async parseAudioDuration(buffer: Buffer, mimeType: string): Promise<number> {
+    try {
+      const metadata = await parseBuffer(buffer, { mimeType });
+      return metadata.format.duration ?? 0;
+    } catch {
+      return 0;
+    }
   }
 }
