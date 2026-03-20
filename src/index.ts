@@ -5,6 +5,7 @@ import { loadConfig } from "./config.js";
 import { MongoDbAccessor } from "./db/mongo-db-accessor.js";
 import { MongoDbConnector } from "./db/mongo-db-connector.js";
 import stateStore from "./lib/state-store.js";
+import { DailyUsageRepository } from "./repositories/daily-usage-repo.js";
 import { GlossaryEntryRepository } from "./repositories/glossary-entry-repo.js";
 import { OAuthAccountRepository } from "./repositories/oauth-account-repo.js";
 import { UserRepository } from "./repositories/user-repo.js";
@@ -39,6 +40,7 @@ async function main() {
   const userRepo = new UserRepository(dbAccessor);
   const oauthAccountRepo = new OAuthAccountRepository(dbAccessor);
   const glossaryRepo = new GlossaryEntryRepository(dbAccessor);
+  const dailyUsageRepo = new DailyUsageRepository(dbAccessor);
 
   const tokenService = new TokenService(config.JWT_PRIVATE_KEY, config.JWT_PUBLIC_KEY);
   console.log("JWT keys loaded");
@@ -54,7 +56,7 @@ async function main() {
     userRepo,
     oauthAccountRepo,
   });
-  const voiceService = new VoiceService({ openai, glossaryRepo });
+  const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
 
   const app = await buildApp({
     config,

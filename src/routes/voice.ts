@@ -1,7 +1,7 @@
-import { FastifyPluginAsync } from "fastify";
+import { FastifyPluginAsync, FastifyRequest } from "fastify";
 import multipart from "@fastify/multipart";
 import { z } from "zod";
-import { BadRequestError, InternalServerError } from "../lib/errors.js";
+import { ApiError, BadRequestError, InternalServerError, UnauthenticatedError } from "../lib/errors.js";
 import type {
   TranscribeReply,
   GlossaryListReply,
@@ -13,6 +13,8 @@ import type {
 import type { VoiceService } from "../services/voice-service.js";
 
 const AUDIO_MAX_FILE_SIZE = 25 * 1024 * 1024;
+
+// MIME types accepted by the OpenAI Whisper API.
 const ALLOWED_AUDIO_MIMES = new Set([
   "audio/mpeg",
   "audio/mp4",
@@ -23,7 +25,15 @@ const ALLOWED_AUDIO_MIMES = new Set([
   "audio/ogg",
   "audio/flac",
 ]);
-const TRANSCRIBE_RATE_LIMIT = { max: 10, timeWindow: "1 minute" };
+
+// 10 requests per minute per authenticated user (service-level safety limit).
+// keyGenerator keys by Authorization header (user-specific token, available before auth parsing).
+// Falls back to IP when no Authorization header is present (unauthenticated requests).
+const TRANSCRIBE_RATE_LIMIT = {
+  max: 10,
+  timeWindow: "1 minute",
+  keyGenerator: (request: FastifyRequest) => request.headers.authorization ?? request.ip,
+};
 
 const glossaryAddBodySchema = z.object({
   words: z.array(z.string().min(1).max(200)).min(1).max(100),
@@ -35,8 +45,17 @@ const glossaryRemoveBodySchema = z.object({
 
 export type VoiceRouteOptions = {
   voiceService: VoiceService;
-  requireAuth: (request: import("fastify").FastifyRequest, reply: import("fastify").FastifyReply) => Promise<void>;
+  requireAuth: (request: FastifyRequest, reply: import("fastify").FastifyReply) => Promise<void>;
 };
+
+/**
+ * Returns the authenticated user's ID from the request.
+ * Throws UnauthenticatedError defensively if requireAuth somehow did not set the user.
+ */
+function getUserId(request: FastifyRequest): string {
+  if (!request.user) throw new UnauthenticatedError();
+  return request.user.userId;
+}
 
 export const voiceRoutes: FastifyPluginAsync<VoiceRouteOptions> = async (fastify, opts) => {
   const { voiceService, requireAuth } = opts;
@@ -71,10 +90,10 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRouteOptions> = async (fastify
         throw new BadRequestError({ debugMessage: "Audio file is empty" });
       }
 
-      const userId = request.user!.userId;
+      const userId = getUserId(request);
 
       try {
-        const text = await voiceService.transcribe({
+        const { text, dailySecondsRemaining } = await voiceService.transcribe({
           userId,
           fileBuffer: buffer,
           filename: file.filename,
@@ -85,9 +104,11 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRouteOptions> = async (fastify
           throw new InternalServerError({ debugMessage: "Transcription returned empty text" });
         }
 
-        return { text };
+        return { text, dailySecondsRemaining };
       } catch (error) {
-        if (error instanceof BadRequestError || error instanceof InternalServerError) throw error;
+        // Re-throw any ApiError subclass (BadRequestError, InternalServerError, QuotaExceededError, etc.)
+        // so the global error handler returns the correct status code.
+        if (error instanceof ApiError) throw error;
         throw new InternalServerError({
           debugMessage: "Transcription failed",
           nestedError: error,
@@ -97,7 +118,7 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRouteOptions> = async (fastify
   );
 
   fastify.get<{ Reply: GlossaryListReply }>("/voice/glossary", { preHandler: requireAuth }, async (request) => {
-    const userId = request.user!.userId;
+    const userId = getUserId(request);
     const words = await voiceService.getGlossaryWords(userId);
     return { words };
   });
@@ -111,7 +132,7 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRouteOptions> = async (fastify
         throw new BadRequestError({ debugMessage: "Invalid request body", nestedError: bodyResult.error.issues });
       }
 
-      const userId = request.user!.userId;
+      const userId = getUserId(request);
       const added = await voiceService.addGlossaryWords({ userId, words: bodyResult.data.words });
       return { added };
     },
@@ -126,7 +147,7 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRouteOptions> = async (fastify
         throw new BadRequestError({ debugMessage: "Invalid request body", nestedError: bodyResult.error.issues });
       }
 
-      const userId = request.user!.userId;
+      const userId = getUserId(request);
       const removed = await voiceService.removeGlossaryWords({ userId, words: bodyResult.data.words });
       return { removed };
     },

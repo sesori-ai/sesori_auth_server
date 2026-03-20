@@ -11,6 +11,7 @@ import { MongoDbAccessor } from "../../src/db/mongo-db-accessor.js";
 import { MongoDbConnector } from "../../src/db/mongo-db-connector.js";
 import { MongoDbDatabase, AuthDbCollection } from "../../src/types/mongo.js";
 import { StateStore } from "../../src/lib/state-store.js";
+import { DailyUsageRepository } from "../../src/repositories/daily-usage-repo.js";
 import { GlossaryEntryRepository } from "../../src/repositories/glossary-entry-repo.js";
 import { OAuthAccountRepository } from "../../src/repositories/oauth-account-repo.js";
 import { UserRepository } from "../../src/repositories/user-repo.js";
@@ -30,6 +31,12 @@ export type TestUser = {
 
 export type TestContext = {
   app: FastifyInstance;
+  /**
+   * Exposed for test scenarios that require direct DB access (e.g., seeding quota state
+   * or verifying persisted documents). Prefer API-based assertions where possible;
+   * direct DB access can mask validation or business-logic bugs.
+   */
+  dbAccessor: MongoDbAccessor;
   tokenService: TokenService;
   cleanup: () => Promise<void>;
   createUser: (opts?: { provider?: string; providerUserId?: string }) => Promise<TestUser>;
@@ -75,6 +82,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   const userRepo = new UserRepository(dbAccessor);
   const oauthAccountRepo = new OAuthAccountRepository(dbAccessor);
   const glossaryRepo = new GlossaryEntryRepository(dbAccessor);
+  const dailyUsageRepo = new DailyUsageRepository(dbAccessor);
 
   const tokenService = new TokenService(privPem, pubPem);
   const stateStore = new StateStore();
@@ -84,7 +92,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   const googleClient = overrides?.googleClient ?? new GoogleClient();
 
   const authService = new AuthService({ tokenService, userRepo, oauthAccountRepo });
-  const voiceService = new VoiceService({ openai, glossaryRepo });
+  const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
 
   const app = await buildApp({
     config,
@@ -180,5 +188,5 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     await dbConnector.close();
   }
 
-  return { app, tokenService, cleanup, createUser, createExpiredRefreshToken, createExpiredAccessToken };
+  return { app, dbAccessor, tokenService, cleanup, createUser, createExpiredRefreshToken, createExpiredAccessToken };
 }

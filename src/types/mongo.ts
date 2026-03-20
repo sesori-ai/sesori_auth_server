@@ -6,4 +6,5 @@ export enum AuthDbCollection {
   Users = "users",
   OAuthAccounts = "oauthAccounts",
   GlossaryEntries = "glossaryEntries",
+  DailyUsage = "dailyUsage",
 }

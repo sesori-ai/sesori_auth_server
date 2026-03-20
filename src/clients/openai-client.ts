@@ -13,17 +13,22 @@ export class OpenAIClient {
     this.#model = args.model;
   }
 
-  async transcribe(args: { fileBuffer: Buffer; filename: string; mimetype: string; prompt?: string }): Promise<string> {
+  async transcribe(args: {
+    fileBuffer: Buffer;
+    filename: string;
+    mimetype: string;
+    prompt?: string;
+  }): Promise<{ text: string; durationSeconds: number }> {
     const file = await toFile(args.fileBuffer, args.filename, { type: args.mimetype });
 
     const response = await this.#client.audio.transcriptions.create({
       file,
       model: this.#model,
       language: "en",
-      response_format: "json",
+      response_format: "verbose_json",
       ...(args.prompt ? { prompt: args.prompt } : {}),
     });
 
-    return response.text;
+    return { text: response.text, durationSeconds: response.duration ?? 0 };
   }
 }

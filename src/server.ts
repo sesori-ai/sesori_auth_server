@@ -48,7 +48,7 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
       if (error.debugMessage || error.nestedError) {
         console.error(`[${error.name}] ${error.debugMessage ?? error.message}`, error.nestedError ?? "");
       }
-      return reply.status(error.errorCode).send({ error: error.message });
+      return reply.status(error.errorCode).send({ error: error.message, ...error.responseBody });
     }
 
     console.error("[UnhandledError]", error);

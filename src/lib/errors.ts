@@ -1,4 +1,6 @@
 export class ApiError extends Error {
+  public responseBody?: Record<string, unknown>;
+
   constructor(
     message: string,
     public readonly errorCode: number,
@@ -32,6 +34,13 @@ export class NotFoundError extends ApiError {
 export class InternalServerError extends ApiError {
   constructor(opts?: { debugMessage?: string; nestedError?: unknown }) {
     super("internal_server_error", 500, opts?.debugMessage, opts?.nestedError);
+  }
+}
+
+export class QuotaExceededError extends ApiError {
+  constructor(opts: { service: string; debugMessage?: string; nestedError?: unknown }) {
+    super("quota_exceeded", 429, opts.debugMessage, opts.nestedError);
+    this.responseBody = { service: opts.service };
   }
 }
 
