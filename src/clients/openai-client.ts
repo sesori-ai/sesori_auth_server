@@ -20,7 +20,7 @@ export class OpenAIClient {
     filename: string;
     mimetype: string;
     prompt?: string;
-  }): Promise<string> {
+  }): Promise<{ text: string; durationSeconds: number }> {
     if (!client) {
       throw new Error("OpenAI client not initialized — call OpenAIClient.init() first");
     }
@@ -31,10 +31,10 @@ export class OpenAIClient {
       file,
       model: transcriptionModel,
       language: "en",
-      response_format: "json",
+      response_format: "verbose_json",
       ...(args.prompt ? { prompt: args.prompt } : {}),
     });
 
-    return response.text;
+    return { text: response.text, durationSeconds: response.duration ?? 0 };
   }
 }

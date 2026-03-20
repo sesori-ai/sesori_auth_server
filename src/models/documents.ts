@@ -30,3 +30,14 @@ export const glossaryEntrySchema = z.object({
 });
 
 export type GlossaryEntry = z.infer<typeof glossaryEntrySchema>;
+
+export const dailyUsageSchema = z.object({
+  _id: z.instanceof(ObjectId),
+  userId: z.instanceof(ObjectId),
+  date: z.string(),
+  transcriptionSeconds: z.number(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
+export type DailyUsage = z.infer<typeof dailyUsageSchema>;

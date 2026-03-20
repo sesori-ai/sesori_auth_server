@@ -12,6 +12,9 @@ const configSchema = z.object({
   RELAY_URL: z.string().min(1, "RELAY_URL is required"),
   OPENAI_API_KEY: z.string().min(1, "OPENAI_API_KEY is required"),
   OPENAI_TRANSCRIPTION_MODEL: z.string().min(1).default("gpt-4o-mini-transcribe"),
+
+  // App-wide limits (hardcoded defaults, not sourced from env)
+  DAILY_TRANSCRIPTION_LIMIT_SECONDS: z.coerce.number().default(3600),
 });
 
 export type Config = z.infer<typeof configSchema>;
