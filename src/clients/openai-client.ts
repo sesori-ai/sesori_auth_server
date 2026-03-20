@@ -45,7 +45,7 @@ export class OpenAIClient {
   private static async parseAudioDuration(buffer: Buffer, mimeType: string): Promise<number> {
     try {
       const metadata = await parseBuffer(buffer, { mimeType });
-      if (metadata.format.duration != null && metadata.format.duration > 0) {
+      if (metadata.format.duration !== undefined && metadata.format.duration > 0) {
         return metadata.format.duration;
       }
       console.warn(
