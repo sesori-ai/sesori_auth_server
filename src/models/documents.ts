@@ -41,3 +41,14 @@ export const dailyUsageSchema = z.object({
 });
 
 export type DailyUsage = z.infer<typeof dailyUsageSchema>;
+
+export const deviceTokenSchema = z.object({
+  _id: z.instanceof(ObjectId),
+  userId: z.instanceof(ObjectId),
+  token: z.string(),
+  platform: z.enum(["ios", "android"]),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
+export type DeviceToken = z.infer<typeof deviceTokenSchema>;
