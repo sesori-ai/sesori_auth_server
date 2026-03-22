@@ -45,8 +45,9 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
     "/notifications/tokens/:token",
     { preHandler: requireAuth },
     async (request) => {
+      const userId = getUserId(request);
       const token = decodeURIComponent(request.params.token);
-      await deviceTokenRepo.deleteByToken(token);
+      await deviceTokenRepo.deleteByTokenForUser(userId, token);
       return { ok: true };
     },
   );

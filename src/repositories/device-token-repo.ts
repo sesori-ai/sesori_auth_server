@@ -30,6 +30,10 @@ export class DeviceTokenRepository {
     await this.#collection.deleteOne({ token });
   }
 
+  async deleteByTokenForUser(userId: string, token: string): Promise<void> {
+    await this.#collection.deleteOne({ token, userId: new ObjectId(userId) });
+  }
+
   async deleteByTokens(tokens: string[]): Promise<void> {
     if (tokens.length === 0) return;
     await this.#collection.deleteMany({ token: { $in: tokens } });
