@@ -56,7 +56,10 @@ async function main() {
     messaging = getMessaging();
     console.log("Firebase Admin SDK initialized");
   } catch (error) {
-    console.warn("Firebase Admin SDK initialization failed (push notifications disabled):", error instanceof Error ? error.message : String(error));
+    console.warn(
+      "Firebase Admin SDK initialization failed (push notifications disabled):",
+      error instanceof Error ? error.message : String(error),
+    );
   }
 
   const notificationService = new NotificationService(deviceTokenRepo, messaging);

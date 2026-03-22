@@ -53,10 +53,7 @@ describe("DeviceTokenRepository", () => {
 
     const tokens = await repo.findByUserId(user.userId);
     assert.equal(tokens.length, 2);
-    assert.deepEqual(
-      new Set(tokens.map((token) => token.token)),
-      new Set(["token-list-1", "token-list-2"]),
-    );
+    assert.deepEqual(new Set(tokens.map((token) => token.token)), new Set(["token-list-1", "token-list-2"]));
   });
 
   it("deleteByToken removes specific token", async () => {
