@@ -1,12 +1,18 @@
 import type { Messaging, BaseMessage } from "firebase-admin/messaging";
 import type { DeviceTokenRepository } from "../repositories/device-token-repo.js";
 
+export interface NotificationData {
+  category: string;
+  eventType?: string | null;
+  sessionId?: string | null;
+}
+
 export interface NotificationPayload {
   category: string;
   title: string;
   body: string;
-  collapseKey?: string;
-  data?: Record<string, string>;
+  collapseKey?: string | null;
+  data?: NotificationData | null;
 }
 
 export class NotificationService {
@@ -28,12 +34,20 @@ export class NotificationService {
       return { devicesNotified: 0 };
     }
 
+    // FCM data must be a flat Record<string, string>. Flatten NotificationData and filter nulls.
+    const flatData: Record<string, string> = { category: payload.category };
+    if (payload.data) {
+      if (payload.data.category) flatData["category"] = payload.data.category;
+      if (payload.data.eventType) flatData["eventType"] = payload.data.eventType;
+      if (payload.data.sessionId) flatData["sessionId"] = payload.data.sessionId;
+    }
+
     const messages: Array<BaseMessage & { token: string }> = tokens.map((t) => ({
       token: t.token,
       notification: { title: payload.title, body: payload.body },
-      data: { category: payload.category, ...payload.data },
+      data: flatData,
       android: {
-        collapseKey: payload.collapseKey,
+        collapseKey: payload.collapseKey ?? undefined,
         notification: { channelId: payload.category },
       },
       apns: {
