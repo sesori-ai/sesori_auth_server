@@ -1,3 +1,5 @@
+import * as admin from "firebase-admin/app";
+import { getMessaging } from "firebase-admin/messaging";
 import { GithubClient } from "./clients/auth/github-client.js";
 import { GoogleClient } from "./clients/auth/google-client.js";
 import { OpenAIClient } from "./clients/openai-client.js";
@@ -6,11 +8,13 @@ import { MongoDbAccessor } from "./db/mongo-db-accessor.js";
 import { MongoDbConnector } from "./db/mongo-db-connector.js";
 import stateStore from "./lib/state-store.js";
 import { DailyUsageRepository } from "./repositories/daily-usage-repo.js";
+import { DeviceTokenRepository } from "./repositories/device-token-repo.js";
 import { GlossaryEntryRepository } from "./repositories/glossary-entry-repo.js";
 import { OAuthAccountRepository } from "./repositories/oauth-account-repo.js";
 import { UserRepository } from "./repositories/user-repo.js";
 import { buildApp } from "./server.js";
 import { AuthService } from "./services/auth-service.js";
+import { NotificationService } from "./services/notification-service.js";
 import { TokenService } from "./services/token-service.js";
 import { VoiceService } from "./services/voice-service.js";
 
@@ -41,9 +45,21 @@ async function main() {
   const oauthAccountRepo = new OAuthAccountRepository(dbAccessor);
   const glossaryRepo = new GlossaryEntryRepository(dbAccessor);
   const dailyUsageRepo = new DailyUsageRepository(dbAccessor);
+  const deviceTokenRepo = new DeviceTokenRepository(dbAccessor);
 
   const tokenService = new TokenService(config.JWT_PRIVATE_KEY, config.JWT_PUBLIC_KEY);
   console.log("JWT keys loaded");
+
+  let messaging: ReturnType<typeof getMessaging> | null = null;
+  try {
+    admin.initializeApp();
+    messaging = getMessaging();
+    console.log("Firebase Admin SDK initialized");
+  } catch (error) {
+    console.warn("Firebase Admin SDK initialization failed (push notifications disabled):", error instanceof Error ? error.message : String(error));
+  }
+
+  const notificationService = new NotificationService(deviceTokenRepo, messaging);
 
   const openai = new OpenAIClient({ apiKey: config.OPENAI_API_KEY, model: config.OPENAI_TRANSCRIPTION_MODEL });
   console.log(`OpenAI client initialized (model: ${config.OPENAI_TRANSCRIPTION_MODEL})`);
@@ -55,6 +71,7 @@ async function main() {
     tokenService,
     userRepo,
     oauthAccountRepo,
+    deviceTokenRepo,
   });
   const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
 
@@ -63,6 +80,8 @@ async function main() {
     authService,
     tokenService,
     voiceService,
+    deviceTokenRepo,
+    notificationService,
     stateStore,
     githubClient,
     googleClient,

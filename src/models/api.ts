@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 export type OAuthInitQuery = {
   redirect_uri: string;
   code_challenge: string;
@@ -69,3 +71,25 @@ export type GlossaryRemoveBody = {
 export type GlossaryRemoveReply = {
   removed: number;
 };
+
+export const registerTokenBodySchema = z.object({
+  token: z.string().min(1),
+  platform: z.enum(["ios", "android"]),
+});
+export type RegisterTokenBody = z.infer<typeof registerTokenBodySchema>;
+
+export const sendNotificationBodySchema = z.object({
+  category: z.enum(["ai_interaction", "session_message", "system_update"]),
+  title: z.string().min(1).max(200),
+  body: z.string().min(1).max(500),
+  collapseKey: z.string().optional(),
+  data: z.record(z.string(), z.string()).optional(),
+});
+export type SendNotificationBody = z.infer<typeof sendNotificationBodySchema>;
+
+export const bridgeStatusBodySchema = z.object({
+  userId: z.string().min(1),
+  status: z.enum(["connected", "disconnected"]),
+  timestamp: z.string(),
+});
+export type BridgeStatusBody = z.infer<typeof bridgeStatusBodySchema>;

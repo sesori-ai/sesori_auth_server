@@ -12,11 +12,13 @@ import { MongoDbConnector } from "../../src/db/mongo-db-connector.js";
 import { MongoDbDatabase, AuthDbCollection } from "../../src/types/mongo.js";
 import { StateStore } from "../../src/lib/state-store.js";
 import { DailyUsageRepository } from "../../src/repositories/daily-usage-repo.js";
+import { DeviceTokenRepository } from "../../src/repositories/device-token-repo.js";
 import { GlossaryEntryRepository } from "../../src/repositories/glossary-entry-repo.js";
 import { OAuthAccountRepository } from "../../src/repositories/oauth-account-repo.js";
 import { UserRepository } from "../../src/repositories/user-repo.js";
 import { buildApp } from "../../src/server.js";
 import { AuthService } from "../../src/services/auth-service.js";
+import { NotificationService } from "../../src/services/notification-service.js";
 import { TokenService } from "../../src/services/token-service.js";
 import { VoiceService } from "../../src/services/voice-service.js";
 import { loadConfig } from "../../src/config.js";
@@ -47,6 +49,7 @@ export type TestContext = {
 export type TestAppOverrides = {
   githubClient?: OAuthClient;
   googleClient?: OAuthClient;
+  notificationService?: NotificationService;
 };
 
 export type { OAuthClient };
@@ -68,6 +71,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   process.env.GOOGLE_CLIENT_SECRET ??= "test-google-client-secret";
   process.env.ALLOWED_REDIRECT_URIS ??= "myapp://oauth/callback";
   process.env.RELAY_URL ??= "ws://localhost:8080";
+  process.env.RELAY_WEBHOOK_SECRET ??= "test-relay-secret";
   process.env.OPENAI_API_KEY ??= "test-openai-api-key";
   process.env.OPENAI_TRANSCRIPTION_MODEL ??= "gpt-4o-mini-transcribe";
 
@@ -83,6 +87,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   const oauthAccountRepo = new OAuthAccountRepository(dbAccessor);
   const glossaryRepo = new GlossaryEntryRepository(dbAccessor);
   const dailyUsageRepo = new DailyUsageRepository(dbAccessor);
+  const deviceTokenRepo = new DeviceTokenRepository(dbAccessor);
 
   const tokenService = new TokenService(privPem, pubPem);
   const stateStore = new StateStore();
@@ -93,12 +98,15 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
 
   const authService = new AuthService({ tokenService, userRepo, oauthAccountRepo });
   const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
+  const notificationService = overrides?.notificationService ?? new NotificationService(deviceTokenRepo, null);
 
   const app = await buildApp({
     config,
     authService,
     tokenService,
     voiceService,
+    deviceTokenRepo,
+    notificationService,
     stateStore,
     githubClient: githubClient as GithubClient,
     googleClient: googleClient as GoogleClient,
