@@ -117,7 +117,7 @@ describe("Notification routes", () => {
         title: "Need your input",
         body: "The assistant is waiting for confirmation.",
         collapseKey: "ai_interaction",
-        data: { sessionId: "abc123" },
+        data: { category: "ai_interaction", eventType: "question_asked", sessionId: "abc123" },
       }),
     });
 
