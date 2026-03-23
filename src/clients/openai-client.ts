@@ -27,7 +27,7 @@ export class OpenAIClient {
         file,
         model: this.#model,
         language: "en",
-        response_format: "verbose_json",
+        response_format: "json",
         ...(args.prompt ? { prompt: args.prompt } : {}),
       }),
       OpenAIClient.parseAudioDuration(args.fileBuffer, args.mimetype),
