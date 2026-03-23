@@ -17,6 +17,25 @@ const configSchema = z.object({
   RELAY_WEBHOOK_SECRET: z.string().optional(),
   OPENAI_API_KEY: z.string().min(1, "OPENAI_API_KEY is required"),
   OPENAI_TRANSCRIPTION_MODEL: z.string().min(1).default("gpt-4o-mini-transcribe"),
+  FCM_SA_JSON: z
+    .string()
+    .min(1, "FCM_SA_JSON is required")
+    .transform((val) => JSON.parse(Buffer.from(val, "base64").toString("utf-8")))
+    .pipe(
+      z.object({
+        type: z.literal("service_account"),
+        project_id: z.string().min(1),
+        private_key_id: z.string().min(1),
+        private_key: z.string().startsWith("-----BEGIN"),
+        client_email: z.string().email(),
+        client_id: z.string().min(1),
+        auth_uri: z.string().url(),
+        token_uri: z.string().url(),
+        auth_provider_x509_cert_url: z.string().url(),
+        client_x509_cert_url: z.string().url(),
+        universe_domain: z.string().min(1),
+      }),
+    ),
 
   // App-wide limits (hardcoded defaults, not sourced from env)
   DAILY_TRANSCRIPTION_LIMIT_SECONDS: z.coerce.number().default(3600),

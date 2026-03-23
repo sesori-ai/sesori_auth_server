@@ -1,4 +1,5 @@
 import * as admin from "firebase-admin/app";
+import type { ServiceAccount } from "firebase-admin/app";
 import { getMessaging } from "firebase-admin/messaging";
 import { GithubClient } from "./clients/auth/github-client.js";
 import { GoogleClient } from "./clients/auth/google-client.js";
@@ -52,7 +53,14 @@ async function main() {
 
   let messaging: ReturnType<typeof getMessaging> | null = null;
   try {
-    admin.initializeApp();
+    const fcmObject = config.FCM_SA_JSON;
+    admin.initializeApp({
+      credential: admin.cert({
+        clientEmail: fcmObject.client_email,
+        privateKey: fcmObject.private_key,
+        projectId: fcmObject.project_id,
+      }),
+    });
     messaging = getMessaging();
     console.log("Firebase Admin SDK initialized");
   } catch (error) {
