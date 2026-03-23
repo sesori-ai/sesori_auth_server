@@ -4,6 +4,7 @@ import { BadGatewayError, UnauthenticatedError } from "../lib/errors.js";
 import { refreshTokenPayloadSchema } from "../models/jwt.js";
 import { OAuthAccountRepository } from "../repositories/oauth-account-repo.js";
 import { UserRepository } from "../repositories/user-repo.js";
+import type { DeviceTokenRepository } from "../repositories/device-token-repo.js";
 import { TokenService } from "./token-service.js";
 
 type AuthResult = {
@@ -21,15 +22,18 @@ export class AuthService {
   readonly #tokenService: TokenService;
   readonly #userRepo: UserRepository;
   readonly #oauthAccountRepo: OAuthAccountRepository;
+  readonly #deviceTokenRepo?: DeviceTokenRepository;
 
   constructor(deps: {
     tokenService: TokenService;
     userRepo: UserRepository;
     oauthAccountRepo: OAuthAccountRepository;
+    deviceTokenRepo?: DeviceTokenRepository;
   }) {
     this.#tokenService = deps.tokenService;
     this.#userRepo = deps.userRepo;
     this.#oauthAccountRepo = deps.oauthAccountRepo;
+    this.#deviceTokenRepo = deps.deviceTokenRepo;
   }
 
   async authenticateOAuth(
@@ -159,6 +163,9 @@ export class AuthService {
 
   async logoutUser(userId: string): Promise<void> {
     await this.#userRepo.incrementTokenVersion(userId);
+    if (this.#deviceTokenRepo) {
+      await this.#deviceTokenRepo.deleteAllForUser(userId);
+    }
   }
 
   // TODO: revoke() currently delegates to logoutUser(). Will diverge when relay

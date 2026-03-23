@@ -7,20 +7,26 @@ import type { Config } from "./config.js";
 import { ApiError } from "./lib/errors.js";
 import type { StateStore } from "./lib/state-store.js";
 import { createAuthMiddleware } from "./middleware/auth.js";
+import { createRelayAuthMiddleware } from "./middleware/relay-auth.js";
 import type { HealthReply } from "./models/api.js";
+import type { DeviceTokenRepository } from "./repositories/device-token-repo.js";
 import type { AuthService } from "./services/auth-service.js";
+import type { NotificationService } from "./services/notification-service.js";
 import type { TokenService } from "./services/token-service.js";
 import type { VoiceService } from "./services/voice-service.js";
 import { tokenRoutes } from "./routes/token.js";
 import { githubRoutes } from "./routes/github.js";
 import { googleRoutes } from "./routes/google.js";
 import { voiceRoutes } from "./routes/voice.js";
+import { notificationRoutes } from "./routes/notifications.js";
 
 export type AppServices = {
   config: Config;
   authService: AuthService;
   tokenService: TokenService;
   voiceService: VoiceService;
+  deviceTokenRepo: DeviceTokenRepository;
+  notificationService: NotificationService;
   stateStore: StateStore;
   githubClient: GithubClient;
   googleClient: GoogleClient;
@@ -60,6 +66,7 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
   });
 
   const requireAuth = createAuthMiddleware(services.tokenService);
+  const requireRelayAuth = createRelayAuthMiddleware(services.config.RELAY_WEBHOOK_SECRET);
 
   await app.register(tokenRoutes, {
     authService: services.authService,
@@ -81,6 +88,12 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
   await app.register(voiceRoutes, {
     voiceService: services.voiceService,
     requireAuth,
+  });
+  await app.register(notificationRoutes, {
+    deviceTokenRepo: services.deviceTokenRepo,
+    notificationService: services.notificationService,
+    requireAuth,
+    requireRelayAuth,
   });
 
   return app;
