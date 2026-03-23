@@ -30,13 +30,13 @@
     "@fastify/multipart": "^9.4.0",
     "@fastify/rate-limit": "^10.3.0",
     "fastify": "^5.8.2",
-    "firebase-admin": "^13.0.0",
-    "jose": "^6.2.1",
+    "firebase-admin": "^13.7.0",
+    "jose": "^6.2.2",
     "jsonwebtoken": "^9.0.3",
     "lru-cache": "^11.2.7",
     "mongodb": "^7.1.0",
     "music-metadata": "^11.12.3",
-    "openai": "^6.29.0",
+    "openai": "^6.32.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
