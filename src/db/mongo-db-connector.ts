@@ -1,9 +1,5 @@
 import { Db, MongoClient, MongoClientOptions } from "mongodb";
-import { loadConfig } from "../config.js";
-
-export enum MongoDBDatabase {
-  OAuth = "oauth",
-}
+import { MongoDbDatabase } from "../types/mongo.js";
 
 export type MongoDbConnectorOptions = {
   connectionString: string;
@@ -51,8 +47,8 @@ export class MongoDbConnector {
     }
   }
 
-  getDb(database: MongoDBDatabase): Db {
-    return this.#client.db(database);
+  getDb(name: MongoDbDatabase): Db {
+    return this.#client.db(name);
   }
 
   async close(): Promise<void> {
@@ -63,27 +59,5 @@ export class MongoDbConnector {
     } catch {
       // Connection already failed — nothing to close
     }
-  }
-}
-
-let instance: MongoDbConnector | null = null;
-
-export function getMongoDbConnector(): MongoDbConnector {
-  return (instance ??= new MongoDbConnector({
-    connectionString: loadConfig().MONGODB_URI,
-    clientOptions: {
-      connectTimeoutMS: 10_000,
-      timeoutMS: 10_000,
-    },
-    onError: (error) => console.error("MongoDB error:", error),
-    onOpen: () => console.log("MongoDB connected"),
-    onClose: () => console.log("MongoDB connection closed"),
-  }));
-}
-
-export async function closeMongoDbConnector(): Promise<void> {
-  if (instance) {
-    await instance.close();
-    instance = null;
   }
 }

@@ -1,39 +1,33 @@
 import OpenAI, { toFile } from "openai";
 import { parseBuffer } from "music-metadata";
 
-let client: OpenAI | null = null;
-let transcriptionModel: string = "gpt-4o-mini-transcribe";
-
 export class OpenAIClient {
-  private constructor() {}
+  readonly #client: OpenAI;
+  readonly #model: string;
 
-  static init(args: { apiKey: string; model: string }): void {
-    client = new OpenAI({
+  constructor(args: { apiKey: string; model: string }) {
+    this.#client = new OpenAI({
       apiKey: args.apiKey,
       maxRetries: 2,
       timeout: 60_000,
     });
-    transcriptionModel = args.model;
+    this.#model = args.model;
   }
 
-  static async transcribe(args: {
+  async transcribe(args: {
     fileBuffer: Buffer;
     filename: string;
     mimetype: string;
     prompt?: string;
   }): Promise<{ text: string; durationSeconds: number }> {
-    if (!client) {
-      throw new Error("OpenAI client not initialized — call OpenAIClient.init() first");
-    }
-
     const file = await toFile(args.fileBuffer, args.filename, { type: args.mimetype });
 
     const [response, durationSeconds] = await Promise.all([
-      client.audio.transcriptions.create({
+      this.#client.audio.transcriptions.create({
         file,
-        model: transcriptionModel,
+        model: this.#model,
         language: "en",
-        response_format: "json",
+        response_format: "verbose_json",
         ...(args.prompt ? { prompt: args.prompt } : {}),
       }),
       OpenAIClient.parseAudioDuration(args.fileBuffer, args.mimetype),

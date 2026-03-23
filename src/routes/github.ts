@@ -1,10 +1,12 @@
 import { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { loadConfig } from "../config.js";
+import type { GithubClient } from "../clients/auth/github-client.js";
+import { OAuthProviderName } from "../types/oauth.js";
+import type { Config } from "../config.js";
 import { BadRequestError } from "../lib/errors.js";
-import { StateStore } from "../lib/state-store.js";
+import type { StateStore } from "../lib/state-store.js";
 import type { OAuthInitQuery, OAuthInitReply, OAuthCallbackBody, AuthTokensReply } from "../models/api.js";
-import { AuthService } from "../services/auth-service.js";
+import type { AuthService } from "../services/auth-service.js";
 
 const githubInitQuerySchema = z.object({
   redirect_uri: z.string().min(1),
@@ -19,8 +21,15 @@ const githubCallbackBodySchema = z.object({
   redirectUri: z.string().min(1),
 });
 
-export const githubRoutes: FastifyPluginAsync = async (fastify) => {
-  const config = loadConfig();
+export type GithubRouteOptions = {
+  config: Config;
+  authService: AuthService;
+  stateStore: StateStore;
+  githubClient: GithubClient;
+};
+
+export const githubRoutes: FastifyPluginAsync<GithubRouteOptions> = async (fastify, opts) => {
+  const { config, authService, stateStore, githubClient } = opts;
 
   fastify.get<{ Querystring: OAuthInitQuery; Reply: OAuthInitReply }>("/auth/github", async (request) => {
     const queryResult = githubInitQuerySchema.safeParse(request.query);
@@ -29,8 +38,11 @@ export const githubRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     const { redirect_uri, code_challenge, code_challenge_method } = queryResult.data;
+    if (!config.ALLOWED_REDIRECT_URIS.includes(redirect_uri)) {
+      throw new BadRequestError({ debugMessage: "Redirect URI not allowed" });
+    }
 
-    const state = StateStore.createState();
+    const state = stateStore.createState();
     const authUrl = new URL("https://github.com/login/oauth/authorize");
     authUrl.searchParams.set("client_id", config.GITHUB_CLIENT_ID);
     authUrl.searchParams.set("redirect_uri", redirect_uri);
@@ -52,11 +64,15 @@ export const githubRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     const { code, codeVerifier, state, redirectUri } = bodyResult.data;
-    if (!StateStore.validateState(state)) {
+    if (!config.ALLOWED_REDIRECT_URIS.includes(redirectUri)) {
+      throw new BadRequestError({ debugMessage: "Redirect URI not allowed" });
+    }
+
+    if (!stateStore.validateState(state)) {
       throw new BadRequestError({ debugMessage: "Invalid or expired state" });
     }
 
-    return await AuthService.authenticateGithub({
+    return await authService.authenticateOAuth(OAuthProviderName.Github, githubClient, {
       code,
       codeVerifier,
       redirectUri,

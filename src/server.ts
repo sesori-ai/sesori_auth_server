@@ -1,19 +1,44 @@
 import Fastify, { FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
+import rateLimit from "@fastify/rate-limit";
+import type { GithubClient } from "./clients/auth/github-client.js";
+import type { GoogleClient } from "./clients/auth/google-client.js";
+import type { Config } from "./config.js";
 import { ApiError } from "./lib/errors.js";
+import type { StateStore } from "./lib/state-store.js";
+import { createAuthMiddleware } from "./middleware/auth.js";
 import type { HealthReply } from "./models/api.js";
+import type { AuthService } from "./services/auth-service.js";
+import type { TokenService } from "./services/token-service.js";
+import type { VoiceService } from "./services/voice-service.js";
 import { tokenRoutes } from "./routes/token.js";
 import { githubRoutes } from "./routes/github.js";
 import { googleRoutes } from "./routes/google.js";
 import { voiceRoutes } from "./routes/voice.js";
 
-export async function buildApp(): Promise<FastifyInstance> {
+export type AppServices = {
+  config: Config;
+  authService: AuthService;
+  tokenService: TokenService;
+  voiceService: VoiceService;
+  stateStore: StateStore;
+  githubClient: GithubClient;
+  googleClient: GoogleClient;
+};
+
+export async function buildApp(services: AppServices): Promise<FastifyInstance> {
   const app = Fastify({
     disableRequestLogging: true,
   });
 
   await app.register(cors, {
     origin: true,
+  });
+
+  await app.register(rateLimit, {
+    max: 100,
+    timeWindow: "1 minute",
+    allowList: ["127.0.0.1", "::1"],
   });
 
   app.decorateRequest("user", null);
@@ -34,10 +59,29 @@ export async function buildApp(): Promise<FastifyInstance> {
     return { status: "ok" };
   });
 
-  await app.register(tokenRoutes);
-  await app.register(githubRoutes);
-  await app.register(googleRoutes);
-  await app.register(voiceRoutes);
+  const requireAuth = createAuthMiddleware(services.tokenService);
+
+  await app.register(tokenRoutes, {
+    authService: services.authService,
+    tokenService: services.tokenService,
+    requireAuth,
+  });
+  await app.register(githubRoutes, {
+    config: services.config,
+    authService: services.authService,
+    stateStore: services.stateStore,
+    githubClient: services.githubClient,
+  });
+  await app.register(googleRoutes, {
+    config: services.config,
+    authService: services.authService,
+    stateStore: services.stateStore,
+    googleClient: services.googleClient,
+  });
+  await app.register(voiceRoutes, {
+    voiceService: services.voiceService,
+    requireAuth,
+  });
 
   return app;
 }

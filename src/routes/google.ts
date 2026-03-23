@@ -1,10 +1,12 @@
 import { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { loadConfig } from "../config.js";
+import type { GoogleClient } from "../clients/auth/google-client.js";
+import { OAuthProviderName } from "../types/oauth.js";
+import type { Config } from "../config.js";
 import { BadRequestError } from "../lib/errors.js";
-import { StateStore } from "../lib/state-store.js";
+import type { StateStore } from "../lib/state-store.js";
 import type { OAuthInitQuery, OAuthInitReply, OAuthCallbackBody, AuthTokensReply } from "../models/api.js";
-import { AuthService } from "../services/auth-service.js";
+import type { AuthService } from "../services/auth-service.js";
 
 const googleInitQuerySchema = z.object({
   redirect_uri: z.string().min(1),
@@ -19,8 +21,15 @@ const googleCallbackBodySchema = z.object({
   redirectUri: z.string().min(1),
 });
 
-export const googleRoutes: FastifyPluginAsync = async (fastify) => {
-  const config = loadConfig();
+export type GoogleRouteOptions = {
+  config: Config;
+  authService: AuthService;
+  stateStore: StateStore;
+  googleClient: GoogleClient;
+};
+
+export const googleRoutes: FastifyPluginAsync<GoogleRouteOptions> = async (fastify, opts) => {
+  const { config, authService, stateStore, googleClient } = opts;
 
   fastify.get<{ Querystring: OAuthInitQuery; Reply: OAuthInitReply }>("/auth/google", async (request) => {
     const queryResult = googleInitQuerySchema.safeParse(request.query);
@@ -29,8 +38,11 @@ export const googleRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     const { redirect_uri, code_challenge, code_challenge_method } = queryResult.data;
+    if (!config.ALLOWED_REDIRECT_URIS.includes(redirect_uri)) {
+      throw new BadRequestError({ debugMessage: "Redirect URI not allowed" });
+    }
 
-    const state = StateStore.createState();
+    const state = stateStore.createState();
     const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     authUrl.searchParams.set("client_id", config.GOOGLE_CLIENT_ID);
     authUrl.searchParams.set("redirect_uri", redirect_uri);
@@ -55,11 +67,15 @@ export const googleRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     const { code, codeVerifier, state, redirectUri } = bodyResult.data;
-    if (!StateStore.validateState(state)) {
+    if (!config.ALLOWED_REDIRECT_URIS.includes(redirectUri)) {
+      throw new BadRequestError({ debugMessage: "Redirect URI not allowed" });
+    }
+
+    if (!stateStore.validateState(state)) {
       throw new BadRequestError({ debugMessage: "Invalid or expired state" });
     }
 
-    return await AuthService.authenticateGoogle({
+    return await authService.authenticateOAuth(OAuthProviderName.Google, googleClient, {
       code,
       codeVerifier,
       redirectUri,

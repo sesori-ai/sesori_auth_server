@@ -1,35 +1,59 @@
-import { ObjectId } from "mongodb";
-import { DatabaseAccessor } from "../db/database-accessor.js";
+import { Collection, ObjectId } from "mongodb";
+import { MongoDbAccessor } from "../db/mongo-db-accessor.js";
+import type { DailyUsage } from "../models/documents.js";
+import { InternalServerError } from "../lib/errors.js";
+import { MongoDbDatabase, AuthDbCollection } from "../types/mongo.js";
 
+/** Returns today's UTC date as YYYY-MM-DD for use as a daily aggregation key. */
 export function todayUtcDateKey(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
 export class DailyUsageRepository {
-  private constructor() {}
+  readonly #collection: Collection<DailyUsage>;
 
-  static async getDailyTranscriptionSeconds(userId: ObjectId): Promise<number> {
-    const doc = await DatabaseAccessor.dailyUsage().findOne({
-      userId,
-      date: todayUtcDateKey(),
-    });
+  constructor(accessor: MongoDbAccessor) {
+    this.#collection = accessor.getCollection<DailyUsage>(MongoDbDatabase.Auth, AuthDbCollection.DailyUsage);
+  }
+
+  /** Gets today's accumulated transcription seconds for a user. Returns 0 if no usage document exists yet. */
+  async getDailyTranscriptionSeconds(userId: string): Promise<number> {
+    const doc = await this.#collection.findOne({ userId: new ObjectId(userId), date: todayUtcDateKey() });
     return doc?.transcriptionSeconds ?? 0;
   }
 
-  static async incrementTranscriptionSeconds(userId: ObjectId, seconds: number): Promise<number> {
+  /**
+   * Atomically increments today's transcription seconds for a user (upsert).
+   * Returns the total BEFORE the increment (`previousTotal`) and AFTER (`newTotal`).
+   * Using returnDocument "before" allows callers to detect concurrent quota races:
+   * if `previousTotal >= limit`, another request already consumed quota between
+   * the caller's pre-check and this increment.
+   */
+  async incrementTranscriptionSeconds(
+    userId: string,
+    seconds: number,
+  ): Promise<{ previousTotal: number; newTotal: number }> {
     const now = new Date();
-    const result = await DatabaseAccessor.dailyUsage().findOneAndUpdate(
-      { userId, date: todayUtcDateKey() },
+    const result = await this.#collection.findOneAndUpdate(
+      { userId: new ObjectId(userId), date: todayUtcDateKey() },
       {
         $inc: { transcriptionSeconds: seconds },
-        $setOnInsert: { _id: new ObjectId(), userId, createdAt: now },
+        $setOnInsert: { _id: new ObjectId(), userId: new ObjectId(userId), date: todayUtcDateKey(), createdAt: now },
         $set: { updatedAt: now },
       },
-      { upsert: true, returnDocument: "after" },
+      { upsert: true, returnDocument: "before" },
     );
-    if (!result) {
-      throw new Error("Failed to upsert daily usage document");
+
+    if (result === null) {
+      // Upsert created a new document — no previous usage.
+      return { previousTotal: 0, newTotal: seconds };
     }
-    return result.transcriptionSeconds;
+
+    if (!result) {
+      throw new InternalServerError({ debugMessage: "Failed to upsert daily usage document" });
+    }
+
+    const previousTotal = result.transcriptionSeconds;
+    return { previousTotal, newTotal: previousTotal + seconds };
   }
 }

@@ -7,27 +7,22 @@ import {
   type RefreshTokenPayload,
   refreshTokenPayloadSchema,
 } from "../models/jwt.js";
+import { InternalServerError } from "../lib/errors.js";
 
 export class TokenService {
-  private static privateKey: string | null = null;
-  private static publicKey: string | null = null;
+  readonly #privateKey: string;
+  readonly #publicKey: string;
 
-  private constructor() {}
-
-  static setKeys(privateKeyPem: string, publicKeyPem: string): void {
-    TokenService.privateKey = privateKeyPem.replace(/\\n/g, "\n");
-    TokenService.publicKey = publicKeyPem.replace(/\\n/g, "\n");
+  constructor(privateKeyPem: string, publicKeyPem: string) {
+    this.#privateKey = privateKeyPem.replace(/\\n/g, "\n");
+    this.#publicKey = publicKeyPem.replace(/\\n/g, "\n");
   }
 
-  static signAccessToken(payload: { userId: string; provider: string; providerUserId: string }): string {
-    if (!TokenService.privateKey) {
-      throw new Error("Private key not loaded. Call setKeys() first.");
-    }
-
+  signAccessToken(payload: { userId: string; provider: string; providerUserId: string }): string {
     const now = Math.floor(Date.now() / 1000);
     const expiresIn = 15 * 60;
 
-    const tokenPayload: AccessTokenPayload = accessTokenPayloadSchema.parse({
+    const tokenPayloadResult = accessTokenPayloadSchema.safeParse({
       tokenType: "access",
       userId: payload.userId,
       provider: payload.provider,
@@ -37,21 +32,24 @@ export class TokenService {
       iat: now,
       exp: now + expiresIn,
     });
+    if (!tokenPayloadResult.success) {
+      throw new InternalServerError({
+        debugMessage: "Access token payload validation failed",
+        nestedError: tokenPayloadResult.error.issues,
+      });
+    }
+    const tokenPayload: AccessTokenPayload = tokenPayloadResult.data;
 
-    return jwt.sign(tokenPayload, TokenService.privateKey, {
+    return jwt.sign(tokenPayload, this.#privateKey, {
       algorithm: "RS256",
     });
   }
 
-  static signRefreshToken(payload: { userId: string; tokenVersion: number }): string {
-    if (!TokenService.privateKey) {
-      throw new Error("Private key not loaded. Call setKeys() first.");
-    }
-
+  signRefreshToken(payload: { userId: string; tokenVersion: number }): string {
     const now = Math.floor(Date.now() / 1000);
     const expiresIn = 30 * 24 * 60 * 60;
 
-    const tokenPayload: RefreshTokenPayload = refreshTokenPayloadSchema.parse({
+    const tokenPayloadResult = refreshTokenPayloadSchema.safeParse({
       tokenType: "refresh",
       userId: payload.userId,
       tokenVersion: payload.tokenVersion,
@@ -60,21 +58,25 @@ export class TokenService {
       iat: now,
       exp: now + expiresIn,
     });
+    if (!tokenPayloadResult.success) {
+      throw new InternalServerError({
+        debugMessage: "Refresh token payload validation failed",
+        nestedError: tokenPayloadResult.error.issues,
+      });
+    }
+    const tokenPayload: RefreshTokenPayload = tokenPayloadResult.data;
 
-    return jwt.sign(tokenPayload, TokenService.privateKey, {
+    return jwt.sign(tokenPayload, this.#privateKey, {
       algorithm: "RS256",
     });
   }
 
-  static signBridgeToken(payload: { userId: string }): string {
-    if (!TokenService.privateKey) {
-      throw new Error("Private key not loaded. Call setKeys() first.");
-    }
-
+  // TODO(relay): Bridge tokens for relay integration. Wire to a route when relay service is implemented. Remove if relay is dropped.
+  signBridgeToken(payload: { userId: string }): string {
     const now = Math.floor(Date.now() / 1000);
     const expiresIn = 24 * 60 * 60;
 
-    const tokenPayload: BridgeTokenPayload = bridgeTokenPayloadSchema.parse({
+    const tokenPayloadResult = bridgeTokenPayloadSchema.safeParse({
       tokenType: "bridge",
       userId: payload.userId,
       iss: "auth-backend",
@@ -82,28 +84,40 @@ export class TokenService {
       iat: now,
       exp: now + expiresIn,
     });
+    if (!tokenPayloadResult.success) {
+      throw new InternalServerError({
+        debugMessage: "Bridge token payload validation failed",
+        nestedError: tokenPayloadResult.error.issues,
+      });
+    }
+    const tokenPayload: BridgeTokenPayload = tokenPayloadResult.data;
 
-    return jwt.sign(tokenPayload, TokenService.privateKey, {
+    return jwt.sign(tokenPayload, this.#privateKey, {
       algorithm: "RS256",
     });
   }
 
-  static verifyToken(token: string): Record<string, unknown> {
-    if (!TokenService.publicKey) {
-      throw new Error("Public key not loaded. Call setKeys() first.");
-    }
-
-    return jwt.verify(token, TokenService.publicKey, {
-      algorithms: ["RS256"],
-      issuer: "auth-backend",
-    }) as Record<string, unknown>;
+  verifyAccessToken(token: string): unknown {
+    return this.#verifyToken(token, "mobile");
   }
 
-  static getPublicKey(): string {
-    if (!TokenService.publicKey) {
-      throw new Error("Public key not loaded. Call setKeys() first.");
-    }
+  verifyRefreshToken(token: string): unknown {
+    return this.#verifyToken(token, "mobile");
+  }
 
-    return TokenService.publicKey;
+  verifyBridgeToken(token: string): unknown {
+    return this.#verifyToken(token, "bridge");
+  }
+
+  getPublicKey(): string {
+    return this.#publicKey;
+  }
+
+  #verifyToken(token: string, audience: string): unknown {
+    return jwt.verify(token, this.#publicKey, {
+      algorithms: ["RS256"],
+      issuer: "auth-backend",
+      audience,
+    });
   }
 }
