@@ -18,7 +18,6 @@ import { OAuthAccountRepository } from "../../src/repositories/oauth-account-rep
 import { UserRepository } from "../../src/repositories/user-repo.js";
 import { buildApp } from "../../src/server.js";
 import { AuthService } from "../../src/services/auth-service.js";
-import { MetadataRateLimiter } from "../../src/services/metadata-rate-limiter.js";
 import { NotificationService } from "../../src/services/notification-service.js";
 import { SessionMetadataService } from "../../src/services/session-metadata-service.js";
 import { TokenService } from "../../src/services/token-service.js";
@@ -118,10 +117,8 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   const authService = new AuthService({ tokenService, userRepo, oauthAccountRepo });
   const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
   const notificationService = overrides?.notificationService ?? new NotificationService(deviceTokenRepo, null);
-  const metadataRateLimiter = new MetadataRateLimiter(dbAccessor);
   const sessionMetadataService =
-    overrides?.sessionMetadataService ??
-    new SessionMetadataService({ openai, rateLimiter: metadataRateLimiter, model: "gpt-4o-mini" });
+    overrides?.sessionMetadataService ?? new SessionMetadataService({ openai, dailyUsageRepo, model: "gpt-4o-mini" });
 
   const app = await buildApp({
     config,

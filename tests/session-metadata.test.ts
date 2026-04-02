@@ -25,6 +25,7 @@ describe("POST /sessions/generate-metadata", () => {
     mock.method(SessionMetadataService.prototype, "generateMetadata", async () => ({
       title: "Fix Auth Bug",
       branchName: "fix-auth-bug",
+      worktreeName: "fix-auth-bug",
     }));
 
     const res = await ctx.app.inject({
@@ -38,9 +39,10 @@ describe("POST /sessions/generate-metadata", () => {
     });
 
     assert.equal(res.statusCode, 200);
-    const body = res.json<{ title: string; branchName: string }>();
+    const body = res.json<{ title: string; branchName: string; worktreeName: string }>();
     assert.equal(body.title, "Fix Auth Bug");
     assert.equal(body.branchName, "fix-auth-bug");
+    assert.equal(body.worktreeName, "fix-auth-bug");
   });
 
   it("returns 401 when no Authorization header is provided", async () => {

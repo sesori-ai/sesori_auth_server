@@ -36,6 +36,7 @@ export const dailyUsageSchema = z.object({
   userId: z.instanceof(ObjectId),
   date: z.string(),
   transcriptionSeconds: z.number(),
+  metadataRequestCount: z.number().optional(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });

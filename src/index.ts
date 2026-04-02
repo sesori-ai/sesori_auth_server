@@ -14,7 +14,6 @@ import { OAuthAccountRepository } from "./repositories/oauth-account-repo.js";
 import { UserRepository } from "./repositories/user-repo.js";
 import { buildApp } from "./server.js";
 import { AuthService } from "./services/auth-service.js";
-import { MetadataRateLimiter } from "./services/metadata-rate-limiter.js";
 import { NotificationService } from "./services/notification-service.js";
 import { SessionMetadataService } from "./services/session-metadata-service.js";
 import { TokenService } from "./services/token-service.js";
@@ -87,10 +86,9 @@ async function main() {
   });
   const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
 
-  const rateLimiter = new MetadataRateLimiter(dbAccessor);
   const sessionMetadataService = new SessionMetadataService({
     openai,
-    rateLimiter,
+    dailyUsageRepo,
     model: config.OPENAI_METADATA_MODEL,
   });
 
