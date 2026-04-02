@@ -1,6 +1,7 @@
 import { OpenAIClient } from "../clients/openai-client.js";
 import { MetadataRateLimiter } from "./metadata-rate-limiter.js";
 import { InternalServerError } from "../lib/errors.js";
+import { generateMetadataReplySchema } from "../models/api.js";
 
 const SYSTEM_PROMPT =
   'Read the user\'s first message and generate session metadata. Return a concise title using 2 to 6 words. Return a git-branch-safe branch name in lowercase hyphenated form, max 60 chars. Respond ONLY with valid JSON in this exact shape: {"title":"...","branchName":"..."}. No markdown fences. No explanation. Only JSON.';
@@ -101,32 +102,24 @@ export class SessionMetadataService {
       });
     }
 
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(rawResponse);
-    } catch (error) {
+    const parseResult = generateMetadataReplySchema.safeParse(
+      (() => {
+        try {
+          return JSON.parse(rawResponse);
+        } catch {
+          return null;
+        }
+      })(),
+    );
+
+    if (!parseResult.success || !parseResult.data.title || !parseResult.data.branchName) {
       throw new InternalServerError({
-        debugMessage: `Failed to parse OpenAI metadata response as JSON: ${rawResponse}`,
-        nestedError: error,
+        debugMessage: `Invalid metadata response: ${rawResponse}`,
       });
     }
 
-    const candidate = parsed as Record<string, unknown>;
-    if (
-      typeof parsed !== "object" ||
-      parsed === null ||
-      typeof candidate["title"] !== "string" ||
-      typeof candidate["branchName"] !== "string" ||
-      !candidate["title"] ||
-      !candidate["branchName"]
-    ) {
-      throw new InternalServerError({
-        debugMessage: `Invalid metadata response shape or empty fields: ${rawResponse}`,
-      });
-    }
-
-    const title = candidate["title"] as string;
-    const rawBranchName = candidate["branchName"] as string;
+    const { title } = parseResult.data;
+    const rawBranchName = parseResult.data.branchName;
 
     const branchName = sanitizeBranchName(rawBranchName);
     if (!branchName) {

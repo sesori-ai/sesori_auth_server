@@ -51,8 +51,11 @@ export class MetadataRateLimiter {
       });
     }
 
-    // Atomically increment daily counter and check whether quota was already
-    // exhausted before this request arrived.
+    // Record the timestamp before the async DB call to prevent concurrent
+    // requests from reading stale state and bypassing the per-minute limit.
+    timestamps.push(now);
+    this.#perMinuteWindows.set(userId, timestamps);
+
     const { previousCount } = await this.#usageRepo.incrementCount(userId);
 
     if (previousCount >= PER_DAY_LIMIT) {
@@ -61,8 +64,5 @@ export class MetadataRateLimiter {
         debugMessage: `Daily metadata limit reached: ${previousCount}/${PER_DAY_LIMIT} requests today`,
       });
     }
-
-    timestamps.push(now);
-    this.#perMinuteWindows.set(userId, timestamps);
   }
 }
