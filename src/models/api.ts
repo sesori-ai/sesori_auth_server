@@ -99,3 +99,14 @@ export const bridgeStatusBodySchema = z.object({
   timestamp: z.string(),
 });
 export type BridgeStatusBody = z.infer<typeof bridgeStatusBodySchema>;
+
+export const generateMetadataBodySchema = z.object({
+  firstMessage: z.string().min(1).max(500),
+});
+export type GenerateMetadataBody = z.infer<typeof generateMetadataBodySchema>;
+
+export const generateMetadataReplySchema = z.object({
+  title: z.string(),
+  branchName: z.string(),
+});
+export type GenerateMetadataReply = z.infer<typeof generateMetadataReplySchema>;

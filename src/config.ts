@@ -17,6 +17,7 @@ const configSchema = z.object({
   RELAY_WEBHOOK_SECRET: z.string().optional(),
   OPENAI_API_KEY: z.string().min(1, "OPENAI_API_KEY is required"),
   OPENAI_TRANSCRIPTION_MODEL: z.string().min(1).default("gpt-4o-mini-transcribe"),
+  OPENAI_METADATA_MODEL: z.string().min(1).default("gpt-5-nano"),
   FCM_SA_JSON: z
     .string()
     .min(1, "FCM_SA_JSON is required")

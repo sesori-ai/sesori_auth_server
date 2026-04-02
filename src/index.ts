@@ -1,5 +1,4 @@
 import * as admin from "firebase-admin/app";
-import type { ServiceAccount } from "firebase-admin/app";
 import { getMessaging } from "firebase-admin/messaging";
 import { GithubClient } from "./clients/auth/github-client.js";
 import { GoogleClient } from "./clients/auth/google-client.js";
