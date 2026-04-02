@@ -82,15 +82,20 @@ export class SessionMetadataService {
       })(),
     );
 
-    if (!parseResult.success || !parseResult.data.title || !parseResult.data.branchName) {
+    if (
+      !parseResult.success ||
+      !parseResult.data.title ||
+      !parseResult.data.branchName ||
+      !parseResult.data.worktreeName
+    ) {
       throw new InternalServerError({
         debugMessage: `Invalid metadata response: ${rawResponse}`,
       });
     }
 
-    const { title } = parseResult.data;
-    const branchName = sanitizeBranchName(parseResult.data.branchName);
-    const worktreeName = sanitizeBranchName(parseResult.data.worktreeName);
+    const { title, branchName: rawBranch, worktreeName: rawWorktree } = parseResult.data;
+    const branchName = sanitizeBranchName(rawBranch);
+    const worktreeName = sanitizeBranchName(rawWorktree);
     if (!branchName || !worktreeName) {
       throw new InternalServerError({
         debugMessage: `Empty after sanitization: branch="${parseResult.data.branchName}" worktree="${parseResult.data.worktreeName}"`,
