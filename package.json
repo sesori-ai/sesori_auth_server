@@ -13,7 +13,7 @@
     "start:prod": "sops exec-env env/app/prod.env 'tsx src/index.ts'",
     "build": "tsc",
     "dev": "tsx --watch src/index.ts",
-    "test": "node --import tsx --test --test-concurrency=1 tests/**/*.test.ts",
+    "test": "node --import tsx --test --test-concurrency=1 'tests/**/*.test.ts'",
     "lint": "eslint src/ tests/",
     "lint:fix": "eslint --fix src/ tests/",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",

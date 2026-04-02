@@ -19,6 +19,7 @@ import { UserRepository } from "../../src/repositories/user-repo.js";
 import { buildApp } from "../../src/server.js";
 import { AuthService } from "../../src/services/auth-service.js";
 import { NotificationService } from "../../src/services/notification-service.js";
+import { SessionMetadataService } from "../../src/services/session-metadata-service.js";
 import { TokenService } from "../../src/services/token-service.js";
 import { VoiceService } from "../../src/services/voice-service.js";
 import { loadConfig } from "../../src/config.js";
@@ -50,6 +51,7 @@ export type TestAppOverrides = {
   githubClient?: OAuthClient;
   googleClient?: OAuthClient;
   notificationService?: NotificationService;
+  sessionMetadataService?: SessionMetadataService;
 };
 
 export type { OAuthClient };
@@ -74,6 +76,22 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   process.env.RELAY_WEBHOOK_SECRET ??= "test-relay-secret";
   process.env.OPENAI_API_KEY ??= "test-openai-api-key";
   process.env.OPENAI_TRANSCRIPTION_MODEL ??= "gpt-4o-mini-transcribe";
+  process.env.FCM_SA_JSON ??= Buffer.from(
+    JSON.stringify({
+      type: "service_account",
+      project_id: "test-project",
+      private_key_id: "test-key-id",
+      private_key: "-----BEGIN PRIVATE KEY-----\nfakekey\n-----END PRIVATE KEY-----\n",
+      client_email: "test@test-project.iam.gserviceaccount.com",
+      client_id: "123456789",
+      auth_uri: "https://accounts.google.com/o/oauth2/auth",
+      token_uri: "https://oauth2.googleapis.com/token",
+      auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
+      client_x509_cert_url:
+        "https://www.googleapis.com/robot/v1/metadata/x509/test%40test-project.iam.gserviceaccount.com",
+      universe_domain: "googleapis.com",
+    }),
+  ).toString("base64");
 
   const config = loadConfig();
 
@@ -99,12 +117,15 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   const authService = new AuthService({ tokenService, userRepo, oauthAccountRepo });
   const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
   const notificationService = overrides?.notificationService ?? new NotificationService(deviceTokenRepo, null);
+  const sessionMetadataService =
+    overrides?.sessionMetadataService ?? new SessionMetadataService({ openai, dailyUsageRepo, model: "gpt-4o-mini" });
 
   const app = await buildApp({
     config,
     authService,
     tokenService,
     voiceService,
+    sessionMetadataService,
     deviceTokenRepo,
     notificationService,
     stateStore,

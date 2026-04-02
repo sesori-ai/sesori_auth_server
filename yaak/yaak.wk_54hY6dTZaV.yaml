@@ -1,0 +1,15 @@
+type: workspace
+model: workspace
+id: wk_54hY6dTZaV
+createdAt: 2026-04-02T18:35:45.981743
+updatedAt: 2026-04-02T18:35:45.981744
+authentication: {}
+authenticationType: null
+description: ''
+headers: []
+name: Sesori Server
+encryptionKeyChallenge: null
+settingValidateCertificates: true
+settingFollowRedirects: true
+settingRequestTimeout: 0
+settingDnsOverrides: []

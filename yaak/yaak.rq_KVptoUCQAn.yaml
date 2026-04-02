@@ -1,0 +1,26 @@
+type: http_request
+model: http_request
+id: rq_KVptoUCQAn
+createdAt: 2026-04-02T18:37:27.984601
+updatedAt: 2026-04-02T18:51:44.860718
+workspaceId: wk_54hY6dTZaV
+folderId: fl_ERijAeZGMG
+authentication: {}
+authenticationType: null
+body:
+  text: |-
+    {
+      "firstMessage": "Yeah, so pull it and then on a new branch, start working on the following. We added recently push notifications, which like trigger for some sessions, whatever if there are comments or if there are... not comments, if the AI finished a task or if the AI has some questions, like the agent has questions or permissions needed, it will trigger a push notification. Get until the push notific..."
+    }
+bodyType: application/json
+description: ''
+headers:
+- enabled: true
+  name: Content-Type
+  value: application/json
+  id: 5zPZg5ujTp
+method: POST
+name: Generate Metadata
+sortPriority: 0.0
+url: ${[ base_url ]}/sessions/generate-metadata
+urlParameters: []

@@ -1,5 +1,4 @@
 import * as admin from "firebase-admin/app";
-import type { ServiceAccount } from "firebase-admin/app";
 import { getMessaging } from "firebase-admin/messaging";
 import { GithubClient } from "./clients/auth/github-client.js";
 import { GoogleClient } from "./clients/auth/google-client.js";
@@ -16,6 +15,7 @@ import { UserRepository } from "./repositories/user-repo.js";
 import { buildApp } from "./server.js";
 import { AuthService } from "./services/auth-service.js";
 import { NotificationService } from "./services/notification-service.js";
+import { SessionMetadataService } from "./services/session-metadata-service.js";
 import { TokenService } from "./services/token-service.js";
 import { VoiceService } from "./services/voice-service.js";
 
@@ -86,11 +86,18 @@ async function main() {
   });
   const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
 
+  const sessionMetadataService = new SessionMetadataService({
+    openai,
+    dailyUsageRepo,
+    model: config.OPENAI_METADATA_MODEL,
+  });
+
   const app = await buildApp({
     config,
     authService,
     tokenService,
     voiceService,
+    sessionMetadataService,
     deviceTokenRepo,
     notificationService,
     stateStore,

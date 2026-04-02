@@ -56,4 +56,25 @@ export class DailyUsageRepository {
     const previousTotal = result.transcriptionSeconds;
     return { previousTotal, newTotal: previousTotal + seconds };
   }
+
+  async incrementMetadataRequestCount(userId: string): Promise<{ previousCount: number }> {
+    const now = new Date();
+    const result = await this.#collection.findOneAndUpdate(
+      { userId: new ObjectId(userId), date: todayUtcDateKey() },
+      {
+        $inc: { metadataRequestCount: 1 },
+        $setOnInsert: {
+          _id: new ObjectId(),
+          userId: new ObjectId(userId),
+          date: todayUtcDateKey(),
+          transcriptionSeconds: 0,
+          createdAt: now,
+        },
+        $set: { updatedAt: now },
+      },
+      { upsert: true, returnDocument: "before" },
+    );
+
+    return { previousCount: result?.metadataRequestCount ?? 0 };
+  }
 }
