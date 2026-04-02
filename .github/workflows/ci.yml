@@ -73,6 +73,11 @@ jobs:
           echo "JWT_PUBLIC_KEY=$JWT_PUBLIC_KEY" >> "$GITHUB_ENV"
           rm /tmp/private.pem /tmp/public.pem
 
+      - name: Generate fake FCM credentials
+        run: |
+          FCM_SA_JSON=$(printf '{"type":"service_account","project_id":"ci","private_key_id":"ci","private_key":"-----BEGIN RSA PRIVATE KEY-----\\nMIIBogIBAAJBALRiMLAHudeSA/x3hB2f+2NRkJLA5VCe\\n-----END RSA PRIVATE KEY-----\\n","client_email":"ci@ci.iam.gserviceaccount.com","client_id":"1","auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token"}' | base64 -w0)
+          echo "FCM_SA_JSON=$FCM_SA_JSON" >> "$GITHUB_ENV"
+
       - name: Start services
         run: |
           docker network create ci-net
@@ -89,7 +94,7 @@ jobs:
             -e ALLOWED_REDIRECT_URIS=http://localhost:3000/callback \
             -e RELAY_URL=ws://localhost:8080 \
             -e OPENAI_API_KEY=ci-test \
-            -e FCM_SA_JSON=$(echo '{"type":"service_account","project_id":"ci-test","private_key_id":"ci","private_key":"-----BEGIN RSA PRIVATE KEY-----\nMIIBogIBAAJBALRiMLAHudeSA/x3hB2f+2NRkJLA5VCe\n-----END RSA PRIVATE KEY-----\n","client_email":"ci@ci-test.iam.gserviceaccount.com","client_id":"1","auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token"}' | base64) \
+            -e "FCM_SA_JSON=$FCM_SA_JSON" \
             auth-backend:ci
           sleep 5
 
