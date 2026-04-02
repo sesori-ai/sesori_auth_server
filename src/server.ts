@@ -14,17 +14,20 @@ import type { AuthService } from "./services/auth-service.js";
 import type { NotificationService } from "./services/notification-service.js";
 import type { TokenService } from "./services/token-service.js";
 import type { VoiceService } from "./services/voice-service.js";
+import type { SessionMetadataService } from "./services/session-metadata-service.js";
 import { tokenRoutes } from "./routes/token.js";
 import { githubRoutes } from "./routes/github.js";
 import { googleRoutes } from "./routes/google.js";
 import { voiceRoutes } from "./routes/voice.js";
 import { notificationRoutes } from "./routes/notifications.js";
+import { sessionRoutes } from "./routes/sessions.js";
 
 export type AppServices = {
   config: Config;
   authService: AuthService;
   tokenService: TokenService;
   voiceService: VoiceService;
+  sessionMetadataService: SessionMetadataService;
   deviceTokenRepo: DeviceTokenRepository;
   notificationService: NotificationService;
   stateStore: StateStore;
@@ -94,6 +97,10 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
     notificationService: services.notificationService,
     requireAuth,
     requireRelayAuth,
+  });
+  await app.register(sessionRoutes, {
+    sessionMetadataService: services.sessionMetadataService,
+    requireAuth,
   });
 
   return app;
