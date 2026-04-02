@@ -1,0 +1,13 @@
+type: folder
+model: folder
+id: fl_ERijAeZGMG
+createdAt: 2026-04-02T18:37:52.464251
+updatedAt: 2026-04-02T18:37:56.335449
+workspaceId: wk_54hY6dTZaV
+folderId: null
+authentication: {}
+authenticationType: null
+description: ''
+headers: []
+name: sessions
+sortPriority: -1775155072463.0

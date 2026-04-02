@@ -64,6 +64,7 @@ export class SessionMetadataService {
         userMessage: args.firstMessage,
         model: this.#model,
         responseFormat: { type: "json_object" },
+        userId: args.userId,
       });
     } catch (error) {
       throw new InternalServerError({

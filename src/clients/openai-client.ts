@@ -44,6 +44,7 @@ export class OpenAIClient {
    * @param args.userMessage - User message to send to the assistant
    * @param args.model - Model to use (overrides the default model if provided)
    * @param args.responseFormat - Optional response format (e.g., { type: "json_object" })
+   * @param args.userId - User ID to use for safety identifier
    * @returns The content string from the first choice in the response
    */
   async chatCompletion(args: {
@@ -51,6 +52,7 @@ export class OpenAIClient {
     userMessage: string;
     model?: string;
     responseFormat?: ChatCompletionCreateParamsNonStreaming["response_format"];
+    userId: string;
   }): Promise<string> {
     const response = await this.#client.chat.completions.create(
       {
@@ -60,6 +62,8 @@ export class OpenAIClient {
           { role: "user", content: args.userMessage },
         ],
         ...(args.responseFormat ? { response_format: args.responseFormat } : {}),
+        reasoning_effort: "minimal",
+        safety_identifier: args.userId,
       },
       { timeout: 30_000 },
     );
