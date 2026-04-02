@@ -1,4 +1,5 @@
 import OpenAI, { toFile } from "openai";
+import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
 import { parseBuffer } from "music-metadata";
 
 export class OpenAIClient {
@@ -34,6 +35,41 @@ export class OpenAIClient {
     ]);
 
     return { text: response.text, durationSeconds };
+  }
+
+  /**
+   * Generate a chat completion using the OpenAI API.
+   * @param args - Configuration for the chat completion request
+   * @param args.system - System prompt to set the assistant's behavior
+   * @param args.userMessage - User message to send to the assistant
+   * @param args.model - Model to use (overrides the default model if provided)
+   * @param args.responseFormat - Optional response format (e.g., { type: "json_object" })
+   * @returns The content string from the first choice in the response
+   */
+  async chatCompletion(args: {
+    system: string;
+    userMessage: string;
+    model?: string;
+    responseFormat?: ChatCompletionCreateParamsNonStreaming["response_format"];
+  }): Promise<string> {
+    const response = await this.#client.chat.completions.create(
+      {
+        model: args.model ?? this.#model,
+        messages: [
+          { role: "system", content: args.system },
+          { role: "user", content: args.userMessage },
+        ],
+        ...(args.responseFormat ? { response_format: args.responseFormat } : {}),
+      },
+      { timeout: 30_000 },
+    );
+
+    const content = response.choices[0]?.message.content;
+    if (!content) {
+      throw new Error("No content in chat completion response");
+    }
+
+    return content;
   }
 
   private static async parseAudioDuration(buffer: Buffer, mimeType: string): Promise<number> {
