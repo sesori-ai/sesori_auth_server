@@ -29,10 +29,7 @@ export class MetadataUsageRepository {
   readonly #collection: Collection<MetadataUsageDoc>;
 
   constructor(accessor: MongoDbAccessor) {
-    this.#collection = accessor.getCollection<MetadataUsageDoc>(
-      MongoDbDatabase.Auth,
-      METADATA_USAGE_COLLECTION,
-    );
+    this.#collection = accessor.getCollection<MetadataUsageDoc>(MongoDbDatabase.Auth, METADATA_USAGE_COLLECTION);
   }
 
   /**
