@@ -4,6 +4,7 @@ import type { GoogleClient } from "../clients/auth/google-client.js";
 import { OAuthProviderName } from "../types/oauth.js";
 import type { Config } from "../config.js";
 import { BadRequestError } from "../lib/errors.js";
+import { isAllowedRedirectUri } from "../lib/redirect-uri.js";
 import type { StateStore } from "../lib/state-store.js";
 import type { OAuthInitQuery, OAuthInitReply, OAuthCallbackBody, AuthTokensReply } from "../models/api.js";
 import type { AuthService } from "../services/auth-service.js";
@@ -38,7 +39,7 @@ export const googleRoutes: FastifyPluginAsync<GoogleRouteOptions> = async (fasti
     }
 
     const { redirect_uri, code_challenge, code_challenge_method } = queryResult.data;
-    if (!config.ALLOWED_REDIRECT_URIS.includes(redirect_uri)) {
+    if (!isAllowedRedirectUri(redirect_uri, config.ALLOWED_REDIRECT_URIS)) {
       throw new BadRequestError({ debugMessage: "Redirect URI not allowed" });
     }
 
@@ -67,7 +68,7 @@ export const googleRoutes: FastifyPluginAsync<GoogleRouteOptions> = async (fasti
     }
 
     const { code, codeVerifier, state, redirectUri } = bodyResult.data;
-    if (!config.ALLOWED_REDIRECT_URIS.includes(redirectUri)) {
+    if (!isAllowedRedirectUri(redirectUri, config.ALLOWED_REDIRECT_URIS)) {
       throw new BadRequestError({ debugMessage: "Redirect URI not allowed" });
     }
 
