@@ -86,6 +86,39 @@ describe("Google OAuth routes", () => {
 
       assert.equal(res.statusCode, 400);
     });
+
+    it("allows localhost redirect URI even if not in allow-list", async () => {
+      const localhostUri = "http://localhost:3000/callback";
+      const res = await ctx.app.inject({
+        method: "GET",
+        url: `/auth/google?redirect_uri=${encodeURIComponent(localhostUri)}&code_challenge=${VALID_CODE_CHALLENGE}&code_challenge_method=S256`,
+      });
+
+      assert.equal(res.statusCode, 200);
+      const body = res.json<{ authUrl: string; state: string }>();
+      const url = new URL(body.authUrl);
+      assert.equal(url.searchParams.get("redirect_uri"), localhostUri);
+    });
+
+    it("allows 127.0.0.1 redirect URI even if not in allow-list", async () => {
+      const loopbackUri = "http://127.0.0.1:8080/callback";
+      const res = await ctx.app.inject({
+        method: "GET",
+        url: `/auth/google?redirect_uri=${encodeURIComponent(loopbackUri)}&code_challenge=${VALID_CODE_CHALLENGE}&code_challenge_method=S256`,
+      });
+
+      assert.equal(res.statusCode, 200);
+    });
+
+    it("rejects a remote redirect URI not in allow-list", async () => {
+      const remoteUri = "https://evil.com/callback";
+      const res = await ctx.app.inject({
+        method: "GET",
+        url: `/auth/google?redirect_uri=${encodeURIComponent(remoteUri)}&code_challenge=${VALID_CODE_CHALLENGE}&code_challenge_method=S256`,
+      });
+
+      assert.equal(res.statusCode, 400);
+    });
   });
 
   // ── POST /auth/google/callback ──────────────────────────────────────────────
