@@ -9,11 +9,13 @@ import {
   type BridgeStatusBody,
 } from "../models/api.js";
 import type { DeviceTokenRepository } from "../repositories/device-token-repo.js";
+import type { BridgeStateTracker } from "../services/bridge-state-tracker.js";
 import type { NotificationService } from "../services/notification-service.js";
 
 export type NotificationRouteOptions = {
   deviceTokenRepo: DeviceTokenRepository;
   notificationService: NotificationService;
+  bridgeStateTracker: BridgeStateTracker;
   requireAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   requireRelayAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
 };
@@ -24,7 +26,7 @@ function getUserId(request: FastifyRequest): string {
 }
 
 export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = async (fastify, opts) => {
-  const { deviceTokenRepo, notificationService, requireAuth, requireRelayAuth } = opts;
+  const { deviceTokenRepo, notificationService, bridgeStateTracker, requireAuth, requireRelayAuth } = opts;
 
   fastify.post<{ Body: RegisterTokenBody; Reply: { ok: true } }>(
     "/notifications/register-token",
@@ -76,23 +78,7 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
         throw new BadRequestError({ debugMessage: "Invalid request body", nestedError: bodyResult.error.issues });
       }
 
-      if (bodyResult.data.status === "disconnected") {
-        await notificationService.sendToUser(bodyResult.data.userId, {
-          category: "connection_status",
-          title: "Bridge Offline",
-          body: "Your bridge has disconnected. AI sessions are paused.",
-          collapseKey: "connection_status",
-        });
-      }
-
-      if (bodyResult.data.status === "connected") {
-        await notificationService.sendToUser(bodyResult.data.userId, {
-          category: "connection_status",
-          title: "Bridge Online",
-          body: "Your bridge has reconnected.",
-          collapseKey: "connection_status",
-        });
-      }
+      bridgeStateTracker.handleStatusChange(bodyResult.data.userId, bodyResult.data.status);
 
       return { ok: true };
     },

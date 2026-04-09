@@ -14,6 +14,7 @@ import { OAuthAccountRepository } from "./repositories/oauth-account-repo.js";
 import { UserRepository } from "./repositories/user-repo.js";
 import { buildApp } from "./server.js";
 import { AuthService } from "./services/auth-service.js";
+import { BridgeStateTracker } from "./services/bridge-state-tracker.js";
 import { NotificationService } from "./services/notification-service.js";
 import { SessionMetadataService } from "./services/session-metadata-service.js";
 import { TokenService } from "./services/token-service.js";
@@ -71,6 +72,7 @@ async function main() {
   }
 
   const notificationService = new NotificationService(deviceTokenRepo, messaging);
+  const bridgeStateTracker = new BridgeStateTracker(notificationService);
 
   const openai = new OpenAIClient({ apiKey: config.OPENAI_API_KEY, model: config.OPENAI_TRANSCRIPTION_MODEL });
   console.log(`OpenAI client initialized (model: ${config.OPENAI_TRANSCRIPTION_MODEL})`);
@@ -100,6 +102,7 @@ async function main() {
     sessionMetadataService,
     deviceTokenRepo,
     notificationService,
+    bridgeStateTracker,
     stateStore,
     githubClient,
     googleClient,
@@ -112,6 +115,7 @@ async function main() {
   for (const signal of signals) {
     process.on(signal, async () => {
       console.log(`Received ${signal}, shutting down gracefully...`);
+      bridgeStateTracker.dispose();
       await app.close();
       await dbConnector.close();
       process.exit(0);

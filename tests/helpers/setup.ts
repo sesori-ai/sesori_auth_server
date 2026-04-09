@@ -18,6 +18,7 @@ import { OAuthAccountRepository } from "../../src/repositories/oauth-account-rep
 import { UserRepository } from "../../src/repositories/user-repo.js";
 import { buildApp } from "../../src/server.js";
 import { AuthService } from "../../src/services/auth-service.js";
+import { BridgeStateTracker } from "../../src/services/bridge-state-tracker.js";
 import { NotificationService } from "../../src/services/notification-service.js";
 import { SessionMetadataService } from "../../src/services/session-metadata-service.js";
 import { TokenService } from "../../src/services/token-service.js";
@@ -51,6 +52,7 @@ export type TestAppOverrides = {
   githubClient?: OAuthClient;
   googleClient?: OAuthClient;
   notificationService?: NotificationService;
+  bridgeStateTracker?: BridgeStateTracker;
   sessionMetadataService?: SessionMetadataService;
 };
 
@@ -117,6 +119,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   const authService = new AuthService({ tokenService, userRepo, oauthAccountRepo });
   const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
   const notificationService = overrides?.notificationService ?? new NotificationService(deviceTokenRepo, null);
+  const bridgeStateTracker = overrides?.bridgeStateTracker ?? new BridgeStateTracker(notificationService);
   const sessionMetadataService =
     overrides?.sessionMetadataService ?? new SessionMetadataService({ openai, dailyUsageRepo, model: "gpt-4o-mini" });
 
@@ -128,6 +131,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     sessionMetadataService,
     deviceTokenRepo,
     notificationService,
+    bridgeStateTracker,
     stateStore,
     githubClient: githubClient as GithubClient,
     googleClient: googleClient as GoogleClient,
@@ -212,6 +216,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   }
 
   async function cleanup(): Promise<void> {
+    bridgeStateTracker.dispose();
     await app.close();
     await dbAccessor.getDb(MongoDbDatabase.Auth).dropDatabase();
     await dbConnector.close();
