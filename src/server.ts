@@ -11,6 +11,7 @@ import { createRelayAuthMiddleware } from "./middleware/relay-auth.js";
 import type { HealthReply } from "./models/api.js";
 import type { DeviceTokenRepository } from "./repositories/device-token-repo.js";
 import type { AuthService } from "./services/auth-service.js";
+import type { BridgeStateTracker } from "./services/bridge-state-tracker.js";
 import type { NotificationService } from "./services/notification-service.js";
 import type { TokenService } from "./services/token-service.js";
 import type { VoiceService } from "./services/voice-service.js";
@@ -30,6 +31,7 @@ export type AppServices = {
   sessionMetadataService: SessionMetadataService;
   deviceTokenRepo: DeviceTokenRepository;
   notificationService: NotificationService;
+  bridgeStateTracker: BridgeStateTracker;
   stateStore: StateStore;
   githubClient: GithubClient;
   googleClient: GoogleClient;
@@ -95,6 +97,7 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
   await app.register(notificationRoutes, {
     deviceTokenRepo: services.deviceTokenRepo,
     notificationService: services.notificationService,
+    bridgeStateTracker: services.bridgeStateTracker,
     requireAuth,
     requireRelayAuth,
   });

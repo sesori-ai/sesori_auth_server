@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { DeviceTokenRepository } from "../../src/repositories/device-token-repo.js";
+import type { BridgeStateTracker } from "../../src/services/bridge-state-tracker.js";
 import type { NotificationService } from "../../src/services/notification-service.js";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
 
@@ -9,10 +10,16 @@ type SendCall = {
   payload: unknown;
 };
 
+type TrackerCall = {
+  userId: string;
+  status: string;
+};
+
 describe("Notification routes", () => {
   let ctx: TestContext;
   let deviceTokenRepo: DeviceTokenRepository;
   const sendCalls: SendCall[] = [];
+  const trackerCalls: TrackerCall[] = [];
 
   const notificationServiceMock = {
     sendToUser: async (userId: string, payload: unknown) => {
@@ -21,13 +28,24 @@ describe("Notification routes", () => {
     },
   } as unknown as NotificationService;
 
+  const bridgeStateTrackerMock = {
+    handleStatusChange: (userId: string, status: string) => {
+      trackerCalls.push({ userId, status });
+    },
+    dispose: () => {},
+  } as unknown as BridgeStateTracker;
+
   before(async () => {
-    ctx = await createTestApp({ notificationService: notificationServiceMock });
+    ctx = await createTestApp({
+      notificationService: notificationServiceMock,
+      bridgeStateTracker: bridgeStateTrackerMock,
+    });
     deviceTokenRepo = new DeviceTokenRepository(ctx.dbAccessor);
   });
 
   beforeEach(() => {
     sendCalls.length = 0;
+    trackerCalls.length = 0;
   });
 
   after(async () => {
@@ -181,14 +199,33 @@ describe("Notification routes", () => {
 
     assert.equal(res.statusCode, 200);
     assert.deepEqual(res.json(), { ok: true });
-    assert.equal(sendCalls.length, 1);
-    assert.equal(sendCalls[0]?.userId, user.userId);
-    assert.deepEqual(sendCalls[0]?.payload, {
-      category: "connection_status",
-      title: "Bridge Offline",
-      body: "Your bridge has disconnected. AI sessions are paused.",
-      collapseKey: "connection_status",
+    assert.equal(trackerCalls.length, 1);
+    assert.equal(trackerCalls[0]?.userId, user.userId);
+    assert.equal(trackerCalls[0]?.status, "disconnected");
+  });
+
+  it("POST /internal/bridge-status (connected) delegates to bridgeStateTracker", async () => {
+    const user = await ctx.createUser();
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-status",
+      headers: {
+        "x-relay-secret": "test-relay-secret",
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({
+        userId: user.userId,
+        status: "connected",
+        timestamp: new Date().toISOString(),
+      }),
     });
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), { ok: true });
+    assert.equal(trackerCalls.length, 1);
+    assert.equal(trackerCalls[0]?.userId, user.userId);
+    assert.equal(trackerCalls[0]?.status, "connected");
   });
 
   it("POST /internal/bridge-status returns 401 with missing or wrong secret", async () => {
