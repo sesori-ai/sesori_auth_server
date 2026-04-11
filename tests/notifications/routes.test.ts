@@ -135,7 +135,12 @@ describe("Notification routes", () => {
         title: "Need your input",
         body: "The assistant is waiting for confirmation.",
         collapseKey: "ai_interaction",
-        data: { category: "ai_interaction", eventType: "question_asked", sessionId: "abc123" },
+        data: {
+          category: "ai_interaction",
+          eventType: "question_asked",
+          sessionId: "abc123",
+          projectId: "/Users/alexandrudochioiu/sesori-ai/sesori_apps_monorepo",
+        },
       }),
     });
 
@@ -143,6 +148,7 @@ describe("Notification routes", () => {
     assert.deepEqual(res.json(), { ok: true, devicesNotified: 2 });
     assert.equal(sendCalls.length, 1);
     assert.equal(sendCalls[0]?.userId, user.userId);
+    assert.equal(sendCalls[0]?.payload.data?.projectId, "/Users/alexandrudochioiu/sesori-ai/sesori_apps_monorepo");
   });
 
   it("POST /notifications/send returns 400 with invalid category", async () => {

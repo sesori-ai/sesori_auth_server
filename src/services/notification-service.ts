@@ -5,6 +5,7 @@ export interface NotificationData {
   category: string;
   eventType?: string | null;
   sessionId?: string | null;
+  projectId?: string | null;
 }
 
 export interface NotificationPayload {
@@ -40,6 +41,7 @@ export class NotificationService {
       if (payload.data.category) flatData["category"] = payload.data.category;
       if (payload.data.eventType) flatData["eventType"] = payload.data.eventType;
       if (payload.data.sessionId) flatData["sessionId"] = payload.data.sessionId;
+      if (payload.data.projectId) flatData["projectId"] = payload.data.projectId;
     }
 
     const messages: Array<BaseMessage & { token: string }> = tokens.map((t) => ({
