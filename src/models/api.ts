@@ -82,6 +82,7 @@ export const notificationDataSchema = z.object({
   category: z.string(),
   eventType: z.string().nullable().optional(),
   sessionId: z.string().nullable().optional(),
+  projectId: z.string().nullable().optional(),
 });
 
 export const sendNotificationBodySchema = z.object({

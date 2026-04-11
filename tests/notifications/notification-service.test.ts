@@ -48,7 +48,12 @@ const payload: NotificationPayload = {
   title: "New update",
   body: "You have a new message",
   collapseKey: "updates-collapse",
-  data: { screen: "inbox" },
+  data: {
+    category: "session_message",
+    eventType: "agent_turn_completed",
+    sessionId: "session-123",
+    projectId: "/Users/alexandrudochioiu/sesori-ai/sesori_apps_monorepo",
+  },
 };
 
 describe("NotificationService", () => {
@@ -70,6 +75,22 @@ describe("NotificationService", () => {
     const secondMessage = messaging.calls[0]?.[1] as { token?: string };
     assert.equal(firstMessage.token, "token-a");
     assert.equal(secondMessage.token, "token-b");
+  });
+
+  it("flattens projectId into FCM data payload", async () => {
+    const tokenRepo = createMockDeviceTokenRepo([{ userId: "user-1", token: "token-a", platform: "ios" }]);
+    const messaging = createMockMessaging([{ success: true }]);
+    const service = new NotificationService(tokenRepo.repo, messaging.messaging);
+
+    await service.sendToUser("user-1", payload);
+
+    const firstMessage = messaging.calls[0]?.[0] as { data?: Record<string, string> };
+    assert.deepEqual(firstMessage.data, {
+      category: "session_message",
+      eventType: "agent_turn_completed",
+      sessionId: "session-123",
+      projectId: "/Users/alexandrudochioiu/sesori-ai/sesori_apps_monorepo",
+    });
   });
 
   it("returns 0 and does not call messaging when user has no tokens", async () => {
