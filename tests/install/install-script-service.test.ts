@@ -2,11 +2,16 @@ import assert from "node:assert/strict";
 import type { TestContext } from "node:test";
 import { describe, it } from "node:test";
 import { BadGatewayError } from "../../src/lib/errors.js";
-import { InstallScriptService } from "../../src/services/install-script-service.js";
+import { browserUserAgent, InstallScriptService } from "../../src/services/install-script-service.js";
+
+const expectedBrowserUserAgent =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36";
 
 type FetchCall = {
   url: string;
   accept: string | null;
+  userAgent: string | null;
+  hasSignal: boolean;
 };
 
 function createRelease(
@@ -45,7 +50,12 @@ function createFetchMock(t: TestContext, responders: Record<string, Array<() => 
   t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
     const url = input instanceof Request ? input.url : String(input);
     const headers = new Headers(init?.headers);
-    calls.push({ url, accept: headers.get("accept") });
+    calls.push({
+      url,
+      accept: headers.get("accept"),
+      userAgent: headers.get("user-agent"),
+      hasSignal: init?.signal instanceof AbortSignal,
+    });
 
     const queue = responders[url];
     assert.ok(queue, `unexpected fetch url: ${url}`);
@@ -93,10 +103,18 @@ function assertContentsAcceptHeaders(calls: FetchCall[], tag: string): void {
   }
 }
 
+function assertGithubRequestMetadata(calls: FetchCall[]): void {
+  for (const call of calls) {
+    assert.equal(call.userAgent, browserUserAgent);
+    assert.equal(call.hasSignal, true);
+  }
+}
+
 describe("InstallScriptService", () => {
   it("keeps install script repository constants hardcoded in the service", () => {
     const service = new InstallScriptService();
 
+    assert.equal(browserUserAgent, expectedBrowserUserAgent);
     assert.equal(service.repoOwner, "sesori-ai");
     assert.equal(service.repoName, "sesori_apps_monorepo");
     assert.equal(service.installScriptPath, "install.sh");
@@ -131,16 +149,16 @@ describe("InstallScriptService", () => {
     assert.equal(release.tagName, "bridge-v1.4.0");
   });
 
-  it("uses descending tag_name as the deterministic tie-breaker", () => {
+  it("uses descending tag_name as the deterministic numeric tie-breaker", () => {
     const service = new InstallScriptService();
 
     const release = service.selectLatestRelease([
       createRelease("bridge-v1.9.0", "2026-02-14T08:30:00.000Z"),
-      createRelease("bridge-v2.0.0", "2026-02-14T08:30:00.000Z"),
+      createRelease("bridge-v1.10.0", "2026-02-14T08:30:00.000Z"),
       createRelease("bridge-v1.8.9", "2026-02-14T08:30:00.000Z"),
     ]);
 
-    assert.equal(release.tagName, "bridge-v2.0.0");
+    assert.equal(release.tagName, "bridge-v1.10.0");
   });
 
   it("throws BadGatewayError when no eligible release exists", () => {
@@ -160,17 +178,29 @@ describe("InstallScriptService", () => {
     );
   });
 
-  it("fetches release pages sequentially and then downloads both scripts from the selected tag", async (t) => {
+  it("continues fetching release pages until it finds an eligible release and then downloads both scripts", async (t) => {
     const service = new InstallScriptService();
     const tag = "bridge-v1.4.0";
+    const timeoutCalls: number[] = [];
+    t.mock.method(AbortSignal, "timeout", (delay: number) => {
+      timeoutCalls.push(delay);
+      return AbortSignal.abort();
+    });
+
     const fetchMock = createFetchMock(t, {
       [releasesUrl(1)]: [
         () =>
-          createJsonResponse([createRelease("bridge-v1.2.0", "2026-02-10T08:30:00.000Z")], {
-            headers: {
-              link: `<${releasesUrl(2)}>; rel="next", <${releasesUrl(2)}>; rel="last"`,
+          createJsonResponse(
+            [
+              createRelease("server-v1.2.0", "2026-02-10T08:30:00.000Z"),
+              createRelease("bridge-v1.2.0", "2026-02-10T08:30:00.000Z", { prerelease: true }),
+            ],
+            {
+              headers: {
+                link: `<${releasesUrl(2)}>; rel="next", <${releasesUrl(2)}>; rel="last"`,
+              },
             },
-          }),
+          ),
       ],
       [releasesUrl(2)]: [() => createJsonResponse([createRelease(tag, "2026-02-14T08:30:00.000Z")])],
       [contentsUrl("install.sh", tag)]: [() => createTextResponse("#!/bin/sh\necho bridge\n")],
@@ -186,8 +216,42 @@ describe("InstallScriptService", () => {
       fetchMock.calls.map((call) => call.url),
       [releasesUrl(1), releasesUrl(2), contentsUrl("install.sh", tag), contentsUrl("install.ps1", tag)],
     );
+    assert.deepEqual(timeoutCalls, [10_000, 10_000, 10_000, 10_000]);
     assertContentsAcceptHeaders(fetchMock.calls, tag);
+    assertGithubRequestMetadata(fetchMock.calls);
     assertOnlyAllowedGithubUrls(fetchMock.calls);
+    fetchMock.assertExhausted();
+  });
+
+  it("stops paginating once it finds an eligible release on the current page", async (t) => {
+    const service = new InstallScriptService();
+    const tag = "bridge-v1.4.0";
+    const fetchMock = createFetchMock(t, {
+      [releasesUrl(1)]: [
+        () =>
+          createJsonResponse(
+            [
+              createRelease("server-v9.0.0", "2026-02-16T08:30:00.000Z"),
+              createRelease(tag, "2026-02-15T08:30:00.000Z"),
+            ],
+            {
+              headers: {
+                link: `<${releasesUrl(2)}>; rel="next", <${releasesUrl(2)}>; rel="last"`,
+              },
+            },
+          ),
+      ],
+      [contentsUrl("install.sh", tag)]: [() => createTextResponse("#!/bin/sh\necho bridge\n")],
+      [contentsUrl("install.ps1", tag)]: [() => createTextResponse("Write-Output bridge\n")],
+    });
+
+    await service.getInstallSh();
+
+    assert.deepEqual(
+      fetchMock.calls.map((call) => call.url),
+      [releasesUrl(1), contentsUrl("install.sh", tag), contentsUrl("install.ps1", tag)],
+    );
+    assertGithubRequestMetadata(fetchMock.calls);
     fetchMock.assertExhausted();
   });
 
@@ -210,6 +274,7 @@ describe("InstallScriptService", () => {
     assert.equal(installSh, "curl -fsSL https://example.test/install.sh | sh");
     assert.equal(installPs1, "irm https://example.test/install.ps1 | iex");
     assert.equal(fetchMock.calls.length, 3);
+    assertGithubRequestMetadata(fetchMock.calls);
     assertOnlyAllowedGithubUrls(fetchMock.calls);
     fetchMock.assertExhausted();
   });
@@ -252,6 +317,7 @@ describe("InstallScriptService", () => {
     assert.equal(installPs1, "refreshed-ps1");
     assert.equal(fetchMock.calls.filter((call) => call.url === contentsUrl("install.sh", refreshedTag)).length, 1);
     assert.equal(fetchMock.calls.filter((call) => call.url === contentsUrl("install.ps1", refreshedTag)).length, 1);
+    assertGithubRequestMetadata(fetchMock.calls);
     assertOnlyAllowedGithubUrls(fetchMock.calls);
     fetchMock.assertExhausted();
   });
@@ -287,6 +353,7 @@ describe("InstallScriptService", () => {
 
     assert.equal(installSh, "stable-sh");
     assert.equal(fetchMock.calls.length, 4);
+    assertGithubRequestMetadata(fetchMock.calls);
     assertOnlyAllowedGithubUrls(fetchMock.calls);
     fetchMock.assertExhausted();
   });
@@ -329,6 +396,7 @@ describe("InstallScriptService", () => {
       ],
     );
     assertContentsAcceptHeaders(fetchMock.calls, updatedTag);
+    assertGithubRequestMetadata(fetchMock.calls);
     assertOnlyAllowedGithubUrls(fetchMock.calls);
     fetchMock.assertExhausted();
   });
@@ -349,6 +417,7 @@ describe("InstallScriptService", () => {
     });
 
     assertOnlyAllowedGithubUrls(fetchMock.calls);
+    assertGithubRequestMetadata(fetchMock.calls);
     fetchMock.assertExhausted();
   });
 
@@ -381,6 +450,7 @@ describe("InstallScriptService", () => {
     const staleInstallSh = await service.getInstallSh();
 
     assert.equal(staleInstallSh, "stale-sh");
+    assertGithubRequestMetadata(fetchMock.calls);
     assertOnlyAllowedGithubUrls(fetchMock.calls);
     fetchMock.assertExhausted();
   });

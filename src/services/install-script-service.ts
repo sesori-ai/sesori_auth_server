@@ -6,7 +6,11 @@ const INSTALL_SCRIPT_REPO_NAME = "sesori_apps_monorepo";
 const INSTALL_SCRIPT_PATH_SH = "install.sh";
 const INSTALL_SCRIPT_PATH_PS1 = "install.ps1";
 const INSTALL_SCRIPT_CACHE_TTL_MS = 5 * 60 * 1000;
+const GITHUB_REQUEST_TIMEOUT_MS = 10_000;
 const GITHUB_API_BASE_URL = "https://api.github.com";
+
+export const browserUserAgent =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36";
 
 const githubReleaseSchema = z.object({
   tag_name: z.string(),
@@ -113,7 +117,7 @@ export class InstallScriptService {
       return publishedAtDiff;
     }
 
-    return right.tagName.localeCompare(left.tagName);
+    return right.tagName.localeCompare(left.tagName, "en", { numeric: true });
   }
 
   protected async loadInstallScripts(
@@ -204,32 +208,34 @@ export class InstallScriptService {
   }
 
   async #fetchLatestRelease(): Promise<InstallScriptRelease> {
-    const releases: GithubRelease[] = [];
     let page = 1;
     let hasNextPage = true;
 
     while (hasNextPage) {
-      const response = await fetch(this.#buildReleasesUrl(page), {
-        headers: { Accept: "application/json" },
-      });
+      const response = await fetch(this.#buildReleasesUrl(page), this.#buildGithubRequestOptions("application/json"));
 
       if (!response.ok) {
         throw new BadGatewayError({ debugMessage: "GITHUB_RELEASE_FETCH_FAILED" });
       }
 
       const json = await response.json();
-      releases.push(...this.#parseReleasesPayload(json));
+      const latestRelease = this.#findLatestEligibleRelease(json);
+      if (latestRelease) {
+        return latestRelease;
+      }
+
       hasNextPage = this.#hasNextPage(response.headers.get("link"));
       page += 1;
     }
 
-    return this.selectLatestRelease(releases);
+    throw new BadGatewayError({ debugMessage: "NO_ELIGIBLE_INSTALL_SCRIPT_RELEASE" });
   }
 
   async #fetchScriptBody(tagName: string, scriptPath: string): Promise<string> {
-    const response = await fetch(this.#buildContentsUrl(scriptPath, tagName), {
-      headers: { Accept: "application/vnd.github.raw+json" },
-    });
+    const response = await fetch(
+      this.#buildContentsUrl(scriptPath, tagName),
+      this.#buildGithubRequestOptions("application/vnd.github.raw+json"),
+    );
 
     if (!response.ok) {
       throw new BadGatewayError({ debugMessage: "GITHUB_INSTALL_SCRIPT_FETCH_FAILED" });
@@ -262,5 +268,36 @@ export class InstallScriptService {
     }
 
     return linkHeader.split(",").some((linkValue) => linkValue.includes('rel="next"'));
+  }
+
+  #findLatestEligibleRelease(releasesPayload: unknown): InstallScriptRelease | null {
+    const releases = this.#parseReleasesPayload(releasesPayload);
+    const latestRelease = releases
+      .map((release) => this.#toEligibleRelease(release))
+      .filter((release): release is EligibleGithubRelease => release !== null)
+      .sort((left, right) => this.#compareEligibleReleases(left, right))[0];
+
+    if (!latestRelease) {
+      return null;
+    }
+
+    return {
+      owner: this.repoOwner,
+      repo: this.repoName,
+      tagName: latestRelease.tagName,
+      publishedAt: latestRelease.publishedAt.toISOString(),
+      installScriptPath: this.installScriptPath,
+      installPowerShellPath: this.installPowerShellPath,
+    };
+  }
+
+  #buildGithubRequestOptions(accept: string): RequestInit {
+    return {
+      headers: {
+        Accept: accept,
+        "User-Agent": browserUserAgent,
+      },
+      signal: AbortSignal.timeout(GITHUB_REQUEST_TIMEOUT_MS),
+    };
   }
 }
