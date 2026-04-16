@@ -150,6 +150,20 @@ describe("Install routes", () => {
     }
   });
 
+  it("POST /install.sh remains unregistered", async (t) => {
+    const ctx = await createRouteTestApp(t);
+    try {
+      const res = await ctx.app.inject({
+        method: "POST",
+        url: "/install.sh",
+      });
+
+      assert.equal(res.statusCode, 404);
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+
   it("GET /install.sh and /install.ps1 stay paired across a refresh when the release tag changes", async (t) => {
     const ctx = await createLiveServiceRouteTestApp(t);
     const tagOne = "bridge-v1.4.0";

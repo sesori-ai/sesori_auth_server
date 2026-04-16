@@ -35,11 +35,11 @@ describe("Install script service wiring", () => {
     try {
       const res = await ctx.app.inject({
         method: "GET",
-        url: "/health",
+        url: "/install.sh",
       });
 
       assert.equal(res.statusCode, 200);
-      assert.deepEqual(res.json(), { status: "ok" });
+      assert.equal(res.body, "#!/bin/sh\necho stub\n");
     } finally {
       await ctx.cleanup();
     }
@@ -47,16 +47,43 @@ describe("Install script service wiring", () => {
 
   it("boots with the default real install script service", async (t) => {
     mockMongoHarness(t);
+    t.mock.method(globalThis, "fetch", async (input: string | URL | Request) => {
+      const url = input instanceof Request ? input.url : String(input);
+
+      if (url.includes("/releases?")) {
+        return new Response(
+          JSON.stringify([
+            {
+              tag_name: "bridge-v1.2.0",
+              draft: false,
+              prerelease: false,
+              published_at: "2026-04-16T08:00:00.000Z",
+            },
+          ]),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+
+      if (url.includes("/contents/install.sh?ref=bridge-v1.2.0")) {
+        return new Response("#!/bin/sh\necho real\n", { status: 200 });
+      }
+
+      if (url.includes("/contents/install.ps1?ref=bridge-v1.2.0")) {
+        return new Response("Write-Output real\n", { status: 200 });
+      }
+
+      throw new Error(`unexpected fetch url: ${url}`);
+    });
 
     const ctx = await createTestApp();
     try {
       const res = await ctx.app.inject({
         method: "GET",
-        url: "/health",
+        url: "/install.sh",
       });
 
       assert.equal(res.statusCode, 200);
-      assert.deepEqual(res.json(), { status: "ok" });
+      assert.equal(res.body, "#!/bin/sh\necho real\n");
     } finally {
       await ctx.cleanup();
     }
