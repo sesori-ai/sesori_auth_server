@@ -3,6 +3,7 @@ import { BadGatewayError } from "../lib/errors.js";
 
 const INSTALL_SCRIPT_REPO_OWNER = "sesori-ai";
 const INSTALL_SCRIPT_REPO_NAME = "sesori_apps_monorepo";
+const INSTALL_SCRIPT_TAG_PREFIX = "bridge-v";
 const INSTALL_SCRIPT_PATH_SH = "install.sh";
 const INSTALL_SCRIPT_PATH_PS1 = "install.ps1";
 const INSTALL_SCRIPT_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -45,6 +46,10 @@ export type InstallScriptRelease = {
   installPowerShellPath: string;
 };
 
+/**
+ * Resolves the newest published bridge installer release and caches both script bodies together.
+ * GitHub transport details stay local to this service for now, while callers only consume install.sh/install.ps1 content.
+ */
 export class InstallScriptService {
   readonly repoOwner = INSTALL_SCRIPT_REPO_OWNER;
   readonly repoName = INSTALL_SCRIPT_REPO_NAME;
@@ -96,7 +101,7 @@ export class InstallScriptService {
   }
 
   #toEligibleRelease(release: GithubRelease): EligibleGithubRelease | null {
-    if (!release.tag_name.startsWith("bridge-v") || release.draft || release.prerelease) {
+    if (!release.tag_name.startsWith(INSTALL_SCRIPT_TAG_PREFIX) || release.draft || release.prerelease) {
       return null;
     }
 
@@ -120,7 +125,10 @@ export class InstallScriptService {
     return right.tagName.localeCompare(left.tagName, "en", { numeric: true });
   }
 
-  protected async loadInstallScripts(
+  /**
+   * Reuses stale cache on refresh failures to protect installs during temporary GitHub outages.
+   */
+  async #loadInstallScripts(
     existingCacheEntry: InstallScriptCacheEntry | null,
   ): Promise<LoadedInstallScriptCacheEntry> {
     const release = await this.#fetchLatestRelease();
@@ -175,7 +183,7 @@ export class InstallScriptService {
 
   async #loadAndCacheScripts(existingCacheEntry: InstallScriptCacheEntry | null): Promise<InstallScriptCacheEntry> {
     try {
-      const loadedScripts = await this.loadInstallScripts(existingCacheEntry);
+      const loadedScripts = await this.#loadInstallScripts(existingCacheEntry);
       const cacheEntry: InstallScriptCacheEntry = {
         ...loadedScripts,
         expiresAt: Date.now() + this.cacheTtlMs,
@@ -208,10 +216,13 @@ export class InstallScriptService {
   }
 
   async #fetchLatestRelease(): Promise<InstallScriptRelease> {
+    let latestEligibleRelease: EligibleGithubRelease | null = null;
     let page = 1;
     let hasNextPage = true;
 
     while (hasNextPage) {
+      // This endpoint is intentionally unauthenticated for now. That keeps setup simple,
+      // but it also means we depend on GitHub's public rate limits during outages/load.
       const response = await fetch(this.#buildReleasesUrl(page), this.#buildGithubRequestOptions("application/json"));
 
       if (!response.ok) {
@@ -219,16 +230,20 @@ export class InstallScriptService {
       }
 
       const json = await response.json();
-      const latestRelease = this.#findLatestEligibleRelease(json);
-      if (latestRelease) {
-        return latestRelease;
-      }
+      latestEligibleRelease = this.#selectMoreRecentRelease(
+        latestEligibleRelease,
+        this.#findLatestEligibleRelease(json),
+      );
 
       hasNextPage = this.#hasNextPage(response.headers.get("link"));
       page += 1;
     }
 
-    throw new BadGatewayError({ debugMessage: "NO_ELIGIBLE_INSTALL_SCRIPT_RELEASE" });
+    if (!latestEligibleRelease) {
+      throw new BadGatewayError({ debugMessage: "NO_ELIGIBLE_INSTALL_SCRIPT_RELEASE" });
+    }
+
+    return this.#toInstallScriptRelease(latestEligibleRelease);
   }
 
   async #fetchScriptBody(tagName: string, scriptPath: string): Promise<string> {
@@ -270,7 +285,7 @@ export class InstallScriptService {
     return linkHeader.split(",").some((linkValue) => linkValue.includes('rel="next"'));
   }
 
-  #findLatestEligibleRelease(releasesPayload: unknown): InstallScriptRelease | null {
+  #findLatestEligibleRelease(releasesPayload: unknown): EligibleGithubRelease | null {
     const releases = this.#parseReleasesPayload(releasesPayload);
     const latestRelease = releases
       .map((release) => this.#toEligibleRelease(release))
@@ -281,14 +296,33 @@ export class InstallScriptService {
       return null;
     }
 
+    return latestRelease;
+  }
+
+  #toInstallScriptRelease(release: EligibleGithubRelease): InstallScriptRelease {
     return {
       owner: this.repoOwner,
       repo: this.repoName,
-      tagName: latestRelease.tagName,
-      publishedAt: latestRelease.publishedAt.toISOString(),
+      tagName: release.tagName,
+      publishedAt: release.publishedAt.toISOString(),
       installScriptPath: this.installScriptPath,
       installPowerShellPath: this.installPowerShellPath,
     };
+  }
+
+  #selectMoreRecentRelease(
+    currentRelease: EligibleGithubRelease | null,
+    candidateRelease: EligibleGithubRelease | null,
+  ): EligibleGithubRelease | null {
+    if (!candidateRelease) {
+      return currentRelease;
+    }
+
+    if (!currentRelease) {
+      return candidateRelease;
+    }
+
+    return this.#compareEligibleReleases(currentRelease, candidateRelease) <= 0 ? currentRelease : candidateRelease;
   }
 
   #buildGithubRequestOptions(accept: string): RequestInit {

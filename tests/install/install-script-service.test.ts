@@ -223,16 +223,17 @@ describe("InstallScriptService", () => {
     fetchMock.assertExhausted();
   });
 
-  it("stops paginating once it finds an eligible release on the current page", async (t) => {
+  it("keeps comparing eligible releases across pages by published_at", async (t) => {
     const service = new InstallScriptService();
-    const tag = "bridge-v1.4.0";
+    const olderTag = "bridge-v1.4.0";
+    const newerTag = "bridge-v1.5.0";
     const fetchMock = createFetchMock(t, {
       [releasesUrl(1)]: [
         () =>
           createJsonResponse(
             [
               createRelease("server-v9.0.0", "2026-02-16T08:30:00.000Z"),
-              createRelease(tag, "2026-02-15T08:30:00.000Z"),
+              createRelease(olderTag, "2026-02-15T08:30:00.000Z"),
             ],
             {
               headers: {
@@ -241,15 +242,19 @@ describe("InstallScriptService", () => {
             },
           ),
       ],
-      [contentsUrl("install.sh", tag)]: [() => createTextResponse("#!/bin/sh\necho bridge\n")],
-      [contentsUrl("install.ps1", tag)]: [() => createTextResponse("Write-Output bridge\n")],
+      [releasesUrl(2)]: [() => createJsonResponse([createRelease(newerTag, "2026-02-17T08:30:00.000Z")])],
+      [contentsUrl("install.sh", newerTag)]: [() => createTextResponse("#!/bin/sh\necho newer\n")],
+      [contentsUrl("install.ps1", newerTag)]: [() => createTextResponse("Write-Output newer\n")],
     });
 
-    await service.getInstallSh();
+    const installSh = await service.getInstallSh();
+    const installPs1 = await service.getInstallPs1();
 
+    assert.equal(installSh, "#!/bin/sh\necho newer\n");
+    assert.equal(installPs1, "Write-Output newer\n");
     assert.deepEqual(
       fetchMock.calls.map((call) => call.url),
-      [releasesUrl(1), contentsUrl("install.sh", tag), contentsUrl("install.ps1", tag)],
+      [releasesUrl(1), releasesUrl(2), contentsUrl("install.sh", newerTag), contentsUrl("install.ps1", newerTag)],
     );
     assertGithubRequestMetadata(fetchMock.calls);
     fetchMock.assertExhausted();
