@@ -14,7 +14,8 @@ type Deferred<T> = {
   reject: (reason?: unknown) => void;
 };
 
-const DEBOUNCE_MS = 60_000;
+const DEBOUNCE_MS = 120_000;
+const HALF_DEBOUNCE_MS = DEBOUNCE_MS / 2;
 
 function flushMicrotasks(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
@@ -58,6 +59,29 @@ describe("BridgeStateTracker", () => {
     mock.timers.reset();
   });
 
+  it("default debounce waits two minutes before notifying", async () => {
+    const sendCalls: SendCall[] = [];
+    const notificationServiceMock = {
+      sendToUser: async (userId: string, payload: NotificationPayload) => {
+        sendCalls.push({ userId, payload });
+        return { devicesNotified: 1 };
+      },
+    } as unknown as NotificationService;
+    const tracker = new BridgeStateTracker(notificationServiceMock);
+
+    tracker.handleStatusChange("user-1", "connected");
+
+    mock.timers.tick(HALF_DEBOUNCE_MS);
+    await flushMicrotasks();
+
+    assert.equal(sendCalls.length, 0);
+
+    mock.timers.tick(HALF_DEBOUNCE_MS);
+    await flushMicrotasks();
+
+    assert.deepEqual(sendCalls, [{ userId: "user-1", payload: connectedPayload() }]);
+  });
+
   it("stable connected notifies after debounce", async () => {
     const sendCalls: SendCall[] = [];
     const notificationServiceMock = {
@@ -70,7 +94,12 @@ describe("BridgeStateTracker", () => {
 
     tracker.handleStatusChange("user-1", "connected");
 
-    mock.timers.tick(DEBOUNCE_MS);
+    mock.timers.tick(HALF_DEBOUNCE_MS);
+    await flushMicrotasks();
+
+    assert.equal(sendCalls.length, 0);
+
+    mock.timers.tick(HALF_DEBOUNCE_MS);
     await flushMicrotasks();
 
     assert.deepEqual(sendCalls, [{ userId: "user-1", payload: connectedPayload() }]);
@@ -88,7 +117,12 @@ describe("BridgeStateTracker", () => {
 
     tracker.handleStatusChange("user-1", "disconnected");
 
-    mock.timers.tick(DEBOUNCE_MS);
+    mock.timers.tick(HALF_DEBOUNCE_MS);
+    await flushMicrotasks();
+
+    assert.equal(sendCalls.length, 0);
+
+    mock.timers.tick(HALF_DEBOUNCE_MS);
     await flushMicrotasks();
 
     assert.deepEqual(sendCalls, [{ userId: "user-1", payload: disconnectedPayload() }]);
@@ -105,9 +139,9 @@ describe("BridgeStateTracker", () => {
     const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
 
     tracker.handleStatusChange("user-1", "connected");
-    mock.timers.tick(30_000);
+    mock.timers.tick(HALF_DEBOUNCE_MS);
     tracker.handleStatusChange("user-1", "disconnected");
-    mock.timers.tick(30_000);
+    mock.timers.tick(HALF_DEBOUNCE_MS);
     tracker.handleStatusChange("user-1", "connected");
 
     mock.timers.tick(DEBOUNCE_MS);
@@ -152,9 +186,9 @@ describe("BridgeStateTracker", () => {
     const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
 
     tracker.handleStatusChange("user-1", "connected");
-    mock.timers.tick(30_000);
+    mock.timers.tick(HALF_DEBOUNCE_MS);
     tracker.handleStatusChange("user-1", "connected");
-    mock.timers.tick(30_000);
+    mock.timers.tick(HALF_DEBOUNCE_MS);
     await flushMicrotasks();
 
     assert.deepEqual(sendCalls, [{ userId: "user-1", payload: connectedPayload() }]);
@@ -218,7 +252,7 @@ describe("BridgeStateTracker", () => {
     await flushMicrotasks();
 
     tracker.handleStatusChange("user-1", "disconnected");
-    mock.timers.tick(30_000);
+    mock.timers.tick(HALF_DEBOUNCE_MS);
     tracker.handleStatusChange("user-1", "connected");
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();
