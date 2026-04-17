@@ -7,6 +7,7 @@ import { loadConfig } from "./config.js";
 import { MongoDbAccessor } from "./db/mongo-db-accessor.js";
 import { MongoDbConnector } from "./db/mongo-db-connector.js";
 import stateStore from "./lib/state-store.js";
+import { InstallScriptService } from "./services/install-script-service.js";
 import { DailyUsageRepository } from "./repositories/daily-usage-repo.js";
 import { DeviceTokenRepository } from "./repositories/device-token-repo.js";
 import { GlossaryEntryRepository } from "./repositories/glossary-entry-repo.js";
@@ -93,6 +94,7 @@ async function main() {
     dailyUsageRepo,
     model: config.OPENAI_METADATA_MODEL,
   });
+  const installScriptService = new InstallScriptService();
 
   const app = await buildApp({
     config,
@@ -100,6 +102,7 @@ async function main() {
     tokenService,
     voiceService,
     sessionMetadataService,
+    installScriptService,
     deviceTokenRepo,
     notificationService,
     bridgeStateTracker,

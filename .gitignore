@@ -12,3 +12,6 @@ dist/
 # RSA keys (generated locally, never commit)
 keys/
 *.pem
+
+# Sisyphus work artifacts
+.sisyphus/

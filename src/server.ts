@@ -16,6 +16,8 @@ import type { NotificationService } from "./services/notification-service.js";
 import type { TokenService } from "./services/token-service.js";
 import type { VoiceService } from "./services/voice-service.js";
 import type { SessionMetadataService } from "./services/session-metadata-service.js";
+import type { InstallScriptService } from "./services/install-script-service.js";
+import { installRoutes } from "./routes/install.js";
 import { tokenRoutes } from "./routes/token.js";
 import { githubRoutes } from "./routes/github.js";
 import { googleRoutes } from "./routes/google.js";
@@ -29,6 +31,7 @@ export type AppServices = {
   tokenService: TokenService;
   voiceService: VoiceService;
   sessionMetadataService: SessionMetadataService;
+  installScriptService: InstallScriptService;
   deviceTokenRepo: DeviceTokenRepository;
   notificationService: NotificationService;
   bridgeStateTracker: BridgeStateTracker;
@@ -68,6 +71,10 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
 
   app.get<{ Reply: HealthReply }>("/health", async () => {
     return { status: "ok" };
+  });
+
+  await app.register(installRoutes, {
+    installScriptService: services.installScriptService,
   });
 
   const requireAuth = createAuthMiddleware(services.tokenService);

@@ -21,6 +21,7 @@ import { AuthService } from "../../src/services/auth-service.js";
 import { BridgeStateTracker } from "../../src/services/bridge-state-tracker.js";
 import { NotificationService } from "../../src/services/notification-service.js";
 import { SessionMetadataService } from "../../src/services/session-metadata-service.js";
+import { InstallScriptService } from "../../src/services/install-script-service.js";
 import { TokenService } from "../../src/services/token-service.js";
 import { VoiceService } from "../../src/services/voice-service.js";
 import { loadConfig } from "../../src/config.js";
@@ -54,6 +55,7 @@ export type TestAppOverrides = {
   notificationService?: NotificationService;
   bridgeStateTracker?: BridgeStateTracker;
   sessionMetadataService?: SessionMetadataService;
+  installScriptService?: InstallScriptService;
 };
 
 export type { OAuthClient };
@@ -122,6 +124,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   const bridgeStateTracker = overrides?.bridgeStateTracker ?? new BridgeStateTracker(notificationService);
   const sessionMetadataService =
     overrides?.sessionMetadataService ?? new SessionMetadataService({ openai, dailyUsageRepo, model: "gpt-4o-mini" });
+  const installScriptService = overrides?.installScriptService ?? new InstallScriptService();
 
   const app = await buildApp({
     config,
@@ -129,6 +132,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     tokenService,
     voiceService,
     sessionMetadataService,
+    installScriptService,
     deviceTokenRepo,
     notificationService,
     bridgeStateTracker,
