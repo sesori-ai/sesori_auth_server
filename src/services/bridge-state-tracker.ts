@@ -3,6 +3,8 @@ import type { NotificationPayload, NotificationService } from "./notification-se
 
 type BridgeStatus = BridgeStatusBody["status"];
 
+const DEFAULT_BRIDGE_NOTIFICATION_DEBOUNCE_MS = 120_000;
+
 type BridgeStateEntry = {
   pendingStatus: BridgeStatus | null;
   lastNotifiedStatus: BridgeStatus | null;
@@ -15,7 +17,7 @@ export class BridgeStateTracker {
   readonly #debounceMs: number;
   readonly #state = new Map<string, BridgeStateEntry>();
 
-  constructor(notificationService: NotificationService, debounceMs: number = 60_000) {
+  constructor(notificationService: NotificationService, debounceMs: number = DEFAULT_BRIDGE_NOTIFICATION_DEBOUNCE_MS) {
     this.#notificationService = notificationService;
     this.#debounceMs = debounceMs;
   }
