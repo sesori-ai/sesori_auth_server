@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import * as admin from "firebase-admin/app";
 import { getMessaging } from "firebase-admin/messaging";
 import { GithubClient } from "./clients/auth/github-client.js";
@@ -16,6 +17,7 @@ import { UserRepository } from "./repositories/user-repo.js";
 import { buildApp } from "./server.js";
 import { AuthService } from "./services/auth-service.js";
 import { BridgeStateTracker } from "./services/bridge-state-tracker.js";
+import { LegalDocumentService } from "./services/legal-document-service.js";
 import { NotificationService } from "./services/notification-service.js";
 import { SessionMetadataService } from "./services/session-metadata-service.js";
 import { TokenService } from "./services/token-service.js";
@@ -95,6 +97,11 @@ async function main() {
     model: config.OPENAI_METADATA_MODEL,
   });
   const installScriptService = new InstallScriptService();
+  const [termsText, privacyText] = await Promise.all([
+    readFile(new URL("../terms.md", import.meta.url), "utf8"),
+    readFile(new URL("../privacy.md", import.meta.url), "utf8"),
+  ]);
+  const legalDocumentService = new LegalDocumentService(termsText, privacyText);
 
   const app = await buildApp({
     config,
@@ -103,6 +110,7 @@ async function main() {
     voiceService,
     sessionMetadataService,
     installScriptService,
+    legalDocumentService,
     deviceTokenRepo,
     notificationService,
     bridgeStateTracker,
