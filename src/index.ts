@@ -7,6 +7,7 @@ import { OpenAIClient } from "./clients/openai-client.js";
 import { loadConfig } from "./config.js";
 import { MongoDbAccessor } from "./db/mongo-db-accessor.js";
 import { MongoDbConnector } from "./db/mongo-db-connector.js";
+import { getLegalDocumentUrl } from "./lib/legal-document-paths.js";
 import stateStore from "./lib/state-store.js";
 import { InstallScriptService } from "./services/install-script-service.js";
 import { DailyUsageRepository } from "./repositories/daily-usage-repo.js";
@@ -98,8 +99,8 @@ async function main() {
   });
   const installScriptService = new InstallScriptService();
   const [termsText, privacyText] = await Promise.all([
-    readFile(new URL("../terms.md", import.meta.url), "utf8"),
-    readFile(new URL("../privacy.md", import.meta.url), "utf8"),
+    readFile(getLegalDocumentUrl(import.meta.url, "terms"), "utf8"),
+    readFile(getLegalDocumentUrl(import.meta.url, "privacy"), "utf8"),
   ]);
   const legalDocumentService = new LegalDocumentService(termsText, privacyText);
 
