@@ -26,7 +26,7 @@ describe("Legal routes", () => {
   async function createRouteTestApp(t: NodeTestContext): Promise<TestContext> {
     mockMongoHarness(t);
     return createTestApp({
-      legalDocumentService: new LegalDocumentService("# Terms\n\nTerms body\n", "# Privacy\n\nPrivacy body\n"),
+      legalDocumentService: new LegalDocumentService("# Terms\n\nTerms body\n", "# Privacy\n\nПоверителност body\n"),
     });
   }
 
@@ -39,7 +39,7 @@ describe("Legal routes", () => {
       });
 
       assert.equal(res.statusCode, 200);
-      assert.match(res.headers["content-type"] ?? "", /text\/plain/);
+      assert.match(res.headers["content-type"] ?? "", /^text\/plain;\s*charset=utf-8\b/i);
       assert.equal(res.body, "# Terms\n\nTerms body\n");
     } finally {
       await ctx.cleanup();
@@ -55,8 +55,8 @@ describe("Legal routes", () => {
       });
 
       assert.equal(res.statusCode, 200);
-      assert.match(res.headers["content-type"] ?? "", /text\/plain/);
-      assert.equal(res.body, "# Privacy\n\nPrivacy body\n");
+      assert.match(res.headers["content-type"] ?? "", /^text\/plain;\s*charset=utf-8\b/i);
+      assert.equal(res.body, "# Privacy\n\nПоверителност body\n");
     } finally {
       await ctx.cleanup();
     }

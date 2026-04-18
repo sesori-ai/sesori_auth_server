@@ -9,10 +9,10 @@ export const legalRoutes: FastifyPluginAsync<LegalRouteOptions> = async (fastify
   const { legalDocumentService } = opts;
 
   fastify.get<{ Reply: string }>("/terms", async (_request, reply) => {
-    reply.type("text/plain").send(legalDocumentService.getTerms());
+    reply.type("text/plain; charset=utf-8").send(legalDocumentService.getTerms());
   });
 
   fastify.get<{ Reply: string }>("/privacy", async (_request, reply) => {
-    reply.type("text/plain").send(legalDocumentService.getPrivacy());
+    reply.type("text/plain; charset=utf-8").send(legalDocumentService.getPrivacy());
   });
 };
