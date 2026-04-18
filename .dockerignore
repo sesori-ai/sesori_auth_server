@@ -5,6 +5,8 @@ dist
 env/
 keys/
 *.md
+!terms.md
+!privacy.md
 tests/
 scripts/
 .sops.yaml
