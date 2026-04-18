@@ -5,8 +5,9 @@ dist
 env/
 keys/
 *.md
-!terms.md
-!privacy.md
+!assets/legal/
+!assets/legal/terms.md
+!assets/legal/privacy.md
 tests/
 scripts/
 .sops.yaml

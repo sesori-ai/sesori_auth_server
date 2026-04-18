@@ -12,7 +12,7 @@ FROM node:22.22.0-slim
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
-COPY terms.md privacy.md ./
+COPY assets/legal/ ./assets/legal/
 COPY --from=builder /app/dist ./dist/
 
 USER node
