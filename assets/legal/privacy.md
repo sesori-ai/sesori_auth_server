@@ -150,14 +150,14 @@ If GDPR or similar law applies, we generally rely on one or more of the followin
 
 We use a limited number of service providers that may process personal data on our behalf to operate the official Service. Current sub-processors are:
 
-| Provider | Role | Location of processing |
-|---|---|---|
-| DigitalOcean, LLC | Hosting, infrastructure, and databases | European Union (Sesori-controlled servers are currently EU-hosted); provider headquartered in the United States |
-| Cloudflare, Inc. | Reverse proxy, DNS, and security edge services | Global edge network; provider headquartered in the United States |
-| OpenAI, L.L.C. | Voice transcription and short text feature processing (e.g., session title naming) | United States |
-| Anthropic, PBC | Short text feature processing (e.g., session title naming) | United States |
-| Google LLC (Firebase) | Push notifications via Firebase Cloud Messaging, app analytics, and Crashlytics | United States and Google global infrastructure |
-| Functional Software, Inc. (Sentry) | Error monitoring and crash diagnostics | United States |
+| Provider                           | Role                                                                               | Location of processing                                                                                          |
+| ---------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| DigitalOcean, LLC                  | Hosting, infrastructure, and databases                                             | European Union (Sesori-controlled servers are currently EU-hosted); provider headquartered in the United States |
+| Cloudflare, Inc.                   | Reverse proxy, DNS, and security edge services                                     | Global edge network; provider headquartered in the United States                                                |
+| OpenAI, L.L.C.                     | Voice transcription and short text feature processing (e.g., session title naming) | United States                                                                                                   |
+| Anthropic, PBC                     | Short text feature processing (e.g., session title naming)                         | United States                                                                                                   |
+| Google LLC (Firebase)              | Push notifications via Firebase Cloud Messaging, app analytics, and Crashlytics    | United States and Google global infrastructure                                                                  |
+| Functional Software, Inc. (Sentry) | Error monitoring and crash diagnostics                                             | United States                                                                                                   |
 
 We also operate our own Sesori authentication backend on Sesori infrastructure for account and authentication services.
 
