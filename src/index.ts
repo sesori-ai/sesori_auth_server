@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import * as admin from "firebase-admin/app";
 import { getMessaging } from "firebase-admin/messaging";
+import { AppleClient } from "./clients/auth/apple-client.js";
 import { GithubClient } from "./clients/auth/github-client.js";
 import { GoogleClient } from "./clients/auth/google-client.js";
 import { OpenAIClient } from "./clients/openai-client.js";
@@ -18,6 +19,7 @@ import { PasswordAccountRepository } from "./repositories/password-account-repo.
 import { UserRepository } from "./repositories/user-repo.js";
 import { buildApp } from "./server.js";
 import { AuthService } from "./services/auth-service.js";
+import { AppleNativeVerifier } from "./services/apple-native-verifier.js";
 import { BridgeStateTracker } from "./services/bridge-state-tracker.js";
 import { LegalDocumentService } from "./services/legal-document-service.js";
 import { NotificationService } from "./services/notification-service.js";
@@ -85,6 +87,18 @@ async function main() {
 
   const githubClient = new GithubClient();
   const googleClient = new GoogleClient();
+  const appleClient = new AppleClient({
+    teamId: config.APPLE_TEAM_ID,
+    keyId: config.APPLE_KEY_ID,
+    privateKey: config.APPLE_PRIVATE_KEY,
+  });
+  const appleNativeVerifier = new AppleNativeVerifier({
+    teamId: config.APPLE_TEAM_ID,
+    keyId: config.APPLE_KEY_ID,
+    clientId: config.APPLE_CLIENT_ID,
+    iosClientId: config.APPLE_IOS_CLIENT_ID,
+    privateKey: config.APPLE_PRIVATE_KEY,
+  });
 
   const authService = new AuthService({
     tokenService,
@@ -121,6 +135,8 @@ async function main() {
     stateStore,
     githubClient,
     googleClient,
+    appleClient,
+    appleNativeVerifier,
   });
 
   const address = await app.listen({ port: config.PORT, host: "0.0.0.0" });
