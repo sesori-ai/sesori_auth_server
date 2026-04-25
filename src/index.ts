@@ -14,6 +14,7 @@ import { DailyUsageRepository } from "./repositories/daily-usage-repo.js";
 import { DeviceTokenRepository } from "./repositories/device-token-repo.js";
 import { GlossaryEntryRepository } from "./repositories/glossary-entry-repo.js";
 import { OAuthAccountRepository } from "./repositories/oauth-account-repo.js";
+import { PasswordAccountRepository } from "./repositories/password-account-repo.js";
 import { UserRepository } from "./repositories/user-repo.js";
 import { buildApp } from "./server.js";
 import { AuthService } from "./services/auth-service.js";
@@ -49,6 +50,7 @@ async function main() {
 
   const userRepo = new UserRepository(dbAccessor);
   const oauthAccountRepo = new OAuthAccountRepository(dbAccessor);
+  const passwordAccountRepo = new PasswordAccountRepository(dbAccessor);
   const glossaryRepo = new GlossaryEntryRepository(dbAccessor);
   const dailyUsageRepo = new DailyUsageRepository(dbAccessor);
   const deviceTokenRepo = new DeviceTokenRepository(dbAccessor);
@@ -88,6 +90,7 @@ async function main() {
     tokenService,
     userRepo,
     oauthAccountRepo,
+    passwordAccountRepo,
     deviceTokenRepo,
   });
   const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
