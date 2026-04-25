@@ -1,5 +1,5 @@
 import type { OAuthClient } from "../clients/auth/oauth-client.js";
-import { OAuthProviderName, type OAuthExchangeParams } from "../types/oauth.js";
+import { OAuthProviderName, type OAuthExchangeParams, type OAuthIdentity } from "../types/oauth.js";
 import { BadGatewayError, UnauthenticatedError, UnauthorizedError } from "../lib/errors.js";
 import { refreshTokenPayloadSchema } from "../models/jwt.js";
 import { OAuthAccountRepository } from "../repositories/oauth-account-repo.js";
@@ -60,6 +60,14 @@ export class AuthService {
         nestedError: error,
       });
     }
+  }
+
+  async authenticateAppleNative(identity: OAuthIdentity): Promise<AuthResult> {
+    return this.#upsertFromOAuth({
+      provider: OAuthProviderName.Apple,
+      providerUserId: identity.providerUserId,
+      providerUsername: identity.providerUsername,
+    });
   }
 
   async authenticatePassword(email: string, password: string): Promise<AuthResult> {
