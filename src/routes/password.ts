@@ -33,6 +33,6 @@ export const passwordRoutes: FastifyPluginAsync<PasswordRouteOptions> = async (f
       }
 
       return await authService.authenticatePassword(bodyResult.data.email, bodyResult.data.password);
-    }
+    },
   );
 };
