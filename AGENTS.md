@@ -57,6 +57,7 @@ src/
 - **No unvalidated input** — every request body/param goes through Zod
 - **No plaintext secrets** — use `npm run env:edit` to modify encrypted env, `npm run start:local` to run with SOPS
 - **No ObjectId in services/routes** — string IDs above repository layer, repos convert at boundary
+- **Never amend commits** — always create new follow-up commits. Amending erases audit trail and makes PR reviews impossible. Force-push is only acceptable for fixing sensitive data leaks.
 
 ## TESTING
 
