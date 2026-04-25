@@ -86,7 +86,7 @@ export class AuthService {
     }
 
     if (argon2.needsRehash(account.passwordHash)) {
-      const newHash = await argon2.hash(password);
+      const newHash = await argon2.hash(password, { type: argon2.argon2id });
       await this.#passwordAccountRepo.updatePasswordHash(account.userId.toHexString(), newHash);
     }
 

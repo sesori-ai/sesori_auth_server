@@ -33,7 +33,7 @@ describe("Password authentication", () => {
       updatedAt: now,
     });
 
-    const hash = await argon2.hash(password);
+    const hash = await argon2.hash(password, { type: argon2.argon2id });
     const passwordAccount: PasswordAccount = {
       _id: new ObjectId(),
       userId,
