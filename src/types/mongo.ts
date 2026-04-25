@@ -5,6 +5,7 @@ export enum MongoDbDatabase {
 export enum AuthDbCollection {
   Users = "users",
   OAuthAccounts = "oauthAccounts",
+  PasswordAccounts = "passwordAccounts",
   GlossaryEntries = "glossaryEntries",
   DailyUsage = "dailyUsage",
   DeviceTokens = "deviceTokens",

@@ -1,6 +1,7 @@
 export enum OAuthProviderName {
   Github = "github",
   Google = "google",
+  Apple = "apple",
 }
 
 export type OAuthExchangeParams = {

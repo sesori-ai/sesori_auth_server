@@ -29,6 +29,7 @@
     "@fastify/cors": "^11.2.0",
     "@fastify/multipart": "^9.4.0",
     "@fastify/rate-limit": "^10.3.0",
+    "argon2": "^0.44.0",
     "fastify": "^5.8.2",
     "firebase-admin": "^13.7.0",
     "jose": "^6.2.2",
