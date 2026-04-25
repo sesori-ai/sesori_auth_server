@@ -57,6 +57,7 @@ describe("Apple Native OAuth routes", () => {
         headers: { "content-type": "application/json" },
         payload: JSON.stringify({
           idToken: "valid-apple-id-token",
+          nonce: "test-nonce-123",
         }),
       });
 
@@ -81,6 +82,7 @@ describe("Apple Native OAuth routes", () => {
         headers: { "content-type": "application/json" },
         payload: JSON.stringify({
           idToken: "first-apple-id-token",
+          nonce: "test-nonce-123",
         }),
       });
       assert.equal(res1.statusCode, 200);
@@ -92,6 +94,7 @@ describe("Apple Native OAuth routes", () => {
         headers: { "content-type": "application/json" },
         payload: JSON.stringify({
           idToken: "second-apple-id-token",
+          nonce: "test-nonce-123",
         }),
       });
       assert.equal(res2.statusCode, 200);
@@ -118,6 +121,20 @@ describe("Apple Native OAuth routes", () => {
         headers: { "content-type": "application/json" },
         payload: JSON.stringify({
           idToken: "",
+          nonce: "test-nonce-123",
+        }),
+      });
+
+      assert.equal(res.statusCode, 400);
+    });
+
+    it("returns 400 when nonce is missing", async () => {
+      const res = await ctx.app.inject({
+        method: "POST",
+        url: "/auth/apple/native",
+        headers: { "content-type": "application/json" },
+        payload: JSON.stringify({
+          idToken: "valid-apple-id-token",
         }),
       });
 
@@ -148,6 +165,7 @@ describe("Apple Native OAuth routes with failing verifier", () => {
         headers: { "content-type": "application/json" },
         payload: JSON.stringify({
           idToken: "invalid-apple-id-token",
+          nonce: "test-nonce-123",
         }),
       });
 

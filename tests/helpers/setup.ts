@@ -83,9 +83,9 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   process.env.GOOGLE_CLIENT_ID ??= "test-google-client-id";
   process.env.GOOGLE_CLIENT_SECRET ??= "test-google-client-secret";
   process.env.APPLE_CLIENT_ID ??= "test-apple-client-id";
-  process.env.APPLE_IOS_CLIENT_ID ??= "test-apple-ios-client-id";
-  process.env.APPLE_TEAM_ID ??= "test-apple-team-id";
-  process.env.APPLE_KEY_ID ??= "test-apple-key-id";
+  process.env.APPLE_IOS_CLIENT_ID ??= "test.ios.bundle";
+  process.env.APPLE_TEAM_ID ??= "TESTTEAM";
+  process.env.APPLE_KEY_ID ??= "TESTKEY";
   process.env.APPLE_PRIVATE_KEY ??= "-----BEGIN PRIVATE KEY-----\ntestkey\n-----END PRIVATE KEY-----\n";
   process.env.ALLOWED_REDIRECT_URIS ??= "myapp://oauth/callback";
   process.env.RELAY_URL ??= "ws://localhost:8080";
@@ -108,11 +108,6 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
       universe_domain: "googleapis.com",
     }),
   ).toString("base64");
-  process.env.APPLE_CLIENT_ID ??= "test-apple-client-id";
-  process.env.APPLE_IOS_CLIENT_ID ??= "test.ios.bundle";
-  process.env.APPLE_TEAM_ID ??= "TESTTEAM";
-  process.env.APPLE_KEY_ID ??= "TESTKEY";
-  process.env.APPLE_PRIVATE_KEY ??= "-----BEGIN EC PRIVATE KEY-----\nMHQCAQEEIBtaG2E4\n-----END EC PRIVATE KEY-----\n";
 
   const config = loadConfig();
 
@@ -145,11 +140,8 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   const appleNativeVerifier =
     overrides?.appleNativeVerifier ??
     new AppleNativeVerifier({
-      teamId: config.APPLE_TEAM_ID,
-      keyId: config.APPLE_KEY_ID,
       clientId: config.APPLE_CLIENT_ID,
       iosClientId: config.APPLE_IOS_CLIENT_ID,
-      privateKey: config.APPLE_PRIVATE_KEY,
     });
 
   const authService = new AuthService({ tokenService, userRepo, oauthAccountRepo, passwordAccountRepo });

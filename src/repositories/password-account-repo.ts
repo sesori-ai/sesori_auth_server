@@ -34,6 +34,9 @@ export class PasswordAccountRepository {
   }
 
   async updatePasswordHash(userId: string, passwordHash: string): Promise<void> {
-    await this.#collection.updateOne({ userId: new ObjectId(userId) }, { $set: { passwordHash } });
+    await this.#collection.updateOne(
+      { userId: new ObjectId(userId) },
+      { $set: { passwordHash, updatedAt: new Date() } },
+    );
   }
 }

@@ -8,7 +8,7 @@ import type { Config } from "../config.js";
 
 const appleNativeBodySchema = z.object({
   idToken: z.string().min(1),
-  nonce: z.string().optional(),
+  nonce: z.string().min(1),
 });
 
 export type AppleNativeRouteOptions = {

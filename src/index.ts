@@ -93,11 +93,8 @@ async function main() {
     privateKey: config.APPLE_PRIVATE_KEY,
   });
   const appleNativeVerifier = new AppleNativeVerifier({
-    teamId: config.APPLE_TEAM_ID,
-    keyId: config.APPLE_KEY_ID,
     clientId: config.APPLE_CLIENT_ID,
     iosClientId: config.APPLE_IOS_CLIENT_ID,
-    privateKey: config.APPLE_PRIVATE_KEY,
   });
 
   const authService = new AuthService({

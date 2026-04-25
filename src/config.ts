@@ -6,7 +6,6 @@ const appleConfigSchema = z.object({
   APPLE_TEAM_ID: z.string().min(1, "APPLE_TEAM_ID is required"),
   APPLE_KEY_ID: z.string().min(1, "APPLE_KEY_ID is required"),
   APPLE_PRIVATE_KEY: z.string().min(1, "APPLE_PRIVATE_KEY is required"),
-  APPLE_JWKS_URI: z.literal("https://appleid.apple.com/auth/keys").default("https://appleid.apple.com/auth/keys"),
 });
 
 export type AppleConfig = z.infer<typeof appleConfigSchema>;

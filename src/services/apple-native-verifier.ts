@@ -1,6 +1,6 @@
-import { createRemoteJWKSet, jwtVerify } from "jose";
+import { createRemoteJWKSet, jwtVerify, errors as joseErrors } from "jose";
 import { z } from "zod";
-import { BadGatewayError } from "../lib/errors.js";
+import { BadGatewayError, UnauthenticatedError } from "../lib/errors.js";
 import type { OAuthIdentity } from "../types/oauth.js";
 
 const APPLE_JWKS_URI = "https://appleid.apple.com/auth/keys";
@@ -14,11 +14,8 @@ const appleIdTokenPayloadSchema = z.object({
 });
 
 export type AppleNativeVerifierConfig = {
-  teamId: string;
-  keyId: string;
   clientId: string;
   iosClientId: string;
-  privateKey: string;
 };
 
 export class AppleNativeVerifier {
@@ -26,10 +23,7 @@ export class AppleNativeVerifier {
   readonly #jwks = createRemoteJWKSet(new URL(APPLE_JWKS_URI));
 
   constructor(config: AppleNativeVerifierConfig) {
-    this.#config = {
-      ...config,
-      privateKey: config.privateKey.replace(/\\n/g, "\n"),
-    };
+    this.#config = config;
   }
 
   async verifyIdToken(idToken: string, clientId: string, nonce?: string): Promise<OAuthIdentity> {
@@ -37,10 +31,25 @@ export class AppleNativeVerifier {
       throw new BadGatewayError({ debugMessage: "UNKNOWN_APPLE_CLIENT_ID" });
     }
 
-    const { payload } = await jwtVerify(idToken, this.#jwks, {
-      issuer: "https://appleid.apple.com",
-      audience: clientId,
-    });
+    let payload: Record<string, unknown>;
+    try {
+      const result = await jwtVerify(idToken, this.#jwks, {
+        issuer: "https://appleid.apple.com",
+        audience: clientId,
+      });
+      payload = result.payload;
+    } catch (error) {
+      if (error instanceof joseErrors.JWTExpired) {
+        throw new UnauthenticatedError({ debugMessage: "Apple ID token expired", nestedError: error });
+      }
+      if (error instanceof joseErrors.JWSSignatureVerificationFailed) {
+        throw new UnauthenticatedError({ debugMessage: "Apple ID token signature invalid", nestedError: error });
+      }
+      if (error instanceof joseErrors.JWTClaimValidationFailed) {
+        throw new UnauthenticatedError({ debugMessage: "Apple ID token claim invalid", nestedError: error });
+      }
+      throw new BadGatewayError({ debugMessage: "Apple ID token verification failed", nestedError: error });
+    }
 
     const result = appleIdTokenPayloadSchema.safeParse(payload);
     if (!result.success) {
