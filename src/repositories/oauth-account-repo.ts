@@ -27,23 +27,32 @@ export class OAuthAccountRepository {
     const now = new Date();
     const potentialUserId = new ObjectId();
 
+    const $set: Record<string, unknown> = { updatedAt: now };
+    // Apple omits the email claim on subsequent sign-ins, so an unconditional
+    // $set would null out a previously stored username. Only update when present.
+    if (params.providerUsername !== null) {
+      $set.providerUsername = params.providerUsername;
+    }
+
+    const $setOnInsert: Record<string, unknown> = {
+      _id: new ObjectId(),
+      userId: potentialUserId,
+      provider: params.provider,
+      providerUserId: params.providerUserId,
+      createdAt: now,
+    };
+    if (params.providerUsername === null) {
+      $setOnInsert.providerUsername = null;
+    }
+
     const result = await this.#collection.findOneAndUpdate(
       {
         provider: params.provider,
         providerUserId: params.providerUserId,
       },
       {
-        $set: {
-          providerUsername: params.providerUsername,
-          updatedAt: now,
-        },
-        $setOnInsert: {
-          _id: new ObjectId(),
-          userId: potentialUserId,
-          provider: params.provider,
-          providerUserId: params.providerUserId,
-          createdAt: now,
-        },
+        $set,
+        $setOnInsert,
       },
       { upsert: true, returnDocument: "after" },
     );

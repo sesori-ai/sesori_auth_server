@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import * as admin from "firebase-admin/app";
 import { getMessaging } from "firebase-admin/messaging";
+import { AppleClient } from "./clients/auth/apple-client.js";
 import { GithubClient } from "./clients/auth/github-client.js";
 import { GoogleClient } from "./clients/auth/google-client.js";
 import { OpenAIClient } from "./clients/openai-client.js";
@@ -14,9 +15,11 @@ import { DailyUsageRepository } from "./repositories/daily-usage-repo.js";
 import { DeviceTokenRepository } from "./repositories/device-token-repo.js";
 import { GlossaryEntryRepository } from "./repositories/glossary-entry-repo.js";
 import { OAuthAccountRepository } from "./repositories/oauth-account-repo.js";
+import { PasswordAccountRepository } from "./repositories/password-account-repo.js";
 import { UserRepository } from "./repositories/user-repo.js";
 import { buildApp } from "./server.js";
 import { AuthService } from "./services/auth-service.js";
+import { AppleNativeVerifier } from "./services/apple-native-verifier.js";
 import { BridgeStateTracker } from "./services/bridge-state-tracker.js";
 import { LegalDocumentService } from "./services/legal-document-service.js";
 import { NotificationService } from "./services/notification-service.js";
@@ -49,6 +52,7 @@ async function main() {
 
   const userRepo = new UserRepository(dbAccessor);
   const oauthAccountRepo = new OAuthAccountRepository(dbAccessor);
+  const passwordAccountRepo = new PasswordAccountRepository(dbAccessor);
   const glossaryRepo = new GlossaryEntryRepository(dbAccessor);
   const dailyUsageRepo = new DailyUsageRepository(dbAccessor);
   const deviceTokenRepo = new DeviceTokenRepository(dbAccessor);
@@ -83,11 +87,21 @@ async function main() {
 
   const githubClient = new GithubClient();
   const googleClient = new GoogleClient();
+  const appleClient = new AppleClient({
+    teamId: config.APPLE_TEAM_ID,
+    keyId: config.APPLE_KEY_ID,
+    privateKey: config.APPLE_PRIVATE_KEY,
+  });
+  const appleNativeVerifier = new AppleNativeVerifier({
+    clientId: config.APPLE_CLIENT_ID,
+    iosClientId: config.APPLE_IOS_CLIENT_ID,
+  });
 
   const authService = new AuthService({
     tokenService,
     userRepo,
     oauthAccountRepo,
+    passwordAccountRepo,
     deviceTokenRepo,
   });
   const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
@@ -118,6 +132,8 @@ async function main() {
     stateStore,
     githubClient,
     googleClient,
+    appleClient,
+    appleNativeVerifier,
   });
 
   const address = await app.listen({ port: config.PORT, host: "0.0.0.0" });

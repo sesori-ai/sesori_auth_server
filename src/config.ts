@@ -1,5 +1,13 @@
 import { z } from "zod";
 
+const appleConfigSchema = z.object({
+  APPLE_CLIENT_ID: z.string().min(1, "APPLE_CLIENT_ID is required"),
+  APPLE_IOS_CLIENT_ID: z.string().min(1, "APPLE_IOS_CLIENT_ID is required"),
+  APPLE_TEAM_ID: z.string().min(1, "APPLE_TEAM_ID is required"),
+  APPLE_KEY_ID: z.string().min(1, "APPLE_KEY_ID is required"),
+  APPLE_PRIVATE_KEY: z.string().min(1, "APPLE_PRIVATE_KEY is required"),
+});
+
 const configSchema = z.object({
   PORT: z.coerce.number().default(3001),
   MONGODB_URI: z.string().min(1, "MONGODB_URI is required"),
@@ -9,6 +17,7 @@ const configSchema = z.object({
   GITHUB_CLIENT_SECRET: z.string().min(1, "GITHUB_CLIENT_SECRET is required"),
   GOOGLE_CLIENT_ID: z.string().min(1, "GOOGLE_CLIENT_ID is required"),
   GOOGLE_CLIENT_SECRET: z.string().min(1, "GOOGLE_CLIENT_SECRET is required"),
+  ...appleConfigSchema.shape,
   ALLOWED_REDIRECT_URIS: z
     .string()
     .transform((value) => value.split(","))

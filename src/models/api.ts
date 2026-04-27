@@ -13,6 +13,16 @@ export type OAuthCallbackBody = {
   redirectUri: string;
 };
 
+export type PasswordLoginBody = {
+  email: string;
+  password: string;
+};
+
+export type AppleNativeBody = {
+  idToken: string;
+  nonce?: string;
+};
+
 export type RefreshBody = {
   refreshToken: string;
 };

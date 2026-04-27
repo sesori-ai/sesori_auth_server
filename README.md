@@ -1,10 +1,11 @@
 # Sesori Auth Server
 
-Authentication service for [Sesori Mobile App](https://github.com/sesori-ai/sesori_mobile). Manages user accounts via social login (GitHub, Google) and issues JWT tokens for relay authentication.
+Authentication service for [Sesori Mobile App](https://github.com/sesori-ai/sesori_mobile). Manages user accounts via social login (GitHub, Google, Apple) and password login, and issues JWT tokens for relay authentication.
 
 ## What it does
 
-- **Social login** — GitHub and Google OAuth2 with PKCE (Authorization Code flow)
+- **Social login** — GitHub, Google, and Apple OAuth2 with PKCE (Authorization Code flow). Apple native iOS sign-in via id_token verification is also supported.
+- **Password login** — Login with email and password for existing admin-provisioned accounts. No registration endpoint; accounts are seeded out-of-band.
 - **JWT tokens** — RS256 access + refresh tokens; relay verifies with the public key
 - **Token revocation** — revoke all tokens for a user account (used by bridge when account is compromised)
 
@@ -56,6 +57,10 @@ npm run start:local
 | `POST` | `/auth/github/callback` | No | Exchange GitHub auth code for JWT tokens |
 | `GET` | `/auth/google` | No | Get Google OAuth URL (requires `redirect_uri`, `code_challenge` query params) |
 | `POST` | `/auth/google/callback` | No | Exchange Google auth code for JWT tokens |
+| `GET` | `/auth/apple` | No | Get Apple OAuth URL (requires `redirect_uri`, `code_challenge` query params). HTTPS redirect URI required. |
+| `POST` | `/auth/apple/callback` | No | Exchange Apple auth code for JWT tokens |
+| `POST` | `/auth/apple/native` | No | Verify Apple native id_token and return JWT tokens (requires `idToken`, `nonce`) |
+| `POST` | `/auth/password/login` | No | Login with email and password for existing admin-provisioned accounts |
 
 ### Tokens
 | Method | Path | Auth | Description |
@@ -80,6 +85,11 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 | `GITHUB_CLIENT_SECRET` | GitHub OAuth app client secret |
 | `GOOGLE_CLIENT_ID` | Google OAuth app client ID |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth app client secret |
+| `APPLE_CLIENT_ID` | Apple Services ID client ID (web OAuth) |
+| `APPLE_IOS_CLIENT_ID` | Apple iOS bundle ID (native sign-in) |
+| `APPLE_TEAM_ID` | Apple Developer Team ID |
+| `APPLE_KEY_ID` | Apple Sign in with Apple key ID |
+| `APPLE_PRIVATE_KEY` | Apple `.p8` private key (PEM string, `\n`-escaped) |
 | `RELAY_URL` | Relay server WebSocket URL |
 
 ## npm scripts

@@ -1,11 +1,18 @@
 import type { OAuthClient } from "../clients/auth/oauth-client.js";
-import { OAuthProviderName, type OAuthExchangeParams } from "../types/oauth.js";
+import {
+  AUTH_PROVIDER_PASSWORD,
+  OAuthProviderName,
+  type OAuthExchangeParams,
+  type OAuthIdentity,
+} from "../types/oauth.js";
 import { BadGatewayError, UnauthenticatedError } from "../lib/errors.js";
 import { refreshTokenPayloadSchema } from "../models/jwt.js";
 import { OAuthAccountRepository } from "../repositories/oauth-account-repo.js";
+import { PasswordAccountRepository } from "../repositories/password-account-repo.js";
 import { UserRepository } from "../repositories/user-repo.js";
 import type { DeviceTokenRepository } from "../repositories/device-token-repo.js";
 import { TokenService } from "./token-service.js";
+import argon2 from "argon2";
 
 type AuthResult = {
   accessToken: string;
@@ -22,17 +29,20 @@ export class AuthService {
   readonly #tokenService: TokenService;
   readonly #userRepo: UserRepository;
   readonly #oauthAccountRepo: OAuthAccountRepository;
+  readonly #passwordAccountRepo: PasswordAccountRepository;
   readonly #deviceTokenRepo?: DeviceTokenRepository;
 
   constructor(deps: {
     tokenService: TokenService;
     userRepo: UserRepository;
     oauthAccountRepo: OAuthAccountRepository;
+    passwordAccountRepo: PasswordAccountRepository;
     deviceTokenRepo?: DeviceTokenRepository;
   }) {
     this.#tokenService = deps.tokenService;
     this.#userRepo = deps.userRepo;
     this.#oauthAccountRepo = deps.oauthAccountRepo;
+    this.#passwordAccountRepo = deps.passwordAccountRepo;
     this.#deviceTokenRepo = deps.deviceTokenRepo;
   }
 
@@ -55,6 +65,57 @@ export class AuthService {
         nestedError: error,
       });
     }
+  }
+
+  // Caller (apple-native route) has already verified the id_token signature,
+  // audience, expiration, and nonce binding via AppleNativeVerifier.
+  async authenticateAppleNative(identity: OAuthIdentity): Promise<AuthResult> {
+    return this.#upsertFromOAuth({
+      provider: OAuthProviderName.Apple,
+      providerUserId: identity.providerUserId,
+      providerUsername: identity.providerUsername,
+    });
+  }
+
+  // Dummy hash for timing-equalization on unknown-email path.
+  // argon2.verify may throw on malformed inputs; we catch and ignore since we only care about elapsed wall time.
+  static readonly DUMMY_ARGON2_HASH =
+    "$argon2id$v=19$m=65536,t=3,p=4$/R5dXiOwOc+wCU/mwiMovw$v7azh64R/DkyfBjwAUCJLLCZdVNXwKQXtvcq7+EmqLc";
+
+  async authenticatePassword(email: string, password: string): Promise<AuthResult> {
+    const account = await this.#passwordAccountRepo.findByEmail(email);
+
+    if (!account) {
+      try {
+        await argon2.verify(AuthService.DUMMY_ARGON2_HASH, password);
+      } catch {
+        /* timing-only */
+      }
+      throw new UnauthenticatedError({ debugMessage: "Invalid email or password" });
+    }
+
+    const valid = await argon2.verify(account.passwordHash, password);
+    if (!valid) {
+      throw new UnauthenticatedError({ debugMessage: "Invalid email or password" });
+    }
+
+    if (argon2.needsRehash(account.passwordHash)) {
+      const newHash = await argon2.hash(password, { type: argon2.argon2id });
+      await this.#passwordAccountRepo.updatePasswordHash(account.userId.toHexString(), newHash);
+    }
+
+    const user = await this.#userRepo.findById(account.userId.toHexString());
+    if (!user) {
+      throw new UnauthenticatedError({ debugMessage: "Invalid email or password" });
+    }
+
+    return this.#signTokensForUser({
+      userId: account.userId.toHexString(),
+      provider: AUTH_PROVIDER_PASSWORD,
+      providerUserId: account.userId.toHexString(),
+      providerUsername: account.email,
+      tokenVersion: user.tokenVersion ?? 0,
+    });
   }
 
   async #upsertFromOAuth(params: {
@@ -83,7 +144,7 @@ export class AuthService {
       userId: accountUserId,
       provider: params.provider,
       providerUserId: params.providerUserId,
-      providerUsername: params.providerUsername,
+      providerUsername: account.providerUsername,
       tokenVersion,
     });
   }
@@ -135,9 +196,10 @@ export class AuthService {
       throw new UnauthenticatedError({ debugMessage: "Refresh token verification failed", nestedError: error });
     }
 
-    const [user, oauthAccount] = await Promise.all([
+    const [user, oauthAccount, passwordAccount] = await Promise.all([
       this.#userRepo.findById(userId),
       this.#oauthAccountRepo.findByUserId(userId),
+      this.#passwordAccountRepo.findByUserId(userId),
     ]);
 
     if (!user) {
@@ -148,17 +210,27 @@ export class AuthService {
       throw new UnauthenticatedError({ debugMessage: "Token version mismatch (revoked)" });
     }
 
-    if (!oauthAccount) {
-      throw new UnauthenticatedError({ debugMessage: "OAuth account not found for refresh token" });
+    if (oauthAccount) {
+      return this.#signTokensForUser({
+        userId,
+        provider: oauthAccount.provider,
+        providerUserId: oauthAccount.providerUserId,
+        providerUsername: oauthAccount.providerUsername,
+        tokenVersion: user.tokenVersion,
+      });
     }
 
-    return this.#signTokensForUser({
-      userId,
-      provider: oauthAccount.provider,
-      providerUserId: oauthAccount.providerUserId,
-      providerUsername: oauthAccount.providerUsername,
-      tokenVersion: user.tokenVersion,
-    });
+    if (passwordAccount) {
+      return this.#signTokensForUser({
+        userId,
+        provider: AUTH_PROVIDER_PASSWORD,
+        providerUserId: userId,
+        providerUsername: passwordAccount.email,
+        tokenVersion: user.tokenVersion,
+      });
+    }
+
+    throw new UnauthenticatedError({ debugMessage: "Auth account not found for refresh token" });
   }
 
   async logoutUser(userId: string): Promise<void> {
@@ -180,20 +252,34 @@ export class AuthService {
     providerUserId: string;
     providerUsername: string | null;
   } | null> {
-    const [user, oauthAccount] = await Promise.all([
+    const [user, oauthAccount, passwordAccount] = await Promise.all([
       this.#userRepo.findById(userId),
       this.#oauthAccountRepo.findByUserId(userId),
+      this.#passwordAccountRepo.findByUserId(userId),
     ]);
 
-    if (!user || !oauthAccount) {
+    if (!user) {
       return null;
     }
 
-    return {
-      id: userId,
-      provider: oauthAccount.provider,
-      providerUserId: oauthAccount.providerUserId,
-      providerUsername: oauthAccount.providerUsername,
-    };
+    if (oauthAccount) {
+      return {
+        id: userId,
+        provider: oauthAccount.provider,
+        providerUserId: oauthAccount.providerUserId,
+        providerUsername: oauthAccount.providerUsername,
+      };
+    }
+
+    if (passwordAccount) {
+      return {
+        id: userId,
+        provider: AUTH_PROVIDER_PASSWORD,
+        providerUserId: userId,
+        providerUsername: passwordAccount.email,
+      };
+    }
+
+    return null;
   }
 }

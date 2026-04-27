@@ -22,14 +22,17 @@ export abstract class OAuthClient {
     params: OAuthExchangeParams,
     options?: { extraParams?: Record<string, string>; headers?: Record<string, string> },
   ): Promise<Record<string, unknown>> {
-    const body = new URLSearchParams({
+    const bodyParams: Record<string, string> = {
       code: params.code,
       client_id: params.clientId,
-      client_secret: params.clientSecret,
       redirect_uri: params.redirectUri,
       code_verifier: params.codeVerifier,
       ...options?.extraParams,
-    });
+    };
+    if (params.clientSecret !== undefined) {
+      bodyParams.client_secret = params.clientSecret;
+    }
+    const body = new URLSearchParams(bodyParams);
 
     const response = await fetch(this.tokenEndpoint, {
       method: "POST",

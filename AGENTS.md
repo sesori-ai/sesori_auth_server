@@ -57,6 +57,16 @@ src/
 - **No unvalidated input** — every request body/param goes through Zod
 - **No plaintext secrets** — use `npm run env:edit` to modify encrypted env, `npm run start:local` to run with SOPS
 - **No ObjectId in services/routes** — string IDs above repository layer, repos convert at boundary
+- **Never amend commits** — always create new follow-up commits. Amending erases audit trail and makes PR reviews impossible. Force-push is only acceptable for fixing sensitive data leaks.
+
+## PASSWORD ACCOUNTS
+
+Password login (`/auth/password/login`) is live but there is **no registration endpoint**. Accounts must be seeded out-of-band (e.g. admin CLI, ops tool, direct DB insert). The expected flow:
+
+1. Create a `User` document (generates `userId`)
+2. Create a `PasswordAccount` document with the same `userId`, hashed password (Argon2id), and email
+
+See `src/repositories/password-account-repo.ts` for the schema. Do not enable the route in production until a seeding path is documented or a registration flow is implemented.
 
 ## TESTING
 

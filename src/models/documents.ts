@@ -22,6 +22,25 @@ export const oauthAccountSchema = z.object({
 
 export type OAuthAccount = z.infer<typeof oauthAccountSchema>;
 
+export const passwordAccountSchema = z.object({
+  _id: z.instanceof(ObjectId),
+  userId: z.instanceof(ObjectId),
+  email: z.string().trim().toLowerCase(),
+  passwordHash: z.string(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
+export type PasswordAccount = z.infer<typeof passwordAccountSchema>;
+
+export const passwordAccountInputSchema = passwordAccountSchema.omit({
+  _id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type PasswordAccountInput = z.infer<typeof passwordAccountInputSchema>;
+
 export const glossaryEntrySchema = z.object({
   _id: z.instanceof(ObjectId),
   userId: z.instanceof(ObjectId),

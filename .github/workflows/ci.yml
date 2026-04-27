@@ -95,6 +95,11 @@ jobs:
             -e RELAY_URL=ws://localhost:8080 \
             -e OPENAI_API_KEY=ci-test \
             -e "FCM_SA_JSON=$FCM_SA_JSON" \
+            -e APPLE_CLIENT_ID=ci-test \
+            -e APPLE_IOS_CLIENT_ID=ci-test \
+            -e APPLE_TEAM_ID=ci-test \
+            -e APPLE_KEY_ID=ci-test \
+            -e APPLE_PRIVATE_KEY=ci-test \
             auth-backend:ci
           sleep 5
 

@@ -5,6 +5,8 @@ import { ObjectId } from "mongodb";
 import { GithubClient } from "../../src/clients/auth/github-client.js";
 import { GoogleClient } from "../../src/clients/auth/google-client.js";
 import type { OAuthClient } from "../../src/clients/auth/oauth-client.js";
+import { AppleClient } from "../../src/clients/auth/apple-client.js";
+import { AppleNativeVerifier } from "../../src/services/apple-native-verifier.js";
 import { OpenAIClient } from "../../src/clients/openai-client.js";
 import type { User, OAuthAccount } from "../../src/models/documents.js";
 import { MongoDbAccessor } from "../../src/db/mongo-db-accessor.js";
@@ -15,6 +17,7 @@ import { DailyUsageRepository } from "../../src/repositories/daily-usage-repo.js
 import { DeviceTokenRepository } from "../../src/repositories/device-token-repo.js";
 import { GlossaryEntryRepository } from "../../src/repositories/glossary-entry-repo.js";
 import { OAuthAccountRepository } from "../../src/repositories/oauth-account-repo.js";
+import { PasswordAccountRepository } from "../../src/repositories/password-account-repo.js";
 import { UserRepository } from "../../src/repositories/user-repo.js";
 import { buildApp } from "../../src/server.js";
 import { AuthService } from "../../src/services/auth-service.js";
@@ -53,6 +56,8 @@ export type TestContext = {
 export type TestAppOverrides = {
   githubClient?: OAuthClient;
   googleClient?: OAuthClient;
+  appleClient?: OAuthClient;
+  appleNativeVerifier?: AppleNativeVerifier;
   notificationService?: NotificationService;
   bridgeStateTracker?: BridgeStateTracker;
   sessionMetadataService?: SessionMetadataService;
@@ -77,7 +82,12 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   process.env.GITHUB_CLIENT_SECRET ??= "test-github-client-secret";
   process.env.GOOGLE_CLIENT_ID ??= "test-google-client-id";
   process.env.GOOGLE_CLIENT_SECRET ??= "test-google-client-secret";
-  process.env.ALLOWED_REDIRECT_URIS ??= "myapp://oauth/callback";
+  process.env.APPLE_CLIENT_ID ??= "test-apple-client-id";
+  process.env.APPLE_IOS_CLIENT_ID ??= "test.ios.bundle";
+  process.env.APPLE_TEAM_ID ??= "TESTTEAM";
+  process.env.APPLE_KEY_ID ??= "TESTKEY";
+  process.env.APPLE_PRIVATE_KEY ??= "-----BEGIN PRIVATE KEY-----\ntestkey\n-----END PRIVATE KEY-----\n";
+  process.env.ALLOWED_REDIRECT_URIS ??= "myapp://oauth/callback,https://app.example.com/oauth/callback";
   process.env.RELAY_URL ??= "ws://localhost:8080";
   process.env.RELAY_WEBHOOK_SECRET ??= "test-relay-secret";
   process.env.OPENAI_API_KEY ??= "test-openai-api-key";
@@ -109,6 +119,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
 
   const userRepo = new UserRepository(dbAccessor);
   const oauthAccountRepo = new OAuthAccountRepository(dbAccessor);
+  const passwordAccountRepo = new PasswordAccountRepository(dbAccessor);
   const glossaryRepo = new GlossaryEntryRepository(dbAccessor);
   const dailyUsageRepo = new DailyUsageRepository(dbAccessor);
   const deviceTokenRepo = new DeviceTokenRepository(dbAccessor);
@@ -119,8 +130,21 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   const openai = new OpenAIClient({ apiKey: "test-key", model: "gpt-4o-mini-transcribe" });
   const githubClient = overrides?.githubClient ?? new GithubClient();
   const googleClient = overrides?.googleClient ?? new GoogleClient();
+  const appleClient =
+    overrides?.appleClient ??
+    new AppleClient({
+      teamId: config.APPLE_TEAM_ID,
+      keyId: config.APPLE_KEY_ID,
+      privateKey: config.APPLE_PRIVATE_KEY,
+    });
+  const appleNativeVerifier =
+    overrides?.appleNativeVerifier ??
+    new AppleNativeVerifier({
+      clientId: config.APPLE_CLIENT_ID,
+      iosClientId: config.APPLE_IOS_CLIENT_ID,
+    });
 
-  const authService = new AuthService({ tokenService, userRepo, oauthAccountRepo });
+  const authService = new AuthService({ tokenService, userRepo, oauthAccountRepo, passwordAccountRepo });
   const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
   const notificationService = overrides?.notificationService ?? new NotificationService(deviceTokenRepo, null);
   const bridgeStateTracker = overrides?.bridgeStateTracker ?? new BridgeStateTracker(notificationService);
@@ -144,6 +168,8 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     stateStore,
     githubClient: githubClient as GithubClient,
     googleClient: googleClient as GoogleClient,
+    appleClient: appleClient as AppleClient,
+    appleNativeVerifier: appleNativeVerifier as AppleNativeVerifier,
   });
   await app.ready();
 

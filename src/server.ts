@@ -1,6 +1,7 @@
 import Fastify, { FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
+import type { AppleClient } from "./clients/auth/apple-client.js";
 import type { GithubClient } from "./clients/auth/github-client.js";
 import type { GoogleClient } from "./clients/auth/google-client.js";
 import type { Config } from "./config.js";
@@ -18,9 +19,13 @@ import type { VoiceService } from "./services/voice-service.js";
 import type { SessionMetadataService } from "./services/session-metadata-service.js";
 import type { InstallScriptService } from "./services/install-script-service.js";
 import type { LegalDocumentService } from "./services/legal-document-service.js";
+import type { AppleNativeVerifier } from "./services/apple-native-verifier.js";
 import { installRoutes } from "./routes/install.js";
 import { legalRoutes } from "./routes/legal.js";
 import { tokenRoutes } from "./routes/token.js";
+import { appleRoutes } from "./routes/apple.js";
+import { appleNativeRoutes } from "./routes/apple-native.js";
+import { passwordRoutes } from "./routes/password.js";
 import { githubRoutes } from "./routes/github.js";
 import { googleRoutes } from "./routes/google.js";
 import { voiceRoutes } from "./routes/voice.js";
@@ -41,6 +46,8 @@ export type AppServices = {
   stateStore: StateStore;
   githubClient: GithubClient;
   googleClient: GoogleClient;
+  appleClient: AppleClient;
+  appleNativeVerifier: AppleNativeVerifier;
 };
 
 export async function buildApp(services: AppServices): Promise<FastifyInstance> {
@@ -103,6 +110,20 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
     authService: services.authService,
     stateStore: services.stateStore,
     googleClient: services.googleClient,
+  });
+  await app.register(appleRoutes, {
+    config: services.config,
+    authService: services.authService,
+    stateStore: services.stateStore,
+    appleClient: services.appleClient,
+  });
+  await app.register(appleNativeRoutes, {
+    authService: services.authService,
+    appleNativeVerifier: services.appleNativeVerifier,
+    config: services.config,
+  });
+  await app.register(passwordRoutes, {
+    authService: services.authService,
   });
   await app.register(voiceRoutes, {
     voiceService: services.voiceService,
