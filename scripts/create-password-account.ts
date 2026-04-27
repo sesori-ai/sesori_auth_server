@@ -22,27 +22,23 @@ async function prompt(question: string): Promise<string> {
 
 async function promptPassword(question: string): Promise<string> {
   const { default: readline } = await import("readline");
+
+  const mutedOutput = new (await import("node:stream")).Writable({
+    write(_chunk, _encoding, callback) {
+      callback();
+    },
+  });
+
   const rl = readline.createInterface({
     input: process.stdin,
-    output: process.stdout,
+    output: mutedOutput,
+    terminal: true,
   });
-  return new Promise((resolve) => {
-    const stdin = process.stdin;
-    stdin.on("data", (char: Buffer) => {
-      const s = char.toString();
-      switch (s) {
-        case "\n":
-        case "\r":
-        case "\u0004":
-          stdin.pause();
-          break;
-        default:
-          process.stdout.write("*");
-          break;
-      }
-    });
 
-    rl.question(question, (answer) => {
+  process.stdout.write(question);
+
+  return new Promise((resolve) => {
+    rl.on("line", (answer) => {
       rl.close();
       process.stdout.write("\n");
       resolve(answer.trim());

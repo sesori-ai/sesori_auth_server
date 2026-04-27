@@ -1,4 +1,11 @@
-import { Collection, Db, MongoServerError, type Document, type IndexSpecification, type CreateIndexesOptions } from "mongodb";
+import {
+  Collection,
+  Db,
+  MongoServerError,
+  type Document,
+  type IndexSpecification,
+  type CreateIndexesOptions,
+} from "mongodb";
 import { MongoDbDatabase, AuthDbCollection } from "../types/mongo.js";
 import { MongoDbConnector } from "./mongo-db-connector.js";
 
@@ -41,9 +48,17 @@ export function indexKeyMatches(a: IndexSpecification, b: IndexSpecification): b
 
 export function indexMatchesDesired(existing: Record<string, unknown>, desired: IndexDefinition): boolean {
   if (!indexKeyMatches(existing.key as IndexSpecification, desired.spec)) return false;
-  const desiredUnique = desired.options?.unique ?? false;
-  const existingUnique = existing.unique === true;
-  return desiredUnique === existingUnique;
+
+  const desiredOpts = desired.options ?? {};
+  const relevantKeys = new Set(["unique", ...Object.keys(desiredOpts)]);
+
+  for (const key of relevantKeys) {
+    const desiredValue = desiredOpts[key as keyof CreateIndexesOptions] ?? false;
+    const existingValue = existing[key] ?? false;
+    if (desiredValue !== existingValue) return false;
+  }
+
+  return true;
 }
 
 export class MongoDbAccessor {
@@ -86,7 +101,7 @@ export class MongoDbAccessor {
             if (error instanceof MongoServerError && error.code === 86) {
               const specKeys = Object.keys(desired.spec).join(",");
               console.warn(
-                `Index conflict on ${collectionName} (${specKeys}): existing index differs from desired config. Manual cleanup may be required.`
+                `Index conflict on ${collectionName} (${specKeys}): existing index differs from desired config. Manual cleanup may be required.`,
               );
               continue;
             }
