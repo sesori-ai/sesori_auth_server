@@ -57,6 +57,7 @@ export class AuthService {
         provider: providerName,
         providerUserId: identity.providerUserId,
         providerUsername: identity.providerUsername,
+        email: identity.email,
       });
     } catch (error) {
       if (error instanceof BadGatewayError) throw error;
@@ -74,6 +75,7 @@ export class AuthService {
       provider: OAuthProviderName.Apple,
       providerUserId: identity.providerUserId,
       providerUsername: identity.providerUsername,
+      email: identity.email,
     });
   }
 
@@ -122,11 +124,13 @@ export class AuthService {
     provider: string;
     providerUserId: string;
     providerUsername: string | null;
+    email: string | null;
   }): Promise<AuthResult> {
     const { account, potentialUserId } = await this.#oauthAccountRepo.upsert({
       provider: params.provider,
       providerUserId: params.providerUserId,
       providerUsername: params.providerUsername,
+      email: params.email,
     });
 
     const accountUserId = account.userId.toHexString();

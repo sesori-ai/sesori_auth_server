@@ -14,6 +14,7 @@ const idTokenPayloadSchema = z.object({
   sub: z.string().min(1),
   name: z.string().optional(),
   given_name: z.string().optional(),
+  email: z.string().email().optional(),
 });
 
 const GOOGLE_JWKS_URI = "https://www.googleapis.com/oauth2/v3/certs";
@@ -41,10 +42,11 @@ export class GoogleClient extends OAuthClient {
     return {
       providerUserId: user.sub,
       providerUsername: user.name ?? null,
+      email: user.email ?? null,
     };
   }
 
-  async #verifyIdToken(idToken: string, clientId: string): Promise<{ sub: string; name?: string }> {
+  async #verifyIdToken(idToken: string, clientId: string): Promise<{ sub: string; name?: string; email?: string }> {
     const { payload } = await jwtVerify(idToken, this.#jwks, {
       issuer: ["accounts.google.com", "https://accounts.google.com"],
       audience: clientId,
@@ -58,6 +60,7 @@ export class GoogleClient extends OAuthClient {
     return {
       sub: result.data.sub,
       name: result.data.name ?? result.data.given_name,
+      email: result.data.email,
     };
   }
 }

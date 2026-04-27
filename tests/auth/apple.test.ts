@@ -8,6 +8,7 @@ const VALID_REDIRECT_URI = "https://app.example.com/oauth/callback";
 const FAKE_IDENTITY = {
   providerUserId: "apple-user-123",
   providerUsername: "fake-apple-user",
+  email: "fake-apple-user@example.com",
 };
 
 describe("Apple OAuth routes", () => {

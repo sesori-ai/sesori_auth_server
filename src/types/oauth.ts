@@ -17,6 +17,7 @@ export type OAuthExchangeParams = {
 export type OAuthIdentity = {
   providerUserId: string;
   providerUsername: string | null;
+  email: string | null;
 };
 
 export type OAuthTokens = {
