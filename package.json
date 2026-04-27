@@ -23,6 +23,7 @@
     "env:decrypt": "sh -c 'sops decrypt env/app/${ENV:-local}.env > .env && echo \"Decrypted env/app/${ENV:-local}.env → .env\"'",
     "env:edit": "sh -c 'sops edit env/app/${ENV:-local}.env'",
     "env:update-keys": "sh -c 'for f in env/app/*.env; do [ -f \"$f\" ] && sops updatekeys -y \"$f\"; done'",
+    "create-password-account": "tsx scripts/create-password-account.ts",
     "circular-dependencies": "madge --circular --ts-config ./tsconfig.json ./src/index.ts"
   },
   "dependencies": {
