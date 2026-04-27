@@ -4,7 +4,7 @@ import { createTestApp, type TestContext } from "../helpers/setup.js";
 import { FakeOAuthClient } from "../helpers/fake-oauth-client.js";
 
 const VALID_CODE_CHALLENGE = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
-const VALID_REDIRECT_URI = "myapp://oauth/callback";
+const VALID_REDIRECT_URI = "https://app.example.com/oauth/callback";
 const FAKE_IDENTITY = {
   providerUserId: "apple-user-123",
   providerUsername: "fake-apple-user",
@@ -120,6 +120,16 @@ describe("Apple OAuth routes", () => {
       const res = await ctx.app.inject({
         method: "GET",
         url: `/auth/apple?redirect_uri=${encodeURIComponent(remoteUri)}&code_challenge=${VALID_CODE_CHALLENGE}&code_challenge_method=S256`,
+      });
+
+      assert.equal(res.statusCode, 400);
+    });
+
+    it("rejects custom-scheme redirect URIs for Apple web flow", async () => {
+      const customUri = "myapp://oauth/callback";
+      const res = await ctx.app.inject({
+        method: "GET",
+        url: `/auth/apple?redirect_uri=${encodeURIComponent(customUri)}&code_challenge=${VALID_CODE_CHALLENGE}&code_challenge_method=S256`,
       });
 
       assert.equal(res.statusCode, 400);

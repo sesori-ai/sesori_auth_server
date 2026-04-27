@@ -23,7 +23,7 @@ export const appleNativeRoutes: FastifyPluginAsync<AppleNativeRouteOptions> = as
   fastify.post<{ Body: AppleNativeBody; Reply: AuthTokensReply }>("/auth/apple/native", async (request) => {
     const bodyResult = appleNativeBodySchema.safeParse(request.body);
     if (!bodyResult.success) {
-      throw new BadRequestError({ debugMessage: "Invalid request body" });
+      throw new BadRequestError({ debugMessage: "Invalid request body", nestedError: bodyResult.error.issues });
     }
 
     const identity = await appleNativeVerifier.verifyIdToken(

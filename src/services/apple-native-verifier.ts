@@ -1,4 +1,5 @@
 import { createRemoteJWKSet, jwtVerify, errors as joseErrors } from "jose";
+import { createHash } from "crypto";
 import { z } from "zod";
 import { BadGatewayError, UnauthenticatedError } from "../lib/errors.js";
 import type { OAuthIdentity } from "../types/oauth.js";
@@ -48,6 +49,9 @@ export class AppleNativeVerifier {
       if (error instanceof joseErrors.JWTClaimValidationFailed) {
         throw new UnauthenticatedError({ debugMessage: "Apple ID token claim invalid", nestedError: error });
       }
+      if (error instanceof joseErrors.JOSEError) {
+        throw new UnauthenticatedError({ debugMessage: "Apple ID token invalid", nestedError: error });
+      }
       throw new BadGatewayError({ debugMessage: "Apple ID token verification failed", nestedError: error });
     }
 
@@ -59,8 +63,11 @@ export class AppleNativeVerifier {
       });
     }
 
-    if (nonce && result.data.nonce !== nonce) {
-      throw new BadGatewayError({ debugMessage: "INVALID_APPLE_ID_TOKEN_NONCE" });
+    if (nonce && result.data.nonce) {
+      const hashedNonce = createHash("sha256").update(nonce).digest("hex");
+      if (result.data.nonce !== hashedNonce) {
+        throw new UnauthenticatedError({ debugMessage: "INVALID_APPLE_ID_TOKEN_NONCE" });
+      }
     }
 
     return {

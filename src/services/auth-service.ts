@@ -71,12 +71,13 @@ export class AuthService {
   }
 
   async authenticatePassword(email: string, password: string): Promise<AuthResult> {
-    const DUMMY_HASH = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHRzb21lc2FsdA$hashedpasswordvalue1234567890abcdef";
-
     const account = await this.#passwordAccountRepo.findByEmail(email);
 
     if (!account) {
-      await argon2.verify(DUMMY_HASH, password);
+      await argon2.verify(
+        "$argon2id$v=19$m=65536,t=3,p=4$/R5dXiOwOc+wCU/mwiMovw$v7azh64R/DkyfBjwAUCJLLCZdVNXwKQXtvcq7+EmqLc",
+        password,
+      );
       throw new UnauthorizedError({ debugMessage: "Invalid email or password" });
     }
 

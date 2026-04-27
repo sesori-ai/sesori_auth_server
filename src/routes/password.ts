@@ -29,7 +29,7 @@ export const passwordRoutes: FastifyPluginAsync<PasswordRouteOptions> = async (f
     async (request) => {
       const bodyResult = passwordLoginBodySchema.safeParse(request.body);
       if (!bodyResult.success) {
-        throw new BadRequestError({ debugMessage: "Invalid request body" });
+        throw new BadRequestError({ debugMessage: "Invalid request body", nestedError: bodyResult.error.issues });
       }
 
       return await authService.authenticatePassword(bodyResult.data.email, bodyResult.data.password);

@@ -67,7 +67,7 @@ describe("Password authentication", () => {
       assert.equal(body.user.provider, "password");
     });
 
-    it("returns 401 for wrong password", async () => {
+    it("returns 403 for wrong password", async () => {
       const email = "wrongpass@example.com";
       const password = "correct-password";
       await createPasswordAccount(email, password);
@@ -79,11 +79,11 @@ describe("Password authentication", () => {
         payload: JSON.stringify({ email, password: "wrong-password" }),
       });
 
-      assert.equal(res.statusCode, 401);
+      assert.equal(res.statusCode, 403);
       assert.equal(res.json<{ error: string }>().error, "unauthorized");
     });
 
-    it("returns 401 for unknown email", async () => {
+    it("returns 403 for unknown email", async () => {
       const res = await ctx.app.inject({
         method: "POST",
         url: "/auth/password/login",
@@ -91,7 +91,7 @@ describe("Password authentication", () => {
         payload: JSON.stringify({ email: "notexist@example.com", password: "any-password" }),
       });
 
-      assert.equal(res.statusCode, 401);
+      assert.equal(res.statusCode, 403);
       assert.equal(res.json<{ error: string }>().error, "unauthorized");
     });
 
@@ -128,7 +128,7 @@ describe("Password authentication", () => {
           headers: { "content-type": "application/json" },
           payload: JSON.stringify({ email, password: "wrong-password" }),
         });
-        assert.equal(res.statusCode, 401, `Attempt ${i + 1} should return 401`);
+        assert.equal(res.statusCode, 403, `Attempt ${i + 1} should return 403`);
       }
 
       const sixthRes = await ctx.app.inject({

@@ -27,16 +27,18 @@ export class OAuthAccountRepository {
     const now = new Date();
     const potentialUserId = new ObjectId();
 
+    const $set: Record<string, unknown> = { updatedAt: now };
+    if (params.providerUsername !== null) {
+      $set.providerUsername = params.providerUsername;
+    }
+
     const result = await this.#collection.findOneAndUpdate(
       {
         provider: params.provider,
         providerUserId: params.providerUserId,
       },
       {
-        $set: {
-          providerUsername: params.providerUsername,
-          updatedAt: now,
-        },
+        $set,
         $setOnInsert: {
           _id: new ObjectId(),
           userId: potentialUserId,

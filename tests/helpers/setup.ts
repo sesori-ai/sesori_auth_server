@@ -87,7 +87,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   process.env.APPLE_TEAM_ID ??= "TESTTEAM";
   process.env.APPLE_KEY_ID ??= "TESTKEY";
   process.env.APPLE_PRIVATE_KEY ??= "-----BEGIN PRIVATE KEY-----\ntestkey\n-----END PRIVATE KEY-----\n";
-  process.env.ALLOWED_REDIRECT_URIS ??= "myapp://oauth/callback";
+  process.env.ALLOWED_REDIRECT_URIS ??= "myapp://oauth/callback,https://app.example.com/oauth/callback";
   process.env.RELAY_URL ??= "ws://localhost:8080";
   process.env.RELAY_WEBHOOK_SECRET ??= "test-relay-secret";
   process.env.OPENAI_API_KEY ??= "test-openai-api-key";

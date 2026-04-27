@@ -42,6 +42,13 @@ export const appleRoutes: FastifyPluginAsync<AppleRouteOptions> = async (fastify
     if (!isAllowedRedirectUri(redirect_uri, config.ALLOWED_REDIRECT_URIS)) {
       throw new BadRequestError({ debugMessage: "Redirect URI not allowed" });
     }
+    const isLocalhost =
+      redirect_uri.startsWith("http://localhost") ||
+      redirect_uri.startsWith("http://127.0.0.1") ||
+      redirect_uri.startsWith("http://[::1]");
+    if (!redirect_uri.startsWith("https://") && !isLocalhost) {
+      throw new BadRequestError({ debugMessage: "Apple web flow requires an HTTPS redirect URI" });
+    }
 
     const state = stateStore.createState();
     const authUrl = new URL("https://appleid.apple.com/auth/authorize");
