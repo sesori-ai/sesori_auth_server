@@ -16,6 +16,7 @@ export const oauthAccountSchema = z.object({
   provider: z.string(),
   providerUserId: z.string(),
   providerUsername: z.string().nullable(),
+  email: z.string().nullable().optional(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });

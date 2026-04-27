@@ -10,6 +10,7 @@ const tokenResponseSchema = z.object({
 const userResponseSchema = z.object({
   id: z.number(),
   login: z.string().nullable().optional(),
+  email: z.string().email().nullable().optional(),
 });
 
 export class GithubClient extends OAuthClient {
@@ -34,10 +35,11 @@ export class GithubClient extends OAuthClient {
     return {
       providerUserId: user.id,
       providerUsername: user.login,
+      email: user.email,
     };
   }
 
-  async #fetchUser(accessToken: string): Promise<{ id: string; login: string | null }> {
+  async #fetchUser(accessToken: string): Promise<{ id: string; login: string | null; email: string | null }> {
     const response = await fetch("https://api.github.com/user", {
       headers: { Authorization: `token ${accessToken}`, Accept: "application/json" },
     });
@@ -55,6 +57,7 @@ export class GithubClient extends OAuthClient {
     return {
       id: String(result.data.id),
       login: result.data.login ?? null,
+      email: result.data.email ?? null,
     };
   }
 }

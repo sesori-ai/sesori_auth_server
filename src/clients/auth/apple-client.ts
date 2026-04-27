@@ -71,6 +71,7 @@ export class AppleClient extends OAuthClient {
     return {
       providerUserId: result.data.sub,
       providerUsername: result.data.email ?? null,
+      email: result.data.email ?? null,
     };
   }
 

@@ -7,12 +7,13 @@ import { BadGatewayError } from "../../src/lib/errors.js";
 const FAKE_IDENTITY = {
   providerUserId: "apple-user-123",
   providerUsername: "fake-apple-user@example.com",
+  email: "fake-apple-user@example.com",
 };
 
 class FakeAppleNativeVerifier {
-  private identity: { providerUserId: string; providerUsername: string | null };
+  private identity: { providerUserId: string; providerUsername: string | null; email: string | null };
 
-  constructor(identity: { providerUserId: string; providerUsername: string | null }) {
+  constructor(identity: { providerUserId: string; providerUsername: string | null; email: string | null }) {
     this.identity = identity;
   }
 
@@ -20,7 +21,7 @@ class FakeAppleNativeVerifier {
     _idToken: string,
     _clientId: string,
     _nonce?: string,
-  ): Promise<{ providerUserId: string; providerUsername: string | null }> {
+  ): Promise<{ providerUserId: string; providerUsername: string | null; email: string | null }> {
     return this.identity;
   }
 }
@@ -30,7 +31,7 @@ class FakeFailingAppleNativeVerifier {
     _idToken: string,
     _clientId: string,
     _nonce?: string,
-  ): Promise<{ providerUserId: string; providerUsername: string | null }> {
+  ): Promise<{ providerUserId: string; providerUsername: string | null; email: string | null }> {
     throw new BadGatewayError({ debugMessage: "Invalid Apple ID token" });
   }
 }

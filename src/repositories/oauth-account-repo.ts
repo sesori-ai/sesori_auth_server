@@ -23,6 +23,7 @@ export class OAuthAccountRepository {
     provider: string;
     providerUserId: string;
     providerUsername: string | null;
+    email: string | null;
   }): Promise<{ account: OAuthAccount; potentialUserId: string }> {
     const now = new Date();
     const potentialUserId = new ObjectId();
@@ -32,6 +33,10 @@ export class OAuthAccountRepository {
     // $set would null out a previously stored username. Only update when present.
     if (params.providerUsername !== null) {
       $set.providerUsername = params.providerUsername;
+    }
+    // Same for email — only update when present to avoid nulling out on subsequent sign-ins.
+    if (params.email !== null) {
+      $set.email = params.email;
     }
 
     const $setOnInsert: Record<string, unknown> = {
@@ -43,6 +48,9 @@ export class OAuthAccountRepository {
     };
     if (params.providerUsername === null) {
       $setOnInsert.providerUsername = null;
+    }
+    if (params.email === null) {
+      $setOnInsert.email = null;
     }
 
     const result = await this.#collection.findOneAndUpdate(

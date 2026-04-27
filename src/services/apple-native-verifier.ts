@@ -76,6 +76,7 @@ export class AppleNativeVerifier {
     return {
       providerUserId: result.data.sub,
       providerUsername: result.data.email ?? null,
+      email: result.data.email ?? null,
     };
   }
 }

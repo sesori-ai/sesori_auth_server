@@ -37,6 +37,7 @@ describe("OAuthAccountRepository.upsert", () => {
       provider: "apple",
       providerUserId: "apple-user-123",
       providerUsername: null,
+      email: null,
     });
     assert.equal(afterNullUpsert.account.providerUsername, "alice@example.com");
 
@@ -44,6 +45,7 @@ describe("OAuthAccountRepository.upsert", () => {
       provider: "apple",
       providerUserId: "apple-user-123",
       providerUsername: "alice2@example.com",
+      email: "alice2@example.com",
     });
     assert.equal(afterNewEmailUpsert.account.providerUsername, "alice2@example.com");
   });

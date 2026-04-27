@@ -9,6 +9,7 @@ const VALID_REDIRECT_URI = "myapp://oauth/callback";
 const FAKE_IDENTITY = {
   providerUserId: "github-user-123",
   providerUsername: "fake-github-user",
+  email: "fake-github-user@example.com",
 };
 
 describe("GitHub OAuth routes", () => {

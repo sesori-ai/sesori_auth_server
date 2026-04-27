@@ -48,7 +48,7 @@ export const googleRoutes: FastifyPluginAsync<GoogleRouteOptions> = async (fasti
     authUrl.searchParams.set("client_id", config.GOOGLE_CLIENT_ID);
     authUrl.searchParams.set("redirect_uri", redirect_uri);
     authUrl.searchParams.set("response_type", "code");
-    authUrl.searchParams.set("scope", "openid profile");
+    authUrl.searchParams.set("scope", "openid profile email");
     authUrl.searchParams.set("state", state);
     authUrl.searchParams.set("code_challenge", code_challenge);
     authUrl.searchParams.set("code_challenge_method", code_challenge_method);
