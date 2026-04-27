@@ -1,4 +1,4 @@
-import { Collection, Db, type Document, type IndexSpecification, type CreateIndexesOptions } from "mongodb";
+import { Collection, Db, MongoServerError, type Document, type IndexSpecification, type CreateIndexesOptions } from "mongodb";
 import { MongoDbDatabase, AuthDbCollection } from "../types/mongo.js";
 import { MongoDbConnector } from "./mongo-db-connector.js";
 
@@ -30,6 +30,22 @@ const DATABASE_CONFIG: Record<MongoDbDatabase, DatabaseConfig<string>> = {
   } satisfies DatabaseConfig<AuthDbCollection>,
 };
 
+function indexKeyMatches(a: IndexSpecification, b: IndexSpecification): boolean {
+  const aRec = a as Record<string, unknown>;
+  const bRec = b as Record<string, unknown>;
+  const keysA = Object.keys(aRec).sort();
+  const keysB = Object.keys(bRec).sort();
+  if (keysA.length !== keysB.length) return false;
+  return keysA.every((k, i) => k === keysB[i] && aRec[k] === bRec[k]);
+}
+
+function indexMatchesDesired(existing: Record<string, unknown>, desired: IndexDefinition): boolean {
+  if (!indexKeyMatches(existing.key as IndexSpecification, desired.spec)) return false;
+  const desiredUnique = desired.options?.unique ?? false;
+  const existingUnique = existing.unique === true;
+  return desiredUnique === existingUnique;
+}
+
 export class MongoDbAccessor {
   readonly #connector: MongoDbConnector;
 
@@ -50,16 +66,32 @@ export class MongoDbAccessor {
       const dbConfig = DATABASE_CONFIG[dbName];
       const db = this.getDb(dbName);
 
-      const existing = new Set((await db.listCollections().toArray()).map((c) => c.name));
+      const existingCollections = new Set((await db.listCollections().toArray()).map((c) => c.name));
 
       for (const [collectionName, indexes] of Object.entries(dbConfig.collections)) {
-        if (!existing.has(collectionName)) {
+        if (!existingCollections.has(collectionName)) {
           await db.createCollection(collectionName);
         }
 
         const collection = db.collection(collectionName);
-        for (const index of indexes) {
-          await collection.createIndex(index.spec, index.options ?? {});
+        const existingIndexes = await collection.indexes();
+
+        for (const desired of indexes) {
+          const alreadyExists = existingIndexes.some((idx) => indexMatchesDesired(idx, desired));
+          if (alreadyExists) continue;
+
+          try {
+            await collection.createIndex(desired.spec, desired.options ?? {});
+          } catch (error) {
+            if (error instanceof MongoServerError && error.code === 86) {
+              const specKeys = Object.keys(desired.spec).join(",");
+              console.warn(
+                `Index conflict on ${collectionName} (${specKeys}): existing index differs from desired config. Manual cleanup may be required.`
+              );
+              continue;
+            }
+            throw error;
+          }
         }
       }
     }
