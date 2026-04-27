@@ -1,5 +1,5 @@
 import { createRemoteJWKSet, jwtVerify, errors as joseErrors } from "jose";
-import { createHash } from "crypto";
+import { createHash, timingSafeEqual } from "crypto";
 import { z } from "zod";
 import { BadGatewayError, UnauthenticatedError } from "../lib/errors.js";
 import type { OAuthIdentity } from "../types/oauth.js";
@@ -11,7 +11,7 @@ const appleIdTokenPayloadSchema = z.object({
   aud: z.string().min(1),
   sub: z.string().min(1),
   email: z.string().min(1).optional(),
-  nonce: z.string().min(1).optional(),
+  nonce: z.string().min(1),
 });
 
 export type AppleNativeVerifierConfig = {
@@ -27,7 +27,7 @@ export class AppleNativeVerifier {
     this.#config = config;
   }
 
-  async verifyIdToken(idToken: string, clientId: string, nonce?: string): Promise<OAuthIdentity> {
+  async verifyIdToken(idToken: string, clientId: string, nonce: string): Promise<OAuthIdentity> {
     if (clientId !== this.#config.clientId && clientId !== this.#config.iosClientId) {
       throw new BadGatewayError({ debugMessage: "UNKNOWN_APPLE_CLIENT_ID" });
     }
@@ -63,14 +63,9 @@ export class AppleNativeVerifier {
       });
     }
 
-    if (nonce) {
-      if (!result.data.nonce) {
-        throw new UnauthenticatedError({ debugMessage: "Apple ID token missing nonce claim" });
-      }
-      const hashedNonce = createHash("sha256").update(nonce).digest("hex");
-      if (result.data.nonce !== hashedNonce) {
-        throw new UnauthenticatedError({ debugMessage: "INVALID_APPLE_ID_TOKEN_NONCE" });
-      }
+    const hashedNonce = createHash("sha256").update(nonce).digest("hex");
+    if (!timingSafeEqual(Buffer.from(result.data.nonce, "utf-8"), Buffer.from(hashedNonce, "utf-8"))) {
+      throw new UnauthenticatedError({ debugMessage: "INVALID_APPLE_ID_TOKEN_NONCE" });
     }
 
     return {

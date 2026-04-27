@@ -4,7 +4,7 @@ import type { AppleClient } from "../clients/auth/apple-client.js";
 import { OAuthProviderName } from "../types/oauth.js";
 import type { Config } from "../config.js";
 import { BadRequestError } from "../lib/errors.js";
-import { isAllowedRedirectUri } from "../lib/redirect-uri.js";
+import { isAllowedRedirectUri, isLocalhostRedirectUri } from "../lib/redirect-uri.js";
 import type { StateStore } from "../lib/state-store.js";
 import type { OAuthInitQuery, OAuthInitReply, OAuthCallbackBody, AuthTokensReply } from "../models/api.js";
 import type { AuthService } from "../services/auth-service.js";
@@ -42,11 +42,7 @@ export const appleRoutes: FastifyPluginAsync<AppleRouteOptions> = async (fastify
     if (!isAllowedRedirectUri(redirect_uri, config.ALLOWED_REDIRECT_URIS)) {
       throw new BadRequestError({ debugMessage: "Redirect URI not allowed" });
     }
-    const isLocalhost =
-      redirect_uri.startsWith("http://localhost") ||
-      redirect_uri.startsWith("http://127.0.0.1") ||
-      redirect_uri.startsWith("http://[::1]");
-    if (!redirect_uri.startsWith("https://") && !isLocalhost) {
+    if (!redirect_uri.startsWith("https://") && !isLocalhostRedirectUri(redirect_uri)) {
       throw new BadRequestError({ debugMessage: "Apple web flow requires an HTTPS redirect URI" });
     }
 
@@ -87,7 +83,6 @@ export const appleRoutes: FastifyPluginAsync<AppleRouteOptions> = async (fastify
       codeVerifier,
       redirectUri,
       clientId: config.APPLE_CLIENT_ID,
-      clientSecret: "",
     });
   });
 };

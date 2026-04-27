@@ -8,8 +8,6 @@ const appleConfigSchema = z.object({
   APPLE_PRIVATE_KEY: z.string().min(1, "APPLE_PRIVATE_KEY is required"),
 });
 
-export type AppleConfig = z.infer<typeof appleConfigSchema>;
-
 const configSchema = z.object({
   PORT: z.coerce.number().default(3001),
   MONGODB_URI: z.string().min(1, "MONGODB_URI is required"),

@@ -1,5 +1,10 @@
 import type { OAuthClient } from "../clients/auth/oauth-client.js";
-import { OAuthProviderName, type OAuthExchangeParams, type OAuthIdentity } from "../types/oauth.js";
+import {
+  AUTH_PROVIDER_PASSWORD,
+  OAuthProviderName,
+  type OAuthExchangeParams,
+  type OAuthIdentity,
+} from "../types/oauth.js";
 import { BadGatewayError, UnauthenticatedError } from "../lib/errors.js";
 import { refreshTokenPayloadSchema } from "../models/jwt.js";
 import { OAuthAccountRepository } from "../repositories/oauth-account-repo.js";
@@ -70,14 +75,20 @@ export class AuthService {
     });
   }
 
+  // Dummy hash for timing-equalization on unknown-email path.
+  // argon2.verify may throw on malformed inputs; we catch and ignore since we only care about elapsed wall time.
+  static readonly DUMMY_ARGON2_HASH =
+    "$argon2id$v=19$m=65536,t=3,p=4$/R5dXiOwOc+wCU/mwiMovw$v7azh64R/DkyfBjwAUCJLLCZdVNXwKQXtvcq7+EmqLc";
+
   async authenticatePassword(email: string, password: string): Promise<AuthResult> {
     const account = await this.#passwordAccountRepo.findByEmail(email);
 
     if (!account) {
-      await argon2.verify(
-        "$argon2id$v=19$m=65536,t=3,p=4$/R5dXiOwOc+wCU/mwiMovw$v7azh64R/DkyfBjwAUCJLLCZdVNXwKQXtvcq7+EmqLc",
-        password,
-      );
+      try {
+        await argon2.verify(AuthService.DUMMY_ARGON2_HASH, password);
+      } catch {
+        /* timing-only */
+      }
       throw new UnauthenticatedError({ debugMessage: "Invalid email or password" });
     }
 
@@ -98,7 +109,7 @@ export class AuthService {
 
     return this.#signTokensForUser({
       userId: account.userId.toHexString(),
-      provider: "password",
+      provider: AUTH_PROVIDER_PASSWORD,
       providerUserId: account.userId.toHexString(),
       providerUsername: account.email,
       tokenVersion: user.tokenVersion ?? 0,
@@ -210,7 +221,7 @@ export class AuthService {
     if (passwordAccount) {
       return this.#signTokensForUser({
         userId,
-        provider: "password",
+        provider: AUTH_PROVIDER_PASSWORD,
         providerUserId: userId,
         providerUsername: passwordAccount.email,
         tokenVersion: user.tokenVersion,
@@ -261,7 +272,7 @@ export class AuthService {
     if (passwordAccount) {
       return {
         id: userId,
-        provider: "password",
+        provider: AUTH_PROVIDER_PASSWORD,
         providerUserId: userId,
         providerUsername: passwordAccount.email,
       };
