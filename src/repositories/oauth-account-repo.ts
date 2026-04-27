@@ -28,6 +28,8 @@ export class OAuthAccountRepository {
     const potentialUserId = new ObjectId();
 
     const $set: Record<string, unknown> = { updatedAt: now };
+    // Apple omits the email claim on subsequent sign-ins, so an unconditional
+    // $set would null out a previously stored username. Only update when present.
     if (params.providerUsername !== null) {
       $set.providerUsername = params.providerUsername;
     }

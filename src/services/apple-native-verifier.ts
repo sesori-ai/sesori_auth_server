@@ -64,7 +64,12 @@ export class AppleNativeVerifier {
     }
 
     const hashedNonce = createHash("sha256").update(nonce).digest("hex");
-    if (!timingSafeEqual(Buffer.from(result.data.nonce, "utf-8"), Buffer.from(hashedNonce, "utf-8"))) {
+    const tokenNonceBuf = Buffer.from(result.data.nonce, "utf-8");
+    const expectedNonceBuf = Buffer.from(hashedNonce, "utf-8");
+    if (tokenNonceBuf.length !== expectedNonceBuf.length) {
+      throw new UnauthenticatedError({ debugMessage: "INVALID_APPLE_ID_TOKEN_NONCE" });
+    }
+    if (!timingSafeEqual(tokenNonceBuf, expectedNonceBuf)) {
       throw new UnauthenticatedError({ debugMessage: "INVALID_APPLE_ID_TOKEN_NONCE" });
     }
 

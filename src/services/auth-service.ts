@@ -67,6 +67,8 @@ export class AuthService {
     }
   }
 
+  // Caller (apple-native route) has already verified the id_token signature,
+  // audience, expiration, and nonce binding via AppleNativeVerifier.
   async authenticateAppleNative(identity: OAuthIdentity): Promise<AuthResult> {
     return this.#upsertFromOAuth({
       provider: OAuthProviderName.Apple,
@@ -142,7 +144,7 @@ export class AuthService {
       userId: accountUserId,
       provider: params.provider,
       providerUserId: params.providerUserId,
-      providerUsername: params.providerUsername,
+      providerUsername: account.providerUsername,
       tokenVersion,
     });
   }

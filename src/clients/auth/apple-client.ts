@@ -81,7 +81,7 @@ export class AppleClient extends OAuthClient {
       {
         iss: this.#teamId,
         iat: now,
-        exp: now + 180,
+        exp: now + 300,
         aud: APPLE_ISSUER,
         sub: clientId,
       },
