@@ -1,6 +1,6 @@
 import type { OAuthClient } from "../clients/auth/oauth-client.js";
 import { OAuthProviderName, type OAuthExchangeParams, type OAuthIdentity } from "../types/oauth.js";
-import { BadGatewayError, UnauthenticatedError, UnauthorizedError } from "../lib/errors.js";
+import { BadGatewayError, UnauthenticatedError } from "../lib/errors.js";
 import { refreshTokenPayloadSchema } from "../models/jwt.js";
 import { OAuthAccountRepository } from "../repositories/oauth-account-repo.js";
 import { PasswordAccountRepository } from "../repositories/password-account-repo.js";
@@ -78,12 +78,12 @@ export class AuthService {
         "$argon2id$v=19$m=65536,t=3,p=4$/R5dXiOwOc+wCU/mwiMovw$v7azh64R/DkyfBjwAUCJLLCZdVNXwKQXtvcq7+EmqLc",
         password,
       );
-      throw new UnauthorizedError({ debugMessage: "Invalid email or password" });
+      throw new UnauthenticatedError({ debugMessage: "Invalid email or password" });
     }
 
     const valid = await argon2.verify(account.passwordHash, password);
     if (!valid) {
-      throw new UnauthorizedError({ debugMessage: "Invalid email or password" });
+      throw new UnauthenticatedError({ debugMessage: "Invalid email or password" });
     }
 
     if (argon2.needsRehash(account.passwordHash)) {
@@ -93,7 +93,7 @@ export class AuthService {
 
     const user = await this.#userRepo.findById(account.userId.toHexString());
     if (!user) {
-      throw new UnauthorizedError({ debugMessage: "Invalid email or password" });
+      throw new UnauthenticatedError({ debugMessage: "Invalid email or password" });
     }
 
     return this.#signTokensForUser({

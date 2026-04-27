@@ -25,12 +25,6 @@ export class UnauthenticatedError extends ApiError {
   }
 }
 
-export class UnauthorizedError extends ApiError {
-  constructor(opts?: { debugMessage?: string; nestedError?: unknown }) {
-    super("unauthorized", 403, opts?.debugMessage, opts?.nestedError);
-  }
-}
-
 export class NotFoundError extends ApiError {
   constructor(opts?: { debugMessage?: string; nestedError?: unknown }) {
     super("not_found", 404, opts?.debugMessage, opts?.nestedError);

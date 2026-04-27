@@ -32,6 +32,17 @@ export class OAuthAccountRepository {
       $set.providerUsername = params.providerUsername;
     }
 
+    const $setOnInsert: Record<string, unknown> = {
+      _id: new ObjectId(),
+      userId: potentialUserId,
+      provider: params.provider,
+      providerUserId: params.providerUserId,
+      createdAt: now,
+    };
+    if (params.providerUsername === null) {
+      $setOnInsert.providerUsername = null;
+    }
+
     const result = await this.#collection.findOneAndUpdate(
       {
         provider: params.provider,
@@ -39,13 +50,7 @@ export class OAuthAccountRepository {
       },
       {
         $set,
-        $setOnInsert: {
-          _id: new ObjectId(),
-          userId: potentialUserId,
-          provider: params.provider,
-          providerUserId: params.providerUserId,
-          createdAt: now,
-        },
+        $setOnInsert,
       },
       { upsert: true, returnDocument: "after" },
     );

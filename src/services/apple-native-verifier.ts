@@ -63,7 +63,10 @@ export class AppleNativeVerifier {
       });
     }
 
-    if (nonce && result.data.nonce) {
+    if (nonce) {
+      if (!result.data.nonce) {
+        throw new UnauthenticatedError({ debugMessage: "Apple ID token missing nonce claim" });
+      }
       const hashedNonce = createHash("sha256").update(nonce).digest("hex");
       if (result.data.nonce !== hashedNonce) {
         throw new UnauthenticatedError({ debugMessage: "INVALID_APPLE_ID_TOKEN_NONCE" });
