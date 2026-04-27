@@ -2,7 +2,7 @@ import { Collection, Db, MongoServerError, type Document, type IndexSpecificatio
 import { MongoDbDatabase, AuthDbCollection } from "../types/mongo.js";
 import { MongoDbConnector } from "./mongo-db-connector.js";
 
-type IndexDefinition = {
+export type IndexDefinition = {
   spec: IndexSpecification;
   options?: CreateIndexesOptions;
 };
@@ -30,16 +30,16 @@ const DATABASE_CONFIG: Record<MongoDbDatabase, DatabaseConfig<string>> = {
   } satisfies DatabaseConfig<AuthDbCollection>,
 };
 
-function indexKeyMatches(a: IndexSpecification, b: IndexSpecification): boolean {
+export function indexKeyMatches(a: IndexSpecification, b: IndexSpecification): boolean {
   const aRec = a as Record<string, unknown>;
   const bRec = b as Record<string, unknown>;
-  const keysA = Object.keys(aRec).sort();
-  const keysB = Object.keys(bRec).sort();
+  const keysA = Object.keys(aRec);
+  const keysB = Object.keys(bRec);
   if (keysA.length !== keysB.length) return false;
   return keysA.every((k, i) => k === keysB[i] && aRec[k] === bRec[k]);
 }
 
-function indexMatchesDesired(existing: Record<string, unknown>, desired: IndexDefinition): boolean {
+export function indexMatchesDesired(existing: Record<string, unknown>, desired: IndexDefinition): boolean {
   if (!indexKeyMatches(existing.key as IndexSpecification, desired.spec)) return false;
   const desiredUnique = desired.options?.unique ?? false;
   const existingUnique = existing.unique === true;
