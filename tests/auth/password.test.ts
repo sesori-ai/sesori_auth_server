@@ -46,7 +46,7 @@ describe("Password authentication", () => {
     return passwordAccount;
   }
 
-  describe("POST /auth/password/login", () => {
+  describe("POST /auth/email", () => {
     it("returns tokens for valid credentials", async () => {
       const email = "test@example.com";
       const password = "correct-password-123";
@@ -54,7 +54,7 @@ describe("Password authentication", () => {
 
       const res = await ctx.app.inject({
         method: "POST",
-        url: "/auth/password/login",
+        url: "/auth/email",
         headers: { "content-type": "application/json" },
         payload: JSON.stringify({ email, password }),
       });
@@ -74,7 +74,7 @@ describe("Password authentication", () => {
 
       const res = await ctx.app.inject({
         method: "POST",
-        url: "/auth/password/login",
+        url: "/auth/email",
         headers: { "content-type": "application/json" },
         payload: JSON.stringify({ email, password: "wrong-password" }),
       });
@@ -86,7 +86,7 @@ describe("Password authentication", () => {
     it("returns 401 for unknown email", async () => {
       const res = await ctx.app.inject({
         method: "POST",
-        url: "/auth/password/login",
+        url: "/auth/email",
         headers: { "content-type": "application/json" },
         payload: JSON.stringify({ email: "notexist@example.com", password: "any-password" }),
       });
@@ -98,7 +98,7 @@ describe("Password authentication", () => {
     it("returns 401 for unknown email", async () => {
       const res = await ctx.app.inject({
         method: "POST",
-        url: "/auth/password/login",
+        url: "/auth/email",
         headers: { "content-type": "application/json" },
         payload: JSON.stringify({ email: "notexist@example.com", password: "any-password" }),
       });
@@ -110,7 +110,7 @@ describe("Password authentication", () => {
     it("returns 400 for empty body", async () => {
       const res = await ctx.app.inject({
         method: "POST",
-        url: "/auth/password/login",
+        url: "/auth/email",
         headers: { "content-type": "application/json" },
         payload: JSON.stringify({}),
       });
@@ -121,7 +121,7 @@ describe("Password authentication", () => {
     it("returns 400 for malformed email", async () => {
       const res = await ctx.app.inject({
         method: "POST",
-        url: "/auth/password/login",
+        url: "/auth/email",
         headers: { "content-type": "application/json" },
         payload: JSON.stringify({ email: "not-an-email", password: "any-password" }),
       });
@@ -136,7 +136,7 @@ describe("Password authentication", () => {
       for (let i = 0; i < 5; i++) {
         const res = await ctx.app.inject({
           method: "POST",
-          url: "/auth/password/login",
+          url: "/auth/email",
           headers: { "content-type": "application/json" },
           payload: JSON.stringify({ email, password: "wrong-password" }),
         });
@@ -145,7 +145,7 @@ describe("Password authentication", () => {
 
       const sixthRes = await ctx.app.inject({
         method: "POST",
-        url: "/auth/password/login",
+        url: "/auth/email",
         headers: { "content-type": "application/json" },
         payload: JSON.stringify({ email, password: "wrong-password" }),
       });
@@ -162,7 +162,7 @@ describe("Password authentication", () => {
 
       const loginRes = await ctx.app.inject({
         method: "POST",
-        url: "/auth/password/login",
+        url: "/auth/email",
         headers: { "content-type": "application/json" },
         payload: JSON.stringify({ email, password }),
       });
@@ -196,7 +196,7 @@ describe("Password authentication", () => {
 
       const loginRes = await ctx.app.inject({
         method: "POST",
-        url: "/auth/password/login",
+        url: "/auth/email",
         headers: { "content-type": "application/json" },
         payload: JSON.stringify({ email, password }),
       });
@@ -224,7 +224,7 @@ describe("Password authentication", () => {
 
       const loginRes = await ctx.app.inject({
         method: "POST",
-        url: "/auth/password/login",
+        url: "/auth/email",
         headers: { "content-type": "application/json" },
         payload: JSON.stringify({ email, password }),
       });
@@ -257,7 +257,7 @@ describe("Password authentication", () => {
 
       const loginRes = await ctx.app.inject({
         method: "POST",
-        url: "/auth/password/login",
+        url: "/auth/email",
         headers: { "content-type": "application/json" },
         payload: JSON.stringify({ email, password }),
       });
@@ -292,7 +292,7 @@ describe("Password authentication", () => {
 
       const passwordLoginRes = await ctx.app.inject({
         method: "POST",
-        url: "/auth/password/login",
+        url: "/auth/email",
         headers: { "content-type": "application/json" },
         payload: JSON.stringify({ email: passwordEmail, password: passwordPassword }),
       });

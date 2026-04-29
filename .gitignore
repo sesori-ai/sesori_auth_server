@@ -15,3 +15,5 @@ keys/
 
 # Sisyphus work artifacts
 .sisyphus/
+
+*.worktrees/

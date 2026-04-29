@@ -60,7 +60,7 @@ npm run start:local
 | `GET` | `/auth/apple` | No | Get Apple OAuth URL (requires `redirect_uri`, `code_challenge` query params). HTTPS redirect URI required. |
 | `POST` | `/auth/apple/callback` | No | Exchange Apple auth code for JWT tokens |
 | `POST` | `/auth/apple/native` | No | Verify Apple native id_token and return JWT tokens (requires `idToken`, `nonce`) |
-| `POST` | `/auth/password/login` | No | Login with email and password for existing admin-provisioned accounts |
+| `POST` | `/auth/email` | No | Login with email and password for existing admin-provisioned accounts |
 
 ### Tokens
 | Method | Path | Auth | Description |

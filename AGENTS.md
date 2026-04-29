@@ -61,7 +61,7 @@ src/
 
 ## PASSWORD ACCOUNTS
 
-Password login (`/auth/password/login`) is live but there is **no registration endpoint**. Accounts must be seeded out-of-band (e.g. admin CLI, ops tool, direct DB insert). The expected flow:
+Password login (`/auth/email`) is live but there is **no registration endpoint**. Accounts must be seeded out-of-band (e.g. admin CLI, ops tool, direct DB insert). The expected flow:
 
 1. Create a `User` document (generates `userId`)
 2. Create a `PasswordAccount` document with the same `userId`, hashed password (Argon2id), and email
