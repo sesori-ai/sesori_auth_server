@@ -1,9 +1,10 @@
-import { FastifyPluginAsync } from "fastify";
+import { FastifyPluginAsync, FastifyReply } from "fastify";
 import { z } from "zod";
 import { BadRequestError, NotFoundError } from "../lib/errors.js";
 import type { RefreshBody, AuthTokensReply, MeReply, SuccessReply } from "../models/api.js";
 import type { AuthService } from "../services/auth-service.js";
 import type { TokenService } from "../services/token-service.js";
+import { FastifyRequest } from "fastify/types/request.js";
 
 const refreshBodySchema = z.object({
   refreshToken: z.string(),
@@ -12,7 +13,7 @@ const refreshBodySchema = z.object({
 export type TokenRouteOptions = {
   authService: AuthService;
   tokenService: TokenService;
-  requireAuth: (request: import("fastify").FastifyRequest, reply: import("fastify").FastifyReply) => Promise<void>;
+  requireAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
 };
 
 export const tokenRoutes: FastifyPluginAsync<TokenRouteOptions> = async (fastify, opts) => {

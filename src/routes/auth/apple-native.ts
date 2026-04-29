@@ -1,10 +1,10 @@
 import { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { BadRequestError } from "../lib/errors.js";
-import type { AppleNativeBody, AuthTokensReply } from "../models/api.js";
-import type { AuthService } from "../services/auth-service.js";
-import type { AppleNativeVerifier } from "../services/apple-native-verifier.js";
-import type { Config } from "../config.js";
+import { BadRequestError } from "../../lib/errors.js";
+import type { AppleNativeBody, AuthTokensReply } from "../../models/api.js";
+import type { AuthService } from "../../services/auth-service.js";
+import type { AppleNativeVerifier } from "../../services/apple-native-verifier.js";
+import type { Config } from "../../config.js";
 
 const appleNativeBodySchema = z.object({
   idToken: z.string().min(1),

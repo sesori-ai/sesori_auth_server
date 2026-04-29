@@ -1,11 +1,11 @@
 import { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { BadRequestError } from "../lib/errors.js";
-import type { PasswordLoginBody, AuthTokensReply } from "../models/api.js";
-import type { AuthService } from "../services/auth-service.js";
+import { BadRequestError } from "../../lib/errors.js";
+import type { PasswordLoginBody, AuthTokensReply } from "../../models/api.js";
+import type { AuthService } from "../../services/auth-service.js";
 
 const passwordLoginBodySchema = z.object({
-  email: z.string().email(),
+  email: z.email(),
   password: z.string().min(1),
 });
 
@@ -17,7 +17,7 @@ export const passwordRoutes: FastifyPluginAsync<PasswordRouteOptions> = async (f
   const { authService } = opts;
 
   fastify.post<{ Body: PasswordLoginBody; Reply: AuthTokensReply }>(
-    "/auth/password/login",
+    "/auth/email",
     {
       config: {
         rateLimit: {

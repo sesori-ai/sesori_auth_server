@@ -1,13 +1,13 @@
 import { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import type { GithubClient } from "../clients/auth/github-client.js";
-import { OAuthProviderName } from "../types/oauth.js";
-import type { Config } from "../config.js";
-import { BadRequestError } from "../lib/errors.js";
-import { isAllowedRedirectUri } from "../lib/redirect-uri.js";
-import type { StateStore } from "../lib/state-store.js";
-import type { OAuthInitQuery, OAuthInitReply, OAuthCallbackBody, AuthTokensReply } from "../models/api.js";
-import type { AuthService } from "../services/auth-service.js";
+import type { GithubClient } from "../../clients/auth/github-client.js";
+import { OAuthProviderName } from "../../types/oauth.js";
+import type { Config } from "../../config.js";
+import { BadRequestError } from "../../lib/errors.js";
+import { isAllowedRedirectUri } from "../../lib/redirect-uri.js";
+import type { StateStore } from "../../lib/state-store.js";
+import type { OAuthInitQuery, OAuthInitReply, OAuthCallbackBody, AuthTokensReply } from "../../models/api.js";
+import type { AuthService } from "../../services/auth-service.js";
 
 const githubInitQuerySchema = z.object({
   redirect_uri: z.string().min(1),

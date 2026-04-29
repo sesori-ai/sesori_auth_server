@@ -1,4 +1,4 @@
-import { FastifyPluginAsync, FastifyRequest } from "fastify";
+import { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import multipart from "@fastify/multipart";
 import { z } from "zod";
 import { ApiError, BadRequestError, InternalServerError, UnauthenticatedError } from "../lib/errors.js";
@@ -45,7 +45,7 @@ const glossaryRemoveBodySchema = z.object({
 
 export type VoiceRouteOptions = {
   voiceService: VoiceService;
-  requireAuth: (request: FastifyRequest, reply: import("fastify").FastifyReply) => Promise<void>;
+  requireAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
 };
 
 /**

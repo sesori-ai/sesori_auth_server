@@ -5,7 +5,7 @@
   "description": "Node.js auth server for Sesori Mobile App",
   "main": "dist/index.js",
   "engines": {
-    "node": ">=22.22.0"
+    "node": ">=22.22.1 <23.0.0"
   },
   "scripts": {
     "start": "tsx src/index.ts",
@@ -28,30 +28,30 @@
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",
-    "@fastify/multipart": "^9.4.0",
+    "@fastify/multipart": "^10.0.0",
     "@fastify/rate-limit": "^10.3.0",
     "argon2": "^0.44.0",
-    "fastify": "^5.8.2",
-    "firebase-admin": "^13.7.0",
-    "jose": "^6.2.2",
+    "fastify": "^5.8.5",
+    "firebase-admin": "^13.8.0",
+    "jose": "^6.2.0",
     "jsonwebtoken": "^9.0.3",
-    "lru-cache": "^11.2.7",
-    "mongodb": "^7.1.0",
+    "lru-cache": "^11.3.5",
+    "mongodb": "^7.2.0",
     "music-metadata": "^11.12.3",
-    "openai": "^6.32.0",
+    "openai": "^6.34.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/jsonwebtoken": "^9.0.10",
-    "@types/node": "^22.19.15",
-    "eslint": "^10.0.3",
+    "@types/node": "^22.19.17",
+    "eslint": "^10.2.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.5",
     "madge": "^8.0.0",
-    "prettier": "^3.8.1",
+    "prettier": "^3.8.3",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.57.0"
+    "typescript-eslint": "^8.59.0"
   }
 }

@@ -1,4 +1,4 @@
-import { FastifyPluginAsync, FastifyRequest } from "fastify";
+import { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { BadRequestError } from "../lib/errors.js";
 import { generateMetadataBodySchema } from "../models/api.js";
 import type { GenerateMetadataBody, GenerateMetadataReply } from "../models/api.js";
@@ -12,7 +12,7 @@ const METADATA_RATE_LIMIT = {
 
 export type SessionRouteOptions = {
   sessionMetadataService: SessionMetadataService;
-  requireAuth: (request: FastifyRequest, reply: import("fastify").FastifyReply) => Promise<void>;
+  requireAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
 };
 
 export const sessionRoutes: FastifyPluginAsync<SessionRouteOptions> = async (fastify, opts) => {
