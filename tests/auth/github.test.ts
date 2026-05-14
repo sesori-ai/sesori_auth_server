@@ -161,7 +161,7 @@ describe("GitHub OAuth routes", () => {
       assert.ok(session?.pkceVerifier);
     });
 
-    it("returns 401 when the session token header is missing", async () => {
+    it("returns 400 when the session token header is missing", async () => {
       const res = await ctx.app.inject({
         method: "POST",
         url: "/auth/github/init",
@@ -169,8 +169,8 @@ describe("GitHub OAuth routes", () => {
         payload: JSON.stringify({ clientType: "bridge" }),
       });
 
-      assert.equal(res.statusCode, 401);
-      assert.equal(res.json<{ error: string }>().error, "unauthenticated");
+      assert.equal(res.statusCode, 400);
+      assert.equal(res.json<{ error: string }>().error, "bad_request");
     });
 
     it("returns 400 when clientType is invalid", async () => {

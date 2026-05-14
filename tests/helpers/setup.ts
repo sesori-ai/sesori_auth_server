@@ -2,6 +2,7 @@ import * as crypto from "node:crypto";
 import jwt from "jsonwebtoken";
 import type { FastifyInstance } from "fastify";
 import { ObjectId } from "mongodb";
+import { MongoMemoryServer } from "mongodb-memory-server";
 import { GithubClient } from "../../src/clients/auth/github-client.js";
 import { GoogleClient } from "../../src/clients/auth/google-client.js";
 import type { OAuthClient } from "../../src/clients/auth/oauth-client.js";
@@ -76,7 +77,8 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     privateKeyEncoding: { type: "pkcs8", format: "pem" },
   });
 
-  const mongoUri = process.env.MONGODB_URI_TEST ?? "mongodb://localhost:27017/auth-backend-test";
+  const mongoServer = await MongoMemoryServer.create();
+  const mongoUri = mongoServer.getUri();
   process.env.AUTH_BASE_URL ??= "https://api.sesori.com";
   process.env.MONGODB_URI = mongoUri;
   process.env.JWT_PRIVATE_KEY = privPem;
@@ -260,6 +262,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     await app.close();
     await dbAccessor.getDb(MongoDbDatabase.Auth).dropDatabase();
     await dbConnector.close();
+    await mongoServer.stop();
   }
 
   return {
