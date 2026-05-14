@@ -49,6 +49,7 @@
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.5",
     "madge": "^8.0.0",
+    "mongodb-memory-server": "^11.1.0",
     "prettier": "^3.8.3",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",

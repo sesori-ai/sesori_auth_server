@@ -2,10 +2,12 @@ import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
 import { FakeOAuthClient } from "../helpers/fake-oauth-client.js";
+import { PendingAuthStore } from "../../src/services/pending-auth-store.js";
 
 // A valid 43-character PKCE code_challenge (URL-safe base64, no padding)
 const VALID_CODE_CHALLENGE = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
 const VALID_REDIRECT_URI = "myapp://oauth/callback";
+const VALID_SESSION_TOKEN = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const FAKE_IDENTITY = {
   providerUserId: "github-user-123",
   providerUsername: "fake-github-user",
@@ -122,6 +124,68 @@ describe("GitHub OAuth routes", () => {
       });
 
       assert.equal(res.statusCode, 400);
+    });
+  });
+
+  describe("POST /auth/github/init", () => {
+    it("creates a pending session and returns a backend-callback auth URL", async () => {
+      const res = await ctx.app.inject({
+        method: "POST",
+        url: "/auth/github/init",
+        headers: {
+          "content-type": "application/json",
+          "x-sesori-session-token": VALID_SESSION_TOKEN,
+        },
+        payload: JSON.stringify({ clientType: "bridge-macos" }),
+      });
+
+      assert.equal(res.statusCode, 200);
+      const body = res.json<{ authUrl: string; state: string; userCode: string; expiresIn: number }>();
+      assert.equal(body.expiresIn, 300);
+      assert.match(body.state, /^[a-f0-9]{64}$/);
+      assert.match(body.userCode, /^[A-Z2-9]{4}$/);
+
+      const authUrl = new URL(body.authUrl);
+      assert.equal(authUrl.origin, "https://github.com");
+      assert.equal(authUrl.searchParams.get("redirect_uri"), "https://api.sesori.com/auth/github/callback");
+      assert.equal(authUrl.searchParams.get("state"), body.state);
+      assert.equal(authUrl.searchParams.get("code_challenge_method"), "S256");
+      assert.ok(authUrl.searchParams.get("code_challenge"));
+      assert.ok(!body.authUrl.includes(VALID_SESSION_TOKEN));
+
+      const session = ctx.pendingAuthStore.getSession(PendingAuthStore.hashToken(VALID_SESSION_TOKEN));
+      assert.ok(session, "pending auth session should be stored");
+      assert.equal(session?.state, body.state);
+      assert.equal(session?.userCode, body.userCode);
+      assert.equal(session?.provider, "github");
+      assert.ok(session?.pkceVerifier);
+    });
+
+    it("returns 401 when the session token header is missing", async () => {
+      const res = await ctx.app.inject({
+        method: "POST",
+        url: "/auth/github/init",
+        headers: { "content-type": "application/json" },
+        payload: JSON.stringify({ clientType: "bridge" }),
+      });
+
+      assert.equal(res.statusCode, 401);
+      assert.equal(res.json<{ error: string }>().error, "unauthenticated");
+    });
+
+    it("returns 400 when clientType is invalid", async () => {
+      const res = await ctx.app.inject({
+        method: "POST",
+        url: "/auth/github/init",
+        headers: {
+          "content-type": "application/json",
+          "x-sesori-session-token": VALID_SESSION_TOKEN,
+        },
+        payload: JSON.stringify({ clientType: "desktop" }),
+      });
+
+      assert.equal(res.statusCode, 400);
+      assert.equal(res.json<{ error: string }>().error, "bad_request");
     });
   });
 

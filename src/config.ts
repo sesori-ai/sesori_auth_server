@@ -10,6 +10,7 @@ const appleConfigSchema = z.object({
 
 const configSchema = z.object({
   PORT: z.coerce.number().default(3001),
+  AUTH_BASE_URL: z.string().url().default("https://api.sesori.com"),
   MONGODB_URI: z.string().min(1, "MONGODB_URI is required"),
   JWT_PRIVATE_KEY: z.string().min(1, "JWT_PRIVATE_KEY is required"),
   JWT_PUBLIC_KEY: z.string().min(1, "JWT_PUBLIC_KEY is required"),

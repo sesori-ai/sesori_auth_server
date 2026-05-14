@@ -23,6 +23,7 @@ import { buildApp } from "../../src/server.js";
 import { AuthService } from "../../src/services/auth-service.js";
 import { BridgeStateTracker } from "../../src/services/bridge-state-tracker.js";
 import { NotificationService } from "../../src/services/notification-service.js";
+import { PendingAuthStore } from "../../src/services/pending-auth-store.js";
 import { SessionMetadataService } from "../../src/services/session-metadata-service.js";
 import { InstallScriptService } from "../../src/services/install-script-service.js";
 import { LegalDocumentService } from "../../src/services/legal-document-service.js";
@@ -47,6 +48,7 @@ export type TestContext = {
    */
   dbAccessor: MongoDbAccessor;
   tokenService: TokenService;
+  pendingAuthStore: PendingAuthStore;
   cleanup: () => Promise<void>;
   createUser: (opts?: { provider?: string; providerUserId?: string }) => Promise<TestUser>;
   createExpiredRefreshToken: (userId: string) => string;
@@ -75,6 +77,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   });
 
   const mongoUri = process.env.MONGODB_URI_TEST ?? "mongodb://localhost:27017/auth-backend-test";
+  process.env.AUTH_BASE_URL ??= "https://api.sesori.com";
   process.env.MONGODB_URI = mongoUri;
   process.env.JWT_PRIVATE_KEY = privPem;
   process.env.JWT_PUBLIC_KEY = pubPem;
@@ -126,6 +129,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
 
   const tokenService = new TokenService(privPem, pubPem);
   const stateStore = new StateStore();
+  const pendingAuthStore = new PendingAuthStore();
 
   const openai = new OpenAIClient({ apiKey: "test-key", model: "gpt-4o-mini-transcribe" });
   const githubClient = overrides?.githubClient ?? new GithubClient();
@@ -170,6 +174,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     googleClient: googleClient as GoogleClient,
     appleClient: appleClient as AppleClient,
     appleNativeVerifier: appleNativeVerifier as AppleNativeVerifier,
+    pendingAuthStore,
   });
   await app.ready();
 
@@ -257,5 +262,14 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     await dbConnector.close();
   }
 
-  return { app, dbAccessor, tokenService, cleanup, createUser, createExpiredRefreshToken, createExpiredAccessToken };
+  return {
+    app,
+    dbAccessor,
+    tokenService,
+    pendingAuthStore,
+    cleanup,
+    createUser,
+    createExpiredRefreshToken,
+    createExpiredAccessToken,
+  };
 }
