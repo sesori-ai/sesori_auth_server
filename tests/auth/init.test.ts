@@ -33,6 +33,7 @@ describe("OAuth init routes", () => {
     });
 
     const config = {
+      AUTH_BASE_URL: "https://api.sesori.com",
       GITHUB_CLIENT_ID: "test-github-client-id",
       GITHUB_CLIENT_SECRET: "test-github-client-secret",
       GOOGLE_CLIENT_ID: "test-google-client-id",

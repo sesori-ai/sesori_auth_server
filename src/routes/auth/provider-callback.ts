@@ -188,7 +188,13 @@ export async function handleProviderCallbackAction(params: {
   reply: FastifyReply;
   pendingAuthStore: PendingAuthStore;
 }): Promise<FastifyReply> {
-  const queryResult = callbackActionQuerySchema.safeParse(params.request.query);
+  const raw = {
+    ...(typeof params.request.query === "object" ? params.request.query : {}),
+    ...(typeof params.request.body === "object" && params.request.body !== null
+      ? (params.request.body as Record<string, unknown>)
+      : {}),
+  };
+  const queryResult = callbackActionQuerySchema.safeParse(raw);
   if (!queryResult.success) {
     return sendErrorPage({
       reply: params.reply,
@@ -219,6 +225,13 @@ export async function handleProviderCallbackAction(params: {
   }
 
   if (queryResult.data.action === "deny") {
+    if (session.status === "complete" || session.status === "consumed") {
+      return sendSuccessPage({
+        reply: params.reply,
+        title: "Sign-in already confirmed",
+        message: "This sign-in request has already been confirmed in Sesori.",
+      });
+    }
     params.pendingAuthStore.denySession(session.tokenHash);
     return sendDeniedPage({
       reply: params.reply,
@@ -300,12 +313,12 @@ function sendConfirmationPage(params: {
       <div class="code">${escapeHtml(params.session.userCode)}</div>
       <p>Sesori will finish sign-in only after you explicitly confirm here.</p>
       <div class="actions">
-        <form method="GET" action="/auth/${escapeHtml(params.providerName)}/callback/confirm">
+        <form method="POST" action="/auth/${escapeHtml(params.providerName)}/callback/confirm">
           <input type="hidden" name="state" value="${escapeHtml(params.session.state)}" />
           <input type="hidden" name="action" value="confirm" />
           <button class="confirm" type="submit">Confirm</button>
         </form>
-        <form method="GET" action="/auth/${escapeHtml(params.providerName)}/callback/confirm">
+        <form method="POST" action="/auth/${escapeHtml(params.providerName)}/callback/confirm">
           <input type="hidden" name="state" value="${escapeHtml(params.session.state)}" />
           <input type="hidden" name="action" value="deny" />
           <button class="deny" type="submit">Cancel</button>

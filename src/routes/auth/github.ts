@@ -86,7 +86,10 @@ export const githubRoutes: FastifyPluginAsync<GithubRouteOptions> = async (fasti
 
     const authUrl = new URL("https://github.com/login/oauth/authorize");
     authUrl.searchParams.set("client_id", config.GITHUB_CLIENT_ID);
-    authUrl.searchParams.set("redirect_uri", getProviderCallbackRedirectUri(OAuthProviderName.Github));
+    authUrl.searchParams.set(
+      "redirect_uri",
+      getProviderCallbackRedirectUri(config.AUTH_BASE_URL, OAuthProviderName.Github),
+    );
     authUrl.searchParams.set("scope", "read:user");
     authUrl.searchParams.set("state", session.state);
     authUrl.searchParams.set("code_challenge", codeChallenge);
@@ -130,12 +133,12 @@ export const githubRoutes: FastifyPluginAsync<GithubRouteOptions> = async (fasti
         pendingAuthStore,
         clientId: config.GITHUB_CLIENT_ID,
         clientSecret: config.GITHUB_CLIENT_SECRET,
-        callbackRedirectUri: getProviderCallbackRedirectUri(OAuthProviderName.Github),
+        callbackRedirectUri: getProviderCallbackRedirectUri(config.AUTH_BASE_URL, OAuthProviderName.Github),
       },
     });
   });
 
-  fastify.get("/auth/github/callback/confirm", async (request, reply) => {
+  fastify.post("/auth/github/callback/confirm", async (request, reply) => {
     return await handleProviderCallbackAction({
       request,
       reply,

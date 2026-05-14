@@ -58,13 +58,18 @@ export function createOAuthPendingInitReply(params: {
   };
 }
 
-export function getProviderCallbackRedirectUri(provider: OAuthProviderName): string {
+export function getProviderCallbackRedirectUri(baseUrl: string, provider: OAuthProviderName): string {
+  const url = new URL(baseUrl);
   switch (provider) {
     case OAuthProviderName.Github:
-      return "https://api.sesori.com/auth/github/callback";
+      url.pathname = "/auth/github/callback";
+      break;
     case OAuthProviderName.Google:
-      return "https://api.sesori.com/auth/google/callback";
+      url.pathname = "/auth/google/callback";
+      break;
     case OAuthProviderName.Apple:
-      return "https://api.sesori.com/auth/apple/callback";
+      url.pathname = "/auth/apple/callback";
+      break;
   }
+  return url.toString();
 }

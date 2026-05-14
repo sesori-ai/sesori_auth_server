@@ -93,8 +93,6 @@ export class PendingAuthStore {
     pkceVerifier: string;
     state: string;
   }): PendingAuthSession {
-    this.expireExpiredSessions();
-
     const now = this.#now();
     const session: PendingAuthSessionRecord = {
       tokenHash: params.tokenHash,
@@ -489,11 +487,17 @@ export class PendingAuthStore {
 
   #cloneSession(session: PendingAuthSessionRecord): PendingAuthSession {
     return {
-      ...session,
+      tokenHash: session.tokenHash,
+      provider: session.provider,
+      pkceVerifier: session.pkceVerifier,
+      state: session.state,
+      userCode: session.userCode,
+      status: session.status,
       createdAt: new Date(session.createdAt),
       expiresAt: new Date(session.expiresAt),
       tokens: session.tokens ? { ...session.tokens } : undefined,
       user: session.user ? { ...session.user } : undefined,
+      errorMessage: session.errorMessage,
     };
   }
 }

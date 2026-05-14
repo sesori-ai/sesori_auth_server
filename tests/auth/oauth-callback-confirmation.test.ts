@@ -179,8 +179,10 @@ describe("OAuth callback confirmation flow", () => {
     assert.equal(waitingSession?.status, "awaiting_confirmation");
 
     const confirmResponse = await app.inject({
-      method: "GET",
-      url: `/auth/github/callback/confirm?state=${session.state}&action=confirm`,
+      method: "POST",
+      url: "/auth/github/callback/confirm",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify({ state: session.state, action: "confirm" }),
     });
 
     assert.equal(confirmResponse.statusCode, 200);
@@ -285,8 +287,10 @@ describe("OAuth callback confirmation flow", () => {
     assert.equal(callbackRes.statusCode, 200);
 
     const denyRes = await app.inject({
-      method: "GET",
-      url: `/auth/github/callback/confirm?state=${session.state}&action=deny`,
+      method: "POST",
+      url: "/auth/github/callback/confirm",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify({ state: session.state, action: "deny" }),
     });
 
     assert.equal(denyRes.statusCode, 200);
@@ -357,8 +361,10 @@ describe("OAuth callback confirmation flow", () => {
     assert.equal(callbackRes.statusCode, 200);
 
     const confirmRes = await app.inject({
-      method: "GET",
-      url: `/auth/google/callback/confirm?state=${session.state}&action=confirm`,
+      method: "POST",
+      url: "/auth/google/callback/confirm",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify({ state: session.state, action: "confirm" }),
     });
 
     assert.equal(confirmRes.statusCode, 200);

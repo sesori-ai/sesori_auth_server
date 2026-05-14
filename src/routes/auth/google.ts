@@ -89,7 +89,10 @@ export const googleRoutes: FastifyPluginAsync<GoogleRouteOptions> = async (fasti
 
     const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     authUrl.searchParams.set("client_id", config.GOOGLE_CLIENT_ID);
-    authUrl.searchParams.set("redirect_uri", getProviderCallbackRedirectUri(OAuthProviderName.Google));
+    authUrl.searchParams.set(
+      "redirect_uri",
+      getProviderCallbackRedirectUri(config.AUTH_BASE_URL, OAuthProviderName.Google),
+    );
     authUrl.searchParams.set("response_type", "code");
     authUrl.searchParams.set("scope", "openid profile email");
     authUrl.searchParams.set("state", session.state);
@@ -136,12 +139,12 @@ export const googleRoutes: FastifyPluginAsync<GoogleRouteOptions> = async (fasti
         pendingAuthStore,
         clientId: config.GOOGLE_CLIENT_ID,
         clientSecret: config.GOOGLE_CLIENT_SECRET,
-        callbackRedirectUri: getProviderCallbackRedirectUri(OAuthProviderName.Google),
+        callbackRedirectUri: getProviderCallbackRedirectUri(config.AUTH_BASE_URL, OAuthProviderName.Google),
       },
     });
   });
 
-  fastify.get("/auth/google/callback/confirm", async (request, reply) => {
+  fastify.post("/auth/google/callback/confirm", async (request, reply) => {
     return await handleProviderCallbackAction({
       request,
       reply,
