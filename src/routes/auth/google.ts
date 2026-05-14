@@ -6,8 +6,23 @@ import type { Config } from "../../config.js";
 import { BadRequestError } from "../../lib/errors.js";
 import { isAllowedRedirectUri } from "../../lib/redirect-uri.js";
 import type { StateStore } from "../../lib/state-store.js";
-import type { OAuthInitQuery, OAuthInitReply, OAuthCallbackBody, AuthTokensReply } from "../../models/api.js";
+import type {
+  OAuthInitQuery,
+  OAuthInitReply,
+  OAuthCallbackBody,
+  AuthTokensReply,
+  OAuthPendingInitReply,
+} from "../../models/api.js";
 import type { AuthService } from "../../services/auth-service.js";
+import type { PendingAuthStore } from "../../services/pending-auth-store.js";
+import {
+  createOAuthPendingInitReply,
+  createPendingOAuthInit,
+  getProviderCallbackRedirectUri,
+  parseOAuthPendingInitBody,
+  parseSessionTokenHeader,
+} from "./init.js";
+import { handleProviderCallbackAction, handleProviderCallbackRedirect } from "./provider-callback.js";
 
 const googleInitQuerySchema = z.object({
   redirect_uri: z.string().min(1),
@@ -27,10 +42,11 @@ export type GoogleRouteOptions = {
   authService: AuthService;
   stateStore: StateStore;
   googleClient: GoogleClient;
+  pendingAuthStore: PendingAuthStore;
 };
 
 export const googleRoutes: FastifyPluginAsync<GoogleRouteOptions> = async (fastify, opts) => {
-  const { config, authService, stateStore, googleClient } = opts;
+  const { config, authService, stateStore, googleClient, pendingAuthStore } = opts;
 
   fastify.get<{ Querystring: OAuthInitQuery; Reply: OAuthInitReply }>("/auth/google", async (request) => {
     const queryResult = googleInitQuerySchema.safeParse(request.query);
@@ -61,6 +77,30 @@ export const googleRoutes: FastifyPluginAsync<GoogleRouteOptions> = async (fasti
     };
   });
 
+  fastify.post<{ Body: unknown; Reply: OAuthPendingInitReply }>("/auth/google/init", async (request) => {
+    parseOAuthPendingInitBody(request.body);
+
+    const sessionToken = parseSessionTokenHeader(request.headers["x-sesori-session-token"]);
+    const { session, codeChallenge } = createPendingOAuthInit({
+      provider: OAuthProviderName.Google,
+      pendingAuthStore,
+      sessionToken,
+    });
+
+    const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+    authUrl.searchParams.set("client_id", config.GOOGLE_CLIENT_ID);
+    authUrl.searchParams.set("redirect_uri", getProviderCallbackRedirectUri(OAuthProviderName.Google));
+    authUrl.searchParams.set("response_type", "code");
+    authUrl.searchParams.set("scope", "openid profile email");
+    authUrl.searchParams.set("state", session.state);
+    authUrl.searchParams.set("code_challenge", codeChallenge);
+    authUrl.searchParams.set("code_challenge_method", "S256");
+    authUrl.searchParams.set("access_type", "offline");
+    authUrl.searchParams.set("prompt", "consent");
+
+    return createOAuthPendingInitReply({ session, authUrl });
+  });
+
   fastify.post<{ Body: OAuthCallbackBody; Reply: AuthTokensReply }>("/auth/google/callback", async (request) => {
     const bodyResult = googleCallbackBodySchema.safeParse(request.body);
     if (!bodyResult.success) {
@@ -82,6 +122,30 @@ export const googleRoutes: FastifyPluginAsync<GoogleRouteOptions> = async (fasti
       redirectUri,
       clientId: config.GOOGLE_CLIENT_ID,
       clientSecret: config.GOOGLE_CLIENT_SECRET,
+    });
+  });
+
+  fastify.get("/auth/google/callback", async (request, reply) => {
+    return await handleProviderCallbackRedirect({
+      request,
+      reply,
+      deps: {
+        providerName: OAuthProviderName.Google,
+        providerClient: googleClient,
+        authService,
+        pendingAuthStore,
+        clientId: config.GOOGLE_CLIENT_ID,
+        clientSecret: config.GOOGLE_CLIENT_SECRET,
+        callbackRedirectUri: getProviderCallbackRedirectUri(OAuthProviderName.Google),
+      },
+    });
+  });
+
+  fastify.get("/auth/google/callback/confirm", async (request, reply) => {
+    return await handleProviderCallbackAction({
+      request,
+      reply,
+      pendingAuthStore,
     });
   });
 };
