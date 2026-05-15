@@ -32,7 +32,7 @@ import type {
   AuthSessionStatusPendingReply,
   AuthSessionStatusReply,
 } from "../../models/api.js";
-import { PendingAuthStore, type PendingAuthSession } from "../../services/pending-auth-store.js";
+import { PendingAuthStatus, PendingAuthStore, type PendingAuthSession } from "../../services/pending-auth-store.js";
 import { parseSessionTokenHeader } from "./init.js";
 
 const DEFAULT_STATUS_POLL_TIMEOUT_MS = 30_000;
@@ -67,18 +67,18 @@ export const sessionStatusRoutes: FastifyPluginAsync<SessionStatusRouteOptions> 
     }
 
     switch (nextSession.status) {
-      case "pending":
-      case "awaiting_confirmation":
+      case PendingAuthStatus.Pending:
+      case PendingAuthStatus.AwaitingConfirmation:
         return createPendingReply();
-      case "complete":
+      case PendingAuthStatus.Complete:
         return createCompleteReply({ pendingAuthStore, tokenHash });
-      case "denied":
+      case PendingAuthStatus.Denied:
         return createDeniedReply();
-      case "expired":
+      case PendingAuthStatus.Expired:
         return reply.status(410).send(createExpiredReply());
-      case "error":
+      case PendingAuthStatus.Error:
         return createErrorReply({ message: nextSession.errorMessage ?? "authentication_failed" });
-      case "consumed":
+      case PendingAuthStatus.Consumed:
         // CQ-11: tokens were already delivered to a prior poll. We deliberately
         // return the same 404 used for "unknown session" to avoid leaking
         // session existence after consumption.
@@ -101,13 +101,13 @@ async function waitForTerminalOrTimeout(params: {
   statusPollTimeoutMs: number;
 }): Promise<PendingAuthSession | null> {
   let session = params.session;
-  if (session.status !== "pending" && session.status !== "awaiting_confirmation") {
+  if (session.status !== PendingAuthStatus.Pending && session.status !== PendingAuthStatus.AwaitingConfirmation) {
     return session;
   }
 
   const deadline = Date.now() + params.statusPollTimeoutMs;
 
-  while (session.status === "pending" || session.status === "awaiting_confirmation") {
+  while (session.status === PendingAuthStatus.Pending || session.status === PendingAuthStatus.AwaitingConfirmation) {
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) {
       return session;
@@ -119,7 +119,7 @@ async function waitForTerminalOrTimeout(params: {
     }
 
     session = nextSession;
-    if (session.status !== "awaiting_confirmation") {
+    if (session.status !== PendingAuthStatus.AwaitingConfirmation) {
       return session;
     }
   }

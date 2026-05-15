@@ -9,14 +9,19 @@
  * second init with the same token replaces any prior pending session for
  * that token.
  *
- * `clientType` is validated against the `oauthClientTypeSchema` enum and
- * recorded on the pending session for audit/observability. It is NOT used
- * for any security decision today.
+ * `clientType` is validated against `OAuthClientType` (TS enum, wire values
+ * like `"bridge_macos"`) and recorded on the pending session for
+ * audit/observability. It is NOT used for any security decision today.
  */
 
 import crypto from "node:crypto";
 import { BadRequestError } from "../../lib/errors.js";
-import { oauthPendingInitBodySchema, type OAuthPendingInitBody, type OAuthPendingInitReply } from "../../models/api.js";
+import {
+  OAuthClientType,
+  oauthPendingInitBodySchema,
+  type OAuthPendingInitBody,
+  type OAuthPendingInitReply,
+} from "../../models/api.js";
 import { PendingAuthStore, type PendingAuthSession } from "../../services/pending-auth-store.js";
 import { OAuthProviderName } from "../../types/oauth.js";
 
@@ -54,7 +59,7 @@ export function createPendingOAuthInit(params: {
   provider: OAuthProviderName;
   pendingAuthStore: PendingAuthStore;
   sessionToken: string;
-  clientType?: string;
+  clientType?: OAuthClientType;
 }): { session: PendingAuthSession; codeChallenge: string } {
   const pkceVerifier = crypto.randomBytes(PKCE_VERIFIER_BYTE_LENGTH).toString("base64url");
   const codeChallenge = crypto.createHash("sha256").update(pkceVerifier).digest("base64url");

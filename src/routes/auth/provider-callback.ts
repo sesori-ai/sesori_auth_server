@@ -30,7 +30,11 @@ import { z } from "zod";
 import type { FastifyInstance, FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import type { OAuthClient } from "../../clients/auth/oauth-client.js";
 import type { AuthService } from "../../services/auth-service.js";
-import type { PendingAuthStore, PendingAuthSession } from "../../services/pending-auth-store.js";
+import {
+  PendingAuthStatus,
+  type PendingAuthSession,
+  type PendingAuthStore,
+} from "../../services/pending-auth-store.js";
 import { OAuthProviderName } from "../../types/oauth.js";
 
 const pendingStateSchema = z.string().regex(/^[a-f0-9]{64}$/i, "Invalid pending auth state");
@@ -115,37 +119,37 @@ export async function handleProviderCallbackRedirect<TClient extends OAuthClient
   }
 
   switch (session.status) {
-    case "awaiting_confirmation":
+    case PendingAuthStatus.AwaitingConfirmation:
       return sendConfirmationPage({ reply: params.reply, providerName: params.deps.providerName, session });
-    case "complete":
-    case "consumed":
+    case PendingAuthStatus.Complete:
+    case PendingAuthStatus.Consumed:
       return sendSuccessPage({
         reply: params.reply,
         title: "Sign-in already confirmed",
         message: "This sign-in request has already been confirmed in Sesori.",
       });
-    case "denied":
+    case PendingAuthStatus.Denied:
       return sendDeniedPage({
         reply: params.reply,
         userCode: session.userCode,
         title: "Sign-in cancelled",
         message: "This sign-in request was cancelled. Return to Sesori to start again.",
       });
-    case "expired":
+    case PendingAuthStatus.Expired:
       return sendErrorPage({
         reply: params.reply,
         statusCode: 410,
         title: "Sign-in request expired",
         message: "This sign-in request has expired. Please start again from Sesori.",
       });
-    case "error":
+    case PendingAuthStatus.Error:
       return sendErrorPage({
         reply: params.reply,
         statusCode: 400,
         title: "Sign-in failed",
         message: session.errorMessage ?? "This sign-in request could not be completed.",
       });
-    case "pending":
+    case PendingAuthStatus.Pending:
       break;
   }
 
@@ -223,7 +227,7 @@ async function handleProviderErrorCallback(params: {
   error: string;
   errorDescription?: string;
 }): Promise<FastifyReply> {
-  if (params.session.status === "complete" || params.session.status === "consumed") {
+  if (params.session.status === PendingAuthStatus.Complete || params.session.status === PendingAuthStatus.Consumed) {
     return sendSuccessPage({
       reply: params.reply,
       title: "Sign-in already confirmed",
@@ -298,7 +302,7 @@ export async function handleProviderCallbackAction(params: {
   }
 
   if (bodyResult.data.action === "deny") {
-    if (session.status === "complete" || session.status === "consumed") {
+    if (session.status === PendingAuthStatus.Complete || session.status === PendingAuthStatus.Consumed) {
       return sendSuccessPage({
         reply: params.reply,
         title: "Sign-in already confirmed",
@@ -314,7 +318,7 @@ export async function handleProviderCallbackAction(params: {
     });
   }
 
-  if (session.status === "complete" || session.status === "consumed") {
+  if (session.status === PendingAuthStatus.Complete || session.status === PendingAuthStatus.Consumed) {
     return sendSuccessPage({
       reply: params.reply,
       title: "Sign-in already confirmed",
@@ -322,7 +326,7 @@ export async function handleProviderCallbackAction(params: {
     });
   }
 
-  if (session.status === "denied") {
+  if (session.status === PendingAuthStatus.Denied) {
     return sendDeniedPage({
       reply: params.reply,
       userCode: session.userCode,
@@ -331,7 +335,7 @@ export async function handleProviderCallbackAction(params: {
     });
   }
 
-  if (session.status === "error") {
+  if (session.status === PendingAuthStatus.Error) {
     return sendErrorPage({
       reply: params.reply,
       statusCode: 400,

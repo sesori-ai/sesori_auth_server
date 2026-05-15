@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { LRUCache } from "lru-cache";
-import type { UserProfile } from "../models/api.js";
+import type { OAuthClientType, UserProfile } from "../models/api.js";
 import { OAuthProviderName } from "../types/oauth.js";
 
 /**
@@ -39,14 +39,15 @@ const USER_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const USER_CODE_LENGTH = 4;
 const USER_CODE_REGEX = /^[A-Z0-9]{4}$/;
 
-export type PendingAuthStatus =
-  | "pending"
-  | "awaiting_confirmation"
-  | "complete"
-  | "consumed"
-  | "denied"
-  | "expired"
-  | "error";
+export enum PendingAuthStatus {
+  Pending = "pending",
+  AwaitingConfirmation = "awaiting_confirmation",
+  Complete = "complete",
+  Consumed = "consumed",
+  Denied = "denied",
+  Expired = "expired",
+  Error = "error",
+}
 
 export type PendingAuthTokens = {
   accessToken: string;
@@ -68,7 +69,7 @@ export type PendingAuthSession = {
   /** Provider error message when `status === "error"`. */
   errorMessage?: string;
   /** Client type (bridge / app / per-platform). Recorded at init for audit. */
-  clientType?: string;
+  clientType?: OAuthClientType;
 };
 
 type PendingAuthStoreEntry = {
@@ -134,7 +135,7 @@ export class PendingAuthStore {
     provider: OAuthProviderName;
     pkceVerifier: string;
     state: string;
-    clientType?: string;
+    clientType?: OAuthClientType;
   }): PendingAuthSession {
     const now = this.#now();
     const session: PendingAuthSessionRecord = {
@@ -143,7 +144,7 @@ export class PendingAuthStore {
       pkceVerifier: params.pkceVerifier,
       state: params.state,
       userCode: this.#generateUniqueUserCode(),
-      status: "pending",
+      status: PendingAuthStatus.Pending,
       createdAt: now,
       expiresAt: new Date(now.getTime() + this.#sessionTtlMs),
       clientType: params.clientType,
@@ -195,14 +196,14 @@ export class PendingAuthStore {
       return null;
     }
     if (
-      entry.session.status === "complete" ||
-      entry.session.status === "consumed" ||
-      entry.session.status === "denied" ||
-      entry.session.status === "error"
+      entry.session.status === PendingAuthStatus.Complete ||
+      entry.session.status === PendingAuthStatus.Consumed ||
+      entry.session.status === PendingAuthStatus.Denied ||
+      entry.session.status === PendingAuthStatus.Error
     ) {
       return null;
     }
-    return this.#updateSession({ tokenHash, status: "awaiting_confirmation" });
+    return this.#updateSession({ tokenHash, status: PendingAuthStatus.AwaitingConfirmation });
   }
 
   /**
@@ -221,17 +222,17 @@ export class PendingAuthStore {
     }
     // Terminal-state guard: don't downgrade denied/error/complete/consumed sessions
     if (
-      entry.session.status === "denied" ||
-      entry.session.status === "error" ||
-      entry.session.status === "complete" ||
-      entry.session.status === "consumed"
+      entry.session.status === PendingAuthStatus.Denied ||
+      entry.session.status === PendingAuthStatus.Error ||
+      entry.session.status === PendingAuthStatus.Complete ||
+      entry.session.status === PendingAuthStatus.Consumed
     ) {
       return null;
     }
 
     return this.#updateSession({
       tokenHash: params.tokenHash,
-      status: "awaiting_confirmation",
+      status: PendingAuthStatus.AwaitingConfirmation,
       stagedTokens: params.tokens,
       stagedUser: params.user,
       tokens: undefined,
@@ -246,7 +247,7 @@ export class PendingAuthStore {
    */
   confirmSession(tokenHash: string): PendingAuthSession | null {
     const entry = this.#getActiveEntry(tokenHash);
-    if (!entry || entry.session.status !== "awaiting_confirmation") {
+    if (!entry || entry.session.status !== PendingAuthStatus.AwaitingConfirmation) {
       return null;
     }
 
@@ -257,7 +258,7 @@ export class PendingAuthStore {
 
     return this.#updateSession({
       tokenHash,
-      status: "complete",
+      status: PendingAuthStatus.Complete,
       tokens: stagedTokens,
       user: stagedUser,
       stagedTokens: undefined,
@@ -280,12 +281,12 @@ export class PendingAuthStore {
     if (!entry) {
       return null;
     }
-    if (entry.session.status === "denied" || entry.session.status === "error") {
+    if (entry.session.status === PendingAuthStatus.Denied || entry.session.status === PendingAuthStatus.Error) {
       return null;
     }
     return this.#updateSession({
       tokenHash: params.tokenHash,
-      status: "complete",
+      status: PendingAuthStatus.Complete,
       tokens: params.tokens,
       user: params.user,
       errorMessage: undefined,
@@ -302,12 +303,12 @@ export class PendingAuthStore {
       return null;
     }
     // Terminal-state guard: don't downgrade complete/consumed sessions
-    if (entry.session.status === "complete" || entry.session.status === "consumed") {
+    if (entry.session.status === PendingAuthStatus.Complete || entry.session.status === PendingAuthStatus.Consumed) {
       return null;
     }
     return this.#updateSession({
       tokenHash,
-      status: "denied",
+      status: PendingAuthStatus.Denied,
       stagedTokens: undefined,
       stagedUser: undefined,
       tokens: undefined,
@@ -326,12 +327,12 @@ export class PendingAuthStore {
       return null;
     }
     // Terminal-state guard
-    if (entry.session.status === "complete" || entry.session.status === "consumed") {
+    if (entry.session.status === PendingAuthStatus.Complete || entry.session.status === PendingAuthStatus.Consumed) {
       return null;
     }
     return this.#updateSession({
       tokenHash: params.tokenHash,
-      status: "error",
+      status: PendingAuthStatus.Error,
       stagedTokens: undefined,
       stagedUser: undefined,
       tokens: undefined,
@@ -347,7 +348,7 @@ export class PendingAuthStore {
    */
   consumeCompletion(tokenHash: string): { tokens: PendingAuthTokens; user: UserProfile } | null {
     const entry = this.#getActiveEntry(tokenHash);
-    if (!entry || entry.session.status !== "complete" || !entry.session.tokens || !entry.session.user) {
+    if (!entry || entry.session.status !== PendingAuthStatus.Complete || !entry.session.tokens || !entry.session.user) {
       return null;
     }
 
@@ -361,7 +362,7 @@ export class PendingAuthStore {
     // is already emptied by this first notification so it's a no-op safeguard.
     const consumedSession: PendingAuthSessionRecord = {
       ...entry.session,
-      status: "consumed",
+      status: PendingAuthStatus.Consumed,
       stagedTokens: undefined,
       stagedUser: undefined,
       tokens: undefined,
@@ -404,7 +405,7 @@ export class PendingAuthStore {
         const expiringEntry = this.#sessions.get(tokenHash);
         if (expiringEntry && expiringEntry.session.expiresAt.getTime() <= this.#now().getTime()) {
           this.#expireSession(tokenHash, expiringEntry);
-          resolve({ ...this.#cloneSession(expiringEntry.session), status: "expired" });
+          resolve({ ...this.#cloneSession(expiringEntry.session), status: PendingAuthStatus.Expired });
           return;
         }
         resolve(this.getSessionByTokenHash(tokenHash));
@@ -507,7 +508,7 @@ export class PendingAuthStore {
   #expireSession(tokenHash: string, entry: PendingAuthStoreEntry): void {
     const expiredSession: PendingAuthSessionRecord = {
       ...entry.session,
-      status: "expired",
+      status: PendingAuthStatus.Expired,
       stagedTokens: undefined,
       stagedUser: undefined,
       tokens: undefined,

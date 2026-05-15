@@ -39,21 +39,20 @@ export type OAuthInitReply = {
   state: string;
 };
 
-export const oauthClientTypeValues = [
-  "bridge",
-  "app",
-  "bridge_macos",
-  "bridge_windows",
-  "bridge_linux",
-  "app_ios",
-  "app_android",
-  "app_macos",
-  "app_windows",
-  "app_linux",
-] as const;
+export enum OAuthClientType {
+  Bridge = "bridge",
+  App = "app",
+  BridgeMacOS = "bridge_macos",
+  BridgeWindows = "bridge_windows",
+  BridgeLinux = "bridge_linux",
+  AppIOS = "app_ios",
+  AppAndroid = "app_android",
+  AppMacOS = "app_macos",
+  AppWindows = "app_windows",
+  AppLinux = "app_linux",
+}
 
-export const oauthClientTypeSchema = z.enum(oauthClientTypeValues);
-export type OAuthClientType = z.infer<typeof oauthClientTypeSchema>;
+export const oauthClientTypeSchema = z.nativeEnum(OAuthClientType);
 
 export const oauthInitBodySchema = z.object({
   clientType: z
