@@ -59,7 +59,9 @@ async function main() {
   const deviceTokenRepo = new DeviceTokenRepository(dbAccessor);
 
   const tokenService = new TokenService(config.JWT_PRIVATE_KEY, config.JWT_PUBLIC_KEY);
-  const pendingAuthStore = new PendingAuthStore();
+  const pendingAuthStore = new PendingAuthStore({
+    maxSessions: config.PENDING_AUTH_MAX_SESSIONS,
+  });
   console.log("JWT keys loaded");
 
   let messaging: ReturnType<typeof getMessaging> | null = null;

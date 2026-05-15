@@ -22,7 +22,7 @@ import {
   parseOAuthPendingInitBody,
   parseSessionTokenHeader,
 } from "./init.js";
-import { handleProviderCallbackAction, handleProviderCallbackRedirect } from "./provider-callback.js";
+import { handleProviderCallbackRedirect, registerProviderConfirmRoute } from "./provider-callback.js";
 
 const githubInitQuerySchema = z.object({
   redirect_uri: z.string().min(1),
@@ -75,13 +75,14 @@ export const githubRoutes: FastifyPluginAsync<GithubRouteOptions> = async (fasti
   });
 
   fastify.post<{ Body: unknown; Reply: OAuthPendingInitReply }>("/auth/github/init", async (request) => {
-    parseOAuthPendingInitBody(request.body);
+    const { clientType } = parseOAuthPendingInitBody(request.body);
 
     const sessionToken = parseSessionTokenHeader(request.headers["x-sesori-session-token"]);
     const { session, codeChallenge } = createPendingOAuthInit({
       provider: OAuthProviderName.Github,
       pendingAuthStore,
       sessionToken,
+      clientType,
     });
 
     const authUrl = new URL("https://github.com/login/oauth/authorize");
@@ -138,11 +139,8 @@ export const githubRoutes: FastifyPluginAsync<GithubRouteOptions> = async (fasti
     });
   });
 
-  fastify.post("/auth/github/callback/confirm", async (request, reply) => {
-    return await handleProviderCallbackAction({
-      request,
-      reply,
-      pendingAuthStore,
-    });
+  await registerProviderConfirmRoute(fastify, {
+    providerName: OAuthProviderName.Github,
+    pendingAuthStore,
   });
 };

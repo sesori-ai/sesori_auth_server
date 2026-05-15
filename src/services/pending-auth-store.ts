@@ -1,12 +1,43 @@
-import * as crypto from "node:crypto";
+import crypto from "node:crypto";
 import { LRUCache } from "lru-cache";
 import type { UserProfile } from "../models/api.js";
 import { OAuthProviderName } from "../types/oauth.js";
 
+/**
+ * In-memory store of pending OAuth sign-in sessions used for the anti-phishing
+ * confirmation flow.
+ *
+ * State machine:
+ *
+ *     pending ──(provider redirect arrives)──▶ awaiting_confirmation
+ *                                                     │
+ *                                     ┌──(user confirms)─▶ complete ──▶ consumed (deleted)
+ *                                     └──(user denies)───▶ denied
+ *     * ──(TTL elapsed)──▶ expired (no-op, just notifies waiters; entry deleted)
+ *     * ──(OAuth exchange failed)──▶ error
+ *
+ * Bounded LRU + TTL. **Single-instance only**: pending sessions live in this
+ * process's memory and are NOT visible to other instances. Horizontal scaling
+ * requires sticky sessions or migrating to Redis.
+ *
+ * Memory footprint: ~1 KB per entry × max entries. Default max is 10k entries,
+ * configurable via constructor `maxSessions` (and via `PENDING_AUTH_MAX_SESSIONS`
+ * env when wired through `src/config.ts`).
+ *
+ * Expiry strategy: lazy on read (`#getActiveEntry`) plus the LRU cap. We do
+ * NOT schedule per-entry timers — that would queue 10k callbacks under load.
+ */
+
 const DEFAULT_SESSION_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_MAX_SESSIONS = 10_000;
+
+// User-visible 4-character code for anti-phishing visual matching only.
+// Crockford-style alphabet (omits I/O/0/1 to avoid OCR/handwriting ambiguity).
+// 32^4 ≈ 1M codes — sufficient for visual uniqueness within the 5-min TTL
+// window. NOT used as a server-side validation token.
 const USER_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const USER_CODE_LENGTH = 4;
+const USER_CODE_REGEX = /^[A-Z0-9]{4}$/;
 
 export type PendingAuthStatus =
   | "pending"
@@ -31,17 +62,21 @@ export type PendingAuthSession = {
   status: PendingAuthStatus;
   createdAt: Date;
   expiresAt: Date;
+  /** Tokens delivered to the client on `consumeCompletion`. Only present when `status === "complete"`. */
   tokens?: PendingAuthTokens;
   user?: UserProfile;
+  /** Provider error message when `status === "error"`. */
   errorMessage?: string;
+  /** Client type (bridge / app / per-platform). Recorded at init for audit. */
+  clientType?: string;
 };
 
 type PendingAuthStoreEntry = {
   session: PendingAuthSessionRecord;
-  expiryTimer: ReturnType<typeof setTimeout>;
 };
 
 type PendingAuthSessionRecord = PendingAuthSession & {
+  /** Tokens held during `awaiting_confirmation`; promoted to `tokens` on confirm. */
   stagedTokens?: PendingAuthTokens;
   stagedUser?: UserProfile;
 };
@@ -75,7 +110,6 @@ export class PendingAuthStore {
       max: deps?.maxSessions ?? DEFAULT_MAX_SESSIONS,
       noDisposeOnSet: true,
       dispose: (entry) => {
-        clearTimeout(entry.expiryTimer);
         this.#tokenHashesByState.delete(entry.session.state);
         this.#tokenHashesByUserCode.delete(entry.session.userCode);
         this.#notifyWaiters(entry.session.tokenHash, null, { includeSameStatus: true });
@@ -83,15 +117,24 @@ export class PendingAuthStore {
     });
   }
 
+  /** SHA-256 hex digest of the raw session token. Server only ever stores the hash. */
   static hashToken(token: string): string {
     return crypto.createHash("sha256").update(token).digest("hex");
   }
 
+  /**
+   * Create a new pending session keyed by `tokenHash`.
+   *
+   * If `tokenHash` already exists, the previous session is replaced (idempotent
+   * re-init from the same client). Reverse indexes for the old state/userCode
+   * are cleaned up.
+   */
   createSession(params: {
     tokenHash: string;
     provider: OAuthProviderName;
     pkceVerifier: string;
     state: string;
+    clientType?: string;
   }): PendingAuthSession {
     const now = this.#now();
     const session: PendingAuthSessionRecord = {
@@ -103,12 +146,14 @@ export class PendingAuthStore {
       status: "pending",
       createdAt: now,
       expiresAt: new Date(now.getTime() + this.#sessionTtlMs),
+      clientType: params.clientType,
     };
 
     this.#setSession(session);
     return this.#cloneSession(session);
   }
 
+  /** Lookup by hashed session token. Returns null if missing or expired. */
   getSession(tokenHash: string): PendingAuthSession | null {
     return this.getSessionByTokenHash(tokenHash);
   }
@@ -118,6 +163,7 @@ export class PendingAuthStore {
     return entry ? this.#cloneSession(entry.session) : null;
   }
 
+  /** Lookup by the OAuth `state` parameter (used during provider callback). */
   getSessionByState(state: string): PendingAuthSession | null {
     const tokenHash = this.#tokenHashesByState.get(state);
     if (!tokenHash) {
@@ -127,6 +173,7 @@ export class PendingAuthStore {
     return this.getSessionByTokenHash(tokenHash);
   }
 
+  /** Lookup by user-facing 4-char visual code. */
   getSessionByUserCode(userCode: string): PendingAuthSession | null {
     const tokenHash = this.#tokenHashesByUserCode.get(userCode);
     if (!tokenHash) {
@@ -136,15 +183,52 @@ export class PendingAuthStore {
     return this.getSessionByTokenHash(tokenHash);
   }
 
+  /**
+   * Transition to `awaiting_confirmation` without staging tokens. Used when
+   * the OAuth exchange has not yet produced tokens (e.g. test scaffolding or
+   * a future flow that decouples "user must confirm" from "tokens available").
+   * Subject to terminal-state guards: complete/consumed/denied/error are immutable.
+   */
   markAwaitingConfirmation(tokenHash: string): PendingAuthSession | null {
+    const entry = this.#getActiveEntry(tokenHash);
+    if (!entry) {
+      return null;
+    }
+    if (
+      entry.session.status === "complete" ||
+      entry.session.status === "consumed" ||
+      entry.session.status === "denied" ||
+      entry.session.status === "error"
+    ) {
+      return null;
+    }
     return this.#updateSession({ tokenHash, status: "awaiting_confirmation" });
   }
 
+  /**
+   * Stage tokens for an explicit confirm step. Transitions `pending → awaiting_confirmation`.
+   * Caller MUST later call `confirmSession` or `denySession` to release.
+   * Returns null if the session is missing, expired, or already in a terminal state.
+   */
   stageCompletion(params: {
     tokenHash: string;
     tokens: PendingAuthTokens;
     user: UserProfile;
   }): PendingAuthSession | null {
+    const entry = this.#getActiveEntry(params.tokenHash);
+    if (!entry) {
+      return null;
+    }
+    // Terminal-state guard: don't downgrade denied/error/complete/consumed sessions
+    if (
+      entry.session.status === "denied" ||
+      entry.session.status === "error" ||
+      entry.session.status === "complete" ||
+      entry.session.status === "consumed"
+    ) {
+      return null;
+    }
+
     return this.#updateSession({
       tokenHash: params.tokenHash,
       status: "awaiting_confirmation",
@@ -156,33 +240,49 @@ export class PendingAuthStore {
     });
   }
 
+  /**
+   * Promote a staged session to `complete`. Only valid from `awaiting_confirmation`.
+   * Returns null if the session is missing, expired, or not in the expected state.
+   */
   confirmSession(tokenHash: string): PendingAuthSession | null {
     const entry = this.#getActiveEntry(tokenHash);
     if (!entry || entry.session.status !== "awaiting_confirmation") {
       return null;
     }
 
-    const session = entry.session as PendingAuthSessionRecord;
-    if (!session.stagedTokens || !session.stagedUser) {
+    const { stagedTokens, stagedUser } = entry.session;
+    if (!stagedTokens || !stagedUser) {
       return null;
     }
 
     return this.#updateSession({
       tokenHash,
       status: "complete",
-      tokens: session.stagedTokens,
-      user: session.stagedUser,
+      tokens: stagedTokens,
+      user: stagedUser,
       stagedTokens: undefined,
       stagedUser: undefined,
       errorMessage: undefined,
     });
   }
 
+  /**
+   * Directly transition a session to `complete` with tokens, skipping the
+   * staged-confirmation step. Intended for legacy/test paths that bypass the
+   * interstitial. Honours terminal-state guards (won't overwrite denied/error).
+   */
   completeSession(params: {
     tokenHash: string;
     tokens: PendingAuthTokens;
     user: UserProfile;
   }): PendingAuthSession | null {
+    const entry = this.#getActiveEntry(params.tokenHash);
+    if (!entry) {
+      return null;
+    }
+    if (entry.session.status === "denied" || entry.session.status === "error") {
+      return null;
+    }
     return this.#updateSession({
       tokenHash: params.tokenHash,
       status: "complete",
@@ -192,7 +292,19 @@ export class PendingAuthStore {
     });
   }
 
+  /**
+   * Transition to `denied`. Terminal — subsequent confirm/stage attempts are
+   * rejected (terminal-state guards in `stageCompletion`/`confirmSession`).
+   */
   denySession(tokenHash: string): PendingAuthSession | null {
+    const entry = this.#getActiveEntry(tokenHash);
+    if (!entry) {
+      return null;
+    }
+    // Terminal-state guard: don't downgrade complete/consumed sessions
+    if (entry.session.status === "complete" || entry.session.status === "consumed") {
+      return null;
+    }
     return this.#updateSession({
       tokenHash,
       status: "denied",
@@ -204,7 +316,19 @@ export class PendingAuthStore {
     });
   }
 
+  /**
+   * Transition to `error` (e.g. provider returned a non-`access_denied` error,
+   * or the token exchange threw). Terminal.
+   */
   failSession(params: { tokenHash: string; errorMessage: string }): PendingAuthSession | null {
+    const entry = this.#getActiveEntry(params.tokenHash);
+    if (!entry) {
+      return null;
+    }
+    // Terminal-state guard
+    if (entry.session.status === "complete" || entry.session.status === "consumed") {
+      return null;
+    }
     return this.#updateSession({
       tokenHash: params.tokenHash,
       status: "error",
@@ -216,28 +340,11 @@ export class PendingAuthStore {
     });
   }
 
-  updateSession(
-    tokenHash: string,
-    update: {
-      status: PendingAuthStatus;
-      stagedTokens?: PendingAuthTokens;
-      stagedUser?: UserProfile;
-      tokens?: PendingAuthTokens;
-      user?: UserProfile;
-      errorMessage?: string;
-    },
-  ): PendingAuthSession | null {
-    return this.#updateSession({
-      tokenHash,
-      status: update.status,
-      stagedTokens: update.stagedTokens,
-      stagedUser: update.stagedUser,
-      tokens: update.tokens,
-      user: update.user,
-      errorMessage: update.errorMessage,
-    });
-  }
-
+  /**
+   * Atomically consume a completed session — returns tokens/user once, then
+   * deletes the entry. Subsequent calls return null (the LRU entry is gone,
+   * `getSessionByTokenHash` returns null too).
+   */
   consumeCompletion(tokenHash: string): { tokens: PendingAuthTokens; user: UserProfile } | null {
     const entry = this.#getActiveEntry(tokenHash);
     if (!entry || entry.session.status !== "complete" || !entry.session.tokens || !entry.session.user) {
@@ -249,6 +356,9 @@ export class PendingAuthStore {
       user: { ...entry.session.user },
     };
 
+    // Notify any pollers with a "consumed" status, then delete the entry.
+    // The LRU dispose callback also notifies (with null), but the waiters set
+    // is already emptied by this first notification so it's a no-op safeguard.
     const consumedSession: PendingAuthSessionRecord = {
       ...entry.session,
       status: "consumed",
@@ -258,33 +368,20 @@ export class PendingAuthStore {
       user: undefined,
       errorMessage: undefined,
     };
-
     this.#notifyWaiters(tokenHash, consumedSession, { includeSameStatus: true });
     this.#sessions.delete(tokenHash);
 
     return completion;
   }
 
-  consumeCompletedSession(tokenHash: string): PendingAuthSession | null {
-    const entry = this.#getActiveEntry(tokenHash);
-    if (!entry || entry.session.status !== "complete" || !entry.session.tokens || !entry.session.user) {
-      return null;
-    }
-
-    const consumedSession: PendingAuthSessionRecord = {
-      ...entry.session,
-      status: "consumed",
-      stagedTokens: undefined,
-      stagedUser: undefined,
-      tokens: undefined,
-      user: undefined,
-      errorMessage: undefined,
-    };
-
-    this.consumeCompletion(tokenHash);
-    return this.#cloneSession(consumedSession);
-  }
-
+  /**
+   * Wait for the session's status to change away from its current value, or
+   * for `timeoutMs` to elapse. Returns the latest session snapshot at the
+   * moment of resolution (or null if the session was deleted).
+   *
+   * Race-safe: a status change happening between `getSessionByTokenHash` and
+   * waiter registration triggers an immediate resolve via the re-check below.
+   */
   waitForStatusChange(tokenHash: string, timeoutMs: number): Promise<PendingAuthSession | null> {
     const session = this.getSessionByTokenHash(tokenHash);
     if (!session) {
@@ -295,11 +392,23 @@ export class PendingAuthStore {
       return Promise.resolve(session);
     }
 
+    // Cap the wait at the session's remaining TTL so long-pollers receive the
+    // `expired` transition promptly (per-poll timer, NOT per-entry — there's
+    // at most O(active pollers) timers, which is bounded by FD count).
+    const msUntilExpiry = Math.max(0, session.expiresAt.getTime() - this.#now().getTime());
+    const effectiveTimeoutMs = Math.min(timeoutMs, msUntilExpiry);
+
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
         this.#removeWaiter(tokenHash, waiter);
+        const expiringEntry = this.#sessions.get(tokenHash);
+        if (expiringEntry && expiringEntry.session.expiresAt.getTime() <= this.#now().getTime()) {
+          this.#expireSession(tokenHash, expiringEntry);
+          resolve({ ...this.#cloneSession(expiringEntry.session), status: "expired" });
+          return;
+        }
         resolve(this.getSessionByTokenHash(tokenHash));
-      }, timeoutMs);
+      }, effectiveTimeoutMs);
       timeout.unref?.();
 
       const waiter: StatusWaiter = {
@@ -315,6 +424,10 @@ export class PendingAuthStore {
       waiters.add(waiter);
       this.#waitersByTokenHash.set(tokenHash, waiters);
 
+      // Re-check after registration: if status changed between snapshot and
+      // waiter add, resolve immediately. Without this, a transition that
+      // happens in the gap would be missed and the caller would block until
+      // the timeout fires.
       const latestSession = this.getSessionByTokenHash(tokenHash);
       if (!latestSession || latestSession.status !== waiter.initialStatus) {
         this.#removeWaiter(tokenHash, waiter);
@@ -323,16 +436,17 @@ export class PendingAuthStore {
     });
   }
 
+  /**
+   * Sweep expired entries proactively. Optional — `#getActiveEntry` already
+   * expires on read. Useful only when callers want waiters to be notified
+   * promptly on TTL elapse without a corresponding read.
+   */
   expireExpiredSessions(now = this.#now()): void {
     for (const [tokenHash, entry] of this.#sessions.entries()) {
       if (entry.session.expiresAt.getTime() <= now.getTime()) {
         this.#expireSession(tokenHash, entry);
       }
     }
-  }
-
-  deleteSession(tokenHash: string): boolean {
-    return this.#sessions.delete(tokenHash);
   }
 
   #updateSession(params: {
@@ -377,7 +491,6 @@ export class PendingAuthStore {
   #setSession(session: PendingAuthSessionRecord): void {
     const existingEntry = this.#sessions.get(session.tokenHash);
     if (existingEntry) {
-      clearTimeout(existingEntry.expiryTimer);
       if (existingEntry.session.state !== session.state) {
         this.#tokenHashesByState.delete(existingEntry.session.state);
       }
@@ -388,27 +501,10 @@ export class PendingAuthStore {
 
     this.#tokenHashesByState.set(session.state, session.tokenHash);
     this.#tokenHashesByUserCode.set(session.userCode, session.tokenHash);
-    this.#sessions.set(session.tokenHash, {
-      session,
-      expiryTimer: (() => {
-        const timer = setTimeout(
-          () => {
-            const entry = this.#sessions.get(session.tokenHash);
-            if (entry) {
-              this.#expireSession(session.tokenHash, entry);
-            }
-          },
-          Math.max(0, session.expiresAt.getTime() - this.#now().getTime()),
-        );
-        timer.unref?.();
-        return timer;
-      })(),
-    });
+    this.#sessions.set(session.tokenHash, { session });
   }
 
   #expireSession(tokenHash: string, entry: PendingAuthStoreEntry): void {
-    clearTimeout(entry.expiryTimer);
-
     const expiredSession: PendingAuthSessionRecord = {
       ...entry.session,
       status: "expired",
@@ -434,7 +530,10 @@ export class PendingAuthStore {
     }
 
     const nextSession = session ? this.#cloneSession(session) : null;
-    for (const waiter of waiters) {
+    // Snapshot before mutating — defends against future refactors that might
+    // confuse the iteration order of `Set.delete()` mid-loop.
+    const snapshot = Array.from(waiters);
+    for (const waiter of snapshot) {
       if (!options?.includeSameStatus && nextSession && waiter.initialStatus === nextSession.status) {
         continue;
       }
@@ -464,7 +563,7 @@ export class PendingAuthStore {
   #generateUniqueUserCode(): string {
     for (let attempt = 0; attempt < 32; attempt += 1) {
       const userCode = this.#userCodeGenerator().toUpperCase();
-      if (userCode.length !== USER_CODE_LENGTH || !/^[A-Z0-9]{4}$/.test(userCode)) {
+      if (userCode.length !== USER_CODE_LENGTH || !USER_CODE_REGEX.test(userCode)) {
         throw new Error("PendingAuthStore userCodeGenerator must return a 4-character alphanumeric code");
       }
 
@@ -498,6 +597,7 @@ export class PendingAuthStore {
       tokens: session.tokens ? { ...session.tokens } : undefined,
       user: session.user ? { ...session.user } : undefined,
       errorMessage: session.errorMessage,
+      clientType: session.clientType,
     };
   }
 }

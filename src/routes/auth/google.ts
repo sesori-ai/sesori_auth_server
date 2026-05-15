@@ -22,7 +22,7 @@ import {
   parseOAuthPendingInitBody,
   parseSessionTokenHeader,
 } from "./init.js";
-import { handleProviderCallbackAction, handleProviderCallbackRedirect } from "./provider-callback.js";
+import { handleProviderCallbackRedirect, registerProviderConfirmRoute } from "./provider-callback.js";
 
 const googleInitQuerySchema = z.object({
   redirect_uri: z.string().min(1),
@@ -78,13 +78,14 @@ export const googleRoutes: FastifyPluginAsync<GoogleRouteOptions> = async (fasti
   });
 
   fastify.post<{ Body: unknown; Reply: OAuthPendingInitReply }>("/auth/google/init", async (request) => {
-    parseOAuthPendingInitBody(request.body);
+    const { clientType } = parseOAuthPendingInitBody(request.body);
 
     const sessionToken = parseSessionTokenHeader(request.headers["x-sesori-session-token"]);
     const { session, codeChallenge } = createPendingOAuthInit({
       provider: OAuthProviderName.Google,
       pendingAuthStore,
       sessionToken,
+      clientType,
     });
 
     const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
@@ -144,11 +145,8 @@ export const googleRoutes: FastifyPluginAsync<GoogleRouteOptions> = async (fasti
     });
   });
 
-  fastify.post("/auth/google/callback/confirm", async (request, reply) => {
-    return await handleProviderCallbackAction({
-      request,
-      reply,
-      pendingAuthStore,
-    });
+  await registerProviderConfirmRoute(fastify, {
+    providerName: OAuthProviderName.Google,
+    pendingAuthStore,
   });
 };

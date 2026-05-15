@@ -10,7 +10,20 @@ const appleConfigSchema = z.object({
 
 const configSchema = z.object({
   PORT: z.coerce.number().default(3001),
+  // Public base URL of this auth service. Used to construct the redirect_uri
+  // passed to OAuth providers (GitHub/Google/Apple) in the pending-confirmation
+  // flow. MUST EXACTLY match the URI registered in each provider's OAuth app
+  // config — mismatches cause `redirect_uri_mismatch` at the provider before
+  // any code reaches us. The default targets production; staging/dev should
+  // override explicitly via env.
   AUTH_BASE_URL: z.string().url().default("https://api.sesori.com"),
+  // Maximum concurrent pending OAuth sessions held in-memory by
+  // `PendingAuthStore`. Each entry is ~1 KB; default 10k ≈ 10 MB worst case.
+  // Raise only if traffic warrants it AND single-instance memory allows.
+  PENDING_AUTH_MAX_SESSIONS: z.coerce.number().int().positive().default(10_000),
+  // Max long-poll duration on `GET /auth/session/status`. Lower values reduce
+  // FD pressure under load; higher values reduce client-side reconnects.
+  PENDING_AUTH_POLL_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
   MONGODB_URI: z.string().min(1, "MONGODB_URI is required"),
   JWT_PRIVATE_KEY: z.string().min(1, "JWT_PRIVATE_KEY is required"),
   JWT_PUBLIC_KEY: z.string().min(1, "JWT_PUBLIC_KEY is required"),

@@ -1,5 +1,33 @@
+/**
+ * Anti-phishing OAuth confirmation interstitial.
+ *
+ * The provider redirects the user back to `/auth/{provider}/callback` with
+ * `code` and `state`. Rather than exchanging the code and immediately issuing
+ * tokens to whoever triggered the callback (vulnerable to phishing redirects
+ * that trick the user into completing sign-in for an attacker-controlled
+ * session token), we render a confirmation page showing a 4-character visual
+ * code that the Sesori app/bridge also displays. Tokens are issued only after
+ * the user explicitly confirms in-browser.
+ *
+ * Two handlers are exported:
+ *  - `handleProviderCallbackRedirect`: GET handler invoked by the OAuth
+ *    provider after user consent. Validates state, exchanges code for tokens
+ *    via `AuthService`, stages tokens on the pending session, and renders the
+ *    confirmation HTML.
+ *  - `handleProviderCallbackAction`: POST handler invoked when the user
+ *    submits the confirmation HTML <form> (confirm / deny). Promotes the
+ *    staged session to `complete` (or transitions to `denied`).
+ *
+ * Untrusted inputs handled here:
+ *  - `state` and `error_description` come from the OAuth provider URL. State
+ *    is regex-validated; error_description is HTML-escaped before reflection.
+ *  - Form body for confirm/deny is Zod-parsed (`callbackActionBodySchema`).
+ *  - Provider names are interpolated as URL path segments via
+ *    `encodeURIComponent` (defense in depth — they are enum-bounded today).
+ */
+
 import { z } from "zod";
-import type { FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import type { OAuthClient } from "../../clients/auth/oauth-client.js";
 import type { AuthService } from "../../services/auth-service.js";
 import type { PendingAuthStore, PendingAuthSession } from "../../services/pending-auth-store.js";
@@ -24,10 +52,12 @@ const oauthCallbackQuerySchema = z
     }
   });
 
-const callbackActionQuerySchema = z.object({
+const callbackActionBodySchema = z.object({
   state: z.string().min(1),
   action: z.enum(["confirm", "deny"]),
 });
+
+const MAX_REFLECTED_ERROR_LENGTH = 200;
 
 type ProviderCallbackDeps<TClient extends OAuthClient> = {
   providerName: OAuthProviderName;
@@ -54,8 +84,7 @@ export async function handleProviderCallbackRedirect<TClient extends OAuthClient
     });
   }
 
-  const { code, error, error_description, state } = queryResult.data;
-  const stateResult = pendingStateSchema.safeParse(state);
+  const stateResult = pendingStateSchema.safeParse(queryResult.data.state);
   if (!stateResult.success) {
     return sendErrorPage({
       reply: params.reply,
@@ -75,34 +104,13 @@ export async function handleProviderCallbackRedirect<TClient extends OAuthClient
     });
   }
 
-  if (error) {
-    if (session.status === "complete" || session.status === "consumed") {
-      return sendSuccessPage({
-        reply: params.reply,
-        title: "Sign-in already confirmed",
-        message: "This sign-in request has already been confirmed in Sesori.",
-      });
-    }
-
-    if (error === "access_denied") {
-      params.deps.pendingAuthStore.denySession(session.tokenHash);
-      return sendDeniedPage({
-        reply: params.reply,
-        userCode: session.userCode,
-        title: "Sign-in cancelled",
-        message: "You cancelled this sign-in request. You can return to Sesori and try again.",
-      });
-    }
-
-    params.deps.pendingAuthStore.failSession({
-      tokenHash: session.tokenHash,
-      errorMessage: error_description ?? error,
-    });
-    return sendErrorPage({
+  if (queryResult.data.error) {
+    return await handleProviderErrorCallback({
       reply: params.reply,
-      statusCode: 400,
-      title: "Sign-in failed",
-      message: error_description ?? "The provider rejected this sign-in request.",
+      pendingAuthStore: params.deps.pendingAuthStore,
+      session,
+      error: queryResult.data.error,
+      errorDescription: queryResult.data.error_description,
     });
   }
 
@@ -141,12 +149,25 @@ export async function handleProviderCallbackRedirect<TClient extends OAuthClient
       break;
   }
 
+  // `code` is guaranteed non-empty here: the `superRefine` rule rejects the
+  // request when both `code` and `error` are missing, and the `error` branch
+  // above returned. Narrow explicitly to avoid a non-null assertion.
+  const code = queryResult.data.code;
+  if (!code) {
+    return sendErrorPage({
+      reply: params.reply,
+      statusCode: 400,
+      title: "Invalid sign-in callback",
+      message: "The provider callback was missing the authorization code.",
+    });
+  }
+
   try {
     const result = await params.deps.authService.authenticateOAuth(
       params.deps.providerName,
       params.deps.providerClient,
       {
-        code: code!,
+        code,
         codeVerifier: session.pkceVerifier,
         redirectUri: params.deps.callbackRedirectUri,
         clientId: params.deps.clientId,
@@ -177,7 +198,11 @@ export async function handleProviderCallbackRedirect<TClient extends OAuthClient
       providerName: params.deps.providerName,
       session: stagedSession,
     });
-  } catch {
+  } catch (err) {
+    params.request.log.warn(
+      { err, provider: params.deps.providerName, tokenHash: session.tokenHash },
+      "oauth_exchange_failed",
+    );
     params.deps.pendingAuthStore.failSession({
       tokenHash: session.tokenHash,
       errorMessage: "oauth_exchange_failed",
@@ -191,19 +216,59 @@ export async function handleProviderCallbackRedirect<TClient extends OAuthClient
   }
 }
 
+async function handleProviderErrorCallback(params: {
+  reply: FastifyReply;
+  pendingAuthStore: PendingAuthStore;
+  session: PendingAuthSession;
+  error: string;
+  errorDescription?: string;
+}): Promise<FastifyReply> {
+  if (params.session.status === "complete" || params.session.status === "consumed") {
+    return sendSuccessPage({
+      reply: params.reply,
+      title: "Sign-in already confirmed",
+      message: "This sign-in request has already been confirmed in Sesori.",
+    });
+  }
+
+  if (params.error === "access_denied") {
+    params.pendingAuthStore.denySession(params.session.tokenHash);
+    return sendDeniedPage({
+      reply: params.reply,
+      userCode: params.session.userCode,
+      title: "Sign-in cancelled",
+      message: "You cancelled this sign-in request. You can return to Sesori and try again.",
+    });
+  }
+
+  // `errorDescription` originates from the OAuth provider's redirect URL and
+  // is INTENTIONALLY surfaced to the end user (for debuggability). It is
+  // HTML-escaped before rendering and truncated to bound page size.
+  const safeMessage = truncateForDisplay(params.errorDescription ?? params.error, MAX_REFLECTED_ERROR_LENGTH);
+  params.pendingAuthStore.failSession({
+    tokenHash: params.session.tokenHash,
+    errorMessage: safeMessage,
+  });
+  return sendErrorPage({
+    reply: params.reply,
+    statusCode: 400,
+    title: "Sign-in failed",
+    message: safeMessage,
+  });
+}
+
 export async function handleProviderCallbackAction(params: {
   request: FastifyRequest;
   reply: FastifyReply;
   pendingAuthStore: PendingAuthStore;
 }): Promise<FastifyReply> {
-  const raw = {
-    ...(typeof params.request.query === "object" ? params.request.query : {}),
-    ...(typeof params.request.body === "object" && params.request.body !== null
-      ? (params.request.body as Record<string, unknown>)
-      : {}),
-  };
-  const queryResult = callbackActionQuerySchema.safeParse(raw);
-  if (!queryResult.success) {
+  // Body-only parse: this route is POST and any state-changing query params
+  // would be a security smell. The Fastify form-body parser is scoped to this
+  // route so the body shape is `Record<string, unknown>` from URL-encoded
+  // submissions, or a JSON object from `Content-Type: application/json`.
+  const body = typeof params.request.body === "object" && params.request.body !== null ? params.request.body : {};
+  const bodyResult = callbackActionBodySchema.safeParse(body);
+  if (!bodyResult.success) {
     return sendErrorPage({
       reply: params.reply,
       statusCode: 400,
@@ -212,7 +277,7 @@ export async function handleProviderCallbackAction(params: {
     });
   }
 
-  const stateResult = pendingStateSchema.safeParse(queryResult.data.state);
+  const stateResult = pendingStateSchema.safeParse(bodyResult.data.state);
   if (!stateResult.success) {
     return sendErrorPage({
       reply: params.reply,
@@ -232,7 +297,7 @@ export async function handleProviderCallbackAction(params: {
     });
   }
 
-  if (queryResult.data.action === "deny") {
+  if (bodyResult.data.action === "deny") {
     if (session.status === "complete" || session.status === "consumed") {
       return sendSuccessPage({
         reply: params.reply,
@@ -297,6 +362,10 @@ function sendConfirmationPage(params: {
   providerName: OAuthProviderName;
   session: PendingAuthSession;
 }): FastifyReply {
+  // Provider names are enum-bounded; encodeURIComponent is defense-in-depth so
+  // a future contributor cannot accidentally introduce an open-action bug by
+  // widening the enum to a user-influenced value.
+  const formAction = `/auth/${encodeURIComponent(params.providerName)}/callback/confirm`;
   return params.reply.status(200).type("text/html; charset=utf-8").send(`<!doctype html>
 <html lang="en">
   <head>
@@ -321,12 +390,12 @@ function sendConfirmationPage(params: {
       <div class="code">${escapeHtml(params.session.userCode)}</div>
       <p>Sesori will finish sign-in only after you explicitly confirm here.</p>
       <div class="actions">
-        <form method="POST" action="/auth/${escapeHtml(params.providerName)}/callback/confirm">
+        <form method="POST" action="${escapeHtml(formAction)}">
           <input type="hidden" name="state" value="${escapeHtml(params.session.state)}" />
           <input type="hidden" name="action" value="confirm" />
           <button class="confirm" type="submit">Confirm</button>
         </form>
-        <form method="POST" action="/auth/${escapeHtml(params.providerName)}/callback/confirm">
+        <form method="POST" action="${escapeHtml(formAction)}">
           <input type="hidden" name="state" value="${escapeHtml(params.session.state)}" />
           <input type="hidden" name="action" value="deny" />
           <button class="deny" type="submit">Cancel</button>
@@ -391,4 +460,47 @@ function escapeHtml(value: string): string {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function truncateForDisplay(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, maxLength)}…`;
+}
+
+/**
+ * Registers the `/auth/{provider}/callback/confirm` POST endpoint inside an
+ * encapsulated Fastify plugin scope. The `application/x-www-form-urlencoded`
+ * parser is registered ONLY within this scope so other endpoints continue to
+ * accept JSON bodies exclusively (AR-3 / DC-9).
+ */
+export async function registerProviderConfirmRoute(
+  fastify: FastifyInstance,
+  options: { providerName: OAuthProviderName; pendingAuthStore: PendingAuthStore },
+): Promise<void> {
+  const plugin: FastifyPluginAsync = async (scope) => {
+    scope.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string" }, (_request, body, done) => {
+      try {
+        const params = new URLSearchParams(body as string);
+        const result: Record<string, string> = {};
+        for (const [key, value] of params) {
+          result[key] = value;
+        }
+        done(null, result);
+      } catch (err) {
+        done(err as Error);
+      }
+    });
+
+    scope.post(`/auth/${options.providerName}/callback/confirm`, async (request, reply) => {
+      return await handleProviderCallbackAction({
+        request,
+        reply,
+        pendingAuthStore: options.pendingAuthStore,
+      });
+    });
+  };
+
+  await fastify.register(plugin);
 }

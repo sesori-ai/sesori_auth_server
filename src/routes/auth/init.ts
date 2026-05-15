@@ -1,4 +1,20 @@
-import * as crypto from "node:crypto";
+/**
+ * Shared helpers for the OAuth pending-session init endpoints.
+ *
+ * The `X-Sesori-Session-Token` header is a client-generated random 64-char
+ * hex string. The client retains the raw value; the server stores only
+ * `sha256(token)`. The same token is used to long-poll
+ * `/auth/session/status` until tokens are delivered or the session
+ * terminates (denied / expired / error). Single-use per OAuth attempt — a
+ * second init with the same token replaces any prior pending session for
+ * that token.
+ *
+ * `clientType` is validated against the `oauthClientTypeSchema` enum and
+ * recorded on the pending session for audit/observability. It is NOT used
+ * for any security decision today.
+ */
+
+import crypto from "node:crypto";
 import { BadRequestError } from "../../lib/errors.js";
 import { oauthPendingInitBodySchema, type OAuthPendingInitBody, type OAuthPendingInitReply } from "../../models/api.js";
 import { PendingAuthStore, type PendingAuthSession } from "../../services/pending-auth-store.js";
@@ -9,6 +25,7 @@ const SESSION_TOKEN_REGEX = /^[a-f0-9]{64}$/i;
 const STATE_BYTE_LENGTH = 32;
 const PKCE_VERIFIER_BYTE_LENGTH = 64;
 
+/** Parses and validates the init request body. Throws `BadRequestError` on failure. */
 export function parseOAuthPendingInitBody(body: unknown): OAuthPendingInitBody {
   const result = oauthPendingInitBodySchema.safeParse(body);
   if (!result.success) {
@@ -18,6 +35,7 @@ export function parseOAuthPendingInitBody(body: unknown): OAuthPendingInitBody {
   return result.data;
 }
 
+/** Parses and validates the session token header. Throws `BadRequestError` on failure. */
 export function parseSessionTokenHeader(value: string | string[] | undefined): string {
   const token = Array.isArray(value) ? value[0] : value;
   if (!token || !SESSION_TOKEN_REGEX.test(token)) {
@@ -27,10 +45,16 @@ export function parseSessionTokenHeader(value: string | string[] | undefined): s
   return token;
 }
 
+/**
+ * Generates a fresh PKCE verifier + state and creates a pending session keyed
+ * by the hashed session token. Returns the session record and the code
+ * challenge (SHA-256 of the verifier, base64url-encoded).
+ */
 export function createPendingOAuthInit(params: {
   provider: OAuthProviderName;
   pendingAuthStore: PendingAuthStore;
   sessionToken: string;
+  clientType?: string;
 }): { session: PendingAuthSession; codeChallenge: string } {
   const pkceVerifier = crypto.randomBytes(PKCE_VERIFIER_BYTE_LENGTH).toString("base64url");
   const codeChallenge = crypto.createHash("sha256").update(pkceVerifier).digest("base64url");
@@ -41,11 +65,13 @@ export function createPendingOAuthInit(params: {
     provider: params.provider,
     pkceVerifier,
     state,
+    clientType: params.clientType,
   });
 
   return { session, codeChallenge };
 }
 
+/** Builds the response body for `/auth/{provider}/init` from a pending session record. */
 export function createOAuthPendingInitReply(params: {
   session: PendingAuthSession;
   authUrl: URL;
@@ -58,6 +84,7 @@ export function createOAuthPendingInitReply(params: {
   };
 }
 
+/** Builds the backend callback URL for a given provider, derived from `AUTH_BASE_URL`. */
 export function getProviderCallbackRedirectUri(baseUrl: string, provider: OAuthProviderName): string {
   const url = new URL(baseUrl);
   switch (provider) {
