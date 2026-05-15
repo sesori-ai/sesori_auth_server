@@ -466,7 +466,10 @@ function truncateForDisplay(value: string, maxLength: number): string {
   if (value.length <= maxLength) {
     return value;
   }
-  return `${value.slice(0, maxLength)}…`;
+  // Split on grapheme/UTF-16 code-point boundaries so we don't leave an
+  // unpaired surrogate at the slice point if the input contains emoji.
+  const truncated = Array.from(value).slice(0, maxLength).join("");
+  return `${truncated}…`;
 }
 
 /**

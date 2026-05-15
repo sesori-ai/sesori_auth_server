@@ -78,6 +78,14 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
       return reply.status(error.errorCode).send({ error: error.message, ...error.responseBody });
     }
 
+    // Fastify framework errors (FST_ERR_CTP_INVALID_MEDIA_TYPE, FST_ERR_VALIDATION,
+    // body-too-large, etc.) carry their intended HTTP status on `statusCode`.
+    // Without this branch they were collapsed to 500 — masking 415/413/400.
+    const fastifyErr = error as { statusCode?: number; message?: string };
+    if (typeof fastifyErr.statusCode === "number" && fastifyErr.statusCode >= 400 && fastifyErr.statusCode < 500) {
+      return reply.status(fastifyErr.statusCode).send({ error: fastifyErr.message ?? "bad_request" });
+    }
+
     console.error("[UnhandledError]", error);
     return reply.status(500).send({ error: "internal_server_error" });
   });

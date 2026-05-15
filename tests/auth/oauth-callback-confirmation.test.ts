@@ -472,6 +472,20 @@ describe("OAuth callback confirmation flow", () => {
     assert.match(confirmRes.body, /Sign-in confirmed/);
   });
 
+  it("form parser is scoped to confirm route only — sibling /auth/github/init rejects form bodies with 415 (AR-3 regression)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/auth/github/init",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        "x-sesori-session-token": VALID_SESSION_TOKEN,
+      },
+      payload: "clientType=bridge_macos",
+    });
+
+    assert.equal(res.statusCode, 415, "form-encoded body must NOT be accepted on /auth/github/init");
+  });
+
   function createPendingSession(params: {
     provider: OAuthProviderName;
     store?: PendingAuthStore;
