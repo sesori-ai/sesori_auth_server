@@ -77,8 +77,17 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     privateKeyEncoding: { type: "pkcs8", format: "pem" },
   });
 
-  const mongoServer = await MongoMemoryServer.create();
-  const mongoUri = mongoServer.getUri();
+  // Prefer an externally-provided MongoDB (faster local-dev cycle, CI cache
+  // hits, no first-run binary download). Fall back to mongodb-memory-server
+  // for hermetic CI runs and contributor convenience.
+  let mongoServer: MongoMemoryServer | null = null;
+  let mongoUri: string;
+  if (process.env.MONGODB_URI_TEST) {
+    mongoUri = process.env.MONGODB_URI_TEST;
+  } else {
+    mongoServer = await MongoMemoryServer.create();
+    mongoUri = mongoServer.getUri();
+  }
   process.env.AUTH_BASE_URL ??= "https://api.sesori.com";
   process.env.MONGODB_URI = mongoUri;
   process.env.JWT_PRIVATE_KEY = privPem;
@@ -262,7 +271,9 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     await app.close();
     await dbAccessor.getDb(MongoDbDatabase.Auth).dropDatabase();
     await dbConnector.close();
-    await mongoServer.stop();
+    if (mongoServer) {
+      await mongoServer.stop();
+    }
   }
 
   return {

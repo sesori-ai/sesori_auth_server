@@ -159,6 +159,41 @@ describe("OAuth init routes", () => {
     assert.equal(res.json<{ error: string }>().error, "bad_request");
   });
 
+  it("re-init with the same session token replaces the prior pending session (QA-9)", async () => {
+    const firstRes = await app.inject({
+      method: "POST",
+      url: "/auth/github/init",
+      headers: {
+        "content-type": "application/json",
+        "x-sesori-session-token": VALID_GITHUB_SESSION_TOKEN,
+      },
+      payload: JSON.stringify({ clientType: "bridge_macos" }),
+    });
+    assert.equal(firstRes.statusCode, 200);
+    const firstBody = firstRes.json<{ state: string; userCode: string }>();
+
+    const secondRes = await app.inject({
+      method: "POST",
+      url: "/auth/github/init",
+      headers: {
+        "content-type": "application/json",
+        "x-sesori-session-token": VALID_GITHUB_SESSION_TOKEN,
+      },
+      payload: JSON.stringify({ clientType: "bridge_macos" }),
+    });
+    assert.equal(secondRes.statusCode, 200);
+    const secondBody = secondRes.json<{ state: string; userCode: string }>();
+
+    assert.notEqual(secondBody.state, firstBody.state, "second init must allocate a fresh state");
+
+    const sessionByOldState = pendingAuthStore.getSessionByState(firstBody.state);
+    assert.equal(sessionByOldState, null, "old state must no longer resolve a session");
+
+    const sessionByNewState = pendingAuthStore.getSessionByState(secondBody.state);
+    assert.ok(sessionByNewState, "new state must resolve the live session");
+    assert.equal(sessionByNewState?.userCode, secondBody.userCode);
+  });
+
   it("keeps the legacy GET GitHub init endpoint working", async () => {
     const res = await app.inject({
       method: "GET",

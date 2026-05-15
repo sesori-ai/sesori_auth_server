@@ -222,6 +222,29 @@ describe("GET /auth/session/status", () => {
     assert.equal(res.json<{ error: string }>().error, "not_found");
   });
 
+  it("only one of two concurrent pollers receives the tokens (QA-3)", async () => {
+    const tokenHash = createPendingSession({ sessionToken: VALID_SESSION_TOKEN });
+    pendingAuthStore.completeSession({ tokenHash, tokens: TEST_TOKENS, user: TEST_USER });
+
+    const [a, b] = await Promise.all([
+      injectWithKeepAlive({
+        method: "GET",
+        url: "/auth/session/status",
+        headers: { "x-sesori-session-token": VALID_SESSION_TOKEN },
+      }),
+      injectWithKeepAlive({
+        method: "GET",
+        url: "/auth/session/status",
+        headers: { "x-sesori-session-token": VALID_SESSION_TOKEN },
+      }),
+    ]);
+
+    const completed = [a, b].filter((r) => r.statusCode === 200 && r.json().status === "complete");
+    assert.equal(completed.length, 1, "exactly one poller must consume the tokens");
+    const failed = [a, b].filter((r) => r.statusCode === 404);
+    assert.equal(failed.length, 1, "the losing poller must see 404 (CQ-11 conflation)");
+  });
+
   function createPendingSession(params: { sessionToken: string }): string {
     const tokenHash = PendingAuthStore.hashToken(params.sessionToken);
     pendingAuthStore.createSession({
@@ -235,6 +258,10 @@ describe("GET /auth/session/status", () => {
   }
 
   async function injectWithKeepAlive(options: Parameters<FastifyInstance["inject"]>[0]) {
+    // Keep-alive prevents Node from exiting while the long-poll suspends on
+    // an internal timer (the only pending handle during waitForStatusChange).
+    // Without this, node:test can drain the event loop before fastify.inject()
+    // resolves, surfacing as flaky/aborted tests.
     const keepAlive = setInterval(() => undefined, 1_000);
 
     try {

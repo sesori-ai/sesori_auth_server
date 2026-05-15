@@ -213,4 +213,26 @@ describe("PendingAuthStore", () => {
     assert.equal(secondConsume, null);
     assert.equal(afterConsume, null);
   });
+
+  it("notifies all simultaneous waiters once on a status change (CQ-7)", async () => {
+    const store = createStore();
+    const tokenHash = createSessionTokenHash();
+    store.createSession({
+      tokenHash,
+      provider: OAuthProviderName.Github,
+      pkceVerifier: "pkce-verifier",
+      state: "oauth-state",
+    });
+
+    const waiterA = store.waitForStatusChange(tokenHash, 5_000);
+    const waiterB = store.waitForStatusChange(tokenHash, 5_000);
+    const waiterC = store.waitForStatusChange(tokenHash, 5_000);
+
+    store.denySession(tokenHash);
+
+    const [a, b, c] = await Promise.all([waiterA, waiterB, waiterC]);
+    assert.equal(a?.status, "denied");
+    assert.equal(b?.status, "denied");
+    assert.equal(c?.status, "denied");
+  });
 });

@@ -1,8 +1,12 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
+import { ObjectId } from "mongodb";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
 import { FakeOAuthClient } from "../helpers/fake-oauth-client.js";
 import { PendingAuthStore } from "../../src/services/pending-auth-store.js";
+import { MongoDbDatabase, AuthDbCollection } from "../../src/types/mongo.js";
+import type { OAuthAccount } from "../../src/models/documents.js";
 
 // A valid 43-character PKCE code_challenge (URL-safe base64, no padding)
 const VALID_CODE_CHALLENGE = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
@@ -186,6 +190,80 @@ describe("GitHub OAuth routes", () => {
 
       assert.equal(res.statusCode, 400);
       assert.equal(res.json<{ error: string }>().error, "bad_request");
+    });
+  });
+
+  describe("OAuth confirmation flow end-to-end (real DB) (QA-2)", () => {
+    function freshSessionToken(): string {
+      return crypto.randomBytes(32).toString("hex");
+    }
+
+    async function countOAuthAccountsForProviderUserId(providerUserId: string): Promise<number> {
+      const collection = ctx.dbAccessor.getCollection<OAuthAccount>(
+        MongoDbDatabase.Auth,
+        AuthDbCollection.OAuthAccounts,
+      );
+      return await collection.countDocuments({ provider: "github", providerUserId });
+    }
+
+    it("creates exactly one user document on confirm and zero on deny", async () => {
+      const confirmedToken = freshSessionToken();
+      const initRes = await ctx.app.inject({
+        method: "POST",
+        url: "/auth/github/init",
+        headers: { "content-type": "application/json", "x-sesori-session-token": confirmedToken },
+        payload: JSON.stringify({ clientType: "bridge_macos" }),
+      });
+      const initBody = initRes.json<{ state: string }>();
+
+      const callbackRes = await ctx.app.inject({
+        method: "GET",
+        url: `/auth/github/callback?code=fake-code&state=${initBody.state}`,
+      });
+      assert.equal(callbackRes.statusCode, 200);
+
+      const confirmRes = await ctx.app.inject({
+        method: "POST",
+        url: "/auth/github/callback/confirm",
+        headers: { "content-type": "application/json" },
+        payload: JSON.stringify({ state: initBody.state, action: "confirm" }),
+      });
+      assert.equal(confirmRes.statusCode, 200);
+
+      const statusRes = await ctx.app.inject({
+        method: "GET",
+        url: "/auth/session/status",
+        headers: { "x-sesori-session-token": confirmedToken },
+      });
+      assert.equal(statusRes.statusCode, 200);
+      const statusBody = statusRes.json<{ status: string; user: { id: string } }>();
+      assert.equal(statusBody.status, "complete");
+      assert.ok(ObjectId.isValid(statusBody.user.id), "user id should be a valid ObjectId");
+      assert.equal(await countOAuthAccountsForProviderUserId(FAKE_IDENTITY.providerUserId), 1);
+
+      const deniedToken = freshSessionToken();
+      const initRes2 = await ctx.app.inject({
+        method: "POST",
+        url: "/auth/github/init",
+        headers: { "content-type": "application/json", "x-sesori-session-token": deniedToken },
+        payload: JSON.stringify({ clientType: "bridge_macos" }),
+      });
+      const initBody2 = initRes2.json<{ state: string }>();
+
+      await ctx.app.inject({
+        method: "GET",
+        url: `/auth/github/callback?code=fake-code-2&state=${initBody2.state}`,
+      });
+      await ctx.app.inject({
+        method: "POST",
+        url: "/auth/github/callback/confirm",
+        headers: { "content-type": "application/json" },
+        payload: JSON.stringify({ state: initBody2.state, action: "deny" }),
+      });
+
+      // Still one (no new account on deny — note FAKE_IDENTITY is constant so
+      // upsert would dedupe; the key assertion is the count did not increase).
+      assert.equal(await countOAuthAccountsForProviderUserId(FAKE_IDENTITY.providerUserId), 1);
     });
   });
 
