@@ -82,6 +82,19 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
     return reply.status(500).send({ error: "internal_server_error" });
   });
 
+  app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string" }, (_request, body, done) => {
+    try {
+      const params = new URLSearchParams(body as string);
+      const result: Record<string, string> = {};
+      for (const [key, value] of params) {
+        result[key] = value;
+      }
+      done(null, result);
+    } catch (err) {
+      done(err as Error);
+    }
+  });
+
   app.get<{ Reply: HealthReply }>("/health", async () => {
     return { status: "ok" };
   });

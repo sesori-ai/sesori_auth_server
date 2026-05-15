@@ -76,6 +76,14 @@ export async function handleProviderCallbackRedirect<TClient extends OAuthClient
   }
 
   if (error) {
+    if (session.status === "complete" || session.status === "consumed") {
+      return sendSuccessPage({
+        reply: params.reply,
+        title: "Sign-in already confirmed",
+        message: "This sign-in request has already been confirmed in Sesori.",
+      });
+    }
+
     if (error === "access_denied") {
       params.deps.pendingAuthStore.denySession(session.tokenHash);
       return sendDeniedPage({
