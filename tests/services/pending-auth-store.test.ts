@@ -214,6 +214,48 @@ describe("PendingAuthStore", () => {
     assert.equal(afterConsume, null);
   });
 
+  it("terminal states are mutually exclusive: failSession does not overwrite denied (cubic-2a852c8)", () => {
+    const store = createStore();
+    const tokenHash = createSessionTokenHash("terminal-deny-first");
+    store.createSession({
+      tokenHash,
+      provider: OAuthProviderName.Github,
+      pkceVerifier: "pkce",
+      state: "state-tdf",
+    });
+
+    const denied = store.denySession(tokenHash);
+    assert.equal(denied?.status, "denied");
+
+    const overwriteAttempt = store.failSession({ tokenHash, errorMessage: "late_provider_error" });
+    assert.equal(overwriteAttempt, null, "failSession must NOT overwrite a denied session");
+
+    const final = store.getSessionByTokenHash(tokenHash);
+    assert.equal(final?.status, "denied");
+    assert.equal(final?.errorMessage, undefined);
+  });
+
+  it("terminal states are mutually exclusive: denySession does not overwrite error (cubic-2a852c8)", () => {
+    const store = createStore();
+    const tokenHash = createSessionTokenHash("terminal-error-first");
+    store.createSession({
+      tokenHash,
+      provider: OAuthProviderName.Github,
+      pkceVerifier: "pkce",
+      state: "state-tef",
+    });
+
+    const errored = store.failSession({ tokenHash, errorMessage: "exchange_failed" });
+    assert.equal(errored?.status, "error");
+
+    const overwriteAttempt = store.denySession(tokenHash);
+    assert.equal(overwriteAttempt, null, "denySession must NOT overwrite an errored session");
+
+    const final = store.getSessionByTokenHash(tokenHash);
+    assert.equal(final?.status, "error");
+    assert.equal(final?.errorMessage, "exchange_failed");
+  });
+
   it("notifies all simultaneous waiters once on a status change (CQ-7)", async () => {
     const store = createStore();
     const tokenHash = createSessionTokenHash();

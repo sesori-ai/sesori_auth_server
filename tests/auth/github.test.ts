@@ -254,15 +254,24 @@ describe("GitHub OAuth routes", () => {
         method: "GET",
         url: `/auth/github/callback?code=fake-code-2&state=${initBody2.state}`,
       });
-      await ctx.app.inject({
+      const denyRes = await ctx.app.inject({
         method: "POST",
         url: "/auth/github/callback/confirm",
         headers: { "content-type": "application/json" },
         payload: JSON.stringify({ state: initBody2.state, action: "deny" }),
       });
 
-      // Still one (no new account on deny — note FAKE_IDENTITY is constant so
-      // upsert would dedupe; the key assertion is the count did not increase).
+      assert.equal(denyRes.statusCode, 200);
+      assert.match(denyRes.body, /Sign-in cancelled/);
+
+      const deniedStatusRes = await ctx.app.inject({
+        method: "GET",
+        url: "/auth/session/status",
+        headers: { "x-sesori-session-token": deniedToken },
+      });
+      assert.equal(deniedStatusRes.statusCode, 200);
+      assert.equal(deniedStatusRes.json<{ status: string }>().status, "denied");
+
       assert.equal(await countOAuthAccountsForProviderUserId(FAKE_IDENTITY.providerUserId), 1);
     });
   });

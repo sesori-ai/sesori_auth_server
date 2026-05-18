@@ -306,8 +306,15 @@ export class PendingAuthStore {
     if (!entry) {
       return null;
     }
-    // Terminal-state guard: don't downgrade complete/consumed sessions
-    if (entry.session.status === PendingAuthStatus.Complete || entry.session.status === PendingAuthStatus.Consumed) {
+    // Terminal-state guard: complete/consumed/denied/error are all terminal.
+    // Re-denying a denied session is a no-op; never overwrite a previously
+    // recorded error with a generic deny.
+    if (
+      entry.session.status === PendingAuthStatus.Complete ||
+      entry.session.status === PendingAuthStatus.Consumed ||
+      entry.session.status === PendingAuthStatus.Denied ||
+      entry.session.status === PendingAuthStatus.Error
+    ) {
       return null;
     }
     return this.#updateSession({
@@ -330,8 +337,15 @@ export class PendingAuthStore {
     if (!entry) {
       return null;
     }
-    // Terminal-state guard
-    if (entry.session.status === PendingAuthStatus.Complete || entry.session.status === PendingAuthStatus.Consumed) {
+    // Terminal-state guard: never overwrite an already-terminal state. A late
+    // OAuth-exchange error must not clobber a deny that the user already
+    // submitted, and obviously must not clobber a successful complete.
+    if (
+      entry.session.status === PendingAuthStatus.Complete ||
+      entry.session.status === PendingAuthStatus.Consumed ||
+      entry.session.status === PendingAuthStatus.Denied ||
+      entry.session.status === PendingAuthStatus.Error
+    ) {
       return null;
     }
     return this.#updateSession({

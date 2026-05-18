@@ -3,11 +3,12 @@
  *
  * The `X-Sesori-Session-Token` header is a client-generated random 64-char
  * hex string. The client retains the raw value; the server stores only
- * `sha256(token)`. The same token is used to long-poll
- * `/auth/session/status` until tokens are delivered or the session
- * terminates (denied / expired / error). Single-use per OAuth attempt — a
- * second init with the same token replaces any prior pending session for
- * that token.
+ * `sha256(token)` after canonicalizing the input to lowercase, so case
+ * mismatches between init and status polls cannot misroute the digest.
+ * The same token is used to long-poll `/auth/session/status` until tokens
+ * are delivered or the session terminates (denied / expired / error).
+ * Single-use per OAuth attempt — a second init with the same token replaces
+ * any prior pending session for that token.
  *
  * `clientType` is validated against `OAuthClientType` (TS enum, wire values
  * like `"bridge_macos"`) and recorded on the pending session for
@@ -40,14 +41,19 @@ export function parseOAuthPendingInitBody(body: unknown): OAuthPendingInitBody {
   return result.data;
 }
 
-/** Parses and validates the session token header. Throws `BadRequestError` on failure. */
+/**
+ * Parses and validates the session token header. Canonicalizes to lowercase
+ * so that callers re-sending the same token with different casing
+ * (`ABCDEF…` vs `abcdef…`) hash to the same digest. Throws `BadRequestError`
+ * on missing/invalid input.
+ */
 export function parseSessionTokenHeader(value: string | string[] | undefined): string {
   const token = Array.isArray(value) ? value[0] : value;
   if (!token || !SESSION_TOKEN_REGEX.test(token)) {
     throw new BadRequestError({ debugMessage: `Missing or invalid ${SESSION_TOKEN_HEADER} header` });
   }
 
-  return token;
+  return token.toLowerCase();
 }
 
 /**
@@ -89,18 +95,24 @@ export function createOAuthPendingInitReply(params: {
   };
 }
 
-/** Builds the backend callback URL for a given provider, derived from `AUTH_BASE_URL`. */
+/**
+ * Builds the backend callback URL for a given provider, derived from
+ * `AUTH_BASE_URL`. Preserves any base-path prefix present on the configured
+ * URL (e.g. `https://example.com/authsvc` → `…/authsvc/auth/github/callback`)
+ * by appending the provider segment instead of overwriting `pathname`.
+ */
 export function getProviderCallbackRedirectUri(baseUrl: string, provider: OAuthProviderName): string {
   const url = new URL(baseUrl);
+  const basePath = url.pathname.replace(/\/+$/, "");
   switch (provider) {
     case OAuthProviderName.Github:
-      url.pathname = "/auth/github/callback";
+      url.pathname = `${basePath}/auth/github/callback`;
       break;
     case OAuthProviderName.Google:
-      url.pathname = "/auth/google/callback";
+      url.pathname = `${basePath}/auth/google/callback`;
       break;
     case OAuthProviderName.Apple:
-      url.pathname = "/auth/apple/callback";
+      url.pathname = `${basePath}/auth/apple/callback`;
       break;
   }
   return url.toString();
