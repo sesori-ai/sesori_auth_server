@@ -23,6 +23,7 @@ import { AppleNativeVerifier } from "./services/apple-native-verifier.js";
 import { BridgeStateTracker } from "./services/bridge-state-tracker.js";
 import { LegalDocumentService } from "./services/legal-document-service.js";
 import { NotificationService } from "./services/notification-service.js";
+import { PendingAuthStore } from "./services/pending-auth-store.js";
 import { SessionMetadataService } from "./services/session-metadata-service.js";
 import { TokenService } from "./services/token-service.js";
 import { VoiceService } from "./services/voice-service.js";
@@ -58,6 +59,9 @@ async function main() {
   const deviceTokenRepo = new DeviceTokenRepository(dbAccessor);
 
   const tokenService = new TokenService(config.JWT_PRIVATE_KEY, config.JWT_PUBLIC_KEY);
+  const pendingAuthStore = new PendingAuthStore({
+    maxSessions: config.PENDING_AUTH_MAX_SESSIONS,
+  });
   console.log("JWT keys loaded");
 
   let messaging: ReturnType<typeof getMessaging> | null = null;
@@ -134,6 +138,7 @@ async function main() {
     googleClient,
     appleClient,
     appleNativeVerifier,
+    pendingAuthStore,
   });
 
   const address = await app.listen({ port: config.PORT, host: "0.0.0.0" });

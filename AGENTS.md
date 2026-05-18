@@ -20,8 +20,15 @@ src/
 ├── middleware/         # createAuthMiddleware factory → requireAuth preHandler hook
 ├── models/            # Zod schemas — documents.ts (User, OAuthAccount), jwt.ts (payload + constants), api.ts
 ├── repositories/      # Data access — user-repo.ts, oauth-account-repo.ts, glossary-entry-repo.ts
-├── routes/            # HTTP handlers — github.ts, google.ts, token.ts, voice.ts
+├── routes/
+│   └── auth/          # OAuth + pending-confirmation flow
+│       ├── github.ts             # GET /auth/github, POST /auth/github/init, POST/GET callbacks
+│       ├── google.ts             # mirror of github.ts for Google
+│       ├── init.ts               # Shared helpers: parseSessionTokenHeader, createPendingOAuthInit, …
+│       ├── provider-callback.ts  # GET interstitial + POST confirm/deny (HTML responses)
+│       └── session-status.ts     # GET /auth/session/status long-poll
 ├── services/          # Business logic — auth-service.ts, token-service.ts, voice-service.ts
+│   └── pending-auth-store.ts     # In-memory LRU of pending OAuth sessions (anti-phishing flow)
 ├── config.ts          # Zod-validated env config
 ├── index.ts           # Composition root (wires all dependencies)
 └── server.ts          # Fastify app factory (buildApp receives typed AppServices)
@@ -29,15 +36,16 @@ src/
 
 ## WHERE TO LOOK
 
-| Task               | Location                                              | Notes                                                                                       |
-| ------------------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Add OAuth provider | `src/clients/auth/` + `src/routes/`                   | Extend OAuthClient, implement exchangeCode + resolveIdentity, add route plugin in server.ts |
-| Modify JWT claims  | `src/models/jwt.ts` + `src/services/token-service.ts` | Zod schema defines payload shape                                                            |
-| Add API endpoint   | `src/routes/`                                         | Register as Fastify plugin in `server.ts`, add to AppServices if deps needed                |
-| Change DB schema   | `src/models/documents.ts` + `src/repositories/`       | Zod document schemas, raw MongoDB driver                                                    |
-| Add DB collection  | `src/types/mongo.ts` + `src/db/mongo-db-accessor.ts`  | Add to AuthDbCollection enum + DATABASE_CONFIG                                              |
-| Auth middleware    | `src/middleware/auth.ts`                              | `createAuthMiddleware(tokenService)` factory                                                |
-| Wire dependencies  | `src/index.ts`                                        | Composition root — all instantiation happens here                                           |
+| Task                       | Location                                                                 | Notes                                                                                       |
+| -------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| Add OAuth provider         | `src/clients/auth/` + `src/routes/auth/`                                 | Extend OAuthClient, implement exchangeCode + resolveIdentity, add route plugin in server.ts |
+| OAuth pending/confirm flow | `src/routes/auth/init.ts` + `provider-callback.ts` + `session-status.ts` | Anti-phishing interstitial; pending state in `src/services/pending-auth-store.ts`           |
+| Modify JWT claims          | `src/models/jwt.ts` + `src/services/token-service.ts`                    | Zod schema defines payload shape                                                            |
+| Add API endpoint           | `src/routes/`                                                            | Register as Fastify plugin in `server.ts`, add to AppServices if deps needed                |
+| Change DB schema           | `src/models/documents.ts` + `src/repositories/`                          | Zod document schemas, raw MongoDB driver                                                    |
+| Add DB collection          | `src/types/mongo.ts` + `src/db/mongo-db-accessor.ts`                     | Add to AuthDbCollection enum + DATABASE_CONFIG                                              |
+| Auth middleware            | `src/middleware/auth.ts`                                                 | `createAuthMiddleware(tokenService)` factory                                                |
+| Wire dependencies          | `src/index.ts`                                                           | Composition root — all instantiation happens here                                           |
 
 ## CONVENTIONS
 
@@ -49,6 +57,11 @@ src/
 - **Config**: All env vars validated by Zod schema at startup (`src/config.ts`)
 - **Secrets**: SOPS + age encryption for env files (`env/app/*.env`). NEVER commit plaintext `.env` or `*.pem`
 - **Types**: Shared types in `src/types/`. DB-specific config types stay in `src/db/`.
+
+## SCALING CONSTRAINTS
+
+- **Pending OAuth sessions are in-process only.** `PendingAuthStore` is an in-memory LRU with a 5-minute TTL. The store is NOT shared between instances. Horizontal scaling of this service requires either sticky sessions (`X-Sesori-Session-Token` → consistent instance) OR migrating the store to Redis. Until then: **single-instance deploys only**.
+- Tunable via `PENDING_AUTH_MAX_SESSIONS` (default 10k entries ≈ 10 MB) and `PENDING_AUTH_POLL_TIMEOUT_MS` (default 30s long-poll cap).
 
 ## ANTI-PATTERNS
 

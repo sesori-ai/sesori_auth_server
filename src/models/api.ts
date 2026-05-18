@@ -39,6 +39,76 @@ export type OAuthInitReply = {
   state: string;
 };
 
+export enum OAuthClientType {
+  Bridge = "bridge",
+  App = "app",
+  BridgeMacOS = "bridge_macos",
+  BridgeWindows = "bridge_windows",
+  BridgeLinux = "bridge_linux",
+  AppIOS = "app_ios",
+  AppAndroid = "app_android",
+  AppMacOS = "app_macos",
+  AppWindows = "app_windows",
+  AppLinux = "app_linux",
+}
+
+export const oauthClientTypeSchema = z.nativeEnum(OAuthClientType);
+
+export const oauthInitBodySchema = z.object({
+  clientType: z
+    .string()
+    .min(1)
+    .transform((value) =>
+      value
+        .trim()
+        .toLowerCase()
+        .replace(/[-\s]+/g, "_"),
+    )
+    .pipe(oauthClientTypeSchema),
+});
+export type OAuthInitBody = z.infer<typeof oauthInitBodySchema>;
+
+export const oauthPendingInitBodySchema = oauthInitBodySchema;
+export type OAuthPendingInitBody = OAuthInitBody;
+
+export type OAuthPendingInitReply = {
+  authUrl: string;
+  state: string;
+  userCode: string;
+  expiresIn: number;
+};
+
+export type AuthSessionStatusPendingReply = {
+  status: "pending";
+};
+
+export type AuthSessionStatusCompleteReply = {
+  status: "complete";
+  accessToken: string;
+  refreshToken: string;
+  user: UserProfile;
+};
+
+export type AuthSessionStatusDeniedReply = {
+  status: "denied";
+};
+
+export type AuthSessionStatusExpiredReply = {
+  status: "expired";
+};
+
+export type AuthSessionStatusErrorReply = {
+  status: "error";
+  message: string;
+};
+
+export type AuthSessionStatusReply =
+  | AuthSessionStatusPendingReply
+  | AuthSessionStatusCompleteReply
+  | AuthSessionStatusDeniedReply
+  | AuthSessionStatusExpiredReply
+  | AuthSessionStatusErrorReply;
+
 export type AuthTokensReply = {
   accessToken: string;
   refreshToken: string;

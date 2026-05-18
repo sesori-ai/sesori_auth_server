@@ -20,6 +20,7 @@ import type { SessionMetadataService } from "./services/session-metadata-service
 import type { InstallScriptService } from "./services/install-script-service.js";
 import type { LegalDocumentService } from "./services/legal-document-service.js";
 import type { AppleNativeVerifier } from "./services/apple-native-verifier.js";
+import type { PendingAuthStore } from "./services/pending-auth-store.js";
 import { installRoutes } from "./routes/install.js";
 import { legalRoutes } from "./routes/legal.js";
 import { tokenRoutes } from "./routes/token.js";
@@ -31,6 +32,7 @@ import { googleRoutes } from "./routes/auth/google.js";
 import { voiceRoutes } from "./routes/voice.js";
 import { notificationRoutes } from "./routes/notifications.js";
 import { sessionRoutes } from "./routes/sessions.js";
+import { sessionStatusRoutes } from "./routes/auth/session-status.js";
 
 export type AppServices = {
   config: Config;
@@ -48,6 +50,7 @@ export type AppServices = {
   googleClient: GoogleClient;
   appleClient: AppleClient;
   appleNativeVerifier: AppleNativeVerifier;
+  pendingAuthStore: PendingAuthStore;
 };
 
 export async function buildApp(services: AppServices): Promise<FastifyInstance> {
@@ -73,6 +76,14 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
         console.error(`[${error.name}] ${error.debugMessage ?? error.message}`, error.nestedError ?? "");
       }
       return reply.status(error.errorCode).send({ error: error.message, ...error.responseBody });
+    }
+
+    // Fastify framework errors (FST_ERR_CTP_INVALID_MEDIA_TYPE, FST_ERR_VALIDATION,
+    // body-too-large, etc.) carry their intended HTTP status on `statusCode`.
+    // Without this branch they were collapsed to 500 — masking 415/413/400.
+    const fastifyErr = error as { statusCode?: number; message?: string };
+    if (typeof fastifyErr.statusCode === "number" && fastifyErr.statusCode >= 400 && fastifyErr.statusCode < 500) {
+      return reply.status(fastifyErr.statusCode).send({ error: fastifyErr.message ?? "bad_request" });
     }
 
     console.error("[UnhandledError]", error);
@@ -104,12 +115,14 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
     authService: services.authService,
     stateStore: services.stateStore,
     githubClient: services.githubClient,
+    pendingAuthStore: services.pendingAuthStore,
   });
   await app.register(googleRoutes, {
     config: services.config,
     authService: services.authService,
     stateStore: services.stateStore,
     googleClient: services.googleClient,
+    pendingAuthStore: services.pendingAuthStore,
   });
   await app.register(appleRoutes, {
     config: services.config,
@@ -124,6 +137,10 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
   });
   await app.register(passwordRoutes, {
     authService: services.authService,
+  });
+  await app.register(sessionStatusRoutes, {
+    pendingAuthStore: services.pendingAuthStore,
+    statusPollTimeoutMs: services.config.PENDING_AUTH_POLL_TIMEOUT_MS,
   });
   await app.register(voiceRoutes, {
     voiceService: services.voiceService,
