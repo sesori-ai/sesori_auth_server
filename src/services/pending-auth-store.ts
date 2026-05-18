@@ -185,9 +185,11 @@ export class PendingAuthStore {
   }
 
   /**
-   * Transition to `awaiting_confirmation` without staging tokens. Used when
-   * the OAuth exchange has not yet produced tokens (e.g. test scaffolding or
-   * a future flow that decouples "user must confirm" from "tokens available").
+   * Transition to `awaiting_confirmation` without staging tokens. Test seam:
+   * lets long-poll tests exercise the intermediate state without running the
+   * full provider-callback path. Production code uses `stageCompletion`
+   * instead, which also stages tokens for confirm.
+   *
    * Subject to terminal-state guards: complete/consumed/denied/error are immutable.
    */
   markAwaitingConfirmation(tokenHash: string): PendingAuthSession | null {
@@ -269,8 +271,10 @@ export class PendingAuthStore {
 
   /**
    * Directly transition a session to `complete` with tokens, skipping the
-   * staged-confirmation step. Intended for legacy/test paths that bypass the
-   * interstitial. Honours terminal-state guards (won't overwrite denied/error).
+   * staged-confirmation step. Test seam: isolates the `/auth/session/status`
+   * route logic from the full provider-callback flow. Production OAuth uses
+   * `stageCompletion` → `confirmSession`. Honours terminal-state guards
+   * (won't overwrite denied/error).
    */
   completeSession(params: {
     tokenHash: string;
