@@ -57,6 +57,21 @@ export type AppleRouteOptions = {
 export const appleRoutes: FastifyPluginAsync<AppleRouteOptions> = async (fastify, opts) => {
   const { config, authService, stateStore, appleClient, pendingAuthStore } = opts;
 
+  // Apple uses response_mode=form_post, so the callback arrives as POST
+  // with application/x-www-form-urlencoded body instead of query params.
+  fastify.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string" }, (_request, body, done) => {
+    try {
+      const params = new URLSearchParams(body as string);
+      const result: Record<string, string> = {};
+      for (const [key, value] of params) {
+        result[key] = value;
+      }
+      done(null, result);
+    } catch (err) {
+      done(err as Error);
+    }
+  });
+
   fastify.get<{ Querystring: OAuthInitQuery; Reply: OAuthInitReply }>("/auth/apple", async (request) => {
     const queryResult = appleInitQuerySchema.safeParse(request.query);
     if (!queryResult.success) {
