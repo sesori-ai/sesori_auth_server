@@ -129,6 +129,7 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
     authService: services.authService,
     stateStore: services.stateStore,
     appleClient: services.appleClient,
+    pendingAuthStore: services.pendingAuthStore,
   });
   await app.register(appleNativeRoutes, {
     authService: services.authService,
