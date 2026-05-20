@@ -6,13 +6,7 @@ import type { Config } from "../../config.js";
 import { BadRequestError } from "../../lib/errors.js";
 import { isAllowedRedirectUri, isLocalhostRedirectUri } from "../../lib/redirect-uri.js";
 import type { StateStore } from "../../lib/state-store.js";
-import type {
-  OAuthInitQuery,
-  OAuthInitReply,
-  OAuthCallbackBody,
-  AuthTokensReply,
-  OAuthPendingInitReply,
-} from "../../models/api.js";
+import type { OAuthInitQuery, OAuthInitReply, OAuthPendingInitReply } from "../../models/api.js";
 import type { AuthService } from "../../services/auth-service.js";
 import type { PendingAuthStore } from "../../services/pending-auth-store.js";
 import {
@@ -206,8 +200,11 @@ function sendErrorPage(params: {
   title: string;
   message: string;
 }): FastifyReply {
-  return params.reply.status(params.statusCode).type("text/html; charset=utf-8").send(
-    `<!doctype html>
+  return params.reply
+    .status(params.statusCode)
+    .type("text/html; charset=utf-8")
+    .send(
+      `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>${escapeHtml(params.title)}</title></head>
   <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; margin: 0; padding: 24px;">
@@ -216,8 +213,8 @@ function sendErrorPage(params: {
       <p>${escapeHtml(params.message)}</p>
     </div>
   </body>
-</html>`
-  );
+</html>`,
+    );
 }
 
 function escapeHtml(value: string): string {
