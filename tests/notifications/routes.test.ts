@@ -44,6 +44,7 @@ describe("Notification routes", () => {
     handleStatusChangeForBridge: (userId: string, bridgeId: string, status: string) => {
       trackerCalls.push({ userId, bridgeId, status });
     },
+    cancelPendingForUser: () => {},
     cancelPendingForBridge: () => {},
     dispose: () => {},
   } as unknown as BridgeStateTracker;

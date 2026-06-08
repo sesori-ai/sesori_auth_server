@@ -43,6 +43,7 @@ export class BridgeService {
 
   async revokeAllForUser(userId: string): Promise<void> {
     const bridges = await this.#bridgeRepo.revokeAllForUser(userId, new Date());
+    this.#bridgeStateTracker.cancelPendingForUser(userId);
     for (const bridge of bridges) {
       this.#bridgeStateTracker.cancelPendingForBridge(userId, bridge.bridgeId);
     }
