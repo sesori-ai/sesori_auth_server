@@ -227,7 +227,7 @@ describe("Token routes", () => {
 
     it("returns 401 when access token has wrong audience", async () => {
       const user = await ctx.createUser();
-      const bridgeToken = ctx.tokenService.signBridgeToken({ userId: user.userId });
+      const bridgeToken = ctx.tokenService.signBridgeToken({ userId: user.userId, bridgeId: "br_testBridge01" });
 
       const res = await ctx.app.inject({
         method: "GET",

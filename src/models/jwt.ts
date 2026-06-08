@@ -28,6 +28,7 @@ export type RefreshTokenPayload = z.infer<typeof refreshTokenPayloadSchema>;
 export const bridgeTokenPayloadSchema = z.object({
   tokenType: z.literal("bridge"),
   userId: z.string(),
+  bridgeId: z.string(),
   iss: z.literal("auth-backend"),
   aud: z.literal("bridge"),
   exp: z.number(),

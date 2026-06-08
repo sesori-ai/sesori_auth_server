@@ -74,13 +74,14 @@ export class TokenService {
   }
 
   // TODO(relay): Bridge tokens for relay integration. Wire to a route when relay service is implemented. Remove if relay is dropped.
-  signBridgeToken(payload: { userId: string }): string {
+  signBridgeToken(payload: { userId: string; bridgeId: string }): string {
     const now = Math.floor(Date.now() / 1000);
     const expiresIn = 24 * 60 * 60;
 
     const tokenPayloadResult = bridgeTokenPayloadSchema.safeParse({
       tokenType: "bridge",
       userId: payload.userId,
+      bridgeId: payload.bridgeId,
       iss: "auth-backend",
       aud: "bridge",
       iat: now,
