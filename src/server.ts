@@ -1,9 +1,7 @@
 import Fastify, { FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
-import type { AppleClient } from "./clients/auth/apple-client.js";
-import type { GithubClient } from "./clients/auth/github-client.js";
-import type { GoogleClient } from "./clients/auth/google-client.js";
+import type { OAuthClient } from "./clients/auth/oauth-client.js";
 import type { Config } from "./config.js";
 import { ApiError } from "./lib/errors.js";
 import type { StateStore } from "./lib/state-store.js";
@@ -49,9 +47,9 @@ export type AppServices = {
   notificationService: NotificationService;
   bridgeStateTracker: BridgeStateTracker;
   stateStore: StateStore;
-  githubClient: GithubClient;
-  googleClient: GoogleClient;
-  appleClient: AppleClient;
+  githubClient: OAuthClient;
+  googleClient: OAuthClient;
+  appleClient: OAuthClient;
   appleNativeVerifier: AppleNativeVerifier;
   pendingAuthStore: PendingAuthStore;
 };
