@@ -11,6 +11,11 @@ export type RegisterBridgeInput = {
   platform: BridgePlatform;
 };
 
+export type RecordBridgeStatusResult = {
+  updated: boolean;
+  statusChanged: boolean;
+};
+
 export class BridgeRepository {
   readonly #collection: Collection<Bridge>;
 
@@ -80,18 +85,21 @@ export class BridgeRepository {
     userId: string,
     status: "active" | "inactive",
     at: Date,
-  ): Promise<boolean> {
+  ): Promise<RecordBridgeStatusResult> {
     if (!ObjectId.isValid(userId)) {
-      return false;
+      return { updated: false, statusChanged: false };
     }
 
-    const result = await this.#collection.updateOne(
-      { bridgeId, userId: new ObjectId(userId), revokedAt: null },
-      {
-        $set: { status, lastSeenAt: at, updatedAt: at },
-      },
-    );
-    return result.modifiedCount === 1;
+    const filter = { bridgeId, userId: new ObjectId(userId), revokedAt: null };
+    const existing = await this.#collection.findOne(filter, { projection: { status: 1 } });
+    if (!existing) {
+      return { updated: false, statusChanged: false };
+    }
+
+    const result = await this.#collection.updateOne(filter, {
+      $set: { status, lastSeenAt: at, updatedAt: at },
+    });
+    return { updated: result.modifiedCount === 1, statusChanged: existing.status !== status };
   }
 
   async revoke(bridgeId: string, userId: string, at: Date): Promise<boolean> {

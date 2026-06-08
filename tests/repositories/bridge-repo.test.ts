@@ -109,9 +109,24 @@ describe("BridgeRepository", () => {
 
     const updatedResult = await repo.recordStatusChange(bridge.bridgeId, user.userId, "active", at);
     const updated = await repo.findById(bridge.bridgeId);
-    assert.equal(updatedResult, true);
+    assert.deepEqual(updatedResult, { updated: true, statusChanged: true });
     assert.equal(updated?.status, "active");
     assert.equal(updated?.lastSeenAt?.toISOString(), at.toISOString());
+  });
+
+  it("recordStatusChange updates lastSeenAt without reporting statusChanged for heartbeats", async () => {
+    const user = await ctx.createUser();
+    const repo = new BridgeRepository(ctx.dbAccessor);
+    const bridge = await repo.register({ userId: user.userId, name: "Bridge", platform: "macos" });
+    await repo.recordStatusChange(bridge.bridgeId, user.userId, "active", new Date("2026-06-08T10:00:00Z"));
+    const heartbeatAt = new Date("2026-06-08T10:01:00Z");
+
+    const heartbeatResult = await repo.recordStatusChange(bridge.bridgeId, user.userId, "active", heartbeatAt);
+    const updated = await repo.findById(bridge.bridgeId);
+
+    assert.deepEqual(heartbeatResult, { updated: true, statusChanged: false });
+    assert.equal(updated?.status, "active");
+    assert.equal(updated?.lastSeenAt?.toISOString(), heartbeatAt.toISOString());
   });
 
   it("recordStatusChange is owner-scoped and ignores revoked bridges", async () => {
@@ -123,14 +138,14 @@ describe("BridgeRepository", () => {
 
     const wrongOwnerResult = await repo.recordStatusChange(bridge.bridgeId, stranger.userId, "active", at);
     const afterWrongOwner = await repo.findById(bridge.bridgeId);
-    assert.equal(wrongOwnerResult, false);
+    assert.deepEqual(wrongOwnerResult, { updated: false, statusChanged: false });
     assert.equal(afterWrongOwner?.status, "inactive");
     assert.equal(afterWrongOwner?.lastSeenAt, null);
 
     await repo.revoke(bridge.bridgeId, owner.userId, new Date("2026-06-08T10:01:00Z"));
     const revokedResult = await repo.recordStatusChange(bridge.bridgeId, owner.userId, "active", at);
     const afterRevoked = await repo.findById(bridge.bridgeId);
-    assert.equal(revokedResult, false);
+    assert.deepEqual(revokedResult, { updated: false, statusChanged: false });
     assert.equal(afterRevoked?.status, "inactive");
   });
 
