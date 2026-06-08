@@ -39,6 +39,19 @@ export class BridgeStateTracker {
     this.#dispatch(userId, instanceKey(userId, bridgeId), status);
   }
 
+  cancelPendingForBridge(userId: string, bridgeId: string): void {
+    const key = instanceKey(userId, bridgeId);
+    const entry = this.#state.get(key);
+    if (!entry) {
+      return;
+    }
+
+    if (entry.timer) {
+      clearTimeout(entry.timer);
+    }
+    this.#state.delete(key);
+  }
+
   #dispatch(userId: string, key: string, status: BridgeStatus): void {
     const entry = this.#getOrCreateEntry(key);
 

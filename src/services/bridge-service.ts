@@ -34,7 +34,11 @@ export class BridgeService {
   }
 
   async revokeForUser(userId: string, bridgeId: string): Promise<boolean> {
-    return this.#bridgeRepo.revoke(bridgeId, userId, new Date());
+    const revoked = await this.#bridgeRepo.revoke(bridgeId, userId, new Date());
+    if (revoked) {
+      this.#bridgeStateTracker.cancelPendingForBridge(userId, bridgeId);
+    }
+    return revoked;
   }
 
   async findByIdForUser(bridgeId: string, userId: string): Promise<BridgeDoc | null> {

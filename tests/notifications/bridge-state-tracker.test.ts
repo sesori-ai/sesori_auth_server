@@ -281,6 +281,26 @@ describe("BridgeStateTracker", () => {
     assert.equal(sendCalls.length, 0);
   });
 
+  it("cancelPendingForBridge clears only the targeted bridge timer", async () => {
+    const sendCalls: SendCall[] = [];
+    const notificationServiceMock = {
+      sendToUser: async (userId: string, payload: NotificationPayload) => {
+        sendCalls.push({ userId, payload });
+        return { devicesNotified: 1 };
+      },
+    } as unknown as NotificationService;
+    const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
+
+    tracker.handleStatusChangeForBridge("user-1", "br_target0001", "inactive");
+    tracker.handleStatusChangeForBridge("user-1", "br_other0001", "active");
+    tracker.cancelPendingForBridge("user-1", "br_target0001");
+
+    mock.timers.tick(DEBOUNCE_MS);
+    await flushMicrotasks();
+
+    assert.deepEqual(sendCalls, [{ userId: "user-1", payload: connectedPayload() }]);
+  });
+
   it("notification payload correctness", async () => {
     const sendCalls: SendCall[] = [];
     const notificationServiceMock = {
