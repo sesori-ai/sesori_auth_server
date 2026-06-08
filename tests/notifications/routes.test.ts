@@ -16,6 +16,14 @@ type TrackerCall = {
   status: string;
 };
 
+function hasProjectId(payload: unknown): payload is { data: { projectId: string } } {
+  if (typeof payload !== "object" || payload === null || !("data" in payload)) {
+    return false;
+  }
+  const data = payload.data;
+  return typeof data === "object" && data !== null && "projectId" in data && typeof data.projectId === "string";
+}
+
 describe("Notification routes", () => {
   let ctx: TestContext;
   let deviceTokenRepo: DeviceTokenRepository;
@@ -153,7 +161,8 @@ describe("Notification routes", () => {
     assert.deepEqual(res.json(), { ok: true, devicesNotified: 2 });
     assert.equal(sendCalls.length, 1);
     assert.equal(sendCalls[0]?.userId, user.userId);
-    assert.equal(sendCalls[0]?.payload.data?.projectId, "/Users/alexandrudochioiu/sesori-ai/sesori_apps_monorepo");
+    assert.ok(hasProjectId(sendCalls[0]?.payload));
+    assert.equal(sendCalls[0].payload.data.projectId, "/Users/alexandrudochioiu/sesori-ai/sesori_apps_monorepo");
   });
 
   it("POST /notifications/send returns 400 with invalid category", async () => {
