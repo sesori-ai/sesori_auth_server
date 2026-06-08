@@ -92,6 +92,9 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
 
       const internalStatus: "active" | "inactive" = bodyResult.data.status === "connected" ? "active" : "inactive";
       const at = new Date(bodyResult.data.timestamp);
+      if (Number.isNaN(at.getTime())) {
+        throw new BadRequestError({ debugMessage: "Invalid timestamp" });
+      }
 
       if (bodyResult.data.bridgeId) {
         const bridge = await bridgeService.findByIdForUser(bodyResult.data.bridgeId, bodyResult.data.userId);

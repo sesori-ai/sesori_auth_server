@@ -12,6 +12,7 @@ type SendCall = {
 
 type TrackerCall = {
   userId: string;
+  bridgeId?: string;
   status: string;
 };
 
@@ -32,6 +33,10 @@ describe("Notification routes", () => {
     handleStatusChange: (userId: string, status: string) => {
       trackerCalls.push({ userId, status });
     },
+    handleStatusChangeForBridge: (userId: string, bridgeId: string, status: string) => {
+      trackerCalls.push({ userId, bridgeId, status });
+    },
+    cancelPendingForBridge: () => {},
     dispose: () => {},
   } as unknown as BridgeStateTracker;
 
@@ -283,5 +288,109 @@ describe("Notification routes", () => {
     });
 
     assert.equal(res.statusCode, 400);
+  });
+
+  it("POST /internal/bridge-status returns 400 with invalid timestamp", async () => {
+    const user = await ctx.createUser();
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-status",
+      headers: {
+        "x-relay-secret": "test-relay-secret",
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({
+        userId: user.userId,
+        status: "connected",
+        timestamp: "not-a-date",
+      }),
+    });
+
+    assert.equal(res.statusCode, 400);
+  });
+
+  it("POST /internal/bridge-status updates active non-revoked bridge and notifies per bridge", async () => {
+    const user = await ctx.createUser();
+    const createRes = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ name: "Mac", platform: "macos" }),
+    });
+    const bridge = createRes.json<{ id: string }>();
+    const timestamp = "2026-06-08T10:00:00.000Z";
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-status",
+      headers: {
+        "x-relay-secret": "test-relay-secret",
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({
+        userId: user.userId,
+        bridgeId: bridge.id,
+        status: "connected",
+        timestamp,
+      }),
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(trackerCalls.length, 1);
+    assert.equal(trackerCalls[0]?.userId, user.userId);
+    assert.equal(trackerCalls[0]?.bridgeId, bridge.id);
+    assert.equal(trackerCalls[0]?.status, "active");
+
+    const listRes = await ctx.app.inject({
+      method: "GET",
+      url: "/auth/bridges",
+      headers: { authorization: `Bearer ${user.accessToken}` },
+    });
+    const list = listRes.json<{ bridges: { id: string; status: string; lastSeenAt: string | null }[] }>();
+    assert.equal(list.bridges[0]?.id, bridge.id);
+    assert.equal(list.bridges[0]?.status, "active");
+    assert.equal(list.bridges[0]?.lastSeenAt, timestamp);
+  });
+
+  it("POST /internal/bridge-status rejects revoked bridge IDs", async () => {
+    const user = await ctx.createUser();
+    const createRes = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ name: "Deleted", platform: "macos" }),
+    });
+    const bridge = createRes.json<{ id: string }>();
+    const deleteRes = await ctx.app.inject({
+      method: "DELETE",
+      url: `/auth/bridges/${encodeURIComponent(bridge.id)}`,
+      headers: { authorization: `Bearer ${user.accessToken}` },
+    });
+    assert.equal(deleteRes.statusCode, 200);
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-status",
+      headers: {
+        "x-relay-secret": "test-relay-secret",
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({
+        userId: user.userId,
+        bridgeId: bridge.id,
+        status: "connected",
+        timestamp: new Date().toISOString(),
+      }),
+    });
+
+    assert.equal(res.statusCode, 404);
+    assert.equal(trackerCalls.length, 0);
   });
 });
