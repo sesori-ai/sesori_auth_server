@@ -35,7 +35,6 @@ const DATABASE_CONFIG: Record<MongoDbDatabase, DatabaseConfig<string>> = {
       [AuthDbCollection.DeviceTokens]: [{ spec: { token: 1 }, options: { unique: true } }, { spec: { userId: 1 } }],
       [AuthDbCollection.Bridges]: [
         { spec: { bridgeId: 1 }, options: { unique: true } },
-        { spec: { userId: 1 } },
         { spec: { userId: 1, status: 1 } },
       ],
     },

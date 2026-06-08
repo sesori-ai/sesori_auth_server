@@ -61,6 +61,23 @@ describe("BridgeRepository", () => {
     assert.equal(otherFound, null);
   });
 
+  it("findByIdForUser returns null for revoked bridges", async () => {
+    const user = await ctx.createUser();
+    const repo = new BridgeRepository(ctx.dbAccessor);
+    const bridge = await repo.register({ userId: user.userId, name: "Revoked", platform: "macos" });
+    await repo.revoke(bridge.bridgeId, user.userId, new Date());
+
+    const found = await repo.findByIdForUser(bridge.bridgeId, user.userId);
+    assert.equal(found, null);
+  });
+
+  it("findByUserId returns empty array for invalid userId", async () => {
+    const repo = new BridgeRepository(ctx.dbAccessor);
+
+    const bridges = await repo.findByUserId("not-an-object-id");
+    assert.deepEqual(bridges, []);
+  });
+
   it("findByUserId returns only non-revoked bridges", async () => {
     const user = await ctx.createUser();
     const repo = new BridgeRepository(ctx.dbAccessor);
@@ -90,10 +107,31 @@ describe("BridgeRepository", () => {
     const bridge = await repo.register({ userId: user.userId, name: "Bridge", platform: "macos" });
     const at = new Date("2026-06-08T10:00:00Z");
 
-    await repo.recordStatusChange(bridge.bridgeId, "active", at);
+    const updatedResult = await repo.recordStatusChange(bridge.bridgeId, user.userId, "active", at);
     const updated = await repo.findById(bridge.bridgeId);
+    assert.equal(updatedResult, true);
     assert.equal(updated?.status, "active");
     assert.equal(updated?.lastSeenAt?.toISOString(), at.toISOString());
+  });
+
+  it("recordStatusChange is owner-scoped and ignores revoked bridges", async () => {
+    const owner = await ctx.createUser();
+    const stranger = await ctx.createUser();
+    const repo = new BridgeRepository(ctx.dbAccessor);
+    const bridge = await repo.register({ userId: owner.userId, name: "Bridge", platform: "macos" });
+    const at = new Date("2026-06-08T10:00:00Z");
+
+    const wrongOwnerResult = await repo.recordStatusChange(bridge.bridgeId, stranger.userId, "active", at);
+    const afterWrongOwner = await repo.findById(bridge.bridgeId);
+    assert.equal(wrongOwnerResult, false);
+    assert.equal(afterWrongOwner?.status, "inactive");
+    assert.equal(afterWrongOwner?.lastSeenAt, null);
+
+    await repo.revoke(bridge.bridgeId, owner.userId, new Date("2026-06-08T10:01:00Z"));
+    const revokedResult = await repo.recordStatusChange(bridge.bridgeId, owner.userId, "active", at);
+    const afterRevoked = await repo.findById(bridge.bridgeId);
+    assert.equal(revokedResult, false);
+    assert.equal(afterRevoked?.status, "inactive");
   });
 
   it("revoke returns true on first call, false on second (already revoked)", async () => {
@@ -107,6 +145,19 @@ describe("BridgeRepository", () => {
     assert.equal(second, false);
   });
 
+  it("revoke sets status to inactive", async () => {
+    const user = await ctx.createUser();
+    const repo = new BridgeRepository(ctx.dbAccessor);
+    const bridge = await repo.register({ userId: user.userId, name: "Bridge", platform: "macos" });
+    await repo.recordStatusChange(bridge.bridgeId, user.userId, "active", new Date());
+
+    const result = await repo.revoke(bridge.bridgeId, user.userId, new Date());
+    const revoked = await repo.findById(bridge.bridgeId);
+    assert.equal(result, true);
+    assert.equal(revoked?.status, "inactive");
+    assert.ok(revoked?.revokedAt instanceof Date);
+  });
+
   it("revoke is owner-scoped — wrong userId returns false", async () => {
     const owner = await ctx.createUser();
     const stranger = await ctx.createUser();
@@ -118,5 +169,14 @@ describe("BridgeRepository", () => {
 
     const stillActive = await repo.findById(bridge.bridgeId);
     assert.equal(stillActive?.revokedAt, null);
+  });
+
+  it("revoke returns false for invalid userId", async () => {
+    const user = await ctx.createUser();
+    const repo = new BridgeRepository(ctx.dbAccessor);
+    const bridge = await repo.register({ userId: user.userId, name: "Bridge", platform: "macos" });
+
+    const result = await repo.revoke(bridge.bridgeId, "not-an-object-id", new Date());
+    assert.equal(result, false);
   });
 });

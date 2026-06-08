@@ -42,7 +42,9 @@ export class BridgeService {
   }
 
   async recordStatusChange(bridgeId: string, userId: string, status: "active" | "inactive", at: Date): Promise<void> {
-    await this.#bridgeRepo.recordStatusChange(bridgeId, status, at);
-    this.#bridgeStateTracker.handleStatusChangeForBridge(userId, bridgeId, status);
+    const updated = await this.#bridgeRepo.recordStatusChange(bridgeId, userId, status, at);
+    if (updated) {
+      this.#bridgeStateTracker.handleStatusChangeForBridge(userId, bridgeId, status);
+    }
   }
 }

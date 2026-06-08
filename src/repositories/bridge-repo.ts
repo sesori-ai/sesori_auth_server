@@ -27,13 +27,22 @@ export class BridgeRepository {
   }
 
   async findByIdForUser(bridgeId: string, userId: string): Promise<Bridge | null> {
+    if (!ObjectId.isValid(userId)) {
+      return null;
+    }
+
     return this.#collection.findOne({
       bridgeId,
       userId: new ObjectId(userId),
+      revokedAt: null,
     });
   }
 
   async findByUserId(userId: string): Promise<Bridge[]> {
+    if (!ObjectId.isValid(userId)) {
+      return [];
+    }
+
     return this.#collection
       .find({
         userId: new ObjectId(userId),
@@ -43,6 +52,10 @@ export class BridgeRepository {
   }
 
   async register(input: RegisterBridgeInput): Promise<Bridge> {
+    if (!ObjectId.isValid(input.userId)) {
+      throw new Error("Invalid userId");
+    }
+
     const now = new Date();
     const bridge: Bridge = {
       _id: new ObjectId(),
@@ -62,16 +75,30 @@ export class BridgeRepository {
     return bridge;
   }
 
-  async recordStatusChange(bridgeId: string, status: "active" | "inactive", at: Date): Promise<void> {
-    await this.#collection.updateOne(
-      { bridgeId },
+  async recordStatusChange(
+    bridgeId: string,
+    userId: string,
+    status: "active" | "inactive",
+    at: Date,
+  ): Promise<boolean> {
+    if (!ObjectId.isValid(userId)) {
+      return false;
+    }
+
+    const result = await this.#collection.updateOne(
+      { bridgeId, userId: new ObjectId(userId), revokedAt: null },
       {
         $set: { status, lastSeenAt: at, updatedAt: at },
       },
     );
+    return result.modifiedCount === 1;
   }
 
   async revoke(bridgeId: string, userId: string, at: Date): Promise<boolean> {
+    if (!ObjectId.isValid(userId)) {
+      return false;
+    }
+
     const result = await this.#collection.updateOne(
       {
         bridgeId,
@@ -79,7 +106,7 @@ export class BridgeRepository {
         revokedAt: null,
       },
       {
-        $set: { revokedAt: at, updatedAt: at },
+        $set: { status: "inactive", revokedAt: at, updatedAt: at },
       },
     );
     return result.modifiedCount === 1;

@@ -205,8 +205,10 @@ export const registerBridgeBodySchema = z.object({
 });
 export type RegisterBridgeBody = z.infer<typeof registerBridgeBodySchema>;
 
+export const bridgeIdSchema = z.string().regex(/^br_[A-Za-z0-9_-]{8,32}$/);
+
 export const registerBridgeReplySchema = z.object({
-  id: z.string(),
+  id: bridgeIdSchema,
   name: z.string(),
   status: z.enum(["active", "inactive"]),
   addedAt: z.string(),
@@ -219,10 +221,7 @@ export type BridgesListReply = {
   bridges: BridgeSummary[];
 };
 
-export const bridgeIdPathParamSchema = z
-  .string()
-  .min(1)
-  .regex(/^br_[A-Za-z0-9_-]{8,32}$/);
+export const bridgeIdPathParamSchema = bridgeIdSchema;
 export type BridgeIdPathParam = z.infer<typeof bridgeIdPathParamSchema>;
 
 export const generateMetadataBodySchema = z.object({
