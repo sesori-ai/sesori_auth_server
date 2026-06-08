@@ -1,6 +1,7 @@
 import { describe, it, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
+import { bridgeTokenPayloadSchema } from "../../src/models/jwt.js";
 
 describe("/auth/bridges routes", () => {
   let ctx: TestContext;
@@ -17,7 +18,7 @@ describe("/auth/bridges routes", () => {
     // no state to reset
   });
 
-  it("POST /auth/bridges returns 201 with bridge summary (br_ id, inactive, no lastSeenAt)", async () => {
+  it("POST /auth/bridges returns 201 with bridge summary and bridge-bound token", async () => {
     const user = await ctx.createUser();
 
     const res = await ctx.app.inject({
@@ -38,6 +39,7 @@ describe("/auth/bridges routes", () => {
       addedAt: string;
       lastSeenAt: string | null;
       platform: "macos" | "windows" | "linux";
+      bridgeToken: string;
     }>();
     assert.match(body.id, /^br_[A-Za-z0-9_-]{8,32}$/);
     assert.equal(body.name, "Alex's MacBook Pro");
@@ -45,6 +47,14 @@ describe("/auth/bridges routes", () => {
     assert.equal(body.lastSeenAt, null);
     assert.equal(body.platform, "macos");
     assert.ok(typeof body.addedAt === "string");
+
+    const tokenPayloadResult = bridgeTokenPayloadSchema.safeParse(ctx.tokenService.verifyBridgeToken(body.bridgeToken));
+    assert.equal(tokenPayloadResult.success, true);
+    if (!tokenPayloadResult.success) return;
+    assert.equal(tokenPayloadResult.data.tokenType, "bridge");
+    assert.equal(tokenPayloadResult.data.aud, "bridge");
+    assert.equal(tokenPayloadResult.data.userId, user.userId);
+    assert.equal(tokenPayloadResult.data.bridgeId, body.id);
   });
 
   it("POST /auth/bridges returns 400 on invalid platform", async () => {
