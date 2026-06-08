@@ -46,8 +46,11 @@ export class BridgeStateTracker {
       return;
     }
 
+    entry.generation += 1;
+    entry.pendingStatus = null;
     if (entry.timer) {
       clearTimeout(entry.timer);
+      entry.timer = null;
     }
     this.#state.delete(key);
   }
