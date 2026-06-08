@@ -7,6 +7,7 @@ import {
   type RegisterBridgeReply,
 } from "../models/api.js";
 import type { BridgeService } from "../services/bridge-service.js";
+import type { TokenService } from "../services/token-service.js";
 
 function getUserId(request: FastifyRequest): string {
   if (!request.user) throw new UnauthenticatedError();
@@ -15,11 +16,12 @@ function getUserId(request: FastifyRequest): string {
 
 export type BridgeRouteOptions = {
   bridgeService: BridgeService;
+  tokenService: TokenService;
   requireAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
 };
 
 export const bridgeRoutes: FastifyPluginAsync<BridgeRouteOptions> = async (fastify, opts) => {
-  const { bridgeService, requireAuth } = opts;
+  const { bridgeService, tokenService, requireAuth } = opts;
 
   fastify.post<{ Body: unknown; Reply: RegisterBridgeReply }>(
     "/auth/bridges",
@@ -32,8 +34,9 @@ export const bridgeRoutes: FastifyPluginAsync<BridgeRouteOptions> = async (fasti
 
       const userId = getUserId(request);
       const summary = await bridgeService.registerForUser(userId, bodyResult.data.name, bodyResult.data.platform);
+      const bridgeToken = tokenService.signBridgeToken({ userId, bridgeId: summary.id });
       reply.status(201);
-      return summary;
+      return { ...summary, bridgeToken };
     },
   );
 

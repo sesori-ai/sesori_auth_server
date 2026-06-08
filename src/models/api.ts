@@ -214,6 +214,7 @@ export const registerBridgeReplySchema = z.object({
   addedAt: z.string(),
   lastSeenAt: z.string().nullable(),
   platform: bridgePlatformSchema,
+  bridgeToken: z.string().min(1),
 });
 export type RegisterBridgeReply = z.infer<typeof registerBridgeReplySchema>;
 
