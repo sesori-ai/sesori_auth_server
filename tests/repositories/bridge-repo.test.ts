@@ -212,4 +212,28 @@ describe("BridgeRepository", () => {
     const result = await repo.revoke(bridge.bridgeId, "not-an-object-id", new Date());
     assert.equal(result, false);
   });
+
+  it("revokeAllForUser revokes only the user's non-revoked bridges", async () => {
+    const user = await ctx.createUser();
+    const otherUser = await ctx.createUser();
+    const repo = new BridgeRepository(ctx.dbAccessor);
+    const first = await repo.register({ userId: user.userId, name: "First", platform: "macos" });
+    const second = await repo.register({ userId: user.userId, name: "Second", platform: "linux" });
+    const other = await repo.register({ userId: otherUser.userId, name: "Other", platform: "windows" });
+    await repo.revoke(second.bridgeId, user.userId, new Date("2026-06-08T10:00:00Z"));
+
+    const revoked = await repo.revokeAllForUser(user.userId, new Date("2026-06-08T10:01:00Z"));
+    const afterFirst = await repo.findById(first.bridgeId);
+    const afterSecond = await repo.findById(second.bridgeId);
+    const afterOther = await repo.findById(other.bridgeId);
+
+    assert.deepEqual(
+      revoked.map((bridge) => bridge.bridgeId),
+      [first.bridgeId],
+    );
+    assert.equal(afterFirst?.status, "inactive");
+    assert.ok(afterFirst?.revokedAt instanceof Date);
+    assert.equal(afterSecond?.revokedAt?.toISOString(), "2026-06-08T10:00:00.000Z");
+    assert.equal(afterOther?.revokedAt, null);
+  });
 });

@@ -126,4 +126,21 @@ export class BridgeRepository {
     );
     return result.modifiedCount === 1;
   }
+
+  async revokeAllForUser(userId: string, at: Date): Promise<Bridge[]> {
+    if (!ObjectId.isValid(userId)) {
+      return [];
+    }
+
+    const filter = { userId: new ObjectId(userId), revokedAt: null };
+    const bridges = await this.#collection.find(filter).toArray();
+    if (bridges.length === 0) {
+      return [];
+    }
+
+    await this.#collection.updateMany(filter, {
+      $set: { status: "inactive", revokedAt: at, updatedAt: at },
+    });
+    return bridges;
+  }
 }
