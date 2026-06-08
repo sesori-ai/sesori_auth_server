@@ -193,6 +193,15 @@ describe("Notification routes", () => {
 
   it("POST /internal/bridge-status (disconnected) returns 200 with valid relay secret", async () => {
     const user = await ctx.createUser();
+    await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ name: "Legacy Bridge", platform: "macos" }),
+    });
 
     const res = await ctx.app.inject({
       method: "POST",
@@ -217,6 +226,15 @@ describe("Notification routes", () => {
 
   it("POST /internal/bridge-status (connected) delegates to bridgeStateTracker", async () => {
     const user = await ctx.createUser();
+    await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ name: "Legacy Bridge", platform: "macos" }),
+    });
 
     const res = await ctx.app.inject({
       method: "POST",
@@ -237,6 +255,43 @@ describe("Notification routes", () => {
     assert.equal(trackerCalls.length, 1);
     assert.equal(trackerCalls[0]?.userId, user.userId);
     assert.equal(trackerCalls[0]?.status, "active");
+  });
+
+  it("POST /internal/bridge-status ignores legacy status when user has no bridges", async () => {
+    const user = await ctx.createUser();
+    const createRes = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ name: "Deleted", platform: "macos" }),
+    });
+    const bridge = createRes.json<{ id: string }>();
+    await ctx.app.inject({
+      method: "DELETE",
+      url: `/auth/bridges/${encodeURIComponent(bridge.id)}`,
+      headers: { authorization: `Bearer ${user.accessToken}` },
+    });
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-status",
+      headers: {
+        "x-relay-secret": "test-relay-secret",
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({
+        userId: user.userId,
+        status: "connected",
+        timestamp: new Date().toISOString(),
+      }),
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), { ok: true });
+    assert.equal(trackerCalls.length, 0);
   });
 
   it("POST /internal/bridge-status returns 401 with missing or wrong secret", async () => {
@@ -396,6 +451,53 @@ describe("Notification routes", () => {
       headers: { authorization: `Bearer ${user.accessToken}` },
     });
     const list = listRes.json<{ bridges: { lastSeenAt: string | null }[] }>();
+    assert.equal(list.bridges[0]?.lastSeenAt, "2026-06-08T10:01:00.000Z");
+  });
+
+  it("POST /internal/bridge-status ignores stale per-bridge events", async () => {
+    const user = await ctx.createUser();
+    const createRes = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ name: "Mac", platform: "macos" }),
+    });
+    const bridge = createRes.json<{ id: string }>();
+
+    for (const event of [
+      { status: "connected", timestamp: "2026-06-08T10:01:00.000Z" },
+      { status: "disconnected", timestamp: "2026-06-08T10:00:00.000Z" },
+    ]) {
+      const res = await ctx.app.inject({
+        method: "POST",
+        url: "/internal/bridge-status",
+        headers: {
+          "x-relay-secret": "test-relay-secret",
+          "content-type": "application/json",
+        },
+        payload: JSON.stringify({
+          userId: user.userId,
+          bridgeId: bridge.id,
+          status: event.status,
+          timestamp: event.timestamp,
+        }),
+      });
+      assert.equal(res.statusCode, 200);
+    }
+
+    assert.equal(trackerCalls.length, 1);
+    assert.equal(trackerCalls[0]?.status, "active");
+
+    const listRes = await ctx.app.inject({
+      method: "GET",
+      url: "/auth/bridges",
+      headers: { authorization: `Bearer ${user.accessToken}` },
+    });
+    const list = listRes.json<{ bridges: { status: string; lastSeenAt: string | null }[] }>();
+    assert.equal(list.bridges[0]?.status, "active");
     assert.equal(list.bridges[0]?.lastSeenAt, "2026-06-08T10:01:00.000Z");
   });
 

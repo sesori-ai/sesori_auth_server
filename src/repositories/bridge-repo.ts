@@ -90,16 +90,23 @@ export class BridgeRepository {
       return { updated: false, statusChanged: false };
     }
 
-    const filter = { bridgeId, userId: new ObjectId(userId), revokedAt: null };
-    const existing = await this.#collection.findOne(filter, { projection: { status: 1 } });
+    const existing = await this.#collection.findOneAndUpdate(
+      {
+        bridgeId,
+        userId: new ObjectId(userId),
+        revokedAt: null,
+        $or: [{ lastSeenAt: null }, { lastSeenAt: { $lt: at } }],
+      },
+      {
+        $set: { status, lastSeenAt: at, updatedAt: at },
+      },
+      { returnDocument: "before" },
+    );
     if (!existing) {
       return { updated: false, statusChanged: false };
     }
 
-    const result = await this.#collection.updateOne(filter, {
-      $set: { status, lastSeenAt: at, updatedAt: at },
-    });
-    return { updated: result.modifiedCount === 1, statusChanged: existing.status !== status };
+    return { updated: true, statusChanged: existing.status !== status };
   }
 
   async revoke(bridgeId: string, userId: string, at: Date): Promise<boolean> {

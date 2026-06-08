@@ -106,7 +106,10 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
         if (config.AUTH_REQUIRE_BRIDGE_ID_IN_STATUS) {
           throw new BadRequestError({ debugMessage: "bridgeId is required" });
         }
-        bridgeStateTracker.handleStatusChange(bodyResult.data.userId, internalStatus);
+        const bridges = await bridgeService.listForUser(bodyResult.data.userId);
+        if (bridges.length > 0) {
+          bridgeStateTracker.handleStatusChange(bodyResult.data.userId, internalStatus);
+        }
       }
 
       return { ok: true };

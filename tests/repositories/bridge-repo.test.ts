@@ -129,6 +129,24 @@ describe("BridgeRepository", () => {
     assert.equal(updated?.lastSeenAt?.toISOString(), heartbeatAt.toISOString());
   });
 
+  it("recordStatusChange ignores stale or duplicate event timestamps", async () => {
+    const user = await ctx.createUser();
+    const repo = new BridgeRepository(ctx.dbAccessor);
+    const bridge = await repo.register({ userId: user.userId, name: "Bridge", platform: "macos" });
+    const firstAt = new Date("2026-06-08T10:00:00Z");
+    const staleAt = new Date("2026-06-08T09:59:00Z");
+
+    await repo.recordStatusChange(bridge.bridgeId, user.userId, "active", firstAt);
+    const staleResult = await repo.recordStatusChange(bridge.bridgeId, user.userId, "inactive", staleAt);
+    const duplicateResult = await repo.recordStatusChange(bridge.bridgeId, user.userId, "inactive", firstAt);
+    const updated = await repo.findById(bridge.bridgeId);
+
+    assert.deepEqual(staleResult, { updated: false, statusChanged: false });
+    assert.deepEqual(duplicateResult, { updated: false, statusChanged: false });
+    assert.equal(updated?.status, "active");
+    assert.equal(updated?.lastSeenAt?.toISOString(), firstAt.toISOString());
+  });
+
   it("recordStatusChange is owner-scoped and ignores revoked bridges", async () => {
     const owner = await ctx.createUser();
     const stranger = await ctx.createUser();
