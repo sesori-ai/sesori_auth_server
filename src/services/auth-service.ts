@@ -249,6 +249,11 @@ export class AuthService {
     }
   }
 
+  async isAccessTokenVersionCurrent(userId: string, tokenVersion: number): Promise<boolean> {
+    const user = await this.#userRepo.findById(userId);
+    return user?.tokenVersion === tokenVersion;
+  }
+
   async revoke(userId: string): Promise<void> {
     await this.logoutUser(userId);
     await this.#bridgeService?.revokeAllForUser(userId);

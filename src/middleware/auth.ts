@@ -1,5 +1,6 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import { UnauthenticatedError } from "../lib/errors.js";
+import type { AuthService } from "../services/auth-service.js";
 import { TokenService } from "../services/token-service.js";
 import { accessTokenPayloadSchema, type AccessTokenPayload } from "../models/jwt.js";
 
@@ -9,7 +10,7 @@ declare module "fastify" {
   }
 }
 
-export function createAuthMiddleware(tokenService: TokenService) {
+export function createAuthMiddleware(tokenService: TokenService, authService: AuthService) {
   return async function requireAuth(request: FastifyRequest, _reply: FastifyReply): Promise<void> {
     if (process.env.NODE_ENV === "development") {
       request.user = {
@@ -17,6 +18,7 @@ export function createAuthMiddleware(tokenService: TokenService) {
         userId: "69b2aeaa1755fd6c00000000",
         provider: "github",
         providerUserId: "123",
+        tokenVersion: 0,
         iss: "auth-backend",
         aud: "mobile",
         exp: 999999999999999,
@@ -39,6 +41,13 @@ export function createAuthMiddleware(tokenService: TokenService) {
             debugMessage: "Auth token payload validation failed",
             nestedError: result.error.issues,
           });
+        }
+        const tokenVersionCurrent = await authService.isAccessTokenVersionCurrent(
+          result.data.userId,
+          result.data.tokenVersion,
+        );
+        if (!tokenVersionCurrent) {
+          throw new UnauthenticatedError({ debugMessage: "Token version mismatch (revoked)" });
         }
         request.user = result.data;
       } catch (error) {

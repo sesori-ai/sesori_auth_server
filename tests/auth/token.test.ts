@@ -239,7 +239,7 @@ describe("Token routes", () => {
       assert.equal(res.json<{ error: string }>().error, "unauthenticated");
     });
 
-    it("returns 404 for /auth/me when access token user no longer exists", async () => {
+    it("returns 401 for /auth/me when access token user no longer exists", async () => {
       const ghostAccessToken = ctx.tokenService.signAccessToken({
         userId: "000000000000000000000000",
         provider: "github",
@@ -253,8 +253,8 @@ describe("Token routes", () => {
         headers: { authorization: `Bearer ${ghostAccessToken}` },
       });
 
-      assert.equal(res.statusCode, 404);
-      assert.equal(res.json<{ error: string }>().error, "not_found");
+      assert.equal(res.statusCode, 401);
+      assert.equal(res.json<{ error: string }>().error, "unauthenticated");
     });
   });
 
@@ -279,6 +279,24 @@ describe("Token routes", () => {
       });
 
       assert.equal(res.statusCode, 401);
+    });
+
+    it("invalidates old access token after logout", async () => {
+      const user = await ctx.createUser();
+
+      const logoutRes = await ctx.app.inject({
+        method: "POST",
+        url: "/auth/logout",
+        headers: { authorization: `Bearer ${user.accessToken}` },
+      });
+      assert.equal(logoutRes.statusCode, 200);
+
+      const meRes = await ctx.app.inject({
+        method: "GET",
+        url: "/auth/me",
+        headers: { authorization: `Bearer ${user.accessToken}` },
+      });
+      assert.equal(meRes.statusCode, 401);
     });
   });
 });
