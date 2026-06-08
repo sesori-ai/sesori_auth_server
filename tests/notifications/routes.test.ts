@@ -29,6 +29,7 @@ describe("Notification routes", () => {
   let deviceTokenRepo: DeviceTokenRepository;
   const sendCalls: SendCall[] = [];
   const trackerCalls: TrackerCall[] = [];
+  const cancelledLegacyUsers: string[] = [];
 
   const notificationServiceMock = {
     sendToUser: async (userId: string, payload: unknown) => {
@@ -44,7 +45,9 @@ describe("Notification routes", () => {
     handleStatusChangeForBridge: (userId: string, bridgeId: string, status: string) => {
       trackerCalls.push({ userId, bridgeId, status });
     },
-    cancelPendingForUser: () => {},
+    cancelPendingForUser: (userId: string) => {
+      cancelledLegacyUsers.push(userId);
+    },
     cancelPendingForBridge: () => {},
     dispose: () => {},
   } as unknown as BridgeStateTracker;
@@ -60,6 +63,7 @@ describe("Notification routes", () => {
   beforeEach(() => {
     sendCalls.length = 0;
     trackerCalls.length = 0;
+    cancelledLegacyUsers.length = 0;
   });
 
   after(async () => {
@@ -409,6 +413,7 @@ describe("Notification routes", () => {
     assert.equal(trackerCalls[0]?.userId, user.userId);
     assert.equal(trackerCalls[0]?.bridgeId, bridge.id);
     assert.equal(trackerCalls[0]?.status, "active");
+    assert.deepEqual(cancelledLegacyUsers, [user.userId]);
 
     const listRes = await ctx.app.inject({
       method: "GET",
@@ -454,6 +459,7 @@ describe("Notification routes", () => {
 
     assert.equal(trackerCalls.length, 1);
     assert.equal(trackerCalls[0]?.status, "active");
+    assert.deepEqual(cancelledLegacyUsers, [user.userId, user.userId]);
 
     const listRes = await ctx.app.inject({
       method: "GET",
