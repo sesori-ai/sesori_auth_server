@@ -5,6 +5,7 @@ export const accessTokenPayloadSchema = z.object({
   userId: z.string(),
   provider: z.string(),
   providerUserId: z.string(),
+  tokenVersion: z.number(),
   iss: z.literal("auth-backend"),
   aud: z.literal("mobile"),
   exp: z.number(),

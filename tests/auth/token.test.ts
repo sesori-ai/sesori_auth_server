@@ -244,6 +244,7 @@ describe("Token routes", () => {
         userId: "000000000000000000000000",
         provider: "github",
         providerUserId: "ghost-provider-user",
+        tokenVersion: 0,
       });
 
       const res = await ctx.app.inject({

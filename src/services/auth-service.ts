@@ -168,6 +168,7 @@ export class AuthService {
       userId: params.userId,
       provider: params.provider,
       providerUserId: params.providerUserId,
+      tokenVersion: params.tokenVersion,
     });
     const refreshToken = this.#tokenService.signRefreshToken({
       userId: params.userId,
