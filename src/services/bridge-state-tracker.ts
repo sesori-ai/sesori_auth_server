@@ -41,6 +41,14 @@ export class BridgeStateTracker {
 
   cancelPendingForBridge(userId: string, bridgeId: string): void {
     const key = instanceKey(userId, bridgeId);
+    this.#cancelPendingForKey(key);
+  }
+
+  cancelPendingForUser(userId: string): void {
+    this.#cancelPendingForKey(legacyKey(userId));
+  }
+
+  #cancelPendingForKey(key: string): void {
     const entry = this.#state.get(key);
     if (!entry) {
       return;
