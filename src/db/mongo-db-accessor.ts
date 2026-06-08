@@ -33,6 +33,11 @@ const DATABASE_CONFIG: Record<MongoDbDatabase, DatabaseConfig<string>> = {
       [AuthDbCollection.GlossaryEntries]: [{ spec: { userId: 1, word: 1 }, options: { unique: true } }],
       [AuthDbCollection.DailyUsage]: [{ spec: { userId: 1, date: 1 }, options: { unique: true } }],
       [AuthDbCollection.DeviceTokens]: [{ spec: { token: 1 }, options: { unique: true } }, { spec: { userId: 1 } }],
+      [AuthDbCollection.Bridges]: [
+        { spec: { bridgeId: 1 }, options: { unique: true } },
+        { spec: { userId: 1 } },
+        { spec: { userId: 1, status: 1 } },
+      ],
     },
   } satisfies DatabaseConfig<AuthDbCollection>,
 };

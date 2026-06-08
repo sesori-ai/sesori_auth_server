@@ -1,7 +1,6 @@
-import type { BridgeStatusBody } from "../models/api.js";
 import type { NotificationPayload, NotificationService } from "./notification-service.js";
 
-type BridgeStatus = BridgeStatusBody["status"];
+type BridgeStatus = "active" | "inactive";
 
 const DEFAULT_BRIDGE_NOTIFICATION_DEBOUNCE_MS = 120_000;
 
@@ -11,6 +10,16 @@ type BridgeStateEntry = {
   timer: ReturnType<typeof setTimeout> | null;
   generation: number;
 };
+
+const LEGACY_KEY_SUFFIX = "::legacy";
+
+function instanceKey(userId: string, bridgeId: string): string {
+  return `${userId}::${bridgeId}`;
+}
+
+function legacyKey(userId: string): string {
+  return `${userId}${LEGACY_KEY_SUFFIX}`;
+}
 
 export class BridgeStateTracker {
   readonly #notificationService: NotificationService;
@@ -23,7 +32,15 @@ export class BridgeStateTracker {
   }
 
   handleStatusChange(userId: string, status: BridgeStatus): void {
-    const entry = this.#getOrCreateEntry(userId);
+    this.#dispatch(userId, legacyKey(userId), status);
+  }
+
+  handleStatusChangeForBridge(userId: string, bridgeId: string, status: BridgeStatus): void {
+    this.#dispatch(userId, instanceKey(userId, bridgeId), status);
+  }
+
+  #dispatch(userId: string, key: string, status: BridgeStatus): void {
+    const entry = this.#getOrCreateEntry(key);
 
     if (status === entry.pendingStatus) {
       return;
@@ -71,8 +88,8 @@ export class BridgeStateTracker {
     this.#state.clear();
   }
 
-  #getOrCreateEntry(userId: string): BridgeStateEntry {
-    const existingEntry = this.#state.get(userId);
+  #getOrCreateEntry(key: string): BridgeStateEntry {
+    const existingEntry = this.#state.get(key);
     if (existingEntry) {
       return existingEntry;
     }
@@ -83,12 +100,12 @@ export class BridgeStateTracker {
       timer: null,
       generation: 0,
     };
-    this.#state.set(userId, entry);
+    this.#state.set(key, entry);
     return entry;
   }
 
   #buildPayload(status: BridgeStatus): NotificationPayload {
-    if (status === "connected") {
+    if (status === "active") {
       return {
         category: "connection_status",
         title: "Bridge Online",

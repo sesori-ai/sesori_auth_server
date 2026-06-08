@@ -117,6 +117,7 @@ export type AuthTokensReply = {
 
 export type MeReply = {
   user: UserProfile;
+  bridges: BridgeSummary[];
 };
 
 export type SuccessReply = {
@@ -176,10 +177,53 @@ export type SendNotificationBody = z.infer<typeof sendNotificationBodySchema>;
 
 export const bridgeStatusBodySchema = z.object({
   userId: z.string().min(1),
+  bridgeId: z
+    .string()
+    .regex(/^br_[A-Za-z0-9_-]{8,32}$/)
+    .optional(),
   status: z.enum(["connected", "disconnected"]),
   timestamp: z.string(),
 });
 export type BridgeStatusBody = z.infer<typeof bridgeStatusBodySchema>;
+
+export type BridgePlatform = "macos" | "windows" | "linux";
+
+export const bridgePlatformSchema = z.enum(["macos", "windows", "linux"]);
+
+export type BridgeSummary = {
+  id: string;
+  name: string;
+  status: "active" | "inactive";
+  addedAt: string;
+  lastSeenAt: string | null;
+  platform: BridgePlatform;
+};
+
+export const registerBridgeBodySchema = z.object({
+  name: z.string().min(1).max(120),
+  platform: bridgePlatformSchema,
+});
+export type RegisterBridgeBody = z.infer<typeof registerBridgeBodySchema>;
+
+export const registerBridgeReplySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  status: z.enum(["active", "inactive"]),
+  addedAt: z.string(),
+  lastSeenAt: z.string().nullable(),
+  platform: bridgePlatformSchema,
+});
+export type RegisterBridgeReply = z.infer<typeof registerBridgeReplySchema>;
+
+export type BridgesListReply = {
+  bridges: BridgeSummary[];
+};
+
+export const bridgeIdPathParamSchema = z
+  .string()
+  .min(1)
+  .regex(/^br_[A-Za-z0-9_-]{8,32}$/);
+export type BridgeIdPathParam = z.infer<typeof bridgeIdPathParamSchema>;
 
 export const generateMetadataBodySchema = z.object({
   firstMessage: z.string().min(1).max(500),

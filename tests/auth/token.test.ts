@@ -140,10 +140,40 @@ describe("Token routes", () => {
       assert.equal(res.statusCode, 200);
       const body = res.json<{
         user: { id: string; provider: string; providerUserId: string };
+        bridges: unknown[];
       }>();
       assert.equal(body.user.id, user.userId);
       assert.equal(body.user.provider, user.provider);
       assert.equal(body.user.providerUserId, user.providerUserId);
+      assert.deepEqual(body.bridges, []);
+    });
+
+    it("returns the registered bridges in the bridges array", async () => {
+      const user = await ctx.createUser();
+      const createRes = await ctx.app.inject({
+        method: "POST",
+        url: "/auth/bridges",
+        headers: {
+          authorization: `Bearer ${user.accessToken}`,
+          "content-type": "application/json",
+        },
+        payload: JSON.stringify({ name: "Mac", platform: "macos" }),
+      });
+      const created = createRes.json<{ id: string; name: string }>();
+
+      const res = await ctx.app.inject({
+        method: "GET",
+        url: "/auth/me",
+        headers: { authorization: `Bearer ${user.accessToken}` },
+      });
+      assert.equal(res.statusCode, 200);
+      const body = res.json<{
+        bridges: { id: string; name: string; status: "active" | "inactive" }[];
+      }>();
+      assert.equal(body.bridges.length, 1);
+      assert.equal(body.bridges[0]?.id, created.id);
+      assert.equal(body.bridges[0]?.name, "Mac");
+      assert.equal(body.bridges[0]?.status, "inactive");
     });
 
     it("returns 401 when no Authorization header is provided", async () => {

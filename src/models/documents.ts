@@ -73,3 +73,20 @@ export const deviceTokenSchema = z.object({
 });
 
 export type DeviceToken = z.infer<typeof deviceTokenSchema>;
+
+export const bridgeSchema = z.object({
+  _id: z.instanceof(ObjectId),
+  bridgeId: z.string(),
+  userId: z.instanceof(ObjectId),
+  name: z.string().min(1).max(120),
+  platform: z.enum(["macos", "windows", "linux"]),
+  status: z.enum(["active", "inactive"]),
+  addedAt: z.date(),
+  lastSeenAt: z.date().nullable(),
+  lastSeenIp: z.string().nullable().optional(),
+  revokedAt: z.date().nullable(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
+export type Bridge = z.infer<typeof bridgeSchema>;

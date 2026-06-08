@@ -9,4 +9,5 @@ export enum AuthDbCollection {
   GlossaryEntries = "glossaryEntries",
   DailyUsage = "dailyUsage",
   DeviceTokens = "deviceTokens",
+  Bridges = "bridges",
 }

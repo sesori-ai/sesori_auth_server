@@ -207,7 +207,7 @@ describe("Notification routes", () => {
     assert.deepEqual(res.json(), { ok: true });
     assert.equal(trackerCalls.length, 1);
     assert.equal(trackerCalls[0]?.userId, user.userId);
-    assert.equal(trackerCalls[0]?.status, "disconnected");
+    assert.equal(trackerCalls[0]?.status, "inactive");
   });
 
   it("POST /internal/bridge-status (connected) delegates to bridgeStateTracker", async () => {
@@ -231,7 +231,7 @@ describe("Notification routes", () => {
     assert.deepEqual(res.json(), { ok: true });
     assert.equal(trackerCalls.length, 1);
     assert.equal(trackerCalls[0]?.userId, user.userId);
-    assert.equal(trackerCalls[0]?.status, "connected");
+    assert.equal(trackerCalls[0]?.status, "active");
   });
 
   it("POST /internal/bridge-status returns 401 with missing or wrong secret", async () => {

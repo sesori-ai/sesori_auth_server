@@ -106,6 +106,7 @@ function createTestServices(params: {
   return {
     config: createTestConfig(),
     authService,
+    bridgeService: {} as AppServices["bridgeService"],
     tokenService: {} as AppServices["tokenService"],
     voiceService: {} as AppServices["voiceService"],
     sessionMetadataService: {} as AppServices["sessionMetadataService"],

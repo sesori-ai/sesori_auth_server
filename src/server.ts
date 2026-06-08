@@ -12,6 +12,7 @@ import { createRelayAuthMiddleware } from "./middleware/relay-auth.js";
 import type { HealthReply } from "./models/api.js";
 import type { DeviceTokenRepository } from "./repositories/device-token-repo.js";
 import type { AuthService } from "./services/auth-service.js";
+import type { BridgeService } from "./services/bridge-service.js";
 import type { BridgeStateTracker } from "./services/bridge-state-tracker.js";
 import type { NotificationService } from "./services/notification-service.js";
 import type { TokenService } from "./services/token-service.js";
@@ -31,12 +32,14 @@ import { githubRoutes } from "./routes/auth/github.js";
 import { googleRoutes } from "./routes/auth/google.js";
 import { voiceRoutes } from "./routes/voice.js";
 import { notificationRoutes } from "./routes/notifications.js";
+import { bridgeRoutes } from "./routes/bridges.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { sessionStatusRoutes } from "./routes/auth/session-status.js";
 
 export type AppServices = {
   config: Config;
   authService: AuthService;
+  bridgeService: BridgeService;
   tokenService: TokenService;
   voiceService: VoiceService;
   sessionMetadataService: SessionMetadataService;
@@ -107,6 +110,7 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
 
   await app.register(tokenRoutes, {
     authService: services.authService,
+    bridgeService: services.bridgeService,
     tokenService: services.tokenService,
     requireAuth,
   });
@@ -148,11 +152,17 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
     requireAuth,
   });
   await app.register(notificationRoutes, {
+    config: services.config,
     deviceTokenRepo: services.deviceTokenRepo,
     notificationService: services.notificationService,
+    bridgeService: services.bridgeService,
     bridgeStateTracker: services.bridgeStateTracker,
     requireAuth,
     requireRelayAuth,
+  });
+  await app.register(bridgeRoutes, {
+    bridgeService: services.bridgeService,
+    requireAuth,
   });
   await app.register(sessionRoutes, {
     sessionMetadataService: services.sessionMetadataService,

@@ -38,6 +38,15 @@ const configSchema = z.object({
     .pipe(z.array(z.string().min(1)).min(1)),
   RELAY_URL: z.string().min(1, "RELAY_URL is required"),
   RELAY_WEBHOOK_SECRET: z.string().optional(),
+  // Transition gate for per-bridge-instance tracking. When true, the
+  // /internal/bridge-status endpoint requires a bridgeId field; bridges that
+  // don't send one are rejected with 400. Flip to true once the relay fleet
+  // and the bridge CLI have rolled over (companion to RELAY_REQUIRE_BRIDGE_ID
+  // on the relay).
+  AUTH_REQUIRE_BRIDGE_ID_IN_STATUS: z
+    .union([z.literal("true"), z.literal("false"), z.literal("1"), z.literal("0")])
+    .optional()
+    .transform((v) => v === "true" || v === "1"),
   OPENAI_API_KEY: z.string().min(1, "OPENAI_API_KEY is required"),
   OPENAI_TRANSCRIPTION_MODEL: z.string().min(1).default("gpt-4o-mini-transcribe"),
   OPENAI_METADATA_MODEL: z.string().min(1).default("gpt-5-nano"),

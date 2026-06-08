@@ -3,6 +3,7 @@ import { z } from "zod";
 import { BadRequestError, NotFoundError } from "../lib/errors.js";
 import type { RefreshBody, AuthTokensReply, MeReply, SuccessReply } from "../models/api.js";
 import type { AuthService } from "../services/auth-service.js";
+import type { BridgeService } from "../services/bridge-service.js";
 import type { TokenService } from "../services/token-service.js";
 import { FastifyRequest } from "fastify/types/request.js";
 
@@ -12,12 +13,13 @@ const refreshBodySchema = z.object({
 
 export type TokenRouteOptions = {
   authService: AuthService;
+  bridgeService: BridgeService;
   tokenService: TokenService;
   requireAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
 };
 
 export const tokenRoutes: FastifyPluginAsync<TokenRouteOptions> = async (fastify, opts) => {
-  const { authService, tokenService, requireAuth } = opts;
+  const { authService, bridgeService, tokenService, requireAuth } = opts;
 
   fastify.post<{ Body: RefreshBody; Reply: AuthTokensReply }>("/auth/refresh", async (request) => {
     const bodyResult = refreshBodySchema.safeParse(request.body);
@@ -34,7 +36,8 @@ export const tokenRoutes: FastifyPluginAsync<TokenRouteOptions> = async (fastify
       throw new NotFoundError({ debugMessage: "User not found" });
     }
 
-    return { user: profile };
+    const bridges = await bridgeService.listForUser(request.user!.userId);
+    return { user: profile, bridges };
   });
 
   fastify.post<{ Body: void; Reply: SuccessReply }>("/auth/logout", { preHandler: requireAuth }, async (request) => {

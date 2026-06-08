@@ -14,6 +14,7 @@ import { MongoDbAccessor } from "../../src/db/mongo-db-accessor.js";
 import { MongoDbConnector } from "../../src/db/mongo-db-connector.js";
 import { MongoDbDatabase, AuthDbCollection } from "../../src/types/mongo.js";
 import { StateStore } from "../../src/lib/state-store.js";
+import { BridgeRepository } from "../../src/repositories/bridge-repo.js";
 import { DailyUsageRepository } from "../../src/repositories/daily-usage-repo.js";
 import { DeviceTokenRepository } from "../../src/repositories/device-token-repo.js";
 import { GlossaryEntryRepository } from "../../src/repositories/glossary-entry-repo.js";
@@ -22,6 +23,7 @@ import { PasswordAccountRepository } from "../../src/repositories/password-accou
 import { UserRepository } from "../../src/repositories/user-repo.js";
 import { buildApp } from "../../src/server.js";
 import { AuthService } from "../../src/services/auth-service.js";
+import { BridgeService } from "../../src/services/bridge-service.js";
 import { BridgeStateTracker } from "../../src/services/bridge-state-tracker.js";
 import { NotificationService } from "../../src/services/notification-service.js";
 import { PendingAuthStore } from "../../src/services/pending-auth-store.js";
@@ -137,6 +139,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   const glossaryRepo = new GlossaryEntryRepository(dbAccessor);
   const dailyUsageRepo = new DailyUsageRepository(dbAccessor);
   const deviceTokenRepo = new DeviceTokenRepository(dbAccessor);
+  const bridgeRepo = new BridgeRepository(dbAccessor);
 
   const tokenService = new TokenService(privPem, pubPem);
   const stateStore = new StateStore();
@@ -163,6 +166,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
   const notificationService = overrides?.notificationService ?? new NotificationService(deviceTokenRepo, null);
   const bridgeStateTracker = overrides?.bridgeStateTracker ?? new BridgeStateTracker(notificationService);
+  const bridgeService = new BridgeService({ bridgeRepo, bridgeStateTracker });
   const sessionMetadataService =
     overrides?.sessionMetadataService ?? new SessionMetadataService({ openai, dailyUsageRepo, model: "gpt-4o-mini" });
   const installScriptService = overrides?.installScriptService ?? new InstallScriptService();
@@ -172,6 +176,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   const app = await buildApp({
     config,
     authService,
+    bridgeService,
     tokenService,
     voiceService,
     sessionMetadataService,
@@ -181,10 +186,10 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     notificationService,
     bridgeStateTracker,
     stateStore,
-    githubClient: githubClient as GithubClient,
-    googleClient: googleClient as GoogleClient,
-    appleClient: appleClient as AppleClient,
-    appleNativeVerifier: appleNativeVerifier as AppleNativeVerifier,
+    githubClient,
+    googleClient,
+    appleClient,
+    appleNativeVerifier,
     pendingAuthStore,
   });
   await app.ready();
