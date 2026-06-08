@@ -57,6 +57,28 @@ describe("/auth/bridges routes", () => {
     assert.equal(tokenPayloadResult.data.bridgeId, body.id);
   });
 
+  it("POST /auth/bridges never mints malformed bridge tokens", async () => {
+    const user = await ctx.createUser();
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ name: "Alex's MacBook Pro", platform: "macos" }),
+    });
+
+    assert.equal(res.statusCode, 201);
+    const body = res.json<{ id: string; bridgeToken: string }>();
+    const tokenPayloadResult = bridgeTokenPayloadSchema.safeParse(ctx.tokenService.verifyBridgeToken(body.bridgeToken));
+    assert.equal(tokenPayloadResult.success, true);
+    if (!tokenPayloadResult.success) return;
+    assert.match(tokenPayloadResult.data.bridgeId, /^br_[A-Za-z0-9_-]{8,32}$/);
+    assert.equal(tokenPayloadResult.data.bridgeId, body.id);
+  });
+
   it("POST /auth/bridges returns 400 on invalid platform", async () => {
     const user = await ctx.createUser();
     const res = await ctx.app.inject({
