@@ -111,6 +111,7 @@ async function main() {
     oauthAccountRepo,
     passwordAccountRepo,
     deviceTokenRepo,
+    bridgeService,
   });
   const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
 

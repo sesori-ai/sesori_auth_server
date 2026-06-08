@@ -57,6 +57,52 @@ describe("POST /auth/revoke", () => {
     assert.equal(refreshRes.statusCode, 401);
     assert.equal(refreshRes.json<{ error: string }>().error, "unauthenticated");
   });
+
+  it("revokes registered bridges after account token revocation", async () => {
+    const user = await ctx.createUser();
+    const createRes = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ name: "Compromised Bridge", platform: "macos" }),
+    });
+    assert.equal(createRes.statusCode, 201);
+    const bridge = createRes.json<{ id: string }>();
+
+    const revokeRes = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/revoke",
+      headers: { authorization: `Bearer ${user.accessToken}` },
+    });
+    assert.equal(revokeRes.statusCode, 200);
+
+    const listRes = await ctx.app.inject({
+      method: "GET",
+      url: "/auth/bridges",
+      headers: { authorization: `Bearer ${user.accessToken}` },
+    });
+    assert.equal(listRes.statusCode, 200);
+    assert.deepEqual(listRes.json<{ bridges: unknown[] }>().bridges, []);
+
+    const statusRes = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-status",
+      headers: {
+        "x-relay-secret": "test-relay-secret",
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({
+        userId: user.userId,
+        bridgeId: bridge.id,
+        status: "connected",
+        timestamp: new Date().toISOString(),
+      }),
+    });
+    assert.equal(statusRes.statusCode, 404);
+  });
 });
 
 describe("Bridge endpoint removal", () => {

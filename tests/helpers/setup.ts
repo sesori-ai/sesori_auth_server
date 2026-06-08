@@ -162,11 +162,11 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
       iosClientId: config.APPLE_IOS_CLIENT_ID,
     });
 
-  const authService = new AuthService({ tokenService, userRepo, oauthAccountRepo, passwordAccountRepo });
-  const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
   const notificationService = overrides?.notificationService ?? new NotificationService(deviceTokenRepo, null);
   const bridgeStateTracker = overrides?.bridgeStateTracker ?? new BridgeStateTracker(notificationService);
   const bridgeService = new BridgeService({ bridgeRepo, bridgeStateTracker });
+  const authService = new AuthService({ tokenService, userRepo, oauthAccountRepo, passwordAccountRepo, bridgeService });
+  const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
   const sessionMetadataService =
     overrides?.sessionMetadataService ?? new SessionMetadataService({ openai, dailyUsageRepo, model: "gpt-4o-mini" });
   const installScriptService = overrides?.installScriptService ?? new InstallScriptService();
