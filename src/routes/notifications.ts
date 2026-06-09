@@ -14,6 +14,16 @@ import type { BridgeStateTracker } from "../services/bridge-state-tracker.js";
 import type { NotificationService } from "../services/notification-service.js";
 import type { Config } from "../config.js";
 
+function hasBridgeStateNewerThan(bridges: { lastSeenAt: string | null }[], at: Date): boolean {
+  return bridges.some((bridge) => {
+    if (!bridge.lastSeenAt) {
+      return false;
+    }
+    const lastSeenAt = new Date(bridge.lastSeenAt);
+    return !Number.isNaN(lastSeenAt.getTime()) && lastSeenAt > at;
+  });
+}
+
 export type NotificationRouteOptions = {
   config: Config;
   deviceTokenRepo: DeviceTokenRepository;
@@ -107,7 +117,7 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
           throw new BadRequestError({ debugMessage: "bridgeId is required" });
         }
         const bridges = await bridgeService.listForUser(bodyResult.data.userId);
-        if (bridges.length > 0) {
+        if (bridges.length > 0 && !hasBridgeStateNewerThan(bridges, at)) {
           bridgeStateTracker.handleStatusChange(bodyResult.data.userId, internalStatus);
         }
       }

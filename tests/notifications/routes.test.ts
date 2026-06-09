@@ -517,6 +517,55 @@ describe("Notification routes", () => {
     assert.equal(list.bridges[0]?.lastSeenAt, "2026-06-08T10:01:00.000Z");
   });
 
+  it("POST /internal/bridge-status ignores stale legacy events older than bridge state", async () => {
+    const user = await ctx.createUser();
+    const createRes = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ name: "Mac", platform: "macos" }),
+    });
+    const bridge = createRes.json<{ id: string }>();
+
+    const currentRes = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-status",
+      headers: {
+        "x-relay-secret": "test-relay-secret",
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({
+        userId: user.userId,
+        bridgeId: bridge.id,
+        status: "connected",
+        timestamp: "2026-06-08T10:01:00.000Z",
+      }),
+    });
+    assert.equal(currentRes.statusCode, 200);
+
+    const staleLegacyRes = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-status",
+      headers: {
+        "x-relay-secret": "test-relay-secret",
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({
+        userId: user.userId,
+        status: "disconnected",
+        timestamp: "2026-06-08T10:00:00.000Z",
+      }),
+    });
+    assert.equal(staleLegacyRes.statusCode, 200);
+
+    assert.equal(trackerCalls.length, 1);
+    assert.equal(trackerCalls[0]?.bridgeId, bridge.id);
+    assert.equal(trackerCalls[0]?.status, "active");
+  });
+
   it("POST /internal/bridge-status rejects revoked bridge IDs", async () => {
     const user = await ctx.createUser();
     const createRes = await ctx.app.inject({

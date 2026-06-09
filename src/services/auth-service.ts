@@ -32,7 +32,7 @@ export class AuthService {
   readonly #oauthAccountRepo: OAuthAccountRepository;
   readonly #passwordAccountRepo: PasswordAccountRepository;
   readonly #deviceTokenRepo?: DeviceTokenRepository;
-  readonly #bridgeService?: BridgeService;
+  readonly #bridgeService: BridgeService;
 
   constructor(deps: {
     tokenService: TokenService;
@@ -40,7 +40,7 @@ export class AuthService {
     oauthAccountRepo: OAuthAccountRepository;
     passwordAccountRepo: PasswordAccountRepository;
     deviceTokenRepo?: DeviceTokenRepository;
-    bridgeService?: BridgeService;
+    bridgeService: BridgeService;
   }) {
     this.#tokenService = deps.tokenService;
     this.#userRepo = deps.userRepo;
@@ -256,7 +256,7 @@ export class AuthService {
 
   async revoke(userId: string): Promise<void> {
     await this.logoutUser(userId);
-    await this.#bridgeService?.revokeAllForUser(userId);
+    await this.#bridgeService.revokeAllForUser(userId);
   }
 
   async findUserAuthProfile(userId: string): Promise<{
