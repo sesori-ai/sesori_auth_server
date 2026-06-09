@@ -1,6 +1,10 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
+import type { BridgeSummary } from "../../src/models/api.js";
+import type { BridgeRepository } from "../../src/repositories/bridge-repo.js";
+import { BridgeService } from "../../src/services/bridge-service.js";
+import type { BridgeStateTracker } from "../../src/services/bridge-state-tracker.js";
 
 describe("POST /auth/revoke", () => {
   let ctx: TestContext;
@@ -56,6 +60,30 @@ describe("POST /auth/revoke", () => {
 
     assert.equal(refreshRes.statusCode, 401);
     assert.equal(refreshRes.json<{ error: string }>().error, "unauthenticated");
+  });
+
+  it("keeps auth tokens retryable when bridge revocation fails", async () => {
+    const failingCtx = await createTestApp({ bridgeService: new FailingRevokeAllBridgeService() });
+    try {
+      const user = await failingCtx.createUser();
+
+      const revokeRes = await failingCtx.app.inject({
+        method: "POST",
+        url: "/auth/revoke",
+        headers: { authorization: `Bearer ${user.accessToken}` },
+      });
+      assert.equal(revokeRes.statusCode, 500);
+
+      const meRes = await failingCtx.app.inject({
+        method: "GET",
+        url: "/auth/me",
+        headers: { authorization: `Bearer ${user.accessToken}` },
+      });
+      assert.equal(meRes.statusCode, 200);
+      assert.equal(meRes.json<{ user: { id: string } }>().user.id, user.userId);
+    } finally {
+      await failingCtx.cleanup();
+    }
   });
 
   it("revokes registered bridges after account token revocation", async () => {
@@ -121,6 +149,23 @@ describe("POST /auth/revoke", () => {
     assert.equal(meRes.statusCode, 401);
   });
 });
+
+class FailingRevokeAllBridgeService extends BridgeService {
+  constructor() {
+    super({
+      bridgeRepo: {} as BridgeRepository,
+      bridgeStateTracker: {} as BridgeStateTracker,
+    });
+  }
+
+  override async revokeAllForUser(_userId: string): Promise<void> {
+    throw new Error("bridge revocation failed");
+  }
+
+  override async listForUser(_userId: string): Promise<BridgeSummary[]> {
+    return [];
+  }
+}
 
 describe("Bridge endpoint removal", () => {
   let ctx: TestContext;

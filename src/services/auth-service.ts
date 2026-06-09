@@ -255,8 +255,8 @@ export class AuthService {
   }
 
   async revoke(userId: string): Promise<void> {
-    await this.logoutUser(userId);
     await this.#bridgeService.revokeAllForUser(userId);
+    await this.logoutUser(userId);
   }
 
   async findUserAuthProfile(userId: string): Promise<{

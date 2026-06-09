@@ -70,6 +70,7 @@ export type TestAppOverrides = {
   appleNativeVerifier?: AppleNativeVerifier;
   notificationService?: NotificationService;
   bridgeStateTracker?: BridgeStateTracker;
+  bridgeService?: BridgeService;
   sessionMetadataService?: SessionMetadataService;
   installScriptService?: InstallScriptService;
   legalDocumentService?: LegalDocumentService;
@@ -169,7 +170,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
 
   const notificationService = overrides?.notificationService ?? new NotificationService(deviceTokenRepo, null);
   const bridgeStateTracker = overrides?.bridgeStateTracker ?? new BridgeStateTracker(notificationService);
-  const bridgeService = new BridgeService({ bridgeRepo, bridgeStateTracker });
+  const bridgeService = overrides?.bridgeService ?? new BridgeService({ bridgeRepo, bridgeStateTracker });
   const authService = new AuthService({ tokenService, userRepo, oauthAccountRepo, passwordAccountRepo, bridgeService });
   const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
   const sessionMetadataService =
