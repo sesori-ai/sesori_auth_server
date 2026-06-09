@@ -79,6 +79,106 @@ describe("/auth/bridges routes", () => {
     assert.equal(tokenPayloadResult.data.bridgeId, body.id);
   });
 
+  it("POST /internal/bridge-token/validate accepts an active bridge token", async () => {
+    const user = await ctx.createUser();
+    const createRes = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ name: "Alex's MacBook Pro", platform: "macos" }),
+    });
+    assert.equal(createRes.statusCode, 201);
+    const bridge = createRes.json<{ id: string; bridgeToken: string }>();
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-token/validate",
+      headers: {
+        "x-relay-secret": "test-relay-secret",
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ userId: user.userId, bridgeId: bridge.id, bridgeToken: bridge.bridgeToken }),
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), { ok: true });
+  });
+
+  it("POST /internal/bridge-token/validate rejects a token for a deleted bridge", async () => {
+    const user = await ctx.createUser();
+    const createRes = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ name: "Deleted Bridge", platform: "macos" }),
+    });
+    assert.equal(createRes.statusCode, 201);
+    const bridge = createRes.json<{ id: string; bridgeToken: string }>();
+
+    const deleteRes = await ctx.app.inject({
+      method: "DELETE",
+      url: `/auth/bridges/${encodeURIComponent(bridge.id)}`,
+      headers: { authorization: `Bearer ${user.accessToken}` },
+    });
+    assert.equal(deleteRes.statusCode, 200);
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-token/validate",
+      headers: {
+        "x-relay-secret": "test-relay-secret",
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ userId: user.userId, bridgeId: bridge.id, bridgeToken: bridge.bridgeToken }),
+    });
+
+    assert.equal(res.statusCode, 404);
+  });
+
+  it("POST /internal/bridge-token/validate rejects token subject mismatches", async () => {
+    const user = await ctx.createUser();
+    const firstRes = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ name: "First", platform: "macos" }),
+    });
+    const secondRes = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ name: "Second", platform: "macos" }),
+    });
+    assert.equal(firstRes.statusCode, 201);
+    assert.equal(secondRes.statusCode, 201);
+    const first = firstRes.json<{ bridgeToken: string }>();
+    const second = secondRes.json<{ id: string }>();
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-token/validate",
+      headers: {
+        "x-relay-secret": "test-relay-secret",
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ userId: user.userId, bridgeId: second.id, bridgeToken: first.bridgeToken }),
+    });
+
+    assert.equal(res.statusCode, 401);
+  });
+
   it("POST /auth/bridges returns 400 on invalid platform", async () => {
     const user = await ctx.createUser();
     const res = await ctx.app.inject({

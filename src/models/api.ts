@@ -225,6 +225,13 @@ export type BridgesListReply = {
 export const bridgeIdPathParamSchema = bridgeIdSchema;
 export type BridgeIdPathParam = z.infer<typeof bridgeIdPathParamSchema>;
 
+export const validateBridgeTokenBodySchema = z.object({
+  userId: z.string().min(1),
+  bridgeId: bridgeIdSchema,
+  bridgeToken: z.string().min(1),
+});
+export type ValidateBridgeTokenBody = z.infer<typeof validateBridgeTokenBodySchema>;
+
 export const generateMetadataBodySchema = z.object({
   firstMessage: z.string().min(1).max(500),
 });

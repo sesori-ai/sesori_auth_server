@@ -162,6 +162,7 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
     bridgeService: services.bridgeService,
     tokenService: services.tokenService,
     requireAuth,
+    requireRelayAuth,
   });
   await app.register(sessionRoutes, {
     sessionMetadataService: services.sessionMetadataService,
