@@ -18,7 +18,7 @@ src/
 │   └── mongo-db-accessor.ts   # MongoDbAccessor — generic DB access + config-driven ensureIndexes
 ├── lib/               # Utilities (state-store.ts — LRU singleton, errors.ts — ApiError hierarchy)
 ├── middleware/         # createAuthMiddleware factory → requireAuth preHandler hook
-├── models/            # Zod schemas — documents.ts (User, OAuthAccount), jwt.ts (payload + constants), api.ts
+├── models/            # Zod schemas — api.ts, bridge.ts (shared bridge enums/schemas), documents.ts, jwt.ts
 ├── repositories/      # Data access — user-repo.ts, oauth-account-repo.ts, glossary-entry-repo.ts
 ├── routes/
 │   └── auth/          # OAuth + pending-confirmation flow

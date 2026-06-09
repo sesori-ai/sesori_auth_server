@@ -142,6 +142,8 @@ src/
 ├── middleware/
 │   └── auth.ts                 requireAuth preHandler hook
 ├── models/
+│   ├── api.ts                  Zod request/response schemas
+│   ├── bridge.ts               Shared bridge enums + schemas
 │   ├── documents.ts            Zod document schemas (User, OAuthAccount)
 │   └── jwt.ts                  JWT payload schemas + constants
 ├── repositories/
