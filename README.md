@@ -84,8 +84,8 @@ The newer flow keeps the client in control of when tokens are issued. The client
 | ------ | ------------------ | ------ | --------------------------------------------------------------- |
 | `POST` | `/auth/refresh`    | No     | Refresh access token (requires `refreshToken` body)             |
 | `GET`  | `/auth/me`         | Bearer | Get current user profile                                        |
-| `POST` | `/auth/logout`     | Bearer | Logout (increments token version, invalidating existing access and refresh tokens) |
-| `POST` | `/auth/revoke`     | Bearer | Revoke all tokens and registered bridges (increments token version)                |
+| `POST` | `/auth/logout`     | Bearer | Logout (increments token version; auth-server middleware rejects old access/refresh tokens) |
+| `POST` | `/auth/revoke`     | Bearer | Revoke tokens and registered bridges (token version plus bridge revocation)               |
 | `GET`  | `/auth/public-key` | No     | Get RS256 public key (PEM) — used by relay for JWT verification |
 
 ## Environment variables

@@ -14,14 +14,20 @@ import type { BridgeStateTracker } from "../services/bridge-state-tracker.js";
 import type { NotificationService } from "../services/notification-service.js";
 import type { Config } from "../config.js";
 
-function hasBridgeStateNewerThan(bridges: { lastSeenAt: string | null }[], at: Date): boolean {
+const BRIDGE_STATUS_FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
+
+function hasBridgeStateAtOrAfter(bridges: { lastSeenAt: string | null }[], at: Date): boolean {
   return bridges.some((bridge) => {
     if (!bridge.lastSeenAt) {
       return false;
     }
     const lastSeenAt = new Date(bridge.lastSeenAt);
-    return !Number.isNaN(lastSeenAt.getTime()) && lastSeenAt > at;
+    return !Number.isNaN(lastSeenAt.getTime()) && lastSeenAt >= at;
   });
+}
+
+function isTooFarInFuture(at: Date, now: Date = new Date()): boolean {
+  return at.getTime() - now.getTime() > BRIDGE_STATUS_FUTURE_TOLERANCE_MS;
 }
 
 export type NotificationRouteOptions = {
@@ -105,6 +111,9 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
       if (Number.isNaN(at.getTime())) {
         throw new BadRequestError({ debugMessage: "Invalid timestamp" });
       }
+      if (isTooFarInFuture(at)) {
+        throw new BadRequestError({ debugMessage: "Timestamp is too far in the future" });
+      }
 
       if (bodyResult.data.bridgeId) {
         const bridge = await bridgeService.findByIdForUser(bodyResult.data.bridgeId, bodyResult.data.userId);
@@ -117,7 +126,7 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
           throw new BadRequestError({ debugMessage: "bridgeId is required" });
         }
         const bridges = await bridgeService.listForUser(bodyResult.data.userId);
-        if (bridges.length > 0 && !hasBridgeStateNewerThan(bridges, at)) {
+        if (bridges.length > 0 && !hasBridgeStateAtOrAfter(bridges, at)) {
           bridgeStateTracker.handleStatusChange(bodyResult.data.userId, internalStatus);
         }
       }
