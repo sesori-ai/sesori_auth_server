@@ -2,12 +2,27 @@ import { describe, it, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
 import { bridgeTokenPayloadSchema } from "../../src/models/jwt.js";
+import type { BridgeStateTracker } from "../../src/services/bridge-state-tracker.js";
 
 describe("/auth/bridges routes", () => {
   let ctx: TestContext;
+  const cancelledLegacyUsers: string[] = [];
+  const cancelledBridgeKeys: { userId: string; bridgeId: string }[] = [];
+
+  const bridgeStateTrackerMock = {
+    handleStatusChange: () => {},
+    handleStatusChangeForBridge: () => {},
+    cancelPendingForUser: (userId: string) => {
+      cancelledLegacyUsers.push(userId);
+    },
+    cancelPendingForBridge: (userId: string, bridgeId: string) => {
+      cancelledBridgeKeys.push({ userId, bridgeId });
+    },
+    dispose: () => {},
+  } as unknown as BridgeStateTracker;
 
   before(async () => {
-    ctx = await createTestApp();
+    ctx = await createTestApp({ bridgeStateTracker: bridgeStateTrackerMock });
   });
 
   after(async () => {
@@ -15,7 +30,8 @@ describe("/auth/bridges routes", () => {
   });
 
   beforeEach(() => {
-    // no state to reset
+    cancelledLegacyUsers.length = 0;
+    cancelledBridgeKeys.length = 0;
   });
 
   it("POST /auth/bridges returns 201 with bridge summary and bridge-bound token", async () => {
@@ -287,6 +303,8 @@ describe("/auth/bridges routes", () => {
     });
     const body = listRes.json<{ bridges: unknown[] }>();
     assert.deepEqual(body.bridges, []);
+    assert.deepEqual(cancelledBridgeKeys, [{ userId: user.userId, bridgeId: created.id }]);
+    assert.deepEqual(cancelledLegacyUsers, [user.userId]);
   });
 
   it("DELETE /auth/bridges/:bridgeId returns 404 for non-owner", async () => {

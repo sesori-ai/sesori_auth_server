@@ -37,6 +37,10 @@ export class BridgeService {
     const revoked = await this.#bridgeRepo.revoke(bridgeId, userId, new Date());
     if (revoked) {
       this.#bridgeStateTracker.cancelPendingForBridge(userId, bridgeId);
+      const remainingBridges = await this.#bridgeRepo.findByUserId(userId);
+      if (remainingBridges.length === 0) {
+        this.#bridgeStateTracker.cancelPendingForUser(userId);
+      }
     }
     return revoked;
   }
