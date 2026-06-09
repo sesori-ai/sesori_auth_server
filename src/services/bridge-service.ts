@@ -1,5 +1,6 @@
 import type { Bridge as BridgeDoc } from "../models/documents.js";
 import type { BridgePlatform, BridgeSummary } from "../models/api.js";
+import type { BridgeStatus } from "../models/bridge.js";
 import type { BridgeRepository } from "../repositories/bridge-repo.js";
 import type { BridgeStateTracker } from "./bridge-state-tracker.js";
 
@@ -57,7 +58,7 @@ export class BridgeService {
     return this.#bridgeRepo.findByIdForUser(bridgeId, userId);
   }
 
-  async recordStatusChange(bridgeId: string, userId: string, status: "active" | "inactive", at: Date): Promise<void> {
+  async recordStatusChange(bridgeId: string, userId: string, status: BridgeStatus, at: Date): Promise<void> {
     const result = await this.#bridgeRepo.recordStatusChange(bridgeId, userId, status, at);
     if (!result.updated) {
       return;

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { bridgeIdSchema } from "./bridge.js";
 
 export const accessTokenPayloadSchema = z.object({
   tokenType: z.literal("access"),
@@ -29,7 +30,7 @@ export type RefreshTokenPayload = z.infer<typeof refreshTokenPayloadSchema>;
 export const bridgeTokenPayloadSchema = z.object({
   tokenType: z.literal("bridge"),
   userId: z.string(),
-  bridgeId: z.string().regex(/^br_[A-Za-z0-9_-]{8,32}$/),
+  bridgeId: bridgeIdSchema,
   iss: z.literal("auth-backend"),
   aud: z.literal("bridge"),
   exp: z.number(),

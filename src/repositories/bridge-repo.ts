@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { Collection, ObjectId } from "mongodb";
 import type { Bridge } from "../models/documents.js";
-import type { BridgePlatform } from "../models/api.js";
+import { BridgeStatus, type BridgePlatform } from "../models/bridge.js";
 import { MongoDbDatabase, AuthDbCollection } from "../types/mongo.js";
 import type { MongoDbAccessor } from "../db/mongo-db-accessor.js";
 
@@ -68,7 +68,7 @@ export class BridgeRepository {
       userId: new ObjectId(input.userId),
       name: input.name,
       platform: input.platform,
-      status: "inactive",
+      status: BridgeStatus.inactive,
       addedAt: now,
       lastSeenAt: null,
       lastSeenIp: null,
@@ -83,7 +83,7 @@ export class BridgeRepository {
   async recordStatusChange(
     bridgeId: string,
     userId: string,
-    status: "active" | "inactive",
+    status: BridgeStatus,
     at: Date,
   ): Promise<RecordBridgeStatusResult> {
     if (!ObjectId.isValid(userId)) {
@@ -121,7 +121,7 @@ export class BridgeRepository {
         revokedAt: null,
       },
       {
-        $set: { status: "inactive", revokedAt: at, updatedAt: at },
+        $set: { status: BridgeStatus.inactive, revokedAt: at, updatedAt: at },
       },
     );
     return result.modifiedCount === 1;
@@ -139,7 +139,7 @@ export class BridgeRepository {
     }
 
     await this.#collection.updateMany(filter, {
-      $set: { status: "inactive", revokedAt: at, updatedAt: at },
+      $set: { status: BridgeStatus.inactive, revokedAt: at, updatedAt: at },
     });
     return bridges;
   }

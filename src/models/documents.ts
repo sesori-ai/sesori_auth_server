@@ -1,5 +1,6 @@
 import { ObjectId } from "mongodb";
 import { z } from "zod";
+import { bridgeIdSchema, bridgePlatformSchema, bridgeStatusSchema } from "./bridge.js";
 
 export const userSchema = z.object({
   _id: z.instanceof(ObjectId),
@@ -76,11 +77,11 @@ export type DeviceToken = z.infer<typeof deviceTokenSchema>;
 
 export const bridgeSchema = z.object({
   _id: z.instanceof(ObjectId),
-  bridgeId: z.string(),
+  bridgeId: bridgeIdSchema,
   userId: z.instanceof(ObjectId),
   name: z.string().min(1).max(120),
-  platform: z.enum(["macos", "windows", "linux"]),
-  status: z.enum(["active", "inactive"]),
+  platform: bridgePlatformSchema,
+  status: bridgeStatusSchema,
   addedAt: z.date(),
   lastSeenAt: z.date().nullable(),
   lastSeenIp: z.string().nullable().optional(),

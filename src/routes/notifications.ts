@@ -8,6 +8,7 @@ import {
   type SendNotificationBody,
   type BridgeStatusBody,
 } from "../models/api.js";
+import { BridgeStatus } from "../models/bridge.js";
 import type { DeviceTokenRepository } from "../repositories/device-token-repo.js";
 import type { BridgeService } from "../services/bridge-service.js";
 import type { BridgeStateTracker } from "../services/bridge-state-tracker.js";
@@ -106,7 +107,7 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
         throw new BadRequestError({ debugMessage: "Invalid request body", nestedError: bodyResult.error.issues });
       }
 
-      const internalStatus: "active" | "inactive" = bodyResult.data.status === "connected" ? "active" : "inactive";
+      const internalStatus = bodyResult.data.status === "connected" ? BridgeStatus.active : BridgeStatus.inactive;
       const at = new Date(bodyResult.data.timestamp);
       if (Number.isNaN(at.getTime())) {
         throw new BadRequestError({ debugMessage: "Invalid timestamp" });

@@ -1,6 +1,5 @@
+import { BridgeStatus } from "../models/bridge.js";
 import type { NotificationPayload, NotificationService } from "./notification-service.js";
-
-type BridgeStatus = "active" | "inactive";
 
 const DEFAULT_BRIDGE_NOTIFICATION_DEBOUNCE_MS = 120_000;
 
@@ -129,7 +128,7 @@ export class BridgeStateTracker {
   }
 
   #buildPayload(status: BridgeStatus): NotificationPayload {
-    if (status === "active") {
+    if (status === BridgeStatus.active) {
       return {
         category: "connection_status",
         title: "Bridge Online",

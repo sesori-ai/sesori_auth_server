@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { BridgePlatform, BridgeStatus, bridgeIdSchema, bridgePlatformSchema, bridgeStatusSchema } from "./bridge.js";
+
+export { BridgePlatform, BridgeStatus, bridgeIdSchema, bridgePlatformSchema, bridgeStatusSchema };
 
 export type OAuthInitQuery = {
   redirect_uri: string;
@@ -52,7 +55,7 @@ export enum OAuthClientType {
   AppLinux = "app_linux",
 }
 
-export const oauthClientTypeSchema = z.nativeEnum(OAuthClientType);
+export const oauthClientTypeSchema = z.enum(OAuthClientType);
 
 export const oauthInitBodySchema = z.object({
   clientType: z
@@ -177,23 +180,16 @@ export type SendNotificationBody = z.infer<typeof sendNotificationBodySchema>;
 
 export const bridgeStatusBodySchema = z.object({
   userId: z.string().min(1),
-  bridgeId: z
-    .string()
-    .regex(/^br_[A-Za-z0-9_-]{8,32}$/)
-    .optional(),
+  bridgeId: bridgeIdSchema.optional(),
   status: z.enum(["connected", "disconnected"]),
   timestamp: z.string(),
 });
 export type BridgeStatusBody = z.infer<typeof bridgeStatusBodySchema>;
 
-export type BridgePlatform = "macos" | "windows" | "linux";
-
-export const bridgePlatformSchema = z.enum(["macos", "windows", "linux"]);
-
 export type BridgeSummary = {
   id: string;
   name: string;
-  status: "active" | "inactive";
+  status: BridgeStatus;
   addedAt: string;
   lastSeenAt: string | null;
   platform: BridgePlatform;
@@ -205,12 +201,10 @@ export const registerBridgeBodySchema = z.object({
 });
 export type RegisterBridgeBody = z.infer<typeof registerBridgeBodySchema>;
 
-export const bridgeIdSchema = z.string().regex(/^br_[A-Za-z0-9_-]{8,32}$/);
-
 export const registerBridgeReplySchema = z.object({
   id: bridgeIdSchema,
   name: z.string(),
-  status: z.enum(["active", "inactive"]),
+  status: bridgeStatusSchema,
   addedAt: z.string(),
   lastSeenAt: z.string().nullable(),
   platform: bridgePlatformSchema,
