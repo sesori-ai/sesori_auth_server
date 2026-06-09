@@ -33,6 +33,7 @@ export function createAuthMiddleware(tokenService: TokenService, authService: Au
 
       const token = authHeader.slice(7);
 
+      let payload: AccessTokenPayload;
       try {
         const raw = tokenService.verifyAccessToken(token);
         const result = accessTokenPayloadSchema.safeParse(raw);
@@ -42,14 +43,7 @@ export function createAuthMiddleware(tokenService: TokenService, authService: Au
             nestedError: result.error.issues,
           });
         }
-        const tokenVersionCurrent = await authService.isAccessTokenVersionCurrent(
-          result.data.userId,
-          result.data.tokenVersion,
-        );
-        if (!tokenVersionCurrent) {
-          throw new UnauthenticatedError({ debugMessage: "Token version mismatch (revoked)" });
-        }
-        request.user = result.data;
+        payload = result.data;
       } catch (error) {
         if (error instanceof UnauthenticatedError) throw error;
         throw new UnauthenticatedError({
@@ -57,6 +51,12 @@ export function createAuthMiddleware(tokenService: TokenService, authService: Au
           nestedError: error,
         });
       }
+
+      const tokenVersionCurrent = await authService.isAccessTokenVersionCurrent(payload.userId, payload.tokenVersion);
+      if (!tokenVersionCurrent) {
+        throw new UnauthenticatedError({ debugMessage: "Token version mismatch (revoked)" });
+      }
+      request.user = payload;
     }
   };
 }
