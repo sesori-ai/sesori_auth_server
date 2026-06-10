@@ -11,6 +11,7 @@ import { MongoDbConnector } from "./db/mongo-db-connector.js";
 import { getLegalDocumentUrl } from "./lib/legal-document-paths.js";
 import stateStore from "./lib/state-store.js";
 import { InstallScriptService } from "./services/install-script-service.js";
+import { BridgeRepository } from "./repositories/bridge-repo.js";
 import { DailyUsageRepository } from "./repositories/daily-usage-repo.js";
 import { DeviceTokenRepository } from "./repositories/device-token-repo.js";
 import { GlossaryEntryRepository } from "./repositories/glossary-entry-repo.js";
@@ -20,6 +21,7 @@ import { UserRepository } from "./repositories/user-repo.js";
 import { buildApp } from "./server.js";
 import { AuthService } from "./services/auth-service.js";
 import { AppleNativeVerifier } from "./services/apple-native-verifier.js";
+import { BridgeService } from "./services/bridge-service.js";
 import { BridgeStateTracker } from "./services/bridge-state-tracker.js";
 import { LegalDocumentService } from "./services/legal-document-service.js";
 import { NotificationService } from "./services/notification-service.js";
@@ -57,6 +59,7 @@ async function main() {
   const glossaryRepo = new GlossaryEntryRepository(dbAccessor);
   const dailyUsageRepo = new DailyUsageRepository(dbAccessor);
   const deviceTokenRepo = new DeviceTokenRepository(dbAccessor);
+  const bridgeRepo = new BridgeRepository(dbAccessor);
 
   const tokenService = new TokenService(config.JWT_PRIVATE_KEY, config.JWT_PUBLIC_KEY);
   const pendingAuthStore = new PendingAuthStore({
@@ -85,6 +88,7 @@ async function main() {
 
   const notificationService = new NotificationService(deviceTokenRepo, messaging);
   const bridgeStateTracker = new BridgeStateTracker(notificationService);
+  const bridgeService = new BridgeService({ bridgeRepo, bridgeStateTracker });
 
   const openai = new OpenAIClient({ apiKey: config.OPENAI_API_KEY, model: config.OPENAI_TRANSCRIPTION_MODEL });
   console.log(`OpenAI client initialized (model: ${config.OPENAI_TRANSCRIPTION_MODEL})`);
@@ -107,6 +111,7 @@ async function main() {
     oauthAccountRepo,
     passwordAccountRepo,
     deviceTokenRepo,
+    bridgeService,
   });
   const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
 
@@ -125,6 +130,7 @@ async function main() {
   const app = await buildApp({
     config,
     authService,
+    bridgeService,
     tokenService,
     voiceService,
     sessionMetadataService,

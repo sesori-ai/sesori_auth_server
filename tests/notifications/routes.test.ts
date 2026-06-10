@@ -12,14 +12,24 @@ type SendCall = {
 
 type TrackerCall = {
   userId: string;
+  bridgeId?: string;
   status: string;
 };
+
+function hasProjectId(payload: unknown): payload is { data: { projectId: string } } {
+  if (typeof payload !== "object" || payload === null || !("data" in payload)) {
+    return false;
+  }
+  const data = payload.data;
+  return typeof data === "object" && data !== null && "projectId" in data && typeof data.projectId === "string";
+}
 
 describe("Notification routes", () => {
   let ctx: TestContext;
   let deviceTokenRepo: DeviceTokenRepository;
   const sendCalls: SendCall[] = [];
   const trackerCalls: TrackerCall[] = [];
+  const cancelledLegacyUsers: string[] = [];
 
   const notificationServiceMock = {
     sendToUser: async (userId: string, payload: unknown) => {
@@ -32,6 +42,13 @@ describe("Notification routes", () => {
     handleStatusChange: (userId: string, status: string) => {
       trackerCalls.push({ userId, status });
     },
+    handleStatusChangeForBridge: (userId: string, bridgeId: string, status: string) => {
+      trackerCalls.push({ userId, bridgeId, status });
+    },
+    cancelPendingForUser: (userId: string) => {
+      cancelledLegacyUsers.push(userId);
+    },
+    cancelPendingForBridge: () => {},
     dispose: () => {},
   } as unknown as BridgeStateTracker;
 
@@ -46,6 +63,7 @@ describe("Notification routes", () => {
   beforeEach(() => {
     sendCalls.length = 0;
     trackerCalls.length = 0;
+    cancelledLegacyUsers.length = 0;
   });
 
   after(async () => {
@@ -148,7 +166,8 @@ describe("Notification routes", () => {
     assert.deepEqual(res.json(), { ok: true, devicesNotified: 2 });
     assert.equal(sendCalls.length, 1);
     assert.equal(sendCalls[0]?.userId, user.userId);
-    assert.equal(sendCalls[0]?.payload.data?.projectId, "/Users/alexandrudochioiu/sesori-ai/sesori_apps_monorepo");
+    assert.ok(hasProjectId(sendCalls[0]?.payload));
+    assert.equal(sendCalls[0].payload.data.projectId, "/Users/alexandrudochioiu/sesori-ai/sesori_apps_monorepo");
   });
 
   it("POST /notifications/send returns 400 with invalid category", async () => {
@@ -207,7 +226,7 @@ describe("Notification routes", () => {
     assert.deepEqual(res.json(), { ok: true });
     assert.equal(trackerCalls.length, 1);
     assert.equal(trackerCalls[0]?.userId, user.userId);
-    assert.equal(trackerCalls[0]?.status, "disconnected");
+    assert.equal(trackerCalls[0]?.status, "inactive");
   });
 
   it("POST /internal/bridge-status (connected) delegates to bridgeStateTracker", async () => {
@@ -231,7 +250,45 @@ describe("Notification routes", () => {
     assert.deepEqual(res.json(), { ok: true });
     assert.equal(trackerCalls.length, 1);
     assert.equal(trackerCalls[0]?.userId, user.userId);
-    assert.equal(trackerCalls[0]?.status, "connected");
+    assert.equal(trackerCalls[0]?.status, "active");
+  });
+
+  it("POST /internal/bridge-status forwards legacy status even after the user's bridges are revoked", async () => {
+    const user = await ctx.createUser();
+    const createRes = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ name: "Deleted", platform: "macos" }),
+    });
+    const bridge = createRes.json<{ id: string }>();
+    await ctx.app.inject({
+      method: "DELETE",
+      url: `/auth/bridges/${encodeURIComponent(bridge.id)}`,
+      headers: { authorization: `Bearer ${user.accessToken}` },
+    });
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-status",
+      headers: {
+        "x-relay-secret": "test-relay-secret",
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({
+        userId: user.userId,
+        status: "connected",
+        timestamp: new Date().toISOString(),
+      }),
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), { ok: true });
+    assert.equal(trackerCalls.length, 1);
+    assert.deepEqual(trackerCalls[0], { userId: user.userId, status: "active" });
   });
 
   it("POST /internal/bridge-status returns 401 with missing or wrong secret", async () => {
@@ -283,5 +340,359 @@ describe("Notification routes", () => {
     });
 
     assert.equal(res.statusCode, 400);
+  });
+
+  it("POST /internal/bridge-status returns 400 with invalid timestamp", async () => {
+    const user = await ctx.createUser();
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-status",
+      headers: {
+        "x-relay-secret": "test-relay-secret",
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({
+        userId: user.userId,
+        status: "connected",
+        timestamp: "not-a-date",
+      }),
+    });
+
+    assert.equal(res.statusCode, 400);
+  });
+
+  it("POST /internal/bridge-status updates active non-revoked bridge and notifies per bridge", async () => {
+    const user = await ctx.createUser();
+    const createRes = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ name: "Mac", platform: "macos" }),
+    });
+    const bridge = createRes.json<{ id: string }>();
+    const timestamp = "2026-06-08T10:00:00.000Z";
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-status",
+      headers: {
+        "x-relay-secret": "test-relay-secret",
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({
+        userId: user.userId,
+        bridgeId: bridge.id,
+        status: "connected",
+        timestamp,
+      }),
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(trackerCalls.length, 1);
+    assert.equal(trackerCalls[0]?.userId, user.userId);
+    assert.equal(trackerCalls[0]?.bridgeId, bridge.id);
+    assert.equal(trackerCalls[0]?.status, "active");
+    assert.deepEqual(cancelledLegacyUsers, [user.userId]);
+
+    const listRes = await ctx.app.inject({
+      method: "GET",
+      url: "/auth/bridges",
+      headers: { authorization: `Bearer ${user.accessToken}` },
+    });
+    const list = listRes.json<{ bridges: { id: string; lastSeenAt: string | null }[] }>();
+    assert.equal(list.bridges[0]?.id, bridge.id);
+    assert.equal(list.bridges[0]?.lastSeenAt, timestamp);
+  });
+
+  it("POST /internal/bridge-status heartbeats update lastSeenAt without notifying again", async () => {
+    const user = await ctx.createUser();
+    const createRes = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ name: "Mac", platform: "macos" }),
+    });
+    const bridge = createRes.json<{ id: string }>();
+
+    for (const timestamp of ["2026-06-08T10:00:00.000Z", "2026-06-08T10:01:00.000Z"]) {
+      const res = await ctx.app.inject({
+        method: "POST",
+        url: "/internal/bridge-status",
+        headers: {
+          "x-relay-secret": "test-relay-secret",
+          "content-type": "application/json",
+        },
+        payload: JSON.stringify({
+          userId: user.userId,
+          bridgeId: bridge.id,
+          status: "connected",
+          timestamp,
+        }),
+      });
+      assert.equal(res.statusCode, 200);
+    }
+
+    assert.equal(trackerCalls.length, 1);
+    assert.equal(trackerCalls[0]?.status, "active");
+    assert.deepEqual(cancelledLegacyUsers, [user.userId, user.userId]);
+
+    const listRes = await ctx.app.inject({
+      method: "GET",
+      url: "/auth/bridges",
+      headers: { authorization: `Bearer ${user.accessToken}` },
+    });
+    const list = listRes.json<{ bridges: { lastSeenAt: string | null }[] }>();
+    assert.equal(list.bridges[0]?.lastSeenAt, "2026-06-08T10:01:00.000Z");
+  });
+
+  it("POST /internal/bridge-status ignores stale per-bridge events", async () => {
+    const user = await ctx.createUser();
+    const createRes = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ name: "Mac", platform: "macos" }),
+    });
+    const bridge = createRes.json<{ id: string }>();
+
+    for (const event of [
+      { status: "connected", timestamp: "2026-06-08T10:01:00.000Z" },
+      { status: "disconnected", timestamp: "2026-06-08T10:00:00.000Z" },
+    ]) {
+      const res = await ctx.app.inject({
+        method: "POST",
+        url: "/internal/bridge-status",
+        headers: {
+          "x-relay-secret": "test-relay-secret",
+          "content-type": "application/json",
+        },
+        payload: JSON.stringify({
+          userId: user.userId,
+          bridgeId: bridge.id,
+          status: event.status,
+          timestamp: event.timestamp,
+        }),
+      });
+      assert.equal(res.statusCode, 200);
+    }
+
+    assert.equal(trackerCalls.length, 1);
+    assert.equal(trackerCalls[0]?.status, "active");
+
+    const listRes = await ctx.app.inject({
+      method: "GET",
+      url: "/auth/bridges",
+      headers: { authorization: `Bearer ${user.accessToken}` },
+    });
+    const list = listRes.json<{ bridges: { lastSeenAt: string | null }[] }>();
+    assert.equal(list.bridges[0]?.lastSeenAt, "2026-06-08T10:01:00.000Z");
+  });
+
+  it("POST /internal/bridge-status forwards legacy events even when per-bridge state is newer", async () => {
+    const user = await ctx.createUser();
+    const createRes = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ name: "Mac", platform: "macos" }),
+    });
+    const bridge = createRes.json<{ id: string }>();
+
+    const currentRes = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-status",
+      headers: {
+        "x-relay-secret": "test-relay-secret",
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({
+        userId: user.userId,
+        bridgeId: bridge.id,
+        status: "connected",
+        timestamp: "2026-06-08T10:01:00.000Z",
+      }),
+    });
+    assert.equal(currentRes.statusCode, 200);
+
+    const legacyRes = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-status",
+      headers: {
+        "x-relay-secret": "test-relay-secret",
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({
+        userId: user.userId,
+        status: "disconnected",
+        timestamp: "2026-06-08T10:00:00.000Z",
+      }),
+    });
+    assert.equal(legacyRes.statusCode, 200);
+
+    assert.equal(trackerCalls.length, 2);
+    assert.equal(trackerCalls[0]?.bridgeId, bridge.id);
+    assert.equal(trackerCalls[0]?.status, "active");
+    assert.deepEqual(trackerCalls[1], { userId: user.userId, status: "inactive" });
+  });
+
+  it("POST /internal/bridge-status rejects timestamps too far in the future", async () => {
+    const user = await ctx.createUser();
+    const createRes = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ name: "Mac", platform: "macos" }),
+    });
+    const bridge = createRes.json<{ id: string }>();
+
+    const futureTimestamp = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-status",
+      headers: {
+        "x-relay-secret": "test-relay-secret",
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({
+        userId: user.userId,
+        bridgeId: bridge.id,
+        status: "connected",
+        timestamp: futureTimestamp,
+      }),
+    });
+
+    assert.equal(res.statusCode, 400);
+    assert.equal(trackerCalls.length, 0);
+  });
+
+  it("POST /internal/bridge-status rejects revoked bridge IDs", async () => {
+    const user = await ctx.createUser();
+    const createRes = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ name: "Deleted", platform: "macos" }),
+    });
+    const bridge = createRes.json<{ id: string }>();
+    const deleteRes = await ctx.app.inject({
+      method: "DELETE",
+      url: `/auth/bridges/${encodeURIComponent(bridge.id)}`,
+      headers: { authorization: `Bearer ${user.accessToken}` },
+    });
+    assert.equal(deleteRes.statusCode, 200);
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-status",
+      headers: {
+        "x-relay-secret": "test-relay-secret",
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({
+        userId: user.userId,
+        bridgeId: bridge.id,
+        status: "connected",
+        timestamp: new Date().toISOString(),
+      }),
+    });
+
+    assert.equal(res.statusCode, 404);
+    assert.equal(trackerCalls.length, 0);
+  });
+});
+
+describe("AUTH_REQUIRE_BRIDGE_ID_IN_STATUS=true", () => {
+  let ctx: TestContext;
+  const trackerCalls: { kind: "legacy" | "bridge" }[] = [];
+
+  const bridgeStateTrackerMock = {
+    handleStatusChange: () => {
+      trackerCalls.push({ kind: "legacy" });
+    },
+    handleStatusChangeForBridge: () => {
+      trackerCalls.push({ kind: "bridge" });
+    },
+    cancelPendingForUser: () => {},
+    cancelPendingForBridge: () => {},
+    dispose: () => {},
+  } as unknown as BridgeStateTracker;
+
+  before(async () => {
+    ctx = await createTestApp({
+      bridgeStateTracker: bridgeStateTrackerMock,
+      configOverrides: { AUTH_REQUIRE_BRIDGE_ID_IN_STATUS: true },
+    });
+  });
+
+  after(async () => {
+    await ctx.cleanup();
+  });
+
+  beforeEach(() => {
+    trackerCalls.length = 0;
+  });
+
+  it("rejects a status post without bridgeId with 400", async () => {
+    const user = await ctx.createUser();
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-status",
+      headers: { "x-relay-secret": "test-relay-secret", "content-type": "application/json" },
+      payload: JSON.stringify({
+        userId: user.userId,
+        status: "connected",
+        timestamp: new Date().toISOString(),
+      }),
+    });
+
+    assert.equal(res.statusCode, 400);
+    assert.equal(trackerCalls.length, 0);
+  });
+
+  it("accepts a status post with bridgeId under the same flag", async () => {
+    const user = await ctx.createUser();
+    const createRes = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: { authorization: `Bearer ${user.accessToken}`, "content-type": "application/json" },
+      payload: JSON.stringify({ name: "Flagged Bridge", platform: "linux" }),
+    });
+    assert.equal(createRes.statusCode, 201);
+    const created = createRes.json<{ id: string }>();
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-status",
+      headers: { "x-relay-secret": "test-relay-secret", "content-type": "application/json" },
+      payload: JSON.stringify({
+        userId: user.userId,
+        bridgeId: created.id,
+        status: "connected",
+        timestamp: new Date().toISOString(),
+      }),
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(trackerCalls, [{ kind: "bridge" }]);
   });
 });

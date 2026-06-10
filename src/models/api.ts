@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { BridgePlatform, bridgeIdSchema, bridgePlatformSchema } from "./bridge.js";
+
+export { BridgePlatform, bridgeIdSchema, bridgePlatformSchema };
 
 export type OAuthInitQuery = {
   redirect_uri: string;
@@ -52,7 +55,7 @@ export enum OAuthClientType {
   AppLinux = "app_linux",
 }
 
-export const oauthClientTypeSchema = z.nativeEnum(OAuthClientType);
+export const oauthClientTypeSchema = z.enum(OAuthClientType);
 
 export const oauthInitBodySchema = z.object({
   clientType: z
@@ -117,6 +120,7 @@ export type AuthTokensReply = {
 
 export type MeReply = {
   user: UserProfile;
+  bridges: BridgeSummary[];
 };
 
 export type SuccessReply = {
@@ -176,10 +180,36 @@ export type SendNotificationBody = z.infer<typeof sendNotificationBodySchema>;
 
 export const bridgeStatusBodySchema = z.object({
   userId: z.string().min(1),
+  bridgeId: bridgeIdSchema.optional(),
   status: z.enum(["connected", "disconnected"]),
   timestamp: z.string(),
 });
 export type BridgeStatusBody = z.infer<typeof bridgeStatusBodySchema>;
+
+export type BridgeSummary = {
+  id: string;
+  name: string;
+  addedAt: string;
+  lastSeenAt: string | null;
+  platform: BridgePlatform;
+};
+
+// bridgeId is optional: when it identifies a non-revoked bridge owned by the
+// caller the registration is idempotent (updates name/platform, 200);
+// otherwise a new bridge is minted server-side (201).
+export const registerBridgeBodySchema = z.object({
+  name: z.string().min(1).max(120),
+  platform: bridgePlatformSchema,
+  bridgeId: bridgeIdSchema.optional(),
+});
+export type RegisterBridgeBody = z.infer<typeof registerBridgeBodySchema>;
+
+export type BridgesListReply = {
+  bridges: BridgeSummary[];
+};
+
+export const bridgeIdPathParamSchema = bridgeIdSchema;
+export type BridgeIdPathParam = z.infer<typeof bridgeIdPathParamSchema>;
 
 export const generateMetadataBodySchema = z.object({
   firstMessage: z.string().min(1).max(500),

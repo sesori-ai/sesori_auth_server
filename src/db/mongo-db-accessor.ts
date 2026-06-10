@@ -33,6 +33,12 @@ const DATABASE_CONFIG: Record<MongoDbDatabase, DatabaseConfig<string>> = {
       [AuthDbCollection.GlossaryEntries]: [{ spec: { userId: 1, word: 1 }, options: { unique: true } }],
       [AuthDbCollection.DailyUsage]: [{ spec: { userId: 1, date: 1 }, options: { unique: true } }],
       [AuthDbCollection.DeviceTokens]: [{ spec: { token: 1 }, options: { unique: true } }, { spec: { userId: 1 } }],
+      [AuthDbCollection.Bridges]: [
+        { spec: { bridgeId: 1 }, options: { unique: true } },
+        // Covers the hot /auth/me path: findByUserId and revokeAllForUser
+        // filter on { userId, revokedAt: null }. No query filters on status.
+        { spec: { userId: 1, revokedAt: 1 } },
+      ],
     },
   } satisfies DatabaseConfig<AuthDbCollection>,
 };

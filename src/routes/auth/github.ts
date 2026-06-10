@@ -1,6 +1,6 @@
 import { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import type { GithubClient } from "../../clients/auth/github-client.js";
+import type { OAuthClient } from "../../clients/auth/oauth-client.js";
 import { OAuthProviderName } from "../../types/oauth.js";
 import type { Config } from "../../config.js";
 import { BadRequestError } from "../../lib/errors.js";
@@ -41,7 +41,7 @@ export type GithubRouteOptions = {
   config: Config;
   authService: AuthService;
   stateStore: StateStore;
-  githubClient: GithubClient;
+  githubClient: OAuthClient;
   pendingAuthStore: PendingAuthStore;
 };
 

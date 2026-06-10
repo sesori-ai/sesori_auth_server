@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type InjectOptions, type LightMyRequestResponse } from "fastify";
 import { ApiError } from "../../src/lib/errors.js";
 import { sessionStatusRoutes } from "../../src/routes/auth/session-status.js";
 import { PendingAuthStore } from "../../src/services/pending-auth-store.js";
@@ -142,31 +142,21 @@ describe("GET /auth/session/status", () => {
   });
 
   it("returns 410 when the pending session expires while waiting", async () => {
-    await app.close();
-    pendingAuthStore = new PendingAuthStore({ sessionTtlMs: 15 });
-    app = Fastify({ disableRequestLogging: true });
+    const tokenHash = createPendingSession({ sessionToken: VALID_SESSION_TOKEN });
+    const session = pendingAuthStore.getSessionByTokenHash(tokenHash);
+    assert.ok(session);
 
-    app.setErrorHandler((error, _request, reply) => {
-      if (error instanceof ApiError) {
-        return reply.status(error.errorCode).send({ error: error.message, ...error.responseBody });
-      }
-
-      return reply.status(500).send({ error: "internal_server_error" });
-    });
-
-    await app.register(sessionStatusRoutes, {
-      pendingAuthStore,
-      statusPollTimeoutMs: 50,
-    });
-    await app.ready();
-
-    createPendingSession({ sessionToken: VALID_SESSION_TOKEN });
-
-    const res = await injectWithKeepAlive({
+    const responsePromise = injectWithKeepAlive({
       method: "GET",
       url: "/auth/session/status",
       headers: { "x-sesori-session-token": VALID_SESSION_TOKEN },
     });
+
+    setTimeout(() => {
+      pendingAuthStore.expireExpiredSessions(session.expiresAt);
+    }, 10);
+
+    const res = await responsePromise;
 
     assert.equal(res.statusCode, 410);
     assert.deepEqual(res.json(), { status: "expired" });
@@ -257,7 +247,7 @@ describe("GET /auth/session/status", () => {
     return tokenHash;
   }
 
-  async function injectWithKeepAlive(options: Parameters<FastifyInstance["inject"]>[0]) {
+  async function injectWithKeepAlive(options: InjectOptions): Promise<LightMyRequestResponse> {
     // Keep-alive prevents Node from exiting while the long-poll suspends on
     // an internal timer (the only pending handle during waitForStatusChange).
     // Without this, node:test can drain the event loop before fastify.inject()

@@ -1,6 +1,6 @@
 import { FastifyPluginAsync, FastifyReply } from "fastify";
 import { z } from "zod";
-import type { AppleClient } from "../../clients/auth/apple-client.js";
+import type { OAuthClient } from "../../clients/auth/oauth-client.js";
 import { OAuthProviderName } from "../../types/oauth.js";
 import type { Config } from "../../config.js";
 import { BadRequestError } from "../../lib/errors.js";
@@ -44,7 +44,7 @@ export type AppleRouteOptions = {
   config: Config;
   authService: AuthService;
   stateStore: StateStore;
-  appleClient: AppleClient;
+  appleClient: OAuthClient;
   pendingAuthStore: PendingAuthStore;
 };
 

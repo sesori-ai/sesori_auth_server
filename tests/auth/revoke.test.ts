@@ -1,6 +1,10 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
+import type { BridgeSummary } from "../../src/models/api.js";
+import type { BridgeRepository } from "../../src/repositories/bridge-repo.js";
+import { BridgeService } from "../../src/services/bridge-service.js";
+import type { BridgeStateTracker } from "../../src/services/bridge-state-tracker.js";
 
 describe("POST /auth/revoke", () => {
   let ctx: TestContext;
@@ -57,7 +61,96 @@ describe("POST /auth/revoke", () => {
     assert.equal(refreshRes.statusCode, 401);
     assert.equal(refreshRes.json<{ error: string }>().error, "unauthenticated");
   });
+
+  it("keeps auth tokens retryable when bridge revocation fails", async () => {
+    const failingCtx = await createTestApp({ bridgeService: new FailingRevokeAllBridgeService() });
+    try {
+      const user = await failingCtx.createUser();
+
+      const revokeRes = await failingCtx.app.inject({
+        method: "POST",
+        url: "/auth/revoke",
+        headers: { authorization: `Bearer ${user.accessToken}` },
+      });
+      assert.equal(revokeRes.statusCode, 500);
+
+      // tokenVersion was not bumped, so the refresh token still works and the
+      // client can retry the revoke.
+      const refreshRes = await failingCtx.app.inject({
+        method: "POST",
+        url: "/auth/refresh",
+        headers: { "content-type": "application/json" },
+        payload: JSON.stringify({ refreshToken: user.refreshToken }),
+      });
+      assert.equal(refreshRes.statusCode, 200);
+    } finally {
+      await failingCtx.cleanup();
+    }
+  });
+
+  it("revokes registered bridges after account token revocation", async () => {
+    const user = await ctx.createUser();
+    const createRes = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ name: "Compromised Bridge", platform: "macos" }),
+    });
+    assert.equal(createRes.statusCode, 201);
+    const bridge = createRes.json<{ id: string }>();
+
+    const revokeRes = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/revoke",
+      headers: { authorization: `Bearer ${user.accessToken}` },
+    });
+    assert.equal(revokeRes.statusCode, 200);
+
+    const listRes = await ctx.app.inject({
+      method: "GET",
+      url: "/auth/bridges",
+      headers: { authorization: `Bearer ${user.accessToken}` },
+    });
+    assert.equal(listRes.statusCode, 200);
+    assert.deepEqual(listRes.json<{ bridges: unknown[] }>().bridges, []);
+
+    const statusRes = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-status",
+      headers: {
+        "x-relay-secret": "test-relay-secret",
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({
+        userId: user.userId,
+        bridgeId: bridge.id,
+        status: "connected",
+        timestamp: new Date().toISOString(),
+      }),
+    });
+    assert.equal(statusRes.statusCode, 404);
+  });
 });
+
+class FailingRevokeAllBridgeService extends BridgeService {
+  constructor() {
+    super({
+      bridgeRepo: {} as BridgeRepository,
+      bridgeStateTracker: {} as BridgeStateTracker,
+    });
+  }
+
+  override async revokeAllForUser(_userId: string): Promise<void> {
+    throw new Error("bridge revocation failed");
+  }
+
+  override async listForUser(_userId: string): Promise<BridgeSummary[]> {
+    return [];
+  }
+}
 
 describe("Bridge endpoint removal", () => {
   let ctx: TestContext;

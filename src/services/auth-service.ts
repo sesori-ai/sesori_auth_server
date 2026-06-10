@@ -11,6 +11,7 @@ import { OAuthAccountRepository } from "../repositories/oauth-account-repo.js";
 import { PasswordAccountRepository } from "../repositories/password-account-repo.js";
 import { UserRepository } from "../repositories/user-repo.js";
 import type { DeviceTokenRepository } from "../repositories/device-token-repo.js";
+import type { BridgeService } from "./bridge-service.js";
 import { TokenService } from "./token-service.js";
 import argon2 from "argon2";
 
@@ -31,6 +32,7 @@ export class AuthService {
   readonly #oauthAccountRepo: OAuthAccountRepository;
   readonly #passwordAccountRepo: PasswordAccountRepository;
   readonly #deviceTokenRepo?: DeviceTokenRepository;
+  readonly #bridgeService: BridgeService;
 
   constructor(deps: {
     tokenService: TokenService;
@@ -38,12 +40,14 @@ export class AuthService {
     oauthAccountRepo: OAuthAccountRepository;
     passwordAccountRepo: PasswordAccountRepository;
     deviceTokenRepo?: DeviceTokenRepository;
+    bridgeService: BridgeService;
   }) {
     this.#tokenService = deps.tokenService;
     this.#userRepo = deps.userRepo;
     this.#oauthAccountRepo = deps.oauthAccountRepo;
     this.#passwordAccountRepo = deps.passwordAccountRepo;
     this.#deviceTokenRepo = deps.deviceTokenRepo;
+    this.#bridgeService = deps.bridgeService;
   }
 
   async authenticateOAuth(
@@ -244,9 +248,13 @@ export class AuthService {
     }
   }
 
-  // TODO: revoke() currently delegates to logoutUser(). Will diverge when relay
-  // integration lands (notify relay, invalidate bridge tokens, etc.)
   async revoke(userId: string): Promise<void> {
+    // Bridges first, deliberately: if bridge revocation throws, tokenVersion
+    // has not been bumped yet, so the client still holds valid tokens and can
+    // retry the whole flow without partial state. Swapping the order would
+    // leave a failed revoke with dead tokens AND lingering bridges.
+    // The contract is pinned by tests/auth/revoke.test.ts.
+    await this.#bridgeService.revokeAllForUser(userId);
     await this.logoutUser(userId);
   }
 

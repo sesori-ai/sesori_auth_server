@@ -415,7 +415,8 @@ export class PendingAuthStore {
     // `expired` transition promptly (per-poll timer, NOT per-entry — there's
     // at most O(active pollers) timers, which is bounded by FD count).
     const msUntilExpiry = Math.max(0, session.expiresAt.getTime() - this.#now().getTime());
-    const effectiveTimeoutMs = Math.min(timeoutMs, msUntilExpiry);
+    const expiryTimeoutMs = msUntilExpiry + 1;
+    const effectiveTimeoutMs = Math.min(timeoutMs, expiryTimeoutMs);
 
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {

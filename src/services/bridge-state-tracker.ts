@@ -1,8 +1,25 @@
-import type { BridgeStatusBody } from "../models/api.js";
+import { BridgeStatus } from "../models/bridge.js";
 import type { NotificationPayload, NotificationService } from "./notification-service.js";
 
-type BridgeStatus = BridgeStatusBody["status"];
-
+/**
+ * Debounces bridge online/offline push notifications so transient relay
+ * reconnects don't spam the user. Two keying modes coexist during the
+ * per-bridge rollout:
+ *   - instanceKey(userId, bridgeId): used when the relay reports a bridgeId
+ *     (updated bridge clients)
+ *   - legacyKey(userId): user-level, used when the relay omits the bridgeId
+ *     (bridge clients that have not updated yet)
+ * The legacy mode can be removed once AUTH_REQUIRE_BRIDGE_ID_IN_STATUS=true
+ * is rolled out everywhere (auth-server + relay + bridge fleet).
+ *
+ * State is in-process and unbounded: entries accrue per (userId, bridgeId)
+ * for the process lifetime (the last-notified status is kept for dedupe).
+ * That is acceptable for the current single-instance deployment with a
+ * per-user bridge cap; see AGENTS.md "SCALING CONSTRAINTS" before reusing
+ * this in a multi-instance topology — timers also do not survive restarts.
+ */
+// 120s: long enough to swallow relay restarts and flapping reconnects,
+// short enough that a real offline event still notifies promptly.
 const DEFAULT_BRIDGE_NOTIFICATION_DEBOUNCE_MS = 120_000;
 
 type BridgeStateEntry = {
@@ -11,6 +28,16 @@ type BridgeStateEntry = {
   timer: ReturnType<typeof setTimeout> | null;
   generation: number;
 };
+
+const LEGACY_KEY_SUFFIX = "::legacy";
+
+function instanceKey(userId: string, bridgeId: string): string {
+  return `${userId}::${bridgeId}`;
+}
+
+function legacyKey(userId: string): string {
+  return `${userId}${LEGACY_KEY_SUFFIX}`;
+}
 
 export class BridgeStateTracker {
   readonly #notificationService: NotificationService;
@@ -23,7 +50,39 @@ export class BridgeStateTracker {
   }
 
   handleStatusChange(userId: string, status: BridgeStatus): void {
-    const entry = this.#getOrCreateEntry(userId);
+    this.#dispatch(userId, legacyKey(userId), status);
+  }
+
+  handleStatusChangeForBridge(userId: string, bridgeId: string, status: BridgeStatus): void {
+    this.#dispatch(userId, instanceKey(userId, bridgeId), status);
+  }
+
+  cancelPendingForBridge(userId: string, bridgeId: string): void {
+    const key = instanceKey(userId, bridgeId);
+    this.#cancelPendingForKey(key);
+  }
+
+  cancelPendingForUser(userId: string): void {
+    this.#cancelPendingForKey(legacyKey(userId));
+  }
+
+  #cancelPendingForKey(key: string): void {
+    const entry = this.#state.get(key);
+    if (!entry) {
+      return;
+    }
+
+    entry.generation += 1;
+    entry.pendingStatus = null;
+    if (entry.timer) {
+      clearTimeout(entry.timer);
+      entry.timer = null;
+    }
+    this.#state.delete(key);
+  }
+
+  #dispatch(userId: string, key: string, status: BridgeStatus): void {
+    const entry = this.#getOrCreateEntry(key);
 
     if (status === entry.pendingStatus) {
       return;
@@ -71,8 +130,8 @@ export class BridgeStateTracker {
     this.#state.clear();
   }
 
-  #getOrCreateEntry(userId: string): BridgeStateEntry {
-    const existingEntry = this.#state.get(userId);
+  #getOrCreateEntry(key: string): BridgeStateEntry {
+    const existingEntry = this.#state.get(key);
     if (existingEntry) {
       return existingEntry;
     }
@@ -83,12 +142,12 @@ export class BridgeStateTracker {
       timer: null,
       generation: 0,
     };
-    this.#state.set(userId, entry);
+    this.#state.set(key, entry);
     return entry;
   }
 
   #buildPayload(status: BridgeStatus): NotificationPayload {
-    if (status === "connected") {
+    if (status === BridgeStatus.active) {
       return {
         category: "connection_status",
         title: "Bridge Online",

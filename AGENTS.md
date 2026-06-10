@@ -18,8 +18,8 @@ src/
 │   └── mongo-db-accessor.ts   # MongoDbAccessor — generic DB access + config-driven ensureIndexes
 ├── lib/               # Utilities (state-store.ts — LRU singleton, errors.ts — ApiError hierarchy)
 ├── middleware/         # createAuthMiddleware factory → requireAuth preHandler hook
-├── models/            # Zod schemas — documents.ts (User, OAuthAccount), jwt.ts (payload + constants), api.ts
-├── repositories/      # Data access — user-repo.ts, oauth-account-repo.ts, glossary-entry-repo.ts
+├── models/            # Zod schemas — api.ts, bridge.ts (shared bridge enums/schemas), documents.ts, jwt.ts
+├── repositories/      # Data access — user-repo.ts, oauth-account-repo.ts, bridge-repo.ts, glossary-entry-repo.ts
 ├── routes/
 │   └── auth/          # OAuth + pending-confirmation flow
 │       ├── github.ts             # GET /auth/github, POST /auth/github/init, POST/GET callbacks
@@ -45,6 +45,7 @@ src/
 | Change DB schema           | `src/models/documents.ts` + `src/repositories/`                          | Zod document schemas, raw MongoDB driver                                                    |
 | Add DB collection          | `src/types/mongo.ts` + `src/db/mongo-db-accessor.ts`                     | Add to AuthDbCollection enum + DATABASE_CONFIG                                              |
 | Auth middleware            | `src/middleware/auth.ts`                                                 | `createAuthMiddleware(tokenService)` factory                                                |
+| Manage bridges             | `src/routes/bridges.ts` + `src/services/bridge-service.ts` + `src/repositories/bridge-repo.ts` + `src/services/bridge-state-tracker.ts` | Per-bridge registry behind `/auth/me bridges[]`; see BRIDGE SUBSYSTEM below                 |
 | Wire dependencies          | `src/index.ts`                                                           | Composition root — all instantiation happens here                                           |
 
 ## CONVENTIONS
@@ -62,6 +63,13 @@ src/
 
 - **Pending OAuth sessions are in-process only.** `PendingAuthStore` is an in-memory LRU with a 5-minute TTL. The store is NOT shared between instances. Horizontal scaling of this service requires either sticky sessions (`X-Sesori-Session-Token` → consistent instance) OR migrating the store to Redis. Until then: **single-instance deploys only**.
 - Tunable via `PENDING_AUTH_MAX_SESSIONS` (default 10k entries ≈ 10 MB) and `PENDING_AUTH_POLL_TIMEOUT_MS` (default 30s long-poll cap).
+- **Bridge notification debounce is in-process only.** `BridgeStateTracker` keeps per-(userId, bridgeId) debounce timers and last-notified state in a process-local Map: pending notifications are lost on restart, the map is unbounded for the process lifetime (acceptable under the 50-bridges-per-user registration cap), and multiple instances would double-notify. Same single-instance constraint as above.
+
+## BRIDGE SUBSYSTEM
+
+Desktop bridge instances register via `POST /auth/bridges` (idempotent: clients resend their `bridgeId`; an owned non-revoked id updates in place, anything else mints a new `br_` id). `GET /auth/me` returns `bridges[]` (id, name, platform, addedAt, lastSeenAt — no live status; clients get live connectivity from the relay). The relay reports per-bridge connect/disconnect to `POST /internal/bridge-status`; unknown/revoked bridgeIds get a 404, which the relay turns into a WS close 4006 so the bridge re-registers. Bridges authenticate to the relay with the **user access token** — there is no bridge-scoped token.
+
+Push notifications debounce through `BridgeStateTracker` (120s) with two keyings during rollout: per-bridge `(userId, bridgeId)` when the relay sends a bridgeId, per-user legacy when it does not. Rollout: ship the bridge fleet → flip `AUTH_REQUIRE_BRIDGE_ID_IN_STATUS=true` here together with `RELAY_REQUIRE_BRIDGE_ID=true` on the relay; legacy bridges are then rejected and the legacy keying can be deleted.
 
 ## ANTI-PATTERNS
 

@@ -1,5 +1,5 @@
 import { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
-import { BadRequestError, UnauthenticatedError } from "../lib/errors.js";
+import { BadRequestError, NotFoundError, UnauthenticatedError } from "../lib/errors.js";
 import {
   registerTokenBodySchema,
   sendNotificationBodySchema,
@@ -8,13 +8,26 @@ import {
   type SendNotificationBody,
   type BridgeStatusBody,
 } from "../models/api.js";
+import { bridgeStatusFromWire } from "../models/bridge.js";
 import type { DeviceTokenRepository } from "../repositories/device-token-repo.js";
+import type { BridgeService } from "../services/bridge-service.js";
 import type { BridgeStateTracker } from "../services/bridge-state-tracker.js";
 import type { NotificationService } from "../services/notification-service.js";
+import type { Config } from "../config.js";
+
+// Allow up to 5 minutes of NTP clock skew between the relay and this server
+// before rejecting a status timestamp as "from the future".
+const BRIDGE_STATUS_FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
+
+function isTooFarInFuture(at: Date, now: Date = new Date()): boolean {
+  return at.getTime() - now.getTime() > BRIDGE_STATUS_FUTURE_TOLERANCE_MS;
+}
 
 export type NotificationRouteOptions = {
+  config: Config;
   deviceTokenRepo: DeviceTokenRepository;
   notificationService: NotificationService;
+  bridgeService: BridgeService;
   bridgeStateTracker: BridgeStateTracker;
   requireAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   requireRelayAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
@@ -26,7 +39,15 @@ function getUserId(request: FastifyRequest): string {
 }
 
 export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = async (fastify, opts) => {
-  const { deviceTokenRepo, notificationService, bridgeStateTracker, requireAuth, requireRelayAuth } = opts;
+  const {
+    config,
+    deviceTokenRepo,
+    notificationService,
+    bridgeService,
+    bridgeStateTracker,
+    requireAuth,
+    requireRelayAuth,
+  } = opts;
 
   fastify.post<{ Body: RegisterTokenBody; Reply: { ok: true } }>(
     "/notifications/register-token",
@@ -69,6 +90,9 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
     },
   );
 
+  // Trust model: the relay secret authenticates the CALLER as our relay, but
+  // we do not verify the relay is authorized for any specific bridgeId — a
+  // single trusted relay is assumed. A multi-relay topology must revisit this.
   fastify.post<{ Body: BridgeStatusBody; Reply: { ok: true } }>(
     "/internal/bridge-status",
     { preHandler: requireRelayAuth },
@@ -78,7 +102,29 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
         throw new BadRequestError({ debugMessage: "Invalid request body", nestedError: bodyResult.error.issues });
       }
 
-      bridgeStateTracker.handleStatusChange(bodyResult.data.userId, bodyResult.data.status);
+      const internalStatus = bridgeStatusFromWire(bodyResult.data.status);
+      const at = new Date(bodyResult.data.timestamp);
+      if (Number.isNaN(at.getTime())) {
+        throw new BadRequestError({ debugMessage: "Invalid timestamp" });
+      }
+      if (isTooFarInFuture(at)) {
+        throw new BadRequestError({ debugMessage: "Timestamp is too far in the future" });
+      }
+
+      if (bodyResult.data.bridgeId) {
+        const bridge = await bridgeService.findByIdForUser(bodyResult.data.bridgeId, bodyResult.data.userId);
+        if (!bridge) {
+          throw new NotFoundError({ debugMessage: "Unknown bridgeId for user" });
+        }
+        await bridgeService.recordStatusChange(bodyResult.data.bridgeId, bodyResult.data.userId, internalStatus, at);
+      } else {
+        if (config.AUTH_REQUIRE_BRIDGE_ID_IN_STATUS) {
+          throw new BadRequestError({ debugMessage: "bridgeId is required" });
+        }
+        // Legacy bridges (no bridgeId) always take the user-level
+        // notification path during the transition window.
+        bridgeStateTracker.handleStatusChange(bodyResult.data.userId, internalStatus);
+      }
 
       return { ok: true };
     },
