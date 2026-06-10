@@ -1,7 +1,8 @@
 import { describe, it, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
-import type { BridgeStateTracker } from "../../src/services/bridge-state-tracker.js";
+import { BridgeStateTracker } from "../../src/services/bridge-state-tracker.js";
+import type { NotificationService } from "../../src/services/notification-service.js";
 
 type BridgeSummaryBody = {
   id: string;
@@ -250,7 +251,9 @@ describe("/auth/bridges routes", () => {
     const body = listRes.json<{ bridges: unknown[] }>();
     assert.deepEqual(body.bridges, []);
     assert.deepEqual(cancelledBridgeKeys, [{ userId: user.userId, bridgeId: created.id }]);
-    assert.deepEqual(cancelledLegacyUsers, [user.userId]);
+    // The legacy (user-level) timer tracks unregistered legacy bridges and is
+    // deliberately untouched by per-bridge revocation.
+    assert.deepEqual(cancelledLegacyUsers, []);
   });
 
   it("DELETE /auth/bridges/:bridgeId returns 404 for non-owner", async () => {
@@ -296,5 +299,119 @@ describe("/auth/bridges routes", () => {
       headers: { authorization: `Bearer ${user.accessToken}` },
     });
     assert.equal(second.statusCode, 404);
+  });
+
+  it("POST /auth/bridges caps non-revoked bridges per user at 50", async () => {
+    const user = await ctx.createUser();
+
+    for (let i = 0; i < 50; i++) {
+      const res = await registerBridge(user.accessToken, { name: `Bridge ${i}`, platform: "linux" });
+      assert.equal(res.statusCode, 201);
+    }
+
+    const over = await registerBridge(user.accessToken, { name: "One too many", platform: "linux" });
+    assert.equal(over.statusCode, 400);
+
+    // Idempotent re-registration of an existing bridge still works at the cap.
+    const listRes = await ctx.app.inject({
+      method: "GET",
+      url: "/auth/bridges",
+      headers: { authorization: `Bearer ${user.accessToken}` },
+    });
+    const existing = listRes.json<{ bridges: { id: string }[] }>().bridges[0];
+    const update = await registerBridge(user.accessToken, {
+      name: "Renamed",
+      platform: "linux",
+      bridgeId: existing.id,
+    });
+    assert.equal(update.statusCode, 200);
+  });
+});
+
+describe("bridge revocation cancels pending notifications (end to end)", () => {
+  let ctx: TestContext;
+  const sentNotifications: { userId: string }[] = [];
+  const DEBOUNCE_MS = 50;
+
+  before(async () => {
+    const notificationServiceMock = {
+      sendToUser: async (userId: string) => {
+        sentNotifications.push({ userId });
+        return { devicesNotified: 1 };
+      },
+    } as unknown as NotificationService;
+    ctx = await createTestApp({
+      notificationService: notificationServiceMock,
+      bridgeStateTracker: new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS),
+    });
+  });
+
+  after(async () => {
+    await ctx.cleanup();
+  });
+
+  beforeEach(() => {
+    sentNotifications.length = 0;
+  });
+
+  it("register -> status change -> DELETE -> debounce elapses -> no notification fires", async () => {
+    const user = await ctx.createUser();
+    const createRes = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: { authorization: `Bearer ${user.accessToken}`, "content-type": "application/json" },
+      payload: JSON.stringify({ name: "Doomed", platform: "macos" }),
+    });
+    const created = createRes.json<{ id: string }>();
+
+    const statusRes = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-status",
+      headers: { "x-relay-secret": "test-relay-secret", "content-type": "application/json" },
+      payload: JSON.stringify({
+        userId: user.userId,
+        bridgeId: created.id,
+        status: "connected",
+        timestamp: new Date().toISOString(),
+      }),
+    });
+    assert.equal(statusRes.statusCode, 200);
+
+    const delRes = await ctx.app.inject({
+      method: "DELETE",
+      url: `/auth/bridges/${encodeURIComponent(created.id)}`,
+      headers: { authorization: `Bearer ${user.accessToken}` },
+    });
+    assert.equal(delRes.statusCode, 200);
+
+    await new Promise((resolve) => setTimeout(resolve, DEBOUNCE_MS * 3));
+    assert.deepEqual(sentNotifications, [], "revoked bridge must not fire its pending notification");
+  });
+
+  it("control: without the DELETE the debounced notification does fire", async () => {
+    const user = await ctx.createUser();
+    const createRes = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: { authorization: `Bearer ${user.accessToken}`, "content-type": "application/json" },
+      payload: JSON.stringify({ name: "Alive", platform: "macos" }),
+    });
+    const created = createRes.json<{ id: string }>();
+
+    const statusRes = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-status",
+      headers: { "x-relay-secret": "test-relay-secret", "content-type": "application/json" },
+      payload: JSON.stringify({
+        userId: user.userId,
+        bridgeId: created.id,
+        status: "connected",
+        timestamp: new Date().toISOString(),
+      }),
+    });
+    assert.equal(statusRes.statusCode, 200);
+
+    await new Promise((resolve) => setTimeout(resolve, DEBOUNCE_MS * 3));
+    assert.deepEqual(sentNotifications, [{ userId: user.userId }]);
   });
 });

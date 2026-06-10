@@ -619,3 +619,80 @@ describe("Notification routes", () => {
     assert.equal(trackerCalls.length, 0);
   });
 });
+
+describe("AUTH_REQUIRE_BRIDGE_ID_IN_STATUS=true", () => {
+  let ctx: TestContext;
+  const trackerCalls: { kind: "legacy" | "bridge" }[] = [];
+
+  const bridgeStateTrackerMock = {
+    handleStatusChange: () => {
+      trackerCalls.push({ kind: "legacy" });
+    },
+    handleStatusChangeForBridge: () => {
+      trackerCalls.push({ kind: "bridge" });
+    },
+    cancelPendingForUser: () => {},
+    cancelPendingForBridge: () => {},
+    dispose: () => {},
+  } as unknown as BridgeStateTracker;
+
+  before(async () => {
+    ctx = await createTestApp({
+      bridgeStateTracker: bridgeStateTrackerMock,
+      configOverrides: { AUTH_REQUIRE_BRIDGE_ID_IN_STATUS: true },
+    });
+  });
+
+  after(async () => {
+    await ctx.cleanup();
+  });
+
+  beforeEach(() => {
+    trackerCalls.length = 0;
+  });
+
+  it("rejects a status post without bridgeId with 400", async () => {
+    const user = await ctx.createUser();
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-status",
+      headers: { "x-relay-secret": "test-relay-secret", "content-type": "application/json" },
+      payload: JSON.stringify({
+        userId: user.userId,
+        status: "connected",
+        timestamp: new Date().toISOString(),
+      }),
+    });
+
+    assert.equal(res.statusCode, 400);
+    assert.equal(trackerCalls.length, 0);
+  });
+
+  it("accepts a status post with bridgeId under the same flag", async () => {
+    const user = await ctx.createUser();
+    const createRes = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: { authorization: `Bearer ${user.accessToken}`, "content-type": "application/json" },
+      payload: JSON.stringify({ name: "Flagged Bridge", platform: "linux" }),
+    });
+    assert.equal(createRes.statusCode, 201);
+    const created = createRes.json<{ id: string }>();
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-status",
+      headers: { "x-relay-secret": "test-relay-secret", "content-type": "application/json" },
+      payload: JSON.stringify({
+        userId: user.userId,
+        bridgeId: created.id,
+        status: "connected",
+        timestamp: new Date().toISOString(),
+      }),
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(trackerCalls, [{ kind: "bridge" }]);
+  });
+});

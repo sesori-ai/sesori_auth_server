@@ -59,6 +59,7 @@ export type TestContext = {
 };
 
 export type TestAppOverrides = {
+  configOverrides?: Partial<import("../../src/config.js").Config>;
   githubClient?: OAuthClient;
   googleClient?: OAuthClient;
   appleClient?: OAuthClient;
@@ -126,7 +127,9 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     }),
   ).toString("base64");
 
-  const config = loadConfig();
+  // loadConfig() caches a process-wide singleton, so per-test env mutation
+  // does not work; use configOverrides to vary flags between test apps.
+  const config = { ...loadConfig(), ...overrides?.configOverrides };
 
   const dbConnector = new MongoDbConnector({ connectionString: mongoUri });
   const dbAccessor = new MongoDbAccessor(dbConnector);

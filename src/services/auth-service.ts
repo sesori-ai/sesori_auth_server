@@ -249,6 +249,11 @@ export class AuthService {
   }
 
   async revoke(userId: string): Promise<void> {
+    // Bridges first, deliberately: if bridge revocation throws, tokenVersion
+    // has not been bumped yet, so the client still holds valid tokens and can
+    // retry the whole flow without partial state. Swapping the order would
+    // leave a failed revoke with dead tokens AND lingering bridges.
+    // The contract is pinned by tests/auth/revoke.test.ts.
     await this.#bridgeService.revokeAllForUser(userId);
     await this.logoutUser(userId);
   }

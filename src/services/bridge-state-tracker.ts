@@ -1,6 +1,25 @@
 import { BridgeStatus } from "../models/bridge.js";
 import type { NotificationPayload, NotificationService } from "./notification-service.js";
 
+/**
+ * Debounces bridge online/offline push notifications so transient relay
+ * reconnects don't spam the user. Two keying modes coexist during the
+ * per-bridge rollout:
+ *   - instanceKey(userId, bridgeId): used when the relay reports a bridgeId
+ *     (updated bridge clients)
+ *   - legacyKey(userId): user-level, used when the relay omits the bridgeId
+ *     (bridge clients that have not updated yet)
+ * The legacy mode can be removed once AUTH_REQUIRE_BRIDGE_ID_IN_STATUS=true
+ * is rolled out everywhere (auth-server + relay + bridge fleet).
+ *
+ * State is in-process and unbounded: entries accrue per (userId, bridgeId)
+ * for the process lifetime (the last-notified status is kept for dedupe).
+ * That is acceptable for the current single-instance deployment with a
+ * per-user bridge cap; see AGENTS.md "SCALING CONSTRAINTS" before reusing
+ * this in a multi-instance topology — timers also do not survive restarts.
+ */
+// 120s: long enough to swallow relay restarts and flapping reconnects,
+// short enough that a real offline event still notifies promptly.
 const DEFAULT_BRIDGE_NOTIFICATION_DEBOUNCE_MS = 120_000;
 
 type BridgeStateEntry = {

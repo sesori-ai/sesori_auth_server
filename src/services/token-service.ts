@@ -7,6 +7,11 @@ import {
 } from "../models/jwt.js";
 import { InternalServerError } from "../lib/errors.js";
 
+// Short-lived: access tokens are stateless, so expiry is the only thing that
+// invalidates them (logout/revoke only cuts off refresh via tokenVersion).
+const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
+const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
+
 export class TokenService {
   readonly #privateKey: string;
   readonly #publicKey: string;
@@ -20,7 +25,7 @@ export class TokenService {
   // providerUserId stays as the 24-char hex ObjectId string so we avoid putting email into the JWT.
   signAccessToken(payload: { userId: string; provider: string; providerUserId: string }): string {
     const now = Math.floor(Date.now() / 1000);
-    const expiresIn = 15 * 60;
+    const expiresIn = ACCESS_TOKEN_TTL_SECONDS;
 
     const tokenPayloadResult = accessTokenPayloadSchema.safeParse({
       tokenType: "access",
@@ -47,7 +52,7 @@ export class TokenService {
 
   signRefreshToken(payload: { userId: string; tokenVersion: number }): string {
     const now = Math.floor(Date.now() / 1000);
-    const expiresIn = 30 * 24 * 60 * 60;
+    const expiresIn = REFRESH_TOKEN_TTL_SECONDS;
 
     const tokenPayloadResult = refreshTokenPayloadSchema.safeParse({
       tokenType: "refresh",

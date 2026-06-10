@@ -121,6 +121,8 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 | `AUTH_BASE_URL`                | Public base URL of this service. Used to build the OAuth `redirect_uri` for the pending-confirmation flow. Must match each provider's registered URI. Defaults to `https://api.sesori.com`. |
 | `PENDING_AUTH_MAX_SESSIONS`    | Max concurrent pending OAuth sessions in-memory. Default `10000` (~10 MB).                                                                                                                  |
 | `PENDING_AUTH_POLL_TIMEOUT_MS` | Max long-poll duration on `/auth/session/status`. Default `30000`.                                                                                                                          |
+| `RELAY_WEBHOOK_SECRET`         | Shared secret authenticating the relay on `/internal/*` endpoints.                                                                                                                          |
+| `AUTH_REQUIRE_BRIDGE_ID_IN_STATUS` | Transition gate for per-bridge tracking: when `true`, `/internal/bridge-status` rejects payloads without `bridgeId` (400). Default `false`. Flip together with the relay's `RELAY_REQUIRE_BRIDGE_ID` once the bridge fleet has rolled over. |
 
 ## npm scripts
 
