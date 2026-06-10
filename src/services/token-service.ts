@@ -21,7 +21,7 @@ export class TokenService {
     this.#publicKey = publicKeyPem.replace(/\\n/g, "\n");
   }
 
-  // Password users sign access tokens with provider="password" and providerUserId=user._id.toString().
+  // Password users sign access tokens with provider="email" and providerUserId=user._id.toString().
   // providerUserId stays as the 24-char hex ObjectId string so we avoid putting email into the JWT.
   signAccessToken(payload: { userId: string; provider: string; providerUserId: string }): string {
     const now = Math.floor(Date.now() / 1000);

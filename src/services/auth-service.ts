@@ -1,6 +1,6 @@
 import type { OAuthClient } from "../clients/auth/oauth-client.js";
 import {
-  AUTH_PROVIDER_PASSWORD,
+  AUTH_PROVIDER_EMAIL,
   OAuthProviderName,
   type OAuthExchangeParams,
   type OAuthIdentity,
@@ -117,7 +117,7 @@ export class AuthService {
 
     return this.#signTokensForUser({
       userId: account.userId.toHexString(),
-      provider: AUTH_PROVIDER_PASSWORD,
+      provider: AUTH_PROVIDER_EMAIL,
       providerUserId: account.userId.toHexString(),
       providerUsername: account.email,
       tokenVersion: user.tokenVersion ?? 0,
@@ -231,7 +231,7 @@ export class AuthService {
     if (passwordAccount) {
       return this.#signTokensForUser({
         userId,
-        provider: AUTH_PROVIDER_PASSWORD,
+        provider: AUTH_PROVIDER_EMAIL,
         providerUserId: userId,
         providerUsername: passwordAccount.email,
         tokenVersion: user.tokenVersion,
@@ -286,7 +286,7 @@ export class AuthService {
     if (passwordAccount) {
       return {
         id: userId,
-        provider: AUTH_PROVIDER_PASSWORD,
+        provider: AUTH_PROVIDER_EMAIL,
         providerUserId: userId,
         providerUsername: passwordAccount.email,
       };

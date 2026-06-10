@@ -64,7 +64,7 @@ describe("Password authentication", () => {
       assert.ok(body.accessToken, "Should return access token");
       assert.ok(body.refreshToken, "Should return refresh token");
       assert.ok(body.user.id, "Should return user id");
-      assert.equal(body.user.provider, "password");
+      assert.equal(body.user.provider, "email");
     });
 
     it("returns 401 for wrong password", async () => {
@@ -184,7 +184,7 @@ describe("Password authentication", () => {
       }>();
       assert.ok(body.accessToken);
       assert.ok(body.refreshToken);
-      assert.equal(body.user.provider, "password");
+      assert.equal(body.user.provider, "email");
     });
   });
 
@@ -211,7 +211,7 @@ describe("Password authentication", () => {
 
       assert.equal(meRes.statusCode, 200);
       const body = meRes.json<{ user: { id: string; provider: string; providerUsername: string } }>();
-      assert.equal(body.user.provider, "password");
+      assert.equal(body.user.provider, "email");
       assert.equal(body.user.providerUsername, email.toLowerCase());
     });
   });
@@ -329,7 +329,7 @@ describe("Password authentication", () => {
         headers: { authorization: `Bearer ${passwordTokens.accessToken}` },
       });
       assert.equal(passwordMeRes.statusCode, 200);
-      assert.equal(passwordMeRes.json<{ user: { provider: string } }>().user.provider, "password");
+      assert.equal(passwordMeRes.json<{ user: { provider: string } }>().user.provider, "email");
 
       const oauthLogoutRes = await ctx.app.inject({
         method: "POST",
