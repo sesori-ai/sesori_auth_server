@@ -2,8 +2,6 @@ import jwt from "jsonwebtoken";
 import {
   type AccessTokenPayload,
   accessTokenPayloadSchema,
-  type BridgeTokenPayload,
-  bridgeTokenPayloadSchema,
   type RefreshTokenPayload,
   refreshTokenPayloadSchema,
 } from "../models/jwt.js";
@@ -20,7 +18,7 @@ export class TokenService {
 
   // Password users sign access tokens with provider="password" and providerUserId=user._id.toString().
   // providerUserId stays as the 24-char hex ObjectId string so we avoid putting email into the JWT.
-  signAccessToken(payload: { userId: string; provider: string; providerUserId: string; tokenVersion: number }): string {
+  signAccessToken(payload: { userId: string; provider: string; providerUserId: string }): string {
     const now = Math.floor(Date.now() / 1000);
     const expiresIn = 15 * 60;
 
@@ -29,7 +27,6 @@ export class TokenService {
       userId: payload.userId,
       provider: payload.provider,
       providerUserId: payload.providerUserId,
-      tokenVersion: payload.tokenVersion,
       iss: "auth-backend",
       aud: "mobile",
       iat: now,
@@ -74,43 +71,12 @@ export class TokenService {
     });
   }
 
-  // TODO(relay): Bridge tokens for relay integration. Wire to a route when relay service is implemented. Remove if relay is dropped.
-  signBridgeToken(payload: { userId: string; bridgeId: string }): string {
-    const now = Math.floor(Date.now() / 1000);
-    const expiresIn = 24 * 60 * 60;
-
-    const tokenPayloadResult = bridgeTokenPayloadSchema.safeParse({
-      tokenType: "bridge",
-      userId: payload.userId,
-      bridgeId: payload.bridgeId,
-      iss: "auth-backend",
-      aud: "bridge",
-      iat: now,
-      exp: now + expiresIn,
-    });
-    if (!tokenPayloadResult.success) {
-      throw new InternalServerError({
-        debugMessage: "Bridge token payload validation failed",
-        nestedError: tokenPayloadResult.error.issues,
-      });
-    }
-    const tokenPayload: BridgeTokenPayload = tokenPayloadResult.data;
-
-    return jwt.sign(tokenPayload, this.#privateKey, {
-      algorithm: "RS256",
-    });
-  }
-
   verifyAccessToken(token: string): unknown {
     return this.#verifyToken(token, "mobile");
   }
 
   verifyRefreshToken(token: string): unknown {
     return this.#verifyToken(token, "mobile");
-  }
-
-  verifyBridgeToken(token: string): unknown {
-    return this.#verifyToken(token, "bridge");
   }
 
   getPublicKey(): string {

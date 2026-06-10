@@ -74,13 +74,15 @@ describe("POST /auth/revoke", () => {
       });
       assert.equal(revokeRes.statusCode, 500);
 
-      const meRes = await failingCtx.app.inject({
-        method: "GET",
-        url: "/auth/me",
-        headers: { authorization: `Bearer ${user.accessToken}` },
+      // tokenVersion was not bumped, so the refresh token still works and the
+      // client can retry the revoke.
+      const refreshRes = await failingCtx.app.inject({
+        method: "POST",
+        url: "/auth/refresh",
+        headers: { "content-type": "application/json" },
+        payload: JSON.stringify({ refreshToken: user.refreshToken }),
       });
-      assert.equal(meRes.statusCode, 200);
-      assert.equal(meRes.json<{ user: { id: string } }>().user.id, user.userId);
+      assert.equal(refreshRes.statusCode, 200);
     } finally {
       await failingCtx.cleanup();
     }
@@ -112,7 +114,8 @@ describe("POST /auth/revoke", () => {
       url: "/auth/bridges",
       headers: { authorization: `Bearer ${user.accessToken}` },
     });
-    assert.equal(listRes.statusCode, 401);
+    assert.equal(listRes.statusCode, 200);
+    assert.deepEqual(listRes.json<{ bridges: unknown[] }>().bridges, []);
 
     const statusRes = await ctx.app.inject({
       method: "POST",
@@ -129,24 +132,6 @@ describe("POST /auth/revoke", () => {
       }),
     });
     assert.equal(statusRes.statusCode, 404);
-  });
-
-  it("invalidates old access token after revoke", async () => {
-    const user = await ctx.createUser();
-
-    const revokeRes = await ctx.app.inject({
-      method: "POST",
-      url: "/auth/revoke",
-      headers: { authorization: `Bearer ${user.accessToken}` },
-    });
-    assert.equal(revokeRes.statusCode, 200);
-
-    const meRes = await ctx.app.inject({
-      method: "GET",
-      url: "/auth/me",
-      headers: { authorization: `Bearer ${user.accessToken}` },
-    });
-    assert.equal(meRes.statusCode, 401);
   });
 });
 

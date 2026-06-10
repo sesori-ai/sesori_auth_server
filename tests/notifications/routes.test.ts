@@ -207,15 +207,6 @@ describe("Notification routes", () => {
 
   it("POST /internal/bridge-status (disconnected) returns 200 with valid relay secret", async () => {
     const user = await ctx.createUser();
-    await ctx.app.inject({
-      method: "POST",
-      url: "/auth/bridges",
-      headers: {
-        authorization: `Bearer ${user.accessToken}`,
-        "content-type": "application/json",
-      },
-      payload: JSON.stringify({ name: "Legacy Bridge", platform: "macos" }),
-    });
 
     const res = await ctx.app.inject({
       method: "POST",
@@ -240,15 +231,6 @@ describe("Notification routes", () => {
 
   it("POST /internal/bridge-status (connected) delegates to bridgeStateTracker", async () => {
     const user = await ctx.createUser();
-    await ctx.app.inject({
-      method: "POST",
-      url: "/auth/bridges",
-      headers: {
-        authorization: `Bearer ${user.accessToken}`,
-        "content-type": "application/json",
-      },
-      payload: JSON.stringify({ name: "Legacy Bridge", platform: "macos" }),
-    });
 
     const res = await ctx.app.inject({
       method: "POST",
@@ -271,7 +253,7 @@ describe("Notification routes", () => {
     assert.equal(trackerCalls[0]?.status, "active");
   });
 
-  it("POST /internal/bridge-status ignores legacy status when user has no bridges", async () => {
+  it("POST /internal/bridge-status forwards legacy status even after the user's bridges are revoked", async () => {
     const user = await ctx.createUser();
     const createRes = await ctx.app.inject({
       method: "POST",
@@ -305,7 +287,8 @@ describe("Notification routes", () => {
 
     assert.equal(res.statusCode, 200);
     assert.deepEqual(res.json(), { ok: true });
-    assert.equal(trackerCalls.length, 0);
+    assert.equal(trackerCalls.length, 1);
+    assert.deepEqual(trackerCalls[0], { userId: user.userId, status: "active" });
   });
 
   it("POST /internal/bridge-status returns 401 with missing or wrong secret", async () => {
@@ -420,9 +403,8 @@ describe("Notification routes", () => {
       url: "/auth/bridges",
       headers: { authorization: `Bearer ${user.accessToken}` },
     });
-    const list = listRes.json<{ bridges: { id: string; status: string; lastSeenAt: string | null }[] }>();
+    const list = listRes.json<{ bridges: { id: string; lastSeenAt: string | null }[] }>();
     assert.equal(list.bridges[0]?.id, bridge.id);
-    assert.equal(list.bridges[0]?.status, "active");
     assert.equal(list.bridges[0]?.lastSeenAt, timestamp);
   });
 
@@ -512,12 +494,11 @@ describe("Notification routes", () => {
       url: "/auth/bridges",
       headers: { authorization: `Bearer ${user.accessToken}` },
     });
-    const list = listRes.json<{ bridges: { status: string; lastSeenAt: string | null }[] }>();
-    assert.equal(list.bridges[0]?.status, "active");
+    const list = listRes.json<{ bridges: { lastSeenAt: string | null }[] }>();
     assert.equal(list.bridges[0]?.lastSeenAt, "2026-06-08T10:01:00.000Z");
   });
 
-  it("POST /internal/bridge-status ignores stale legacy events at or older than bridge state", async () => {
+  it("POST /internal/bridge-status forwards legacy events even when per-bridge state is newer", async () => {
     const user = await ctx.createUser();
     const createRes = await ctx.app.inject({
       method: "POST",
@@ -546,26 +527,25 @@ describe("Notification routes", () => {
     });
     assert.equal(currentRes.statusCode, 200);
 
-    for (const timestamp of ["2026-06-08T10:00:00.000Z", "2026-06-08T10:01:00.000Z"]) {
-      const staleLegacyRes = await ctx.app.inject({
-        method: "POST",
-        url: "/internal/bridge-status",
-        headers: {
-          "x-relay-secret": "test-relay-secret",
-          "content-type": "application/json",
-        },
-        payload: JSON.stringify({
-          userId: user.userId,
-          status: "disconnected",
-          timestamp,
-        }),
-      });
-      assert.equal(staleLegacyRes.statusCode, 200);
-    }
+    const legacyRes = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-status",
+      headers: {
+        "x-relay-secret": "test-relay-secret",
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({
+        userId: user.userId,
+        status: "disconnected",
+        timestamp: "2026-06-08T10:00:00.000Z",
+      }),
+    });
+    assert.equal(legacyRes.statusCode, 200);
 
-    assert.equal(trackerCalls.length, 1);
+    assert.equal(trackerCalls.length, 2);
     assert.equal(trackerCalls[0]?.bridgeId, bridge.id);
     assert.equal(trackerCalls[0]?.status, "active");
+    assert.deepEqual(trackerCalls[1], { userId: user.userId, status: "inactive" });
   });
 
   it("POST /internal/bridge-status rejects timestamps too far in the future", async () => {

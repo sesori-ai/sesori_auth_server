@@ -83,10 +83,20 @@ The newer flow keeps the client in control of when tokens are issued. The client
 | Method | Path               | Auth   | Description                                                     |
 | ------ | ------------------ | ------ | --------------------------------------------------------------- |
 | `POST` | `/auth/refresh`    | No     | Refresh access token (requires `refreshToken` body)             |
-| `GET`  | `/auth/me`         | Bearer | Get current user profile                                        |
-| `POST` | `/auth/logout`     | Bearer | Logout (increments token version; auth-server middleware rejects old access/refresh tokens) |
-| `POST` | `/auth/revoke`     | Bearer | Revoke tokens and registered bridges (token version plus bridge revocation)               |
+| `GET`  | `/auth/me`         | Bearer | Get current user profile + registered `bridges[]`               |
+| `POST` | `/auth/logout`     | Bearer | Logout (increments token version; old refresh tokens are rejected) |
+| `POST` | `/auth/revoke`     | Bearer | Revoke refresh tokens (token version) and soft-revoke all registered bridges |
 | `GET`  | `/auth/public-key` | No     | Get RS256 public key (PEM) — used by relay for JWT verification |
+
+### Bridges
+
+Bridges authenticate with the user's access token everywhere (relay included) — there are no bridge-specific tokens. The API returns `BridgeSummary` objects (`id`, `name`, `platform`, `addedAt`, `lastSeenAt`); per-bridge connection status is tracked internally for push notifications but never exposed.
+
+| Method   | Path                       | Auth   | Description                                                                                                                              |
+| -------- | -------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST`   | `/auth/bridges`            | Bearer | Idempotent registration. Body: `{ name, platform, bridgeId? }`. An owned non-revoked `bridgeId` updates that bridge (200); otherwise a new bridge is minted server-side (201). |
+| `GET`    | `/auth/bridges`            | Bearer | List the user's non-revoked bridges                                                                                                       |
+| `DELETE` | `/auth/bridges/:bridgeId`  | Bearer | Soft-revoke a bridge (404 if unknown, another user's, or already revoked)                                                                 |
 
 ## Environment variables
 

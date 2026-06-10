@@ -101,6 +101,43 @@ describe("BridgeRepository", () => {
     assert.equal(bridges.length, 2);
   });
 
+  it("updateForUser updates name and platform for the owner", async () => {
+    const user = await ctx.createUser();
+    const repo = new BridgeRepository(ctx.dbAccessor);
+    const bridge = await repo.register({ userId: user.userId, name: "Old Name", platform: "macos" });
+
+    const updated = await repo.updateForUser(bridge.bridgeId, user.userId, { name: "New Name", platform: "linux" });
+
+    assert.ok(updated);
+    assert.equal(updated?.bridgeId, bridge.bridgeId);
+    assert.equal(updated?.name, "New Name");
+    assert.equal(updated?.platform, "linux");
+    assert.equal(updated?.addedAt.toISOString(), bridge.addedAt.toISOString());
+  });
+
+  it("updateForUser returns null for foreign, invalid-owner, or revoked bridges", async () => {
+    const owner = await ctx.createUser();
+    const stranger = await ctx.createUser();
+    const repo = new BridgeRepository(ctx.dbAccessor);
+    const bridge = await repo.register({ userId: owner.userId, name: "Bridge", platform: "macos" });
+
+    const wrongOwner = await repo.updateForUser(bridge.bridgeId, stranger.userId, { name: "X", platform: "linux" });
+    assert.equal(wrongOwner, null);
+
+    const invalidOwner = await repo.updateForUser(bridge.bridgeId, "not-an-object-id", {
+      name: "X",
+      platform: "linux",
+    });
+    assert.equal(invalidOwner, null);
+
+    await repo.revoke(bridge.bridgeId, owner.userId, new Date());
+    const revoked = await repo.updateForUser(bridge.bridgeId, owner.userId, { name: "X", platform: "linux" });
+    assert.equal(revoked, null);
+
+    const after = await repo.findById(bridge.bridgeId);
+    assert.equal(after?.name, "Bridge");
+  });
+
   it("recordStatusChange updates status and lastSeenAt", async () => {
     const user = await ctx.createUser();
     const repo = new BridgeRepository(ctx.dbAccessor);

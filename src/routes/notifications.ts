@@ -17,16 +17,6 @@ import type { Config } from "../config.js";
 
 const BRIDGE_STATUS_FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
 
-function hasBridgeStateAtOrAfter(bridges: { lastSeenAt: string | null }[], at: Date): boolean {
-  return bridges.some((bridge) => {
-    if (!bridge.lastSeenAt) {
-      return false;
-    }
-    const lastSeenAt = new Date(bridge.lastSeenAt);
-    return !Number.isNaN(lastSeenAt.getTime()) && lastSeenAt >= at;
-  });
-}
-
 function isTooFarInFuture(at: Date, now: Date = new Date()): boolean {
   return at.getTime() - now.getTime() > BRIDGE_STATUS_FUTURE_TOLERANCE_MS;
 }
@@ -126,10 +116,9 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
         if (config.AUTH_REQUIRE_BRIDGE_ID_IN_STATUS) {
           throw new BadRequestError({ debugMessage: "bridgeId is required" });
         }
-        const bridges = await bridgeService.listForUser(bodyResult.data.userId);
-        if (bridges.length > 0 && !hasBridgeStateAtOrAfter(bridges, at)) {
-          bridgeStateTracker.handleStatusChange(bodyResult.data.userId, internalStatus);
-        }
+        // Legacy bridges (no bridgeId) always take the user-level
+        // notification path during the transition window.
+        bridgeStateTracker.handleStatusChange(bodyResult.data.userId, internalStatus);
       }
 
       return { ok: true };

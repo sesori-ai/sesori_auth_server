@@ -168,7 +168,6 @@ export class AuthService {
       userId: params.userId,
       provider: params.provider,
       providerUserId: params.providerUserId,
-      tokenVersion: params.tokenVersion,
     });
     const refreshToken = this.#tokenService.signRefreshToken({
       userId: params.userId,
@@ -247,11 +246,6 @@ export class AuthService {
     if (this.#deviceTokenRepo) {
       await this.#deviceTokenRepo.deleteAllForUser(userId);
     }
-  }
-
-  async isAccessTokenVersionCurrent(userId: string, tokenVersion: number): Promise<boolean> {
-    const user = await this.#userRepo.findById(userId);
-    return user?.tokenVersion === tokenVersion;
   }
 
   async revoke(userId: string): Promise<void> {

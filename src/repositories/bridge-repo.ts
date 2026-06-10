@@ -80,6 +80,31 @@ export class BridgeRepository {
     return bridge;
   }
 
+  // Owner-scoped idempotent re-registration: updates name/platform on a
+  // non-revoked bridge. Returns null when the bridge is unknown, revoked, or
+  // owned by another user (caller falls back to minting a new bridge).
+  async updateForUser(
+    bridgeId: string,
+    userId: string,
+    update: { name: string; platform: BridgePlatform },
+  ): Promise<Bridge | null> {
+    if (!ObjectId.isValid(userId)) {
+      return null;
+    }
+
+    return this.#collection.findOneAndUpdate(
+      {
+        bridgeId,
+        userId: new ObjectId(userId),
+        revokedAt: null,
+      },
+      {
+        $set: { name: update.name, platform: update.platform, updatedAt: new Date() },
+      },
+      { returnDocument: "after" },
+    );
+  }
+
   async recordStatusChange(
     bridgeId: string,
     userId: string,

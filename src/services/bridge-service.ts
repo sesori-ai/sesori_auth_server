@@ -8,12 +8,16 @@ function toSummary(bridge: BridgeDoc): BridgeSummary {
   return {
     id: bridge.bridgeId,
     name: bridge.name,
-    status: bridge.status,
     addedAt: bridge.addedAt.toISOString(),
     lastSeenAt: bridge.lastSeenAt ? bridge.lastSeenAt.toISOString() : null,
     platform: bridge.platform,
   };
 }
+
+export type RegisterBridgeResult = {
+  bridge: BridgeSummary;
+  created: boolean;
+};
 
 export class BridgeService {
   readonly #bridgeRepo: BridgeRepository;
@@ -24,9 +28,25 @@ export class BridgeService {
     this.#bridgeStateTracker = deps.bridgeStateTracker;
   }
 
-  async registerForUser(userId: string, name: string, platform: BridgePlatform): Promise<BridgeSummary> {
-    const bridge = await this.#bridgeRepo.register({ userId, name, platform });
-    return toSummary(bridge);
+  // Idempotent registration: a bridgeId that identifies a non-revoked bridge
+  // owned by this user updates it in place; anything else (absent, unknown,
+  // revoked, or another user's bridgeId) silently mints a new bridge.
+  async registerForUser(
+    userId: string,
+    input: { name: string; platform: BridgePlatform; bridgeId?: string },
+  ): Promise<RegisterBridgeResult> {
+    if (input.bridgeId) {
+      const updated = await this.#bridgeRepo.updateForUser(input.bridgeId, userId, {
+        name: input.name,
+        platform: input.platform,
+      });
+      if (updated) {
+        return { bridge: toSummary(updated), created: false };
+      }
+    }
+
+    const bridge = await this.#bridgeRepo.register({ userId, name: input.name, platform: input.platform });
+    return { bridge: toSummary(bridge), created: true };
   }
 
   async listForUser(userId: string): Promise<BridgeSummary[]> {

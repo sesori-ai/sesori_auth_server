@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { BridgePlatform, BridgeStatus, bridgeIdSchema, bridgePlatformSchema, bridgeStatusSchema } from "./bridge.js";
+import { BridgePlatform, bridgeIdSchema, bridgePlatformSchema } from "./bridge.js";
 
-export { BridgePlatform, BridgeStatus, bridgeIdSchema, bridgePlatformSchema, bridgeStatusSchema };
+export { BridgePlatform, bridgeIdSchema, bridgePlatformSchema };
 
 export type OAuthInitQuery = {
   redirect_uri: string;
@@ -189,28 +189,20 @@ export type BridgeStatusBody = z.infer<typeof bridgeStatusBodySchema>;
 export type BridgeSummary = {
   id: string;
   name: string;
-  status: BridgeStatus;
   addedAt: string;
   lastSeenAt: string | null;
   platform: BridgePlatform;
 };
 
+// bridgeId is optional: when it identifies a non-revoked bridge owned by the
+// caller the registration is idempotent (updates name/platform, 200);
+// otherwise a new bridge is minted server-side (201).
 export const registerBridgeBodySchema = z.object({
   name: z.string().min(1).max(120),
   platform: bridgePlatformSchema,
+  bridgeId: bridgeIdSchema.optional(),
 });
 export type RegisterBridgeBody = z.infer<typeof registerBridgeBodySchema>;
-
-export const registerBridgeReplySchema = z.object({
-  id: bridgeIdSchema,
-  name: z.string(),
-  status: bridgeStatusSchema,
-  addedAt: z.string(),
-  lastSeenAt: z.string().nullable(),
-  platform: bridgePlatformSchema,
-  bridgeToken: z.string().min(1),
-});
-export type RegisterBridgeReply = z.infer<typeof registerBridgeReplySchema>;
 
 export type BridgesListReply = {
   bridges: BridgeSummary[];
@@ -218,13 +210,6 @@ export type BridgesListReply = {
 
 export const bridgeIdPathParamSchema = bridgeIdSchema;
 export type BridgeIdPathParam = z.infer<typeof bridgeIdPathParamSchema>;
-
-export const validateBridgeTokenBodySchema = z.object({
-  userId: z.string().min(1),
-  bridgeId: bridgeIdSchema,
-  bridgeToken: z.string().min(1),
-});
-export type ValidateBridgeTokenBody = z.infer<typeof validateBridgeTokenBodySchema>;
 
 export const generateMetadataBodySchema = z.object({
   firstMessage: z.string().min(1).max(500),

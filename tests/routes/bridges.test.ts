@@ -1,8 +1,15 @@
 import { describe, it, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
-import { bridgeTokenPayloadSchema } from "../../src/models/jwt.js";
 import type { BridgeStateTracker } from "../../src/services/bridge-state-tracker.js";
+
+type BridgeSummaryBody = {
+  id: string;
+  name: string;
+  addedAt: string;
+  lastSeenAt: string | null;
+  platform: "macos" | "windows" | "linux";
+};
 
 describe("/auth/bridges routes", () => {
   let ctx: TestContext;
@@ -34,192 +41,147 @@ describe("/auth/bridges routes", () => {
     cancelledBridgeKeys.length = 0;
   });
 
-  it("POST /auth/bridges returns 201 with bridge summary and bridge-bound token", async () => {
-    const user = await ctx.createUser();
-
-    const res = await ctx.app.inject({
+  async function registerBridge(accessToken: string, payload: { name: string; platform: string; bridgeId?: string }) {
+    return ctx.app.inject({
       method: "POST",
       url: "/auth/bridges",
       headers: {
-        authorization: `Bearer ${user.accessToken}`,
+        authorization: `Bearer ${accessToken}`,
         "content-type": "application/json",
       },
-      payload: JSON.stringify({ name: "Alex's MacBook Pro", platform: "macos" }),
+      payload: JSON.stringify(payload),
     });
+  }
+
+  it("POST /auth/bridges returns 201 with the bridge summary", async () => {
+    const user = await ctx.createUser();
+
+    const res = await registerBridge(user.accessToken, { name: "Alex's MacBook Pro", platform: "macos" });
 
     assert.equal(res.statusCode, 201);
-    const body = res.json<{
-      id: string;
-      name: string;
-      status: "active" | "inactive";
-      addedAt: string;
-      lastSeenAt: string | null;
-      platform: "macos" | "windows" | "linux";
-      bridgeToken: string;
-    }>();
+    const body = res.json<BridgeSummaryBody>();
     assert.match(body.id, /^br_[A-Za-z0-9_-]{8,32}$/);
     assert.equal(body.name, "Alex's MacBook Pro");
-    assert.equal(body.status, "inactive");
     assert.equal(body.lastSeenAt, null);
     assert.equal(body.platform, "macos");
     assert.ok(typeof body.addedAt === "string");
-
-    const tokenPayloadResult = bridgeTokenPayloadSchema.safeParse(ctx.tokenService.verifyBridgeToken(body.bridgeToken));
-    assert.equal(tokenPayloadResult.success, true);
-    if (!tokenPayloadResult.success) return;
-    assert.equal(tokenPayloadResult.data.tokenType, "bridge");
-    assert.equal(tokenPayloadResult.data.aud, "bridge");
-    assert.equal(tokenPayloadResult.data.userId, user.userId);
-    assert.equal(tokenPayloadResult.data.bridgeId, body.id);
+    assert.ok(!("status" in body), "status must not leak into the API");
+    assert.ok(!("bridgeToken" in body), "bridgeToken must not exist in the API");
   });
 
-  it("POST /auth/bridges never mints malformed bridge tokens", async () => {
+  it("POST /auth/bridges with an owned bridgeId updates it in place and returns 200", async () => {
+    const user = await ctx.createUser();
+    const createRes = await registerBridge(user.accessToken, { name: "Old Name", platform: "macos" });
+    assert.equal(createRes.statusCode, 201);
+    const created = createRes.json<BridgeSummaryBody>();
+
+    const updateRes = await registerBridge(user.accessToken, {
+      name: "New Name",
+      platform: "linux",
+      bridgeId: created.id,
+    });
+
+    assert.equal(updateRes.statusCode, 200);
+    const updated = updateRes.json<BridgeSummaryBody>();
+    assert.equal(updated.id, created.id);
+    assert.equal(updated.name, "New Name");
+    assert.equal(updated.platform, "linux");
+    assert.equal(updated.addedAt, created.addedAt);
+
+    const listRes = await ctx.app.inject({
+      method: "GET",
+      url: "/auth/bridges",
+      headers: { authorization: `Bearer ${user.accessToken}` },
+    });
+    const list = listRes.json<{ bridges: BridgeSummaryBody[] }>();
+    assert.equal(list.bridges.length, 1);
+    assert.equal(list.bridges[0]?.name, "New Name");
+  });
+
+  it("POST /auth/bridges with an unknown bridgeId mints a new bridge and returns 201", async () => {
     const user = await ctx.createUser();
 
-    const res = await ctx.app.inject({
-      method: "POST",
-      url: "/auth/bridges",
-      headers: {
-        authorization: `Bearer ${user.accessToken}`,
-        "content-type": "application/json",
-      },
-      payload: JSON.stringify({ name: "Alex's MacBook Pro", platform: "macos" }),
+    const res = await registerBridge(user.accessToken, {
+      name: "Fresh",
+      platform: "macos",
+      bridgeId: "br_doesNotExist00",
     });
 
     assert.equal(res.statusCode, 201);
-    const body = res.json<{ id: string; bridgeToken: string }>();
-    const tokenPayloadResult = bridgeTokenPayloadSchema.safeParse(ctx.tokenService.verifyBridgeToken(body.bridgeToken));
-    assert.equal(tokenPayloadResult.success, true);
-    if (!tokenPayloadResult.success) return;
-    assert.match(tokenPayloadResult.data.bridgeId, /^br_[A-Za-z0-9_-]{8,32}$/);
-    assert.equal(tokenPayloadResult.data.bridgeId, body.id);
+    const body = res.json<BridgeSummaryBody>();
+    assert.notEqual(body.id, "br_doesNotExist00");
+    assert.match(body.id, /^br_[A-Za-z0-9_-]{8,32}$/);
   });
 
-  it("POST /internal/bridge-token/validate accepts an active bridge token", async () => {
+  it("POST /auth/bridges with a revoked bridgeId mints a new bridge and returns 201", async () => {
     const user = await ctx.createUser();
-    const createRes = await ctx.app.inject({
-      method: "POST",
-      url: "/auth/bridges",
-      headers: {
-        authorization: `Bearer ${user.accessToken}`,
-        "content-type": "application/json",
-      },
-      payload: JSON.stringify({ name: "Alex's MacBook Pro", platform: "macos" }),
-    });
-    assert.equal(createRes.statusCode, 201);
-    const bridge = createRes.json<{ id: string; bridgeToken: string }>();
-
-    const res = await ctx.app.inject({
-      method: "POST",
-      url: "/internal/bridge-token/validate",
-      headers: {
-        "x-relay-secret": "test-relay-secret",
-        "content-type": "application/json",
-      },
-      payload: JSON.stringify({ userId: user.userId, bridgeId: bridge.id, bridgeToken: bridge.bridgeToken }),
-    });
-
-    assert.equal(res.statusCode, 200);
-    assert.deepEqual(res.json(), { ok: true });
-  });
-
-  it("POST /internal/bridge-token/validate rejects a token for a deleted bridge", async () => {
-    const user = await ctx.createUser();
-    const createRes = await ctx.app.inject({
-      method: "POST",
-      url: "/auth/bridges",
-      headers: {
-        authorization: `Bearer ${user.accessToken}`,
-        "content-type": "application/json",
-      },
-      payload: JSON.stringify({ name: "Deleted Bridge", platform: "macos" }),
-    });
-    assert.equal(createRes.statusCode, 201);
-    const bridge = createRes.json<{ id: string; bridgeToken: string }>();
+    const createRes = await registerBridge(user.accessToken, { name: "Doomed", platform: "macos" });
+    const created = createRes.json<BridgeSummaryBody>();
 
     const deleteRes = await ctx.app.inject({
       method: "DELETE",
-      url: `/auth/bridges/${encodeURIComponent(bridge.id)}`,
+      url: `/auth/bridges/${encodeURIComponent(created.id)}`,
       headers: { authorization: `Bearer ${user.accessToken}` },
     });
     assert.equal(deleteRes.statusCode, 200);
 
-    const res = await ctx.app.inject({
-      method: "POST",
-      url: "/internal/bridge-token/validate",
-      headers: {
-        "x-relay-secret": "test-relay-secret",
-        "content-type": "application/json",
-      },
-      payload: JSON.stringify({ userId: user.userId, bridgeId: bridge.id, bridgeToken: bridge.bridgeToken }),
+    const res = await registerBridge(user.accessToken, {
+      name: "Replacement",
+      platform: "macos",
+      bridgeId: created.id,
     });
 
-    assert.equal(res.statusCode, 404);
+    assert.equal(res.statusCode, 201);
+    const body = res.json<BridgeSummaryBody>();
+    assert.notEqual(body.id, created.id);
   });
 
-  it("POST /internal/bridge-token/validate rejects token subject mismatches", async () => {
+  it("POST /auth/bridges with another user's bridgeId mints a new bridge and leaves theirs untouched", async () => {
+    const owner = await ctx.createUser();
+    const stranger = await ctx.createUser();
+    const ownerRes = await registerBridge(owner.accessToken, { name: "Owner's Bridge", platform: "macos" });
+    const ownerBridge = ownerRes.json<BridgeSummaryBody>();
+
+    const res = await registerBridge(stranger.accessToken, {
+      name: "Hijack Attempt",
+      platform: "linux",
+      bridgeId: ownerBridge.id,
+    });
+
+    assert.equal(res.statusCode, 201);
+    const body = res.json<BridgeSummaryBody>();
+    assert.notEqual(body.id, ownerBridge.id);
+
+    const ownerListRes = await ctx.app.inject({
+      method: "GET",
+      url: "/auth/bridges",
+      headers: { authorization: `Bearer ${owner.accessToken}` },
+    });
+    const ownerList = ownerListRes.json<{ bridges: BridgeSummaryBody[] }>();
+    assert.equal(ownerList.bridges.length, 1);
+    assert.equal(ownerList.bridges[0]?.name, "Owner's Bridge");
+    assert.equal(ownerList.bridges[0]?.platform, "macos");
+  });
+
+  it("POST /auth/bridges returns 400 on malformed bridgeId", async () => {
     const user = await ctx.createUser();
-    const firstRes = await ctx.app.inject({
-      method: "POST",
-      url: "/auth/bridges",
-      headers: {
-        authorization: `Bearer ${user.accessToken}`,
-        "content-type": "application/json",
-      },
-      payload: JSON.stringify({ name: "First", platform: "macos" }),
+    const res = await registerBridge(user.accessToken, {
+      name: "X",
+      platform: "macos",
+      bridgeId: "not-a-bridge-id",
     });
-    const secondRes = await ctx.app.inject({
-      method: "POST",
-      url: "/auth/bridges",
-      headers: {
-        authorization: `Bearer ${user.accessToken}`,
-        "content-type": "application/json",
-      },
-      payload: JSON.stringify({ name: "Second", platform: "macos" }),
-    });
-    assert.equal(firstRes.statusCode, 201);
-    assert.equal(secondRes.statusCode, 201);
-    const first = firstRes.json<{ bridgeToken: string }>();
-    const second = secondRes.json<{ id: string }>();
-
-    const res = await ctx.app.inject({
-      method: "POST",
-      url: "/internal/bridge-token/validate",
-      headers: {
-        "x-relay-secret": "test-relay-secret",
-        "content-type": "application/json",
-      },
-      payload: JSON.stringify({ userId: user.userId, bridgeId: second.id, bridgeToken: first.bridgeToken }),
-    });
-
-    assert.equal(res.statusCode, 401);
+    assert.equal(res.statusCode, 400);
   });
 
   it("POST /auth/bridges returns 400 on invalid platform", async () => {
     const user = await ctx.createUser();
-    const res = await ctx.app.inject({
-      method: "POST",
-      url: "/auth/bridges",
-      headers: {
-        authorization: `Bearer ${user.accessToken}`,
-        "content-type": "application/json",
-      },
-      payload: JSON.stringify({ name: "X", platform: "beos" }),
-    });
+    const res = await registerBridge(user.accessToken, { name: "X", platform: "beos" });
     assert.equal(res.statusCode, 400);
   });
 
   it("POST /auth/bridges returns 400 on empty name", async () => {
     const user = await ctx.createUser();
-    const res = await ctx.app.inject({
-      method: "POST",
-      url: "/auth/bridges",
-      headers: {
-        authorization: `Bearer ${user.accessToken}`,
-        "content-type": "application/json",
-      },
-      payload: JSON.stringify({ name: "", platform: "macos" }),
-    });
+    const res = await registerBridge(user.accessToken, { name: "", platform: "macos" });
     assert.equal(res.statusCode, 400);
   });
 
@@ -250,15 +212,7 @@ describe("/auth/bridges routes", () => {
 
     // Register two bridges
     for (const name of ["Mac", "Linux Box"]) {
-      await ctx.app.inject({
-        method: "POST",
-        url: "/auth/bridges",
-        headers: {
-          authorization: `Bearer ${user.accessToken}`,
-          "content-type": "application/json",
-        },
-        payload: JSON.stringify({ name, platform: "macos" }),
-      });
+      await registerBridge(user.accessToken, { name, platform: "macos" });
     }
 
     const res = await ctx.app.inject({
@@ -276,15 +230,7 @@ describe("/auth/bridges routes", () => {
 
   it("DELETE /auth/bridges/:bridgeId soft-revokes the bridge", async () => {
     const user = await ctx.createUser();
-    const createRes = await ctx.app.inject({
-      method: "POST",
-      url: "/auth/bridges",
-      headers: {
-        authorization: `Bearer ${user.accessToken}`,
-        "content-type": "application/json",
-      },
-      payload: JSON.stringify({ name: "Doomed", platform: "macos" }),
-    });
+    const createRes = await registerBridge(user.accessToken, { name: "Doomed", platform: "macos" });
     const created = createRes.json<{ id: string }>();
 
     const delRes = await ctx.app.inject({
@@ -311,15 +257,7 @@ describe("/auth/bridges routes", () => {
     const owner = await ctx.createUser();
     const stranger = await ctx.createUser();
 
-    const createRes = await ctx.app.inject({
-      method: "POST",
-      url: "/auth/bridges",
-      headers: {
-        authorization: `Bearer ${owner.accessToken}`,
-        "content-type": "application/json",
-      },
-      payload: JSON.stringify({ name: "Owner's Bridge", platform: "macos" }),
-    });
+    const createRes = await registerBridge(owner.accessToken, { name: "Owner's Bridge", platform: "macos" });
     const created = createRes.json<{ id: string }>();
 
     const delRes = await ctx.app.inject({
@@ -342,15 +280,7 @@ describe("/auth/bridges routes", () => {
 
   it("DELETE /auth/bridges/:bridgeId returns 404 on second revoke (already revoked)", async () => {
     const user = await ctx.createUser();
-    const createRes = await ctx.app.inject({
-      method: "POST",
-      url: "/auth/bridges",
-      headers: {
-        authorization: `Bearer ${user.accessToken}`,
-        "content-type": "application/json",
-      },
-      payload: JSON.stringify({ name: "Bridge", platform: "macos" }),
-    });
+    const createRes = await registerBridge(user.accessToken, { name: "Bridge", platform: "macos" });
     const created = createRes.json<{ id: string }>();
 
     const first = await ctx.app.inject({

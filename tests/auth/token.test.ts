@@ -168,12 +168,11 @@ describe("Token routes", () => {
       });
       assert.equal(res.statusCode, 200);
       const body = res.json<{
-        bridges: { id: string; name: string; status: "active" | "inactive" }[];
+        bridges: { id: string; name: string }[];
       }>();
       assert.equal(body.bridges.length, 1);
       assert.equal(body.bridges[0]?.id, created.id);
       assert.equal(body.bridges[0]?.name, "Mac");
-      assert.equal(body.bridges[0]?.status, "inactive");
     });
 
     it("returns 401 when no Authorization header is provided", async () => {
@@ -225,26 +224,24 @@ describe("Token routes", () => {
       assert.equal(res.json<{ error: string }>().error, "unauthenticated");
     });
 
-    it("returns 401 when access token has wrong audience", async () => {
+    it("returns 401 when a refresh token is used as an access token", async () => {
       const user = await ctx.createUser();
-      const bridgeToken = ctx.tokenService.signBridgeToken({ userId: user.userId, bridgeId: "br_testBridge01" });
 
       const res = await ctx.app.inject({
         method: "GET",
         url: "/auth/me",
-        headers: { authorization: `Bearer ${bridgeToken}` },
+        headers: { authorization: `Bearer ${user.refreshToken}` },
       });
 
       assert.equal(res.statusCode, 401);
       assert.equal(res.json<{ error: string }>().error, "unauthenticated");
     });
 
-    it("returns 401 for /auth/me when access token user no longer exists", async () => {
+    it("returns 404 for /auth/me when access token user no longer exists", async () => {
       const ghostAccessToken = ctx.tokenService.signAccessToken({
         userId: "000000000000000000000000",
         provider: "github",
         providerUserId: "ghost-provider-user",
-        tokenVersion: 0,
       });
 
       const res = await ctx.app.inject({
@@ -253,8 +250,8 @@ describe("Token routes", () => {
         headers: { authorization: `Bearer ${ghostAccessToken}` },
       });
 
-      assert.equal(res.statusCode, 401);
-      assert.equal(res.json<{ error: string }>().error, "unauthenticated");
+      assert.equal(res.statusCode, 404);
+      assert.equal(res.json<{ error: string }>().error, "not_found");
     });
   });
 
@@ -279,24 +276,6 @@ describe("Token routes", () => {
       });
 
       assert.equal(res.statusCode, 401);
-    });
-
-    it("invalidates old access token after logout", async () => {
-      const user = await ctx.createUser();
-
-      const logoutRes = await ctx.app.inject({
-        method: "POST",
-        url: "/auth/logout",
-        headers: { authorization: `Bearer ${user.accessToken}` },
-      });
-      assert.equal(logoutRes.statusCode, 200);
-
-      const meRes = await ctx.app.inject({
-        method: "GET",
-        url: "/auth/me",
-        headers: { authorization: `Bearer ${user.accessToken}` },
-      });
-      assert.equal(meRes.statusCode, 401);
     });
   });
 });

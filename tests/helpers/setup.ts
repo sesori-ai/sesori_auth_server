@@ -55,12 +55,7 @@ export type TestContext = {
   cleanup: () => Promise<void>;
   createUser: (opts?: { provider?: string; providerUserId?: string }) => Promise<TestUser>;
   createExpiredRefreshToken: (userId: string) => string;
-  createExpiredAccessToken: (opts: {
-    userId: string;
-    provider: string;
-    providerUserId: string;
-    tokenVersion?: number;
-  }) => string;
+  createExpiredAccessToken: (opts: { userId: string; provider: string; providerUserId: string }) => string;
 };
 
 export type TestAppOverrides = {
@@ -227,7 +222,6 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
       userId: userIdStr,
       provider,
       providerUserId,
-      tokenVersion: 0,
     });
     const refreshToken = tokenService.signRefreshToken({
       userId: userIdStr,
@@ -260,12 +254,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     );
   }
 
-  function createExpiredAccessToken(opts: {
-    userId: string;
-    provider: string;
-    providerUserId: string;
-    tokenVersion?: number;
-  }): string {
+  function createExpiredAccessToken(opts: { userId: string; provider: string; providerUserId: string }): string {
     const now = Math.floor(Date.now() / 1000);
     return jwt.sign(
       {
@@ -273,7 +262,6 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
         userId: opts.userId,
         provider: opts.provider,
         providerUserId: opts.providerUserId,
-        tokenVersion: opts.tokenVersion ?? 0,
         iss: "auth-backend",
         aud: "mobile",
         iat: now - 7200,

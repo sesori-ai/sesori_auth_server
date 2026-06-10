@@ -1,6 +1,5 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import { UnauthenticatedError } from "../lib/errors.js";
-import type { AuthService } from "../services/auth-service.js";
 import { TokenService } from "../services/token-service.js";
 import { accessTokenPayloadSchema, type AccessTokenPayload } from "../models/jwt.js";
 
@@ -10,7 +9,7 @@ declare module "fastify" {
   }
 }
 
-export function createAuthMiddleware(tokenService: TokenService, authService: AuthService) {
+export function createAuthMiddleware(tokenService: TokenService) {
   return async function requireAuth(request: FastifyRequest, _reply: FastifyReply): Promise<void> {
     if (process.env.NODE_ENV === "development") {
       request.user = {
@@ -18,7 +17,6 @@ export function createAuthMiddleware(tokenService: TokenService, authService: Au
         userId: "69b2aeaa1755fd6c00000000",
         provider: "github",
         providerUserId: "123",
-        tokenVersion: 0,
         iss: "auth-backend",
         aud: "mobile",
         exp: 999999999999999,
@@ -33,7 +31,6 @@ export function createAuthMiddleware(tokenService: TokenService, authService: Au
 
       const token = authHeader.slice(7);
 
-      let payload: AccessTokenPayload;
       try {
         const raw = tokenService.verifyAccessToken(token);
         const result = accessTokenPayloadSchema.safeParse(raw);
@@ -43,7 +40,7 @@ export function createAuthMiddleware(tokenService: TokenService, authService: Au
             nestedError: result.error.issues,
           });
         }
-        payload = result.data;
+        request.user = result.data;
       } catch (error) {
         if (error instanceof UnauthenticatedError) throw error;
         throw new UnauthenticatedError({
@@ -51,12 +48,6 @@ export function createAuthMiddleware(tokenService: TokenService, authService: Au
           nestedError: error,
         });
       }
-
-      const tokenVersionCurrent = await authService.isAccessTokenVersionCurrent(payload.userId, payload.tokenVersion);
-      if (!tokenVersionCurrent) {
-        throw new UnauthenticatedError({ debugMessage: "Token version mismatch (revoked)" });
-      }
-      request.user = payload;
     }
   };
 }

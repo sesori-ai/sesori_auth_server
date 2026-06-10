@@ -103,7 +103,7 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
     legalDocumentService: services.legalDocumentService,
   });
 
-  const requireAuth = createAuthMiddleware(services.tokenService, services.authService);
+  const requireAuth = createAuthMiddleware(services.tokenService);
   const requireRelayAuth = createRelayAuthMiddleware(services.config.RELAY_WEBHOOK_SECRET);
 
   await app.register(tokenRoutes, {
@@ -160,9 +160,7 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
   });
   await app.register(bridgeRoutes, {
     bridgeService: services.bridgeService,
-    tokenService: services.tokenService,
     requireAuth,
-    requireRelayAuth,
   });
   await app.register(sessionRoutes, {
     sessionMetadataService: services.sessionMetadataService,
