@@ -92,6 +92,8 @@ The newer flow keeps the client in control of when tokens are issued. The client
 
 Bridges authenticate with the user's access token everywhere (relay included) — there are no bridge-specific tokens. The API returns `BridgeSummary` objects (`id`, `name`, `platform`, `addedAt`, `lastSeenAt`); per-bridge connection status is tracked internally for push notifications but never exposed.
 
+Up to **50 non-revoked bridges per user**; registration beyond the cap returns 400. A `bridgeId` belonging to another user is deliberately treated as unknown (a new bridge is minted) rather than returning 403 — this prevents `POST /auth/bridges` from being used to probe bridgeId existence across accounts.
+
 | Method   | Path                       | Auth   | Description                                                                                                                              |
 | -------- | -------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST`   | `/auth/bridges`            | Bearer | Idempotent registration. Body: `{ name, platform, bridgeId? }`. An owned non-revoked `bridgeId` updates that bridge (200); otherwise a new bridge is minted server-side (201). |
@@ -141,51 +143,7 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 
 ## Project structure
 
-```
-src/
-├── clients/
-│   ├── github-client.ts        GitHub API client (token exchange, user fetch)
-│   └── google-client.ts        Google API client (token exchange, id_token decode)
-├── db/
-│   ├── client.ts               MongoDB client (connect/close/getDb)
-│   └── collections.ts          Collection accessors + ensureIndexes
-├── lib/
-│   └── state-store.ts          OAuth state store (LRU cache with TTL)
-├── middleware/
-│   └── auth.ts                 requireAuth preHandler hook
-├── models/
-│   ├── api.ts                  Zod request/response schemas
-│   ├── bridge.ts               Shared bridge enums + schemas
-│   ├── documents.ts            Zod document schemas (User, OAuthAccount)
-│   └── jwt.ts                  JWT payload schemas + constants
-├── repositories/
-│   ├── oauth-account-repo.ts       OAuth account find/upsert
-│   └── user-repo.ts                User create/find/tokenVersion
-├── routes/
-│   ├── github.ts               GitHub OAuth2 + PKCE routes
-│   ├── google.ts               Google OAuth2 + PKCE routes
-│   └── token.ts                Refresh, /auth/me, logout, revoke, public-key routes
-├── services/
-│   ├── auth-service.ts         OAuth signup/login orchestration + token revocation
-│   └── token-service.ts        RS256 key loading, JWT sign/verify
-├── config.ts                   Zod-validated env config
-├── index.ts                    Entry point (loads keys + DB + app)
-└── server.ts                   Fastify app with all route plugins
-
-env/
-└── app/
-    └── local.env               SOPS-encrypted local environment
-
-scripts/
-└── env-init.sh                 First-time sops + age setup
-
-tests/
-├── auth/
-│   ├── token.test.ts           Token refresh/validate/logout tests
-│   ├── github.test.ts          GitHub OAuth route tests
-│   ├── google.test.ts          Google OAuth route tests
-│   └── revoke.test.ts          Token revocation + bridge removal tests
-```
+See the **STRUCTURE** section in [AGENTS.md](AGENTS.md) — it is the maintained, authoritative map of the codebase.
 
 ## Tests
 

@@ -66,6 +66,13 @@ export class BridgeStateTracker {
     this.#cancelPendingForKey(legacyKey(userId));
   }
 
+  // Deliberate "forget everything" semantics: deleting the entry also drops
+  // lastNotifiedStatus, so a bridge that is revoked and later re-registered
+  // under the same bridgeId is treated as brand new and may re-notify a
+  // status that was already pushed before the cancel. That is acceptable —
+  // a re-registered bridge is a new bridge from the user's perspective —
+  // and it keeps cancellation the only place entries are removed, bounding
+  // the map by active (not historical) keys.
   #cancelPendingForKey(key: string): void {
     const entry = this.#state.get(key);
     if (!entry) {

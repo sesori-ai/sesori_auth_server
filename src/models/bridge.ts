@@ -6,6 +6,9 @@ export enum BridgePlatform {
   linux = "linux",
 }
 
+// Internal-only (drives the notification debouncer; never exposed through
+// the API). "inactive" covers BOTH "bridge reported disconnected" and
+// "soft-revoked" — disambiguate via the document's revokedAt field.
 export enum BridgeStatus {
   active = "active",
   inactive = "inactive",
