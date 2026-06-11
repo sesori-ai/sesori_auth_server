@@ -118,6 +118,10 @@ export class BridgeStateTracker {
         }
       }
     }, this.#debounceMs);
+    // A pending debounce must not keep the process alive on shutdown
+    // (dispose() is not on every exit path). Optional call: the mocked
+    // timers used in tests do not implement unref.
+    entry.timer.unref?.();
   }
 
   dispose(): void {
