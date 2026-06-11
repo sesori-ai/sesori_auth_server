@@ -57,6 +57,17 @@ export class BridgeService {
     }
 
     const bridge = await this.#bridgeRepo.register({ userId, name: input.name, platform: input.platform });
+
+    // The pre-insert count above is racy (no DB-level constraint backs the
+    // cap), so concurrent registrations could overshoot it. Re-count after
+    // the insert and self-revoke the overflow: the cap bounds /auth/me's
+    // bridges[] payload and must hold under parallel bursts too.
+    const after = await this.#bridgeRepo.findByUserId(userId);
+    if (after.length > MAX_ACTIVE_BRIDGES_PER_USER) {
+      await this.#bridgeRepo.revoke(bridge.bridgeId, userId, new Date());
+      throw new BadRequestError({ debugMessage: "Too many registered bridges" });
+    }
+
     return { bridge: toSummary(bridge), created: true };
   }
 

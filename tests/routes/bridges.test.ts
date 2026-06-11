@@ -326,6 +326,27 @@ describe("/auth/bridges routes", () => {
     });
     assert.equal(update.statusCode, 200);
   });
+
+  it("POST /auth/bridges holds the cap under concurrent registration bursts", async () => {
+    const user = await ctx.createUser();
+
+    for (let i = 0; i < 49; i++) {
+      const res = await registerBridge(user.accessToken, { name: `Bridge ${i}`, platform: "linux" });
+      assert.equal(res.statusCode, 201);
+    }
+
+    await Promise.all(
+      Array.from({ length: 4 }, (_, i) => registerBridge(user.accessToken, { name: `Burst ${i}`, platform: "linux" })),
+    );
+
+    const listRes = await ctx.app.inject({
+      method: "GET",
+      url: "/auth/bridges",
+      headers: { authorization: `Bearer ${user.accessToken}` },
+    });
+    const { bridges } = listRes.json<{ bridges: { id: string }[] }>();
+    assert.ok(bridges.length <= 50, `expected at most 50 non-revoked bridges, got ${bridges.length}`);
+  });
 });
 
 describe("bridge revocation cancels pending notifications (end to end)", () => {
