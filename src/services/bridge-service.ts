@@ -59,13 +59,24 @@ export class BridgeService {
     const bridge = await this.#bridgeRepo.register({ userId, name: input.name, platform: input.platform });
 
     // The pre-insert count above is racy (no DB-level constraint backs the
-    // cap), so concurrent registrations could overshoot it. Re-count after
-    // the insert and self-revoke the overflow: the cap bounds /auth/me's
-    // bridges[] payload and must hold under parallel bursts too.
+    // cap), so a concurrent burst can overshoot it. Re-rank after the insert
+    // and self-revoke only when THIS bridge falls past the cap in
+    // (addedAt, bridgeId) order. The deterministic order means contenders
+    // cannot all self-revoke (the earliest one always keeps its slot), so a
+    // burst admits exactly the remaining capacity once reads settle.
+    // Enforcement stays best-effort under extreme interleaving — bounded by
+    // the number of in-flight registrations — which is fine for a
+    // payload-size cap.
     const after = await this.#bridgeRepo.findByUserId(userId);
     if (after.length > MAX_ACTIVE_BRIDGES_PER_USER) {
-      await this.#bridgeRepo.revoke(bridge.bridgeId, userId, new Date());
-      throw new BadRequestError({ debugMessage: "Too many registered bridges" });
+      const ranked = [...after].sort(
+        (a, b) => a.addedAt.getTime() - b.addedAt.getTime() || (a.bridgeId < b.bridgeId ? -1 : 1),
+      );
+      const overflow = ranked.slice(MAX_ACTIVE_BRIDGES_PER_USER);
+      if (overflow.some((b) => b.bridgeId === bridge.bridgeId)) {
+        await this.#bridgeRepo.revoke(bridge.bridgeId, userId, new Date());
+        throw new BadRequestError({ debugMessage: "Too many registered bridges" });
+      }
     }
 
     return { bridge: toSummary(bridge), created: true };
