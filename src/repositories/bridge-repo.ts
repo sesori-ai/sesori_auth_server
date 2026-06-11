@@ -179,15 +179,15 @@ export class BridgeRepository {
       return [];
     }
 
+    // Flip first, then snapshot by the exact revocation timestamp: a bridge
+    // registered between the two queries is simply not part of this revoke,
+    // and every bridge this call DID revoke is guaranteed to be in the
+    // returned set — so its tracker timer gets cancelled (no ghost
+    // notifications after account revoke).
     const filter = { userId: new ObjectId(userId), revokedAt: null };
-    const bridges = await this.#collection.find(filter).toArray();
-    if (bridges.length === 0) {
-      return [];
-    }
-
     await this.#collection.updateMany(filter, {
       $set: { status: BridgeStatus.inactive, revokedAt: at, updatedAt: at },
     });
-    return bridges;
+    return this.#collection.find({ userId: new ObjectId(userId), revokedAt: at }).toArray();
   }
 }
