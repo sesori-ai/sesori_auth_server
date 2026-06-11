@@ -88,24 +88,26 @@ export class BridgeService {
     }
   }
 
-  async findByIdForUser(bridgeId: string, userId: string): Promise<BridgeDoc | null> {
-    return this.#bridgeRepo.findByIdForUser(bridgeId, userId);
-  }
-
-  async recordStatusChange(bridgeId: string, userId: string, status: BridgeStatus, at: Date): Promise<void> {
+  // Atomically records a relay-reported status event. found=false means the
+  // bridge is unknown, revoked, or another user's — the route turns that into
+  // the 404 the relay converts to WS close 4006. A stale (out-of-order) event
+  // on a live bridge reports found=true and is dropped silently: surfacing it
+  // as 404 would make the relay close a live bridge over event reordering.
+  async recordStatusChange(
+    bridgeId: string,
+    userId: string,
+    status: BridgeStatus,
+    at: Date,
+  ): Promise<{ found: boolean }> {
     const result = await this.#bridgeRepo.recordStatusChange(bridgeId, userId, status, at);
-    if (!result.updated) {
-      // Deliberate silent drop, and the route must keep answering 200:
-      // updated=false covers both out-of-order events (monotonic lastSeenAt
-      // guard) and a bridge revoked between the route's existence check and
-      // this write. Surfacing either as 404 would make the relay close a
-      // live bridge with 4006 (revoked) over a stale or racing event.
-      return;
+    if (!result.found || !result.updated) {
+      return { found: result.found };
     }
 
     this.#bridgeStateTracker.cancelPendingForUser(userId);
     if (result.statusChanged) {
       this.#bridgeStateTracker.handleStatusChangeForBridge(userId, bridgeId, status);
     }
+    return { found: true };
   }
 }

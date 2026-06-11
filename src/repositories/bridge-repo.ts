@@ -12,6 +12,9 @@ export type RegisterBridgeInput = {
 };
 
 export type RecordBridgeStatusResult = {
+  /** False when the bridge is unknown, revoked, or owned by another user. */
+  found: boolean;
+  /** True when the event was applied (not dropped by the monotonic guard). */
   updated: boolean;
   statusChanged: boolean;
 };
@@ -105,6 +108,12 @@ export class BridgeRepository {
     );
   }
 
+  // Single atomic round trip on the relay's hot path: the filter alone
+  // decides existence (null => unknown/foreign/revoked => the route answers
+  // 404), while the monotonic lastSeenAt guard moves into the update pipeline
+  // so a stale (out-of-order) event still matches the document but writes
+  // nothing. $lte, not $lt: a status flip carrying the same millisecond
+  // timestamp must still apply — re-applying an identical event is idempotent.
   async recordStatusChange(
     bridgeId: string,
     userId: string,
@@ -112,26 +121,39 @@ export class BridgeRepository {
     at: Date,
   ): Promise<RecordBridgeStatusResult> {
     if (!ObjectId.isValid(userId)) {
-      return { updated: false, statusChanged: false };
+      return { found: false, updated: false, statusChanged: false };
     }
 
-    const existing = await this.#collection.findOneAndUpdate(
+    const applyCond = {
+      $or: [{ $eq: ["$lastSeenAt", null] }, { $lte: ["$lastSeenAt", at] }],
+    };
+    const before = await this.#collection.findOneAndUpdate(
       {
         bridgeId,
         userId: new ObjectId(userId),
         revokedAt: null,
-        $or: [{ lastSeenAt: null }, { lastSeenAt: { $lt: at } }],
       },
-      {
-        $set: { status, lastSeenAt: at, updatedAt: at },
-      },
+      [
+        {
+          $set: {
+            status: { $cond: [applyCond, status, "$status"] },
+            lastSeenAt: { $cond: [applyCond, at, "$lastSeenAt"] },
+            updatedAt: { $cond: [applyCond, at, "$updatedAt"] },
+          },
+        },
+      ],
       { returnDocument: "before" },
     );
-    if (!existing) {
-      return { updated: false, statusChanged: false };
+    if (!before) {
+      return { found: false, updated: false, statusChanged: false };
     }
 
-    return { updated: true, statusChanged: existing.status !== status };
+    const applied = before.lastSeenAt === null || before.lastSeenAt.getTime() <= at.getTime();
+    return {
+      found: true,
+      updated: applied,
+      statusChanged: applied && before.status !== status,
+    };
   }
 
   async revoke(bridgeId: string, userId: string, at: Date): Promise<boolean> {

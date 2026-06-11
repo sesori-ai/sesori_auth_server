@@ -581,6 +581,92 @@ describe("Notification routes", () => {
     assert.equal(trackerCalls.length, 0);
   });
 
+  it("POST /internal/bridge-status notifies on a status flip carrying a tied timestamp", async () => {
+    const user = await ctx.createUser();
+    const createRes = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ name: "Mac", platform: "macos" }),
+    });
+    const bridge = createRes.json<{ id: string }>();
+    const timestamp = "2026-06-08T10:00:00.000Z";
+
+    for (const status of ["connected", "disconnected"]) {
+      const res = await ctx.app.inject({
+        method: "POST",
+        url: "/internal/bridge-status",
+        headers: {
+          "x-relay-secret": "test-relay-secret",
+          "content-type": "application/json",
+        },
+        payload: JSON.stringify({ userId: user.userId, bridgeId: bridge.id, status, timestamp }),
+      });
+      assert.equal(res.statusCode, 200);
+    }
+
+    assert.equal(trackerCalls.length, 2);
+    assert.equal(trackerCalls[1]?.status, "inactive");
+  });
+
+  it("POST /internal/bridge-status rejects unknown bridge IDs", async () => {
+    const user = await ctx.createUser();
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-status",
+      headers: {
+        "x-relay-secret": "test-relay-secret",
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({
+        userId: user.userId,
+        bridgeId: "br_doesNotExist00",
+        status: "connected",
+        timestamp: new Date().toISOString(),
+      }),
+    });
+
+    assert.equal(res.statusCode, 404);
+    assert.equal(trackerCalls.length, 0);
+  });
+
+  it("POST /internal/bridge-status rejects another user's bridge ID", async () => {
+    const owner = await ctx.createUser();
+    const stranger = await ctx.createUser();
+    const createRes = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: {
+        authorization: `Bearer ${owner.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ name: "Mac", platform: "macos" }),
+    });
+    const bridge = createRes.json<{ id: string }>();
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/internal/bridge-status",
+      headers: {
+        "x-relay-secret": "test-relay-secret",
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({
+        userId: stranger.userId,
+        bridgeId: bridge.id,
+        status: "connected",
+        timestamp: new Date().toISOString(),
+      }),
+    });
+
+    assert.equal(res.statusCode, 404);
+    assert.equal(trackerCalls.length, 0);
+  });
+
   it("POST /internal/bridge-status rejects revoked bridge IDs", async () => {
     const user = await ctx.createUser();
     const createRes = await ctx.app.inject({
