@@ -148,7 +148,7 @@ export class BridgeRepository {
       return { found: false, updated: false, statusChanged: false };
     }
 
-    const applied = before.lastSeenAt === null || before.lastSeenAt.getTime() <= at.getTime();
+    const applied = !before.lastSeenAt || before.lastSeenAt.getTime() <= at.getTime();
     return {
       found: true,
       updated: applied,
