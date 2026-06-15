@@ -381,11 +381,15 @@ export class PendingAuthStore {
    * `getSessionByTokenHash` returns null too).
    */
   consumeCompletion(tokenHash: string): { tokens: PendingAuthTokens; user: UserProfile } | null {
-    const completion = this.getCompletion(tokenHash);
     const entry = this.#getActiveEntry(tokenHash);
-    if (!completion || !entry) {
+    if (!entry || entry.session.status !== PendingAuthStatus.Complete || !entry.session.tokens || !entry.session.user) {
       return null;
     }
+
+    const completion = {
+      tokens: { ...entry.session.tokens },
+      user: { ...entry.session.user },
+    };
 
     // Notify any pollers with a "consumed" status, then delete the entry.
     // The LRU dispose callback also notifies (with null), but the waiters set
