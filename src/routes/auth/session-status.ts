@@ -6,20 +6,23 @@
  *
  * Responses:
  *   200 { status: "pending" }                                  — long-poll timed out, still pending
- *   200 { status: "complete", accessToken, refreshToken, user } — tokens delivered & consumed; subsequent polls return 404
+ *   200 { status: "complete", accessToken, refreshToken, user } — tokens ready; repeated polls return the same payload until ACK
  *   200 { status: "denied" }
  *   200 { status: "error", message }
  *   400 { error: "bad_request" }                                — missing/invalid session-token header
  *   404 { error: "not_found" }                                  — unknown OR already-consumed (deliberately conflated, see CQ-11)
  *   410 { status: "expired" }
  *
- * CQ-11 (404 conflation): once `complete` has been consumed by a previous
- * poll, the session entry is deleted. A subsequent poll with the same token
- * cannot distinguish "session never existed" from "session was just
- * consumed". Both return 404 — this is intentional. The tokens have already
- * been delivered exactly once; revealing that a session "existed" would
- * leak no useful information to a legitimate client and could aid token
- * enumeration. Clients should treat 404 as terminal and reset their flow.
+ * ACK endpoint:
+ *   POST /auth/session/status/ack                         — consumes a complete session after the client persists tokens
+ *
+ * CQ-11 (404 conflation): once `complete` has been ACKed, the session entry
+ * is deleted. A subsequent poll with the same token cannot distinguish
+ * "session never existed" from "session was just consumed". Both return 404 —
+ * this is intentional. The tokens were already acknowledged by the legitimate
+ * client; revealing that a session "existed" would leak no useful information
+ * and could aid token enumeration. Clients should treat 404 as terminal and
+ * reset their flow.
  */
 
 import { FastifyPluginAsync, type FastifyReply, type FastifyRequest } from "fastify";
@@ -31,6 +34,7 @@ import type {
   AuthSessionStatusExpiredReply,
   AuthSessionStatusPendingReply,
   AuthSessionStatusReply,
+  SuccessReply,
 } from "../../models/api.js";
 import { PendingAuthStatus, PendingAuthStore, type PendingAuthSession } from "../../services/pending-auth-store.js";
 import { parseSessionTokenHeader } from "./init.js";
@@ -75,12 +79,9 @@ export const sessionStatusRoutes: FastifyPluginAsync<SessionStatusRouteOptions> 
       case PendingAuthStatus.AwaitingConfirmation:
         return createPendingReply();
       case PendingAuthStatus.Complete:
-        // Consume only when a live connection is still available for delivery.
-        // This avoids deleting tokens for Android clients whose OS aborted the
-        // in-flight long-poll while the server-side waiter was still resolving.
-        // A tiny race remains if the socket dies after this check but before the
-        // kernel flushes the response; closing that would require an explicit
-        // client ack, which would create a broader replay/read window.
+        // Only return a completed payload when a live connection is still
+        // available. Delivery itself is acknowledged by POST /ack so a socket
+        // death after this check no longer burns the completion.
         if (!isClientConnectionOpen({ request, reply })) {
           return reply.hijack();
         }
@@ -92,11 +93,23 @@ export const sessionStatusRoutes: FastifyPluginAsync<SessionStatusRouteOptions> 
       case PendingAuthStatus.Error:
         return createErrorReply({ message: nextSession.errorMessage ?? "authentication_failed" });
       case PendingAuthStatus.Consumed:
-        // CQ-11: tokens were already delivered to a prior poll. We deliberately
+        // CQ-11: tokens were already ACKed by a prior poller. We deliberately
         // return the same 404 used for "unknown session" to avoid leaking
         // session existence after consumption.
         throw new NotFoundError({ debugMessage: "Pending auth session already consumed" });
     }
+  });
+
+  fastify.post<{ Reply: SuccessReply }>("/auth/session/status/ack", async (request) => {
+    const sessionToken = parseSessionTokenHeader(request.headers["x-sesori-session-token"]);
+    const tokenHash = PendingAuthStore.hashToken(sessionToken);
+
+    const completion = pendingAuthStore.consumeCompletion(tokenHash);
+    if (!completion) {
+      throw new NotFoundError({ debugMessage: "Pending auth session completion not found" });
+    }
+
+    return { success: true };
   });
 };
 
@@ -188,9 +201,9 @@ function createCompleteReply(params: {
   pendingAuthStore: PendingAuthStore;
   tokenHash: string;
 }): AuthSessionStatusCompleteReply {
-  const completion = params.pendingAuthStore.consumeCompletion(params.tokenHash);
+  const completion = params.pendingAuthStore.getCompletion(params.tokenHash);
   if (!completion) {
-    throw new NotFoundError({ debugMessage: "Pending auth session completion already consumed" });
+    throw new NotFoundError({ debugMessage: "Pending auth session completion not found" });
   }
 
   return {

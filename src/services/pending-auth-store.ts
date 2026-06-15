@@ -361,9 +361,23 @@ export class PendingAuthStore {
     });
   }
 
+  /** Read a completed session without consuming it. The client must ACK before deletion. */
+  getCompletion(tokenHash: string): { tokens: PendingAuthTokens; user: UserProfile } | null {
+    const entry = this.#getActiveEntry(tokenHash);
+    if (!entry || entry.session.status !== PendingAuthStatus.Complete || !entry.session.tokens || !entry.session.user) {
+      return null;
+    }
+
+    return {
+      tokens: { ...entry.session.tokens },
+      user: { ...entry.session.user },
+    };
+  }
+
   /**
-   * Atomically consume a completed session — returns tokens/user once, then
-   * deletes the entry. Subsequent calls return null (the LRU entry is gone,
+   * Atomically consume a completed session after the client has acknowledged
+   * durable receipt — returns tokens/user once, then deletes the entry.
+   * Subsequent calls return null (the LRU entry is gone,
    * `getSessionByTokenHash` returns null too).
    */
   consumeCompletion(tokenHash: string): { tokens: PendingAuthTokens; user: UserProfile } | null {

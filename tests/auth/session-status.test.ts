@@ -62,7 +62,7 @@ describe("GET /auth/session/status", () => {
     assert.ok(Date.now() - startedAt >= 20);
   });
 
-  it("returns a completed auth payload immediately and consumes it", async () => {
+  it("returns a completed auth payload immediately without consuming before ACK", async () => {
     const tokenHash = createPendingSession({ sessionToken: VALID_SESSION_TOKEN });
     pendingAuthStore.completeSession({ tokenHash, tokens: TEST_TOKENS, user: TEST_USER });
 
@@ -79,10 +79,10 @@ describe("GET /auth/session/status", () => {
       refreshToken: TEST_TOKENS.refreshToken,
       user: TEST_USER,
     });
-    assert.equal(pendingAuthStore.getSessionByTokenHash(tokenHash), null);
+    assert.equal(pendingAuthStore.getSessionByTokenHash(tokenHash)?.status, "complete");
   });
 
-  it("returns 404 after a completion has already been consumed", async () => {
+  it("returns the same completion until ACK, then returns 404", async () => {
     const tokenHash = createPendingSession({ sessionToken: VALID_SESSION_TOKEN });
     pendingAuthStore.completeSession({ tokenHash, tokens: TEST_TOKENS, user: TEST_USER });
 
@@ -96,13 +96,27 @@ describe("GET /auth/session/status", () => {
       url: "/auth/session/status",
       headers: { "x-sesori-session-token": VALID_SESSION_TOKEN },
     });
+    const ackResponse = await injectWithKeepAlive({
+      method: "POST",
+      url: "/auth/session/status/ack",
+      headers: { "x-sesori-session-token": VALID_SESSION_TOKEN },
+    });
+    const afterAckResponse = await injectWithKeepAlive({
+      method: "GET",
+      url: "/auth/session/status",
+      headers: { "x-sesori-session-token": VALID_SESSION_TOKEN },
+    });
 
     assert.equal(firstResponse.statusCode, 200);
-    assert.equal(secondResponse.statusCode, 404);
-    assert.equal(secondResponse.json<{ error: string }>().error, "not_found");
+    assert.deepEqual(secondResponse.json(), firstResponse.json());
+    assert.equal(ackResponse.statusCode, 200);
+    assert.deepEqual(ackResponse.json(), { success: true });
+    assert.equal(pendingAuthStore.getSessionByTokenHash(tokenHash), null);
+    assert.equal(afterAckResponse.statusCode, 404);
+    assert.equal(afterAckResponse.json<{ error: string }>().error, "not_found");
   });
 
-  it("keeps a completed session readable once when the waiting client disconnects before delivery", async () => {
+  it("keeps a completed session readable until ACK when the waiting client disconnects before delivery", async () => {
     const tokenHash = createPendingSession({ sessionToken: VALID_SESSION_TOKEN });
     const origin = await app.listen({ host: "127.0.0.1", port: 0 });
     const pendingRequest = openStatusRequest({ origin, sessionToken: VALID_SESSION_TOKEN });
@@ -134,8 +148,8 @@ describe("GET /auth/session/status", () => {
       refreshToken: TEST_TOKENS.refreshToken,
       user: TEST_USER,
     });
-    assert.equal(replayResponse.statusCode, 404);
-    assert.equal(replayResponse.json<{ error: string }>().error, "not_found");
+    assert.equal(replayResponse.statusCode, 200);
+    assert.deepEqual(replayResponse.json(), retryResponse.json());
   });
 
   it("returns denied when the pending session is denied during long-polling", async () => {
@@ -249,7 +263,7 @@ describe("GET /auth/session/status", () => {
     assert.equal(res.json<{ error: string }>().error, "not_found");
   });
 
-  it("only one of two concurrent pollers receives the tokens (QA-3)", async () => {
+  it("lets concurrent completed pollers receive the same payload before ACK", async () => {
     const tokenHash = createPendingSession({ sessionToken: VALID_SESSION_TOKEN });
     pendingAuthStore.completeSession({ tokenHash, tokens: TEST_TOKENS, user: TEST_USER });
 
@@ -267,9 +281,9 @@ describe("GET /auth/session/status", () => {
     ]);
 
     const completed = [a, b].filter((r) => r.statusCode === 200 && r.json().status === "complete");
-    assert.equal(completed.length, 1, "exactly one poller must consume the tokens");
-    const failed = [a, b].filter((r) => r.statusCode === 404);
-    assert.equal(failed.length, 1, "the losing poller must see 404 (CQ-11 conflation)");
+    assert.equal(completed.length, 2, "both pollers must see the same completion until ACK");
+    assert.deepEqual(a.json(), b.json());
+    assert.equal(pendingAuthStore.getSessionByTokenHash(tokenHash)?.status, "complete");
   });
 
   function createPendingSession(params: { sessionToken: string }): string {
