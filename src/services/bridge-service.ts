@@ -57,6 +57,28 @@ export class BridgeService {
     }
 
     const bridge = await this.#bridgeRepo.register({ userId, name: input.name, platform: input.platform });
+
+    // The pre-insert count above is racy (no DB-level constraint backs the
+    // cap), so a concurrent burst can overshoot it. Re-rank after the insert
+    // and self-revoke only when THIS bridge falls past the cap in
+    // (addedAt, bridgeId) order. The deterministic order means contenders
+    // cannot all self-revoke (the earliest one always keeps its slot), so a
+    // burst admits exactly the remaining capacity once reads settle.
+    // Enforcement stays best-effort under extreme interleaving — bounded by
+    // the number of in-flight registrations — which is fine for a
+    // payload-size cap.
+    const after = await this.#bridgeRepo.findByUserId(userId);
+    if (after.length > MAX_ACTIVE_BRIDGES_PER_USER) {
+      const ranked = [...after].sort(
+        (a, b) => a.addedAt.getTime() - b.addedAt.getTime() || (a.bridgeId < b.bridgeId ? -1 : 1),
+      );
+      const overflow = ranked.slice(MAX_ACTIVE_BRIDGES_PER_USER);
+      if (overflow.some((b) => b.bridgeId === bridge.bridgeId)) {
+        await this.#bridgeRepo.revoke(bridge.bridgeId, userId, new Date());
+        throw new BadRequestError({ debugMessage: "Too many registered bridges" });
+      }
+    }
+
     return { bridge: toSummary(bridge), created: true };
   }
 
@@ -88,24 +110,26 @@ export class BridgeService {
     }
   }
 
-  async findByIdForUser(bridgeId: string, userId: string): Promise<BridgeDoc | null> {
-    return this.#bridgeRepo.findByIdForUser(bridgeId, userId);
-  }
-
-  async recordStatusChange(bridgeId: string, userId: string, status: BridgeStatus, at: Date): Promise<void> {
+  // Atomically records a relay-reported status event. found=false means the
+  // bridge is unknown, revoked, or another user's — the route turns that into
+  // the 404 the relay converts to WS close 4006. A stale (out-of-order) event
+  // on a live bridge reports found=true and is dropped silently: surfacing it
+  // as 404 would make the relay close a live bridge over event reordering.
+  async recordStatusChange(
+    bridgeId: string,
+    userId: string,
+    status: BridgeStatus,
+    at: Date,
+  ): Promise<{ found: boolean }> {
     const result = await this.#bridgeRepo.recordStatusChange(bridgeId, userId, status, at);
-    if (!result.updated) {
-      // Deliberate silent drop, and the route must keep answering 200:
-      // updated=false covers both out-of-order events (monotonic lastSeenAt
-      // guard) and a bridge revoked between the route's existence check and
-      // this write. Surfacing either as 404 would make the relay close a
-      // live bridge with 4006 (revoked) over a stale or racing event.
-      return;
+    if (!result.found || !result.updated) {
+      return { found: result.found };
     }
 
     this.#bridgeStateTracker.cancelPendingForUser(userId);
     if (result.statusChanged) {
       this.#bridgeStateTracker.handleStatusChangeForBridge(userId, bridgeId, status);
     }
+    return { found: true };
   }
 }

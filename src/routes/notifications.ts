@@ -112,11 +112,18 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
       }
 
       if (bodyResult.data.bridgeId) {
-        const bridge = await bridgeService.findByIdForUser(bodyResult.data.bridgeId, bodyResult.data.userId);
-        if (!bridge) {
+        const { found } = await bridgeService.recordStatusChange(
+          bodyResult.data.bridgeId,
+          bodyResult.data.userId,
+          internalStatus,
+          at,
+        );
+        if (!found) {
+          // Contract with the relay: this 404 becomes WS close 4006, telling
+          // the bridge to re-register. Do not weaken to a 200 — see AGENTS.md
+          // BRIDGE SUBSYSTEM.
           throw new NotFoundError({ debugMessage: "Unknown bridgeId for user" });
         }
-        await bridgeService.recordStatusChange(bodyResult.data.bridgeId, bodyResult.data.userId, internalStatus, at);
       } else {
         if (config.AUTH_REQUIRE_BRIDGE_ID_IN_STATUS) {
           throw new BadRequestError({ debugMessage: "bridgeId is required" });

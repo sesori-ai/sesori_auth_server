@@ -31,12 +31,14 @@ export const tokenRoutes: FastifyPluginAsync<TokenRouteOptions> = async (fastify
   });
 
   fastify.get<{ Reply: MeReply }>("/auth/me", { preHandler: requireAuth }, async (request) => {
-    const profile = await authService.findUserAuthProfile(request.user!.userId);
+    const [profile, bridges] = await Promise.all([
+      authService.findUserAuthProfile(request.user!.userId),
+      bridgeService.listForUser(request.user!.userId),
+    ]);
     if (!profile) {
       throw new NotFoundError({ debugMessage: "User not found" });
     }
 
-    const bridges = await bridgeService.listForUser(request.user!.userId);
     return { user: profile, bridges };
   });
 

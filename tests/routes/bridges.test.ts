@@ -326,6 +326,46 @@ describe("/auth/bridges routes", () => {
     });
     assert.equal(update.statusCode, 200);
   });
+
+  it("POST /auth/bridges admits remaining capacity under concurrent registration bursts", async () => {
+    const user = await ctx.createUser();
+
+    const originalIds: string[] = [];
+    for (let i = 0; i < 49; i++) {
+      const res = await registerBridge(user.accessToken, { name: `Bridge ${i}`, platform: "linux" });
+      assert.equal(res.statusCode, 201);
+      originalIds.push(res.json<{ id: string }>().id);
+    }
+
+    const burst = await Promise.all(
+      Array.from({ length: 4 }, (_, i) => registerBridge(user.accessToken, { name: `Burst ${i}`, platform: "linux" })),
+    );
+    for (const res of burst) {
+      assert.ok(res.statusCode === 201 || res.statusCode === 400, `unexpected status ${res.statusCode}`);
+    }
+    const admitted = burst.filter((res) => res.statusCode === 201);
+    assert.ok(admitted.length >= 1, "a burst into remaining capacity must admit at least one registration");
+
+    const listRes = await ctx.app.inject({
+      method: "GET",
+      url: "/auth/bridges",
+      headers: { authorization: `Bearer ${user.accessToken}` },
+    });
+    const { bridges } = listRes.json<{ bridges: { id: string }[] }>();
+    const ids = new Set(bridges.map((bridge) => bridge.id));
+
+    for (const id of originalIds) {
+      assert.ok(ids.has(id), "pre-existing bridges must survive a concurrent burst");
+    }
+    for (const res of admitted) {
+      assert.ok(ids.has(res.json<{ id: string }>().id), "admitted burst bridges must be listed");
+    }
+    assert.equal(
+      bridges.length,
+      49 + admitted.length,
+      "non-revoked bridges must match exactly the admitted registrations",
+    );
+  });
 });
 
 describe("bridge revocation cancels pending notifications (end to end)", () => {
