@@ -22,7 +22,7 @@
  * enumeration. Clients should treat 404 as terminal and reset their flow.
  */
 
-import { FastifyPluginAsync } from "fastify";
+import { FastifyPluginAsync, type FastifyReply, type FastifyRequest } from "fastify";
 import { NotFoundError } from "../../lib/errors.js";
 import type {
   AuthSessionStatusCompleteReply,
@@ -60,9 +60,13 @@ export const sessionStatusRoutes: FastifyPluginAsync<SessionStatusRouteOptions> 
       tokenHash,
       session,
       statusPollTimeoutMs,
+      abortSignal: createRequestCloseSignal({ request, reply }),
     });
 
     if (!nextSession) {
+      if (!isClientConnectionOpen({ request, reply })) {
+        return reply.hijack();
+      }
       throw new NotFoundError({ debugMessage: "Pending auth session no longer exists" });
     }
 
@@ -71,6 +75,15 @@ export const sessionStatusRoutes: FastifyPluginAsync<SessionStatusRouteOptions> 
       case PendingAuthStatus.AwaitingConfirmation:
         return createPendingReply();
       case PendingAuthStatus.Complete:
+        // Consume only when a live connection is still available for delivery.
+        // This avoids deleting tokens for Android clients whose OS aborted the
+        // in-flight long-poll while the server-side waiter was still resolving.
+        // A tiny race remains if the socket dies after this check but before the
+        // kernel flushes the response; closing that would require an explicit
+        // client ack, which would create a broader replay/read window.
+        if (!isClientConnectionOpen({ request, reply })) {
+          return reply.hijack();
+        }
         return createCompleteReply({ pendingAuthStore, tokenHash });
       case PendingAuthStatus.Denied:
         return createDeniedReply();
@@ -99,6 +112,7 @@ async function waitForTerminalOrTimeout(params: {
   tokenHash: string;
   session: PendingAuthSession;
   statusPollTimeoutMs: number;
+  abortSignal?: AbortSignal;
 }): Promise<PendingAuthSession | null> {
   let session = params.session;
   if (session.status !== PendingAuthStatus.Pending && session.status !== PendingAuthStatus.AwaitingConfirmation) {
@@ -113,7 +127,9 @@ async function waitForTerminalOrTimeout(params: {
       return session;
     }
 
-    const nextSession = await params.pendingAuthStore.waitForStatusChange(params.tokenHash, remainingMs);
+    const nextSession = await params.pendingAuthStore.waitForStatusChange(params.tokenHash, remainingMs, {
+      abortSignal: params.abortSignal,
+    });
     if (!nextSession) {
       return null;
     }
@@ -125,6 +141,43 @@ async function waitForTerminalOrTimeout(params: {
   }
 
   return session;
+}
+
+function createRequestCloseSignal(params: { request: FastifyRequest; reply: FastifyReply }): AbortSignal {
+  const controller = new AbortController();
+
+  // If the connection is already gone, abort immediately without registering
+  // listeners that will never fire.
+  if (params.request.raw.destroyed || params.request.socket.destroyed || params.reply.raw.writableEnded) {
+    controller.abort();
+    return controller.signal;
+  }
+
+  const abortIfUndelivered = () => {
+    if (!params.reply.raw.writableEnded) {
+      controller.abort();
+    }
+  };
+  const removeAbortListener = () => {
+    params.request.socket.off("close", abortIfUndelivered);
+    params.reply.raw.off("close", abortIfUndelivered);
+    params.reply.raw.off("finish", removeAbortListener);
+    params.reply.raw.off("close", removeAbortListener);
+  };
+
+  // Use the underlying socket close and response close events rather than
+  // request.raw 'close', which can also fire when the request stream ends on a
+  // healthy keep-alive connection.
+  params.request.socket.once("close", abortIfUndelivered);
+  params.reply.raw.once("close", abortIfUndelivered);
+  params.reply.raw.once("finish", removeAbortListener);
+  params.reply.raw.once("close", removeAbortListener);
+
+  return controller.signal;
+}
+
+function isClientConnectionOpen(params: { request: FastifyRequest; reply: FastifyReply }): boolean {
+  return !params.request.raw.destroyed && !params.request.socket.destroyed && !params.reply.raw.writableEnded;
 }
 
 function createPendingReply(): AuthSessionStatusPendingReply {

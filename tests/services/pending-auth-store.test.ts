@@ -7,6 +7,16 @@ function createSessionTokenHash(token = "session-token"): string {
   return PendingAuthStore.hashToken(token);
 }
 
+function uniqueUserCodeGenerator(): () => string {
+  let counter = 0;
+  return () => {
+    const n = counter++;
+    const first = String.fromCharCode(0x41 + (n % 26));
+    const second = String.fromCharCode(0x41 + ((n + 1) % 26));
+    return `${first}${second}${(n % 9) + 1}${((n + 1) % 9) + 1}`;
+  };
+}
+
 function createStore(overrides?: ConstructorParameters<typeof PendingAuthStore>[0]): PendingAuthStore {
   return new PendingAuthStore({
     sessionTtlMs: 5 * 60 * 1000,
@@ -102,6 +112,79 @@ describe("PendingAuthStore", () => {
     } finally {
       mock.timers.reset();
     }
+  });
+
+  it("releases aborted long-poll waiters without observing a later completion", async () => {
+    const store = createStore();
+    const tokenHash = createSessionTokenHash();
+    store.createSession({
+      tokenHash,
+      provider: OAuthProviderName.Google,
+      pkceVerifier: "pkce-verifier",
+      state: "oauth-state",
+    });
+
+    const controller = new AbortController();
+    const waitPromise = store.waitForStatusChange(tokenHash, 5_000, { abortSignal: controller.signal });
+
+    controller.abort();
+    const waited = await waitPromise;
+    const completed = store.completeSession({
+      tokenHash,
+      tokens: {
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+      },
+      user: {
+        id: "user-1",
+        provider: "google",
+        providerUserId: "provider-user-1",
+        providerUsername: "octocat",
+      },
+    });
+
+    assert.equal(waited, null);
+    assert.equal(completed?.status, "complete");
+    assert.equal(store.getSessionByTokenHash(tokenHash)?.status, "complete");
+  });
+
+  it("aborting one waiter does not affect waiters for other sessions", async () => {
+    const store = createStore({ userCodeGenerator: uniqueUserCodeGenerator() });
+    const tokenHashA = createSessionTokenHash("token-a");
+    const tokenHashB = createSessionTokenHash("token-b");
+    store.createSession({
+      tokenHash: tokenHashA,
+      provider: OAuthProviderName.Github,
+      pkceVerifier: "pkce-a",
+      state: "state-a",
+    });
+    store.createSession({
+      tokenHash: tokenHashB,
+      provider: OAuthProviderName.Google,
+      pkceVerifier: "pkce-b",
+      state: "state-b",
+    });
+
+    const controllerA = new AbortController();
+    const waitA = store.waitForStatusChange(tokenHashA, 5_000, { abortSignal: controllerA.signal });
+    const waitB = store.waitForStatusChange(tokenHashB, 5_000);
+
+    controllerA.abort();
+    const waitedA = await waitA;
+    store.completeSession({
+      tokenHash: tokenHashB,
+      tokens: { accessToken: "b-access", refreshToken: "b-refresh" },
+      user: {
+        id: "user-b",
+        provider: "google",
+        providerUserId: "provider-b",
+        providerUsername: "user-b",
+      },
+    });
+    const waitedB = await waitB;
+
+    assert.equal(waitedA, null);
+    assert.equal(waitedB?.status, "complete");
   });
 
   it("expires sessions and releases waiters", async () => {

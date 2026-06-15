@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import http from "node:http";
 import Fastify, { type FastifyInstance, type InjectOptions, type LightMyRequestResponse } from "fastify";
 import { ApiError } from "../../src/lib/errors.js";
 import { sessionStatusRoutes } from "../../src/routes/auth/session-status.js";
@@ -99,6 +100,42 @@ describe("GET /auth/session/status", () => {
     assert.equal(firstResponse.statusCode, 200);
     assert.equal(secondResponse.statusCode, 404);
     assert.equal(secondResponse.json<{ error: string }>().error, "not_found");
+  });
+
+  it("keeps a completed session readable once when the waiting client disconnects before delivery", async () => {
+    const tokenHash = createPendingSession({ sessionToken: VALID_SESSION_TOKEN });
+    const origin = await app.listen({ host: "127.0.0.1", port: 0 });
+    const pendingRequest = openStatusRequest({ origin, sessionToken: VALID_SESSION_TOKEN });
+
+    await delay(10);
+    pendingRequest.destroy();
+    await pendingRequest.closed;
+
+    pendingAuthStore.completeSession({ tokenHash, tokens: TEST_TOKENS, user: TEST_USER });
+    await delay(10);
+
+    assert.equal(pendingAuthStore.getSessionByTokenHash(tokenHash)?.status, "complete");
+
+    const retryResponse = await injectWithKeepAlive({
+      method: "GET",
+      url: "/auth/session/status",
+      headers: { "x-sesori-session-token": VALID_SESSION_TOKEN },
+    });
+    const replayResponse = await injectWithKeepAlive({
+      method: "GET",
+      url: "/auth/session/status",
+      headers: { "x-sesori-session-token": VALID_SESSION_TOKEN },
+    });
+
+    assert.equal(retryResponse.statusCode, 200);
+    assert.deepEqual(retryResponse.json(), {
+      status: "complete",
+      accessToken: TEST_TOKENS.accessToken,
+      refreshToken: TEST_TOKENS.refreshToken,
+      user: TEST_USER,
+    });
+    assert.equal(replayResponse.statusCode, 404);
+    assert.equal(replayResponse.json<{ error: string }>().error, "not_found");
   });
 
   it("returns denied when the pending session is denied during long-polling", async () => {
@@ -259,5 +296,29 @@ describe("GET /auth/session/status", () => {
     } finally {
       clearInterval(keepAlive);
     }
+  }
+
+  function openStatusRequest(params: { origin: string; sessionToken: string }): {
+    destroy: () => void;
+    closed: Promise<void>;
+  } {
+    const request = http.request(new URL("/auth/session/status", params.origin), {
+      method: "GET",
+      headers: { "x-sesori-session-token": params.sessionToken },
+    });
+    const closed = new Promise<void>((resolve) => {
+      request.once("close", resolve);
+      request.once("error", () => resolve());
+    });
+    request.end();
+
+    return {
+      destroy: () => request.destroy(),
+      closed,
+    };
+  }
+
+  async function delay(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
   }
 });

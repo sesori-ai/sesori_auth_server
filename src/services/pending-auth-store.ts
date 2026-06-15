@@ -86,6 +86,8 @@ type StatusWaiter = {
   initialStatus: PendingAuthStatus;
   resolve: (session: PendingAuthSession | null) => void;
   timeout: ReturnType<typeof setTimeout>;
+  abortSignal?: AbortSignal;
+  abortListener?: () => void;
 };
 
 export class PendingAuthStore {
@@ -401,9 +403,17 @@ export class PendingAuthStore {
    * Race-safe: a status change happening between `getSessionByTokenHash` and
    * waiter registration triggers an immediate resolve via the re-check below.
    */
-  waitForStatusChange(tokenHash: string, timeoutMs: number): Promise<PendingAuthSession | null> {
+  waitForStatusChange(
+    tokenHash: string,
+    timeoutMs: number,
+    options?: { abortSignal?: AbortSignal },
+  ): Promise<PendingAuthSession | null> {
     const session = this.getSessionByTokenHash(tokenHash);
     if (!session) {
+      return Promise.resolve(null);
+    }
+
+    if (options?.abortSignal?.aborted) {
       return Promise.resolve(null);
     }
 
@@ -435,10 +445,30 @@ export class PendingAuthStore {
         initialStatus: session.status,
         resolve: (nextSession) => {
           clearTimeout(timeout);
+          if (waiter.abortSignal && waiter.abortListener) {
+            waiter.abortSignal.removeEventListener("abort", waiter.abortListener);
+          }
           resolve(nextSession);
         },
         timeout,
+        abortSignal: options?.abortSignal,
       };
+
+      if (options?.abortSignal) {
+        // Recheck inside the promise executor: the signal may have aborted in
+        // the gap between the initial check above and listener registration.
+        if (options.abortSignal.aborted) {
+          clearTimeout(timeout);
+          resolve(null);
+          return;
+        }
+        waiter.abortListener = () => {
+          this.#removeWaiter(tokenHash, waiter);
+          clearTimeout(timeout);
+          resolve(null);
+        };
+        options.abortSignal.addEventListener("abort", waiter.abortListener, { once: true });
+      }
 
       const waiters = this.#waitersByTokenHash.get(tokenHash) ?? new Set<StatusWaiter>();
       waiters.add(waiter);
@@ -575,6 +605,9 @@ export class PendingAuthStore {
     }
 
     waiters.delete(waiter);
+    if (waiter.abortSignal && waiter.abortListener) {
+      waiter.abortSignal.removeEventListener("abort", waiter.abortListener);
+    }
     if (waiters.size === 0) {
       this.#waitersByTokenHash.delete(tokenHash);
     }
