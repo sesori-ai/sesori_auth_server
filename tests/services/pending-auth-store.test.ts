@@ -104,6 +104,40 @@ describe("PendingAuthStore", () => {
     }
   });
 
+  it("releases aborted long-poll waiters without observing a later completion", async () => {
+    const store = createStore();
+    const tokenHash = createSessionTokenHash();
+    store.createSession({
+      tokenHash,
+      provider: OAuthProviderName.Google,
+      pkceVerifier: "pkce-verifier",
+      state: "oauth-state",
+    });
+
+    const controller = new AbortController();
+    const waitPromise = store.waitForStatusChange(tokenHash, 5_000, { abortSignal: controller.signal });
+
+    controller.abort();
+    const waited = await waitPromise;
+    const completed = store.completeSession({
+      tokenHash,
+      tokens: {
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+      },
+      user: {
+        id: "user-1",
+        provider: "google",
+        providerUserId: "provider-user-1",
+        providerUsername: "octocat",
+      },
+    });
+
+    assert.equal(waited, null);
+    assert.equal(completed?.status, "complete");
+    assert.equal(store.getSessionByTokenHash(tokenHash)?.status, "complete");
+  });
+
   it("expires sessions and releases waiters", async () => {
     let currentTime = new Date("2026-05-14T12:00:00.000Z");
     const store = createStore({
