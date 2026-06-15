@@ -65,7 +65,7 @@ export const sessionStatusRoutes: FastifyPluginAsync<SessionStatusRouteOptions> 
 
     if (!nextSession) {
       if (!isClientConnectionOpen({ request, reply })) {
-        return reply;
+        return reply.hijack();
       }
       throw new NotFoundError({ debugMessage: "Pending auth session no longer exists" });
     }
@@ -82,7 +82,7 @@ export const sessionStatusRoutes: FastifyPluginAsync<SessionStatusRouteOptions> 
         // kernel flushes the response; closing that would require an explicit
         // client ack, which would create a broader replay/read window.
         if (!isClientConnectionOpen({ request, reply })) {
-          return reply;
+          return reply.hijack();
         }
         return createCompleteReply({ pendingAuthStore, tokenHash });
       case PendingAuthStatus.Denied:
@@ -145,16 +145,31 @@ async function waitForTerminalOrTimeout(params: {
 
 function createRequestCloseSignal(params: { request: FastifyRequest; reply: FastifyReply }): AbortSignal {
   const controller = new AbortController();
+
+  // If the connection is already gone, abort immediately without registering
+  // listeners that will never fire.
+  if (params.request.raw.destroyed || params.request.socket.destroyed || params.reply.raw.writableEnded) {
+    controller.abort();
+    return controller.signal;
+  }
+
   const abortIfUndelivered = () => {
     if (!params.reply.raw.writableEnded) {
       controller.abort();
     }
   };
   const removeAbortListener = () => {
-    params.request.raw.off("close", abortIfUndelivered);
+    params.request.socket.off("close", abortIfUndelivered);
+    params.reply.raw.off("close", abortIfUndelivered);
+    params.reply.raw.off("finish", removeAbortListener);
+    params.reply.raw.off("close", removeAbortListener);
   };
 
-  params.request.raw.once("close", abortIfUndelivered);
+  // Use the underlying socket close and response close events rather than
+  // request.raw 'close', which can also fire when the request stream ends on a
+  // healthy keep-alive connection.
+  params.request.socket.once("close", abortIfUndelivered);
+  params.reply.raw.once("close", abortIfUndelivered);
   params.reply.raw.once("finish", removeAbortListener);
   params.reply.raw.once("close", removeAbortListener);
 
@@ -162,7 +177,7 @@ function createRequestCloseSignal(params: { request: FastifyRequest; reply: Fast
 }
 
 function isClientConnectionOpen(params: { request: FastifyRequest; reply: FastifyReply }): boolean {
-  return !params.request.raw.aborted && !params.request.socket.destroyed && !params.reply.raw.writableEnded;
+  return !params.request.raw.destroyed && !params.request.socket.destroyed && !params.reply.raw.writableEnded;
 }
 
 function createPendingReply(): AuthSessionStatusPendingReply {

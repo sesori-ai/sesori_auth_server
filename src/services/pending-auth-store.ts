@@ -455,6 +455,13 @@ export class PendingAuthStore {
       };
 
       if (options?.abortSignal) {
+        // Recheck inside the promise executor: the signal may have aborted in
+        // the gap between the initial check above and listener registration.
+        if (options.abortSignal.aborted) {
+          clearTimeout(timeout);
+          resolve(null);
+          return;
+        }
         waiter.abortListener = () => {
           this.#removeWaiter(tokenHash, waiter);
           clearTimeout(timeout);
