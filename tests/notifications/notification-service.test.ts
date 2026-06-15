@@ -109,6 +109,21 @@ describe("NotificationService", () => {
     assert.equal(firstMessage.apns?.headers?.["apns-collapse-id"], payload.collapseKey);
   });
 
+  it("omits the Android tag and apns-collapse-id when the collapse key is empty", async () => {
+    const tokenRepo = createMockDeviceTokenRepo([{ userId: "user-1", token: "token-a", platform: "android" }]);
+    const messaging = createMockMessaging([{ success: true }]);
+    const service = new NotificationService(tokenRepo.repo, messaging.messaging);
+
+    await service.sendToUser("user-1", { ...payload, collapseKey: "" });
+
+    const firstMessage = messaging.calls[0]?.[0] as {
+      android?: { notification?: { tag?: string } };
+      apns?: { headers?: Record<string, string> };
+    };
+    assert.equal(firstMessage.android?.notification?.tag, undefined);
+    assert.equal(firstMessage.apns?.headers, undefined);
+  });
+
   it("returns 0 and does not call messaging when user has no tokens", async () => {
     const tokenRepo = createMockDeviceTokenRepo([{ userId: "another-user", token: "token-x", platform: "ios" }]);
     const messaging = createMockMessaging([{ success: true }]);

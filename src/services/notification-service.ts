@@ -52,7 +52,7 @@ export class NotificationService {
         collapseKey: payload.collapseKey ?? undefined,
         // Android ignores collapseKey for already-displayed notification messages;
         // the tag is what replaces/dismisses the visible notification per session.
-        notification: { channelId: payload.category, tag: payload.collapseKey ?? undefined },
+        notification: { channelId: payload.category, tag: payload.collapseKey || undefined },
       },
       apns: {
         headers: payload.collapseKey ? { "apns-collapse-id": payload.collapseKey } : undefined,
