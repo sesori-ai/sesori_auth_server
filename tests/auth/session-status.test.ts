@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
+import type { Socket } from "node:net";
 import Fastify, { type FastifyInstance, type InjectOptions, type LightMyRequestResponse } from "fastify";
 import { ApiError } from "../../src/lib/errors.js";
 import { sessionStatusRoutes } from "../../src/routes/auth/session-status.js";
@@ -105,14 +106,31 @@ describe("GET /auth/session/status", () => {
   it("keeps a completed session readable once when the waiting client disconnects before delivery", async () => {
     const tokenHash = createPendingSession({ sessionToken: VALID_SESSION_TOKEN });
     const origin = await app.listen({ host: "127.0.0.1", port: 0 });
-    const pendingRequest = openStatusRequest({ origin, sessionToken: VALID_SESSION_TOKEN });
 
-    await delay(10);
+    // Sync on the server-side socket 'close' event — the exact edge that
+    // fires the route's abort listener. Anything coarser (e.g. setTimeout)
+    // races the residual window documented in session-status.ts.
+    const serverConnection = new Promise<Socket>((resolve) => {
+      app.server.once("connection", (socket) => resolve(socket));
+    });
+    const requestReceived = new Promise<void>((resolve) => {
+      app.server.once("request", () => resolve());
+    });
+
+    const pendingRequest = openStatusRequest({ origin, sessionToken: VALID_SESSION_TOKEN });
+    const serverSocket = await serverConnection;
+    await requestReceived;
+    await flushHookChain();
+
+    // Registered after the route's own 'close' listener so Node fires them
+    // in order: the route's abort dispatch + waiter teardown run first.
+    const serverSocketClosed = new Promise<void>((resolve) => {
+      serverSocket.once("close", () => resolve());
+    });
     pendingRequest.destroy();
-    await pendingRequest.closed;
+    await Promise.all([pendingRequest.closed, serverSocketClosed]);
 
     pendingAuthStore.completeSession({ tokenHash, tokens: TEST_TOKENS, user: TEST_USER });
-    await delay(10);
 
     assert.equal(pendingAuthStore.getSessionByTokenHash(tokenHash)?.status, "complete");
 
@@ -318,7 +336,11 @@ describe("GET /auth/session/status", () => {
     };
   }
 
-  async function delay(ms: number): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, ms));
+  async function flushHookChain(): Promise<void> {
+    // Two setImmediate yields drain Fastify's onRequest → preHandler → route
+    // dispatch so the handler reaches its first await (where the abort
+    // listener has been registered on the socket).
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
   }
 });

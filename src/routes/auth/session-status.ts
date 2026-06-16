@@ -12,6 +12,8 @@
  *   400 { error: "bad_request" }                                — missing/invalid session-token header
  *   404 { error: "not_found" }                                  — unknown OR already-consumed (deliberately conflated, see CQ-11)
  *   410 { status: "expired" }
+ *   (no response, `reply.hijack()`) — connection was already dead at delivery time;
+ *                                     the session is left readable for a retry, see CLIENT-LIVENESS DELIVERY
  *
  * CQ-11 (404 conflation): once `complete` has been consumed by a previous
  * poll, the session entry is deleted. A subsequent poll with the same token
@@ -20,6 +22,16 @@
  * been delivered exactly once; revealing that a session "existed" would
  * leak no useful information to a legitimate client and could aid token
  * enumeration. Clients should treat 404 as terminal and reset their flow.
+ *
+ * CLIENT-LIVENESS DELIVERY (Android backgrounding): before consuming a
+ * `complete` session we re-check that the client connection is still
+ * writable (`request.raw.destroyed`, `request.socket.destroyed`,
+ * `reply.raw.writableEnded`). If not, we hijack the reply (no response
+ * sent) and leave the completion readable so the client's retry consumes
+ * it exactly once. A tiny race remains where the socket dies between the
+ * liveness check and the kernel flush; closing it would require an explicit
+ * client ack, which would either delay deletion or create a re-readable
+ * replay window — the very thing CQ-11 avoids.
  */
 
 import { FastifyPluginAsync, type FastifyReply, type FastifyRequest } from "fastify";
@@ -64,7 +76,16 @@ export const sessionStatusRoutes: FastifyPluginAsync<SessionStatusRouteOptions> 
     });
 
     if (!nextSession) {
+      // The waiter resolved null either because the abort signal fired
+      // (client disconnected) or because the session was evicted/expired
+      // mid-wait. If the socket is dead, hijack: a 404 to a dead socket is
+      // wasted I/O, and the legitimate retry hits the synchronous
+      // getSessionByTokenHash check at the top of this handler.
       if (!isClientConnectionOpen({ request, reply })) {
+        request.log.warn(
+          { tokenHashPrefix: tokenHash.slice(0, 8) },
+          "session-status: client disconnected before delivery; hijacking reply",
+        );
         return reply.hijack();
       }
       throw new NotFoundError({ debugMessage: "Pending auth session no longer exists" });
@@ -82,6 +103,10 @@ export const sessionStatusRoutes: FastifyPluginAsync<SessionStatusRouteOptions> 
         // kernel flushes the response; closing that would require an explicit
         // client ack, which would create a broader replay/read window.
         if (!isClientConnectionOpen({ request, reply })) {
+          request.log.warn(
+            { tokenHashPrefix: tokenHash.slice(0, 8) },
+            "session-status: client disconnected before complete delivery; preserving session for retry",
+          );
           return reply.hijack();
         }
         return createCompleteReply({ pendingAuthStore, tokenHash });

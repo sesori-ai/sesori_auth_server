@@ -402,6 +402,15 @@ export class PendingAuthStore {
    *
    * Race-safe: a status change happening between `getSessionByTokenHash` and
    * waiter registration triggers an immediate resolve via the re-check below.
+   *
+   * @param options.abortSignal Optional cancellation signal. When the signal
+   *   aborts, the waiter resolves to `null` (NOT to a session snapshot) —
+   *   callers should treat `null` as "do not deliver, the requester is gone
+   *   or no longer cares". If the signal is already aborted at call time,
+   *   the returned promise resolves to `null` synchronously without
+   *   registering a waiter. The abort listener is registered with
+   *   `{ once: true }` and removed on every other resolution path (status
+   *   change, timeout, removeWaiter), so callers do not need to clean up.
    */
   waitForStatusChange(
     tokenHash: string,
