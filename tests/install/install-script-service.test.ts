@@ -127,38 +127,52 @@ describe("InstallScriptService", () => {
 
     const release = service.selectLatestRelease([
       createRelease("server-v9.0.0", "2026-03-02T10:00:00.000Z"),
-      createRelease("bridge-v1.2.0", "2026-03-03T10:00:00.000Z", { draft: true }),
-      createRelease("bridge-v1.3.0-rc.1", "2026-03-04T10:00:00.000Z", { prerelease: true }),
-      createRelease("bridge-v0.9.0", "not-a-date"),
-      createRelease("bridge-v1.1.0", "2026-03-01T10:00:00.000Z"),
+      createRelease("v1.2.0", "2026-03-03T10:00:00.000Z", { draft: true }),
+      createRelease("v1.3.0-rc.1", "2026-03-04T10:00:00.000Z", { prerelease: true }),
+      createRelease("v0.9.0", "not-a-date"),
+      createRelease("v1.1.0", "2026-03-01T10:00:00.000Z"),
     ]);
 
-    assert.equal(release.tagName, "bridge-v1.1.0");
+    assert.equal(release.tagName, "v1.1.0");
     assert.equal(release.publishedAt, "2026-03-01T10:00:00.000Z");
+  });
+
+  it("excludes prerelease/internal version tags even when not flagged as prerelease", () => {
+    const service = new InstallScriptService();
+
+    // Internal builds (e.g. v1.1.1-internal.124) are newer by date but must never be served as the
+    // installer. Guard on the tag shape too, not just GitHub's prerelease flag.
+    const release = service.selectLatestRelease([
+      createRelease("v1.1.1-internal.124", "2026-03-20T10:00:00.000Z"),
+      createRelease("voice-v9.9.9", "2026-03-19T10:00:00.000Z"),
+      createRelease("v1.1.0", "2026-03-01T10:00:00.000Z"),
+    ]);
+
+    assert.equal(release.tagName, "v1.1.0");
   });
 
   it("selects the newest eligible release by published_at", () => {
     const service = new InstallScriptService();
 
     const release = service.selectLatestRelease([
-      createRelease("bridge-v1.2.0", "2026-02-12T08:30:00.000Z"),
-      createRelease("bridge-v1.4.0", "2026-02-14T08:30:00.000Z"),
-      createRelease("bridge-v1.3.0", "2026-02-13T08:30:00.000Z"),
+      createRelease("v1.2.0", "2026-02-12T08:30:00.000Z"),
+      createRelease("v1.4.0", "2026-02-14T08:30:00.000Z"),
+      createRelease("v1.3.0", "2026-02-13T08:30:00.000Z"),
     ]);
 
-    assert.equal(release.tagName, "bridge-v1.4.0");
+    assert.equal(release.tagName, "v1.4.0");
   });
 
   it("uses descending tag_name as the deterministic numeric tie-breaker", () => {
     const service = new InstallScriptService();
 
     const release = service.selectLatestRelease([
-      createRelease("bridge-v1.9.0", "2026-02-14T08:30:00.000Z"),
-      createRelease("bridge-v1.10.0", "2026-02-14T08:30:00.000Z"),
-      createRelease("bridge-v1.8.9", "2026-02-14T08:30:00.000Z"),
+      createRelease("v1.9.0", "2026-02-14T08:30:00.000Z"),
+      createRelease("v1.10.0", "2026-02-14T08:30:00.000Z"),
+      createRelease("v1.8.9", "2026-02-14T08:30:00.000Z"),
     ]);
 
-    assert.equal(release.tagName, "bridge-v1.10.0");
+    assert.equal(release.tagName, "v1.10.0");
   });
 
   it("throws BadGatewayError when no eligible release exists", () => {
@@ -167,7 +181,7 @@ describe("InstallScriptService", () => {
     assert.throws(
       () =>
         service.selectLatestRelease([
-          createRelease("bridge-v1.0.0", "2026-02-14T08:30:00.000Z", { draft: true }),
+          createRelease("v1.0.0", "2026-02-14T08:30:00.000Z", { draft: true }),
           createRelease("web-v1.0.0", "2026-02-14T08:30:00.000Z"),
         ]),
       (error: unknown) => {
@@ -180,7 +194,7 @@ describe("InstallScriptService", () => {
 
   it("continues fetching release pages until it finds an eligible release and then downloads both scripts", async (t) => {
     const service = new InstallScriptService();
-    const tag = "bridge-v1.4.0";
+    const tag = "v1.4.0";
     const timeoutCalls: number[] = [];
     t.mock.method(AbortSignal, "timeout", (delay: number) => {
       timeoutCalls.push(delay);
@@ -193,7 +207,7 @@ describe("InstallScriptService", () => {
           createJsonResponse(
             [
               createRelease("server-v1.2.0", "2026-02-10T08:30:00.000Z"),
-              createRelease("bridge-v1.2.0", "2026-02-10T08:30:00.000Z", { prerelease: true }),
+              createRelease("v1.2.0", "2026-02-10T08:30:00.000Z", { prerelease: true }),
             ],
             {
               headers: {
@@ -225,8 +239,8 @@ describe("InstallScriptService", () => {
 
   it("keeps comparing eligible releases across pages by published_at", async (t) => {
     const service = new InstallScriptService();
-    const olderTag = "bridge-v1.4.0";
-    const newerTag = "bridge-v1.5.0";
+    const olderTag = "v1.4.0";
+    const newerTag = "v1.5.0";
     const fetchMock = createFetchMock(t, {
       [releasesUrl(1)]: [
         () =>
@@ -262,7 +276,7 @@ describe("InstallScriptService", () => {
 
   it("reuses one atomic cache entry for cache hits across both script getters", async (t) => {
     const service = new InstallScriptService();
-    const tag = "bridge-v1.4.0";
+    const tag = "v1.4.0";
     let now = 1_000;
     t.mock.method(Date, "now", () => now);
 
@@ -286,8 +300,8 @@ describe("InstallScriptService", () => {
 
   it("single-flights concurrent expired-cache refreshes through one shared promise", async (t) => {
     const service = new InstallScriptService();
-    const initialTag = "bridge-v1.0.0";
-    const refreshedTag = "bridge-v1.1.0";
+    const initialTag = "v1.0.0";
+    const refreshedTag = "v1.1.0";
     let now = 10_000;
     let releasePageTwoResolve!: (value: Response) => void;
     const releasePageTwoPromise = new Promise<Response>((resolve) => {
@@ -329,7 +343,7 @@ describe("InstallScriptService", () => {
 
   it("extends the ttl without refetching script bodies when the selected tag is unchanged", async (t) => {
     const service = new InstallScriptService();
-    const tag = "bridge-v1.4.0";
+    const tag = "v1.4.0";
     let now = 50_000;
     t.mock.method(Date, "now", () => now);
 
@@ -365,8 +379,8 @@ describe("InstallScriptService", () => {
 
   it("atomically replaces the cached scripts when the selected tag changes", async (t) => {
     const service = new InstallScriptService();
-    const initialTag = "bridge-v1.0.0";
-    const updatedTag = "bridge-v1.1.0";
+    const initialTag = "v1.0.0";
+    const updatedTag = "v1.1.0";
     let now = 75_000;
     t.mock.method(Date, "now", () => now);
 
@@ -408,7 +422,7 @@ describe("InstallScriptService", () => {
 
   it("throws BadGatewayError when script content is missing during a cold refresh", async (t) => {
     const service = new InstallScriptService();
-    const tag = "bridge-v1.4.0";
+    const tag = "v1.4.0";
     const fetchMock = createFetchMock(t, {
       [releasesUrl(1)]: [() => createJsonResponse([createRelease(tag, "2026-02-14T08:30:00.000Z")])],
       [contentsUrl("install.sh", tag)]: [() => createTextResponse("")],
@@ -428,8 +442,8 @@ describe("InstallScriptService", () => {
 
   it("keeps stale cached scripts and extends expiry after a warm refresh failure", async (t) => {
     const service = new InstallScriptService();
-    const initialTag = "bridge-v2.0.0";
-    const updatedTag = "bridge-v2.1.0";
+    const initialTag = "v2.0.0";
+    const updatedTag = "v2.1.0";
     let now = 100_000;
     t.mock.method(Date, "now", () => now);
 

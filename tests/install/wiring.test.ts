@@ -54,7 +54,7 @@ describe("Install script service wiring", () => {
         return new Response(
           JSON.stringify([
             {
-              tag_name: "bridge-v1.2.0",
+              tag_name: "v1.2.0",
               draft: false,
               prerelease: false,
               published_at: "2026-04-16T08:00:00.000Z",
@@ -64,11 +64,11 @@ describe("Install script service wiring", () => {
         );
       }
 
-      if (url.includes("/contents/install.sh?ref=bridge-v1.2.0")) {
+      if (url.includes("/contents/install.sh?ref=v1.2.0")) {
         return new Response("#!/bin/sh\necho real\n", { status: 200 });
       }
 
-      if (url.includes("/contents/install.ps1?ref=bridge-v1.2.0")) {
+      if (url.includes("/contents/install.ps1?ref=v1.2.0")) {
         return new Response("Write-Output real\n", { status: 200 });
       }
 
