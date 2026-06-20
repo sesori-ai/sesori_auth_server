@@ -104,8 +104,8 @@ describe("Install routes", () => {
   }
 
   const installScriptService: Pick<InstallScriptService, "getInstallSh" | "getInstallPs1"> = {
-    getInstallSh: async () => "#!/bin/sh\necho install\n",
-    getInstallPs1: async () => "Write-Output 'install'\n",
+    getInstallSh: async () => ({ version: "1.2.3", body: "#!/bin/sh\necho install\n" }),
+    getInstallPs1: async () => ({ version: "1.2.3", body: "Write-Output 'install'\n" }),
   };
 
   async function createRouteTestApp(t: NodeTestContext): Promise<TestContext> {
@@ -127,7 +127,8 @@ describe("Install routes", () => {
       });
 
       assert.equal(res.statusCode, 200);
-      assert.match(res.headers["content-type"] ?? "", /text\/plain/);
+      assert.match(res.headers["content-type"] ?? "", /text\/plain;\s*charset=utf-8/);
+      assert.equal(res.headers["x-sesori-install-version"], "1.2.3");
       assert.equal(res.body, "#!/bin/sh\necho install\n");
     } finally {
       await ctx.cleanup();
@@ -143,7 +144,8 @@ describe("Install routes", () => {
       });
 
       assert.equal(res.statusCode, 200);
-      assert.match(res.headers["content-type"] ?? "", /text\/plain/);
+      assert.match(res.headers["content-type"] ?? "", /text\/plain;\s*charset=utf-8/);
+      assert.equal(res.headers["x-sesori-install-version"], "1.2.3");
       assert.equal(res.body, "Write-Output 'install'\n");
     } finally {
       await ctx.cleanup();
@@ -189,6 +191,7 @@ describe("Install routes", () => {
 
       assert.equal(firstSh.statusCode, 200);
       assert.equal(firstSh.body, "first-sh");
+      assert.equal(firstSh.headers["x-sesori-install-version"], "1.4.0");
       assert.equal(firstPs1.statusCode, 200);
       assert.equal(firstPs1.body, "first-ps1");
 
@@ -199,6 +202,7 @@ describe("Install routes", () => {
 
       assert.equal(secondSh.statusCode, 200);
       assert.equal(secondSh.body, "second-sh");
+      assert.equal(secondSh.headers["x-sesori-install-version"], "1.5.0");
       assert.equal(secondPs1.statusCode, 200);
       assert.equal(secondPs1.body, "second-ps1");
       assert.deepEqual(

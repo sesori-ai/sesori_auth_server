@@ -224,8 +224,10 @@ describe("InstallScriptService", () => {
     const installSh = await service.getInstallSh();
     const installPs1 = await service.getInstallPs1();
 
-    assert.equal(installSh, "#!/bin/sh\necho bridge\n");
-    assert.equal(installPs1, "Write-Output bridge\n");
+    assert.equal(installSh.body, "#!/bin/sh\necho bridge\n");
+    assert.equal(installPs1.body, "Write-Output bridge\n");
+    assert.equal(installSh.version, "1.4.0");
+    assert.equal(installPs1.version, "1.4.0");
     assert.deepEqual(
       fetchMock.calls.map((call) => call.url),
       [releasesUrl(1), releasesUrl(2), contentsUrl("install.sh", tag), contentsUrl("install.ps1", tag)],
@@ -264,8 +266,9 @@ describe("InstallScriptService", () => {
     const installSh = await service.getInstallSh();
     const installPs1 = await service.getInstallPs1();
 
-    assert.equal(installSh, "#!/bin/sh\necho newer\n");
-    assert.equal(installPs1, "Write-Output newer\n");
+    assert.equal(installSh.body, "#!/bin/sh\necho newer\n");
+    assert.equal(installPs1.body, "Write-Output newer\n");
+    assert.equal(installSh.version, "1.5.0");
     assert.deepEqual(
       fetchMock.calls.map((call) => call.url),
       [releasesUrl(1), releasesUrl(2), contentsUrl("install.sh", newerTag), contentsUrl("install.ps1", newerTag)],
@@ -290,8 +293,9 @@ describe("InstallScriptService", () => {
     now += service.cacheTtlMs - 1;
     const installPs1 = await service.getInstallPs1();
 
-    assert.equal(installSh, "curl -fsSL https://example.test/install.sh | sh");
-    assert.equal(installPs1, "irm https://example.test/install.ps1 | iex");
+    assert.equal(installSh.body, "curl -fsSL https://example.test/install.sh | sh");
+    assert.equal(installPs1.body, "irm https://example.test/install.ps1 | iex");
+    assert.equal(installSh.version, "1.4.0");
     assert.equal(fetchMock.calls.length, 3);
     assertGithubRequestMetadata(fetchMock.calls);
     assertOnlyAllowedGithubUrls(fetchMock.calls);
@@ -332,8 +336,9 @@ describe("InstallScriptService", () => {
 
     const [installSh, installPs1] = await Promise.all([installShPromise, installPs1Promise]);
 
-    assert.equal(installSh, "refreshed-sh");
-    assert.equal(installPs1, "refreshed-ps1");
+    assert.equal(installSh.body, "refreshed-sh");
+    assert.equal(installPs1.body, "refreshed-ps1");
+    assert.equal(installSh.version, "1.1.0");
     assert.equal(fetchMock.calls.filter((call) => call.url === contentsUrl("install.sh", refreshedTag)).length, 1);
     assert.equal(fetchMock.calls.filter((call) => call.url === contentsUrl("install.ps1", refreshedTag)).length, 1);
     assertGithubRequestMetadata(fetchMock.calls);
@@ -361,7 +366,7 @@ describe("InstallScriptService", () => {
     now += service.cacheTtlMs;
     const installPs1 = await service.getInstallPs1();
 
-    assert.equal(installPs1, "stable-ps1");
+    assert.equal(installPs1.body, "stable-ps1");
     assert.deepEqual(
       fetchMock.calls.map((call) => call.url),
       [releasesUrl(1), contentsUrl("install.sh", tag), contentsUrl("install.ps1", tag), releasesUrl(1)],
@@ -370,7 +375,7 @@ describe("InstallScriptService", () => {
     now += service.cacheTtlMs - 1;
     const installSh = await service.getInstallSh();
 
-    assert.equal(installSh, "stable-sh");
+    assert.equal(installSh.body, "stable-sh");
     assert.equal(fetchMock.calls.length, 4);
     assertGithubRequestMetadata(fetchMock.calls);
     assertOnlyAllowedGithubUrls(fetchMock.calls);
@@ -401,8 +406,8 @@ describe("InstallScriptService", () => {
     const refreshedInstallPs1 = await service.getInstallPs1();
     const refreshedInstallSh = await service.getInstallSh();
 
-    assert.equal(refreshedInstallPs1, "updated-ps1");
-    assert.equal(refreshedInstallSh, "updated-sh");
+    assert.equal(refreshedInstallPs1.body, "updated-ps1");
+    assert.equal(refreshedInstallSh.body, "updated-sh");
     assert.deepEqual(
       fetchMock.calls.map((call) => call.url),
       [
@@ -463,12 +468,12 @@ describe("InstallScriptService", () => {
     now += service.cacheTtlMs;
     const staleInstallPs1 = await service.getInstallPs1();
 
-    assert.equal(staleInstallPs1, "stale-ps1");
+    assert.equal(staleInstallPs1.body, "stale-ps1");
 
     now += service.cacheTtlMs - 1;
     const staleInstallSh = await service.getInstallSh();
 
-    assert.equal(staleInstallSh, "stale-sh");
+    assert.equal(staleInstallSh.body, "stale-sh");
     assertGithubRequestMetadata(fetchMock.calls);
     assertOnlyAllowedGithubUrls(fetchMock.calls);
     fetchMock.assertExhausted();

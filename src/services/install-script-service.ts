@@ -52,6 +52,12 @@ export type InstallScriptRelease = {
   installPowerShellPath: string;
 };
 
+export type ResolvedInstallScript = {
+  /** Stable release version the script body was resolved from, e.g. "1.1.0" (no `v` prefix). */
+  version: string;
+  body: string;
+};
+
 /**
  * Resolves the newest published stable bridge installer release (a `vX.Y.Z` tag) and caches both
  * script bodies together.
@@ -67,14 +73,18 @@ export class InstallScriptService {
   #cacheEntry: InstallScriptCacheEntry | null = null;
   #refreshPromise: Promise<InstallScriptCacheEntry> | null = null;
 
-  async getInstallSh(): Promise<string> {
+  async getInstallSh(): Promise<ResolvedInstallScript> {
     const cacheEntry = await this.#getCacheEntry();
-    return cacheEntry.installSh;
+    return { version: this.#toVersion(cacheEntry.tag), body: cacheEntry.installSh };
   }
 
-  async getInstallPs1(): Promise<string> {
+  async getInstallPs1(): Promise<ResolvedInstallScript> {
     const cacheEntry = await this.#getCacheEntry();
-    return cacheEntry.installPs1;
+    return { version: this.#toVersion(cacheEntry.tag), body: cacheEntry.installPs1 };
+  }
+
+  #toVersion(tag: string): string {
+    return tag.startsWith(INSTALL_SCRIPT_TAG_PREFIX) ? tag.slice(INSTALL_SCRIPT_TAG_PREFIX.length) : tag;
   }
 
   selectLatestRelease(releasesPayload: unknown): InstallScriptRelease {
