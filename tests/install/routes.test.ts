@@ -166,8 +166,8 @@ describe("Install routes", () => {
 
   it("GET /install.sh and /install.ps1 stay paired across a refresh when the release tag changes", async (t) => {
     const ctx = await createLiveServiceRouteTestApp(t);
-    const tagOne = "bridge-v1.4.0";
-    const tagTwo = "bridge-v1.5.0";
+    const tagOne = "v1.4.0";
+    const tagTwo = "v1.5.0";
     let now = 1_000;
     t.mock.method(Date, "now", () => now);
 

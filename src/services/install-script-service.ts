@@ -3,7 +3,13 @@ import { BadGatewayError } from "../lib/errors.js";
 
 const INSTALL_SCRIPT_REPO_OWNER = "sesori-ai";
 const INSTALL_SCRIPT_REPO_NAME = "sesori_apps_monorepo";
-const INSTALL_SCRIPT_TAG_PREFIX = "bridge-v";
+// Stable releases are tagged `vX.Y.Z`. The repo previously also published `bridge-vX.Y.Z`
+// tags; those were dropped, so matching `bridge-v` froze this resolver on the last legacy
+// tag (bridge-v1.0.7) and served stale install scripts. Match the `v` prefix and require a
+// clean three-part version so prerelease/internal tags (e.g. v1.1.1-internal.124) and any
+// other v-prefixed tag are ignored even if GitHub's prerelease flag is unset.
+const INSTALL_SCRIPT_TAG_PREFIX = "v";
+const STABLE_VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
 const INSTALL_SCRIPT_PATH_SH = "install.sh";
 const INSTALL_SCRIPT_PATH_PS1 = "install.ps1";
 const INSTALL_SCRIPT_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -47,7 +53,8 @@ export type InstallScriptRelease = {
 };
 
 /**
- * Resolves the newest published bridge installer release and caches both script bodies together.
+ * Resolves the newest published stable bridge installer release (a `vX.Y.Z` tag) and caches both
+ * script bodies together.
  * GitHub transport details stay local to this service for now, while callers only consume install.sh/install.ps1 content.
  */
 export class InstallScriptService {
@@ -101,7 +108,11 @@ export class InstallScriptService {
   }
 
   #toEligibleRelease(release: GithubRelease): EligibleGithubRelease | null {
-    if (!release.tag_name.startsWith(INSTALL_SCRIPT_TAG_PREFIX) || release.draft || release.prerelease) {
+    if (release.draft || release.prerelease) {
+      return null;
+    }
+
+    if (!this.#isStableVersionTag(release.tag_name)) {
       return null;
     }
 
@@ -114,6 +125,15 @@ export class InstallScriptService {
       tagName: release.tag_name,
       publishedAt,
     };
+  }
+
+  #isStableVersionTag(tagName: string): boolean {
+    if (!tagName.startsWith(INSTALL_SCRIPT_TAG_PREFIX)) {
+      return false;
+    }
+
+    const versionText = tagName.slice(INSTALL_SCRIPT_TAG_PREFIX.length);
+    return STABLE_VERSION_PATTERN.test(versionText);
   }
 
   #compareEligibleReleases(left: EligibleGithubRelease, right: EligibleGithubRelease): number {
