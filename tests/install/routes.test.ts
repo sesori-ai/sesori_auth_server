@@ -103,14 +103,18 @@ describe("Install routes", () => {
     t.mock.method(MongoDbAccessor.prototype, "ensureIndexes", async () => {});
   }
 
-  const installScriptService: Pick<InstallScriptService, "getInstallSh" | "getInstallPs1"> = {
-    getInstallSh: async () => ({ version: "1.2.3", body: "#!/bin/sh\necho install\n" }),
-    getInstallPs1: async () => ({ version: "1.2.3", body: "Write-Output 'install'\n" }),
-  };
-
   async function createRouteTestApp(t: NodeTestContext): Promise<TestContext> {
     mockMongoHarness(t);
-    return createTestApp({ installScriptService: installScriptService as InstallScriptService });
+    const installScriptService = new InstallScriptService();
+    t.mock.method(installScriptService, "getInstallSh", async () => ({
+      version: "1.2.3",
+      body: "#!/bin/sh\necho install\n",
+    }));
+    t.mock.method(installScriptService, "getInstallPs1", async () => ({
+      version: "1.2.3",
+      body: "Write-Output 'install'\n",
+    }));
+    return createTestApp({ installScriptService });
   }
 
   async function createLiveServiceRouteTestApp(t: NodeTestContext): Promise<TestContext> {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { TestContext as NodeTestContext } from "node:test";
 import { MongoClient } from "mongodb";
-import type { InstallScriptService } from "../../src/services/install-script-service.js";
+import { InstallScriptService } from "../../src/services/install-script-service.js";
 import { MongoDbAccessor } from "../../src/db/mongo-db-accessor.js";
 import { MongoDbConnector } from "../../src/db/mongo-db-connector.js";
 import { createTestApp } from "../helpers/setup.js";
@@ -26,10 +26,15 @@ describe("Install script service wiring", () => {
   it("boots with an injected install script service override", async (t) => {
     mockMongoHarness(t);
 
-    const installScriptService = {
-      getInstallSh: async () => ({ version: "9.9.9", body: "#!/bin/sh\necho stub\n" }),
-      getInstallPs1: async () => ({ version: "9.9.9", body: "Write-Output stub\n" }),
-    } as InstallScriptService;
+    const installScriptService = new InstallScriptService();
+    t.mock.method(installScriptService, "getInstallSh", async () => ({
+      version: "9.9.9",
+      body: "#!/bin/sh\necho stub\n",
+    }));
+    t.mock.method(installScriptService, "getInstallPs1", async () => ({
+      version: "9.9.9",
+      body: "Write-Output stub\n",
+    }));
 
     const ctx = await createTestApp({ installScriptService });
     try {
