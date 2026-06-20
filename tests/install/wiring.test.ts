@@ -27,8 +27,8 @@ describe("Install script service wiring", () => {
     mockMongoHarness(t);
 
     const installScriptService = {
-      getInstallSh: async () => "#!/bin/sh\necho stub\n",
-      getInstallPs1: async () => "Write-Output stub\n",
+      getInstallSh: async () => ({ version: "9.9.9", body: "#!/bin/sh\necho stub\n" }),
+      getInstallPs1: async () => ({ version: "9.9.9", body: "Write-Output stub\n" }),
     } as InstallScriptService;
 
     const ctx = await createTestApp({ installScriptService });
