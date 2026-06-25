@@ -122,6 +122,25 @@ describe("OAuth init routes", () => {
     });
   });
 
+  it("tolerates empty / null version fields on the device descriptor (cosmetic, optional)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/auth/github/init",
+      headers: {
+        "content-type": "application/json",
+        "x-sesori-session-token": VALID_GITHUB_SESSION_TOKEN,
+      },
+      payload: JSON.stringify({
+        clientType: "bridge_macos",
+        device: { name: "Alex's MacBook Pro", osVersion: null, appVersion: "" },
+      }),
+    });
+
+    assert.equal(res.statusCode, 200);
+    const pendingSession = pendingAuthStore.getSession(PendingAuthStore.hashToken(VALID_GITHUB_SESSION_TOKEN));
+    assert.equal(pendingSession?.device?.name, "Alex's MacBook Pro");
+  });
+
   it("returns 400 when the device descriptor is invalid (name exceeds max length)", async () => {
     const res = await app.inject({
       method: "POST",

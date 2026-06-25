@@ -72,8 +72,11 @@ export const oauthClientTypeSchema = z.enum(OAuthClientType);
  */
 export const deviceInfoSchema = z.object({
   name: z.string().trim().min(1).max(120),
-  osVersion: z.string().trim().min(1).max(40).optional(),
-  appVersion: z.string().trim().min(1).max(40).optional(),
+  // Cosmetic version fields: tolerate empty strings / null (auto-generated
+  // client serializers often emit those instead of omitting the key). Falsy
+  // values are simply skipped at render time, so they never reach the page.
+  osVersion: z.string().trim().max(40).nullish(),
+  appVersion: z.string().trim().max(40).nullish(),
 });
 export type DeviceInfo = z.infer<typeof deviceInfoSchema>;
 
