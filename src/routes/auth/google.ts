@@ -78,7 +78,7 @@ export const googleRoutes: FastifyPluginAsync<GoogleRouteOptions> = async (fasti
   });
 
   fastify.post<{ Body: unknown; Reply: OAuthPendingInitReply }>("/auth/google/init", async (request) => {
-    const { clientType } = parseOAuthPendingInitBody(request.body);
+    const { clientType, device } = parseOAuthPendingInitBody(request.body);
 
     const sessionToken = parseSessionTokenHeader(request.headers["x-sesori-session-token"]);
     const { session, codeChallenge } = createPendingOAuthInit({
@@ -86,6 +86,7 @@ export const googleRoutes: FastifyPluginAsync<GoogleRouteOptions> = async (fasti
       pendingAuthStore,
       sessionToken,
       clientType,
+      device,
     });
 
     const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");

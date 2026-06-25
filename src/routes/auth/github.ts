@@ -75,7 +75,7 @@ export const githubRoutes: FastifyPluginAsync<GithubRouteOptions> = async (fasti
   });
 
   fastify.post<{ Body: unknown; Reply: OAuthPendingInitReply }>("/auth/github/init", async (request) => {
-    const { clientType } = parseOAuthPendingInitBody(request.body);
+    const { clientType, device } = parseOAuthPendingInitBody(request.body);
 
     const sessionToken = parseSessionTokenHeader(request.headers["x-sesori-session-token"]);
     const { session, codeChallenge } = createPendingOAuthInit({
@@ -83,6 +83,7 @@ export const githubRoutes: FastifyPluginAsync<GithubRouteOptions> = async (fasti
       pendingAuthStore,
       sessionToken,
       clientType,
+      device,
     });
 
     const authUrl = new URL("https://github.com/login/oauth/authorize");

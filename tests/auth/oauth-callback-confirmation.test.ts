@@ -5,6 +5,7 @@ import type { FastifyInstance } from "fastify";
 import type { Config } from "../../src/config.js";
 import { StateStore } from "../../src/lib/state-store.js";
 import { buildApp, type AppServices } from "../../src/server.js";
+import { OAuthClientType } from "../../src/models/api.js";
 import { PendingAuthStore } from "../../src/services/pending-auth-store.js";
 import { OAuthProviderName, type OAuthExchangeParams, type OAuthIdentity } from "../../src/types/oauth.js";
 import { FakeOAuthClient } from "../helpers/fake-oauth-client.js";
@@ -145,8 +146,12 @@ describe("OAuth callback confirmation flow", () => {
     await app.close();
   });
 
-  it("renders a Sesori confirmation page with the pending user code", async () => {
-    const session = createPendingSession({ provider: OAuthProviderName.Github });
+  it("renders a Sesori confirmation page describing the requesting device", async () => {
+    const session = createPendingSession({
+      provider: OAuthProviderName.Github,
+      clientType: OAuthClientType.BridgeMacOS,
+      device: { name: "Alex's MacBook Pro", osVersion: "macOS 14.5", appVersion: "1.2.0" },
+    });
 
     const res = await app.inject({
       method: "GET",
@@ -156,8 +161,15 @@ describe("OAuth callback confirmation flow", () => {
     assert.equal(res.statusCode, 200);
     assert.match(res.headers["content-type"] ?? "", /^text\/html/);
     assert.match(res.body, /Confirm Sesori sign-in/);
-    assert.match(res.body, new RegExp(session.userCode));
+    // Human-readable device name (HTML-escaped) + OS/type derived from clientType.
+    assert.match(res.body, /Alex&#39;s MacBook Pro/);
+    assert.match(res.body, /macOS desktop/);
+    assert.match(res.body, /macOS 14\.5/);
+    assert.match(res.body, /Sesori 1\.2\.0/);
     assert.match(res.body, /Confirm/);
+    // The legacy 4-char visual code element must no longer be rendered.
+    assert.ok(!res.body.includes('class="code"'), "legacy code element must be gone");
+    assert.ok(!res.body.includes("4-character"), "legacy code-matching copy must be gone");
 
     const updatedSession = pendingAuthStore.getSessionByTokenHash(session.tokenHash);
     assert.equal(updatedSession?.status, "awaiting_confirmation");
@@ -168,6 +180,20 @@ describe("OAuth callback confirmation flow", () => {
       clientId: "test-github-client-id",
       clientSecret: "test-github-client-secret",
     });
+  });
+
+  it("falls back to a generic device message when the client sends no device info", async () => {
+    const session = createPendingSession({ provider: OAuthProviderName.Github, tokenSuffix: "c" });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/auth/github/callback?code=test-code-c&state=${session.state}`,
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.match(res.body, /Confirm Sesori sign-in/);
+    assert.match(res.body, /requesting to sign in/);
+    assert.ok(!res.body.includes('class="code"'), "legacy code element must be gone");
   });
 
   it("completes the pending session only after explicit confirmation", async () => {
@@ -341,8 +367,13 @@ describe("OAuth callback confirmation flow", () => {
     });
   });
 
-  it("renders a Google confirmation page with the pending user code", async () => {
-    const session = createPendingSession({ provider: OAuthProviderName.Google, tokenSuffix: "6" });
+  it("renders a Google confirmation page describing the requesting device", async () => {
+    const session = createPendingSession({
+      provider: OAuthProviderName.Google,
+      tokenSuffix: "6",
+      clientType: OAuthClientType.AppIOS,
+      device: { name: "Alex's iPhone" },
+    });
 
     const res = await app.inject({
       method: "GET",
@@ -352,8 +383,10 @@ describe("OAuth callback confirmation flow", () => {
     assert.equal(res.statusCode, 200);
     assert.match(res.headers["content-type"] ?? "", /^text\/html/);
     assert.match(res.body, /Confirm Sesori sign-in/);
-    assert.match(res.body, new RegExp(session.userCode));
+    assert.match(res.body, /Alex&#39;s iPhone/);
+    assert.match(res.body, /iPhone or iPad/);
     assert.match(res.body, /Confirm/);
+    assert.ok(!res.body.includes('class="code"'), "legacy code element must be gone");
 
     const updatedSession = pendingAuthStore.getSessionByTokenHash(session.tokenHash);
     assert.equal(updatedSession?.status, "awaiting_confirmation");
@@ -491,6 +524,8 @@ describe("OAuth callback confirmation flow", () => {
     provider: OAuthProviderName;
     store?: PendingAuthStore;
     tokenSuffix?: string;
+    clientType?: OAuthClientType;
+    device?: { name: string; osVersion?: string; appVersion?: string };
   }) {
     const sessionToken = `${VALID_SESSION_TOKEN.slice(0, -1)}${params.tokenSuffix ?? "0"}`;
     const tokenHash = PendingAuthStore.hashToken(sessionToken);
@@ -502,6 +537,8 @@ describe("OAuth callback confirmation flow", () => {
       provider: params.provider,
       pkceVerifier: `pkce-verifier-${params.tokenSuffix ?? "0"}`,
       state,
+      clientType: params.clientType,
+      device: params.device,
     });
 
     return {

@@ -57,6 +57,26 @@ export enum OAuthClientType {
 
 export const oauthClientTypeSchema = z.enum(OAuthClientType);
 
+/**
+ * Human-readable device descriptor the client may send at init so the
+ * confirmation interstitial can show *which* device is asking to sign in.
+ *
+ * SECURITY: every field here is client-supplied and therefore UNTRUSTED. It is
+ * a recognition aid for the user, NOT an anti-phishing guarantee — an attacker
+ * initiating the flow can set `name` to anything. The trustworthy signal on the
+ * confirmation page remains the enum-bounded `clientType` (device type + OS
+ * family). All values are length-bounded here and HTML-escaped at render time.
+ *
+ * Type + OS family are derived from `clientType` (e.g. `bridge_macos`), so this
+ * object only adds the human name plus optional version specifics.
+ */
+export const deviceInfoSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  osVersion: z.string().trim().min(1).max(40).optional(),
+  appVersion: z.string().trim().min(1).max(40).optional(),
+});
+export type DeviceInfo = z.infer<typeof deviceInfoSchema>;
+
 export const oauthInitBodySchema = z.object({
   clientType: z
     .string()
@@ -68,6 +88,9 @@ export const oauthInitBodySchema = z.object({
         .replace(/[-\s]+/g, "_"),
     )
     .pipe(oauthClientTypeSchema),
+  // Optional for backwards compatibility: older clients omit it and fall back
+  // to the generic confirmation message.
+  device: deviceInfoSchema.optional(),
 });
 export type OAuthInitBody = z.infer<typeof oauthInitBodySchema>;
 

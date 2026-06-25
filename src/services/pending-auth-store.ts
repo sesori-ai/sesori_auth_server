@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { LRUCache } from "lru-cache";
-import type { OAuthClientType, UserProfile } from "../models/api.js";
+import type { DeviceInfo, OAuthClientType, UserProfile } from "../models/api.js";
 import { OAuthProviderName } from "../types/oauth.js";
 
 /**
@@ -70,6 +70,11 @@ export type PendingAuthSession = {
   errorMessage?: string;
   /** Client type (bridge / app / per-platform). Recorded at init for audit. */
   clientType?: OAuthClientType;
+  /**
+   * Optional client-supplied device descriptor shown on the confirmation
+   * interstitial. UNTRUSTED — recognition aid only (see `deviceInfoSchema`).
+   */
+  device?: DeviceInfo;
 };
 
 type PendingAuthStoreEntry = {
@@ -138,6 +143,7 @@ export class PendingAuthStore {
     pkceVerifier: string;
     state: string;
     clientType?: OAuthClientType;
+    device?: DeviceInfo;
   }): PendingAuthSession {
     const now = this.#now();
     const session: PendingAuthSessionRecord = {
@@ -150,6 +156,7 @@ export class PendingAuthStore {
       createdAt: now,
       expiresAt: new Date(now.getTime() + this.#sessionTtlMs),
       clientType: params.clientType,
+      device: params.device ? { ...params.device } : undefined,
     };
 
     this.#setSession(session);
@@ -665,6 +672,7 @@ export class PendingAuthStore {
       user: session.user ? { ...session.user } : undefined,
       errorMessage: session.errorMessage,
       clientType: session.clientType,
+      device: session.device ? { ...session.device } : undefined,
     };
   }
 }

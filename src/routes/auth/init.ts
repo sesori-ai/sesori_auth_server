@@ -20,6 +20,7 @@ import { BadRequestError } from "../../lib/errors.js";
 import {
   OAuthClientType,
   oauthPendingInitBodySchema,
+  type DeviceInfo,
   type OAuthPendingInitBody,
   type OAuthPendingInitReply,
 } from "../../models/api.js";
@@ -66,6 +67,7 @@ export function createPendingOAuthInit(params: {
   pendingAuthStore: PendingAuthStore;
   sessionToken: string;
   clientType?: OAuthClientType;
+  device?: DeviceInfo;
 }): { session: PendingAuthSession; codeChallenge: string } {
   const pkceVerifier = crypto.randomBytes(PKCE_VERIFIER_BYTE_LENGTH).toString("base64url");
   const codeChallenge = crypto.createHash("sha256").update(pkceVerifier).digest("base64url");
@@ -77,6 +79,7 @@ export function createPendingOAuthInit(params: {
     pkceVerifier,
     state,
     clientType: params.clientType,
+    device: params.device,
   });
 
   return { session, codeChallenge };

@@ -99,6 +99,44 @@ describe("OAuth init routes", () => {
     assert.notEqual(authUrl.searchParams.get("code_challenge"), pendingSession?.pkceVerifier);
   });
 
+  it("records the optional structured device descriptor on the pending session", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/auth/github/init",
+      headers: {
+        "content-type": "application/json",
+        "x-sesori-session-token": VALID_GITHUB_SESSION_TOKEN,
+      },
+      payload: JSON.stringify({
+        clientType: "bridge_macos",
+        device: { name: "Alex's MacBook Pro", osVersion: "macOS 14.5", appVersion: "1.2.0" },
+      }),
+    });
+
+    assert.equal(res.statusCode, 200);
+    const pendingSession = pendingAuthStore.getSession(PendingAuthStore.hashToken(VALID_GITHUB_SESSION_TOKEN));
+    assert.deepEqual(pendingSession?.device, {
+      name: "Alex's MacBook Pro",
+      osVersion: "macOS 14.5",
+      appVersion: "1.2.0",
+    });
+  });
+
+  it("returns 400 when the device descriptor is invalid (name exceeds max length)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/auth/github/init",
+      headers: {
+        "content-type": "application/json",
+        "x-sesori-session-token": VALID_GITHUB_SESSION_TOKEN,
+      },
+      payload: JSON.stringify({ clientType: "bridge_macos", device: { name: "x".repeat(121) } }),
+    });
+
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.json<{ error: string }>().error, "bad_request");
+  });
+
   it("creates a pending Google auth session and returns backend-callback init metadata", async () => {
     const res = await app.inject({
       method: "POST",
