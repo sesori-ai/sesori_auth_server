@@ -17,3 +17,4 @@ keys/
 .sisyphus/
 
 *.worktrees/
+.DS_Store

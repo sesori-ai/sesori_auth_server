@@ -1,7 +1,9 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
 import { FakeOAuthClient } from "../helpers/fake-oauth-client.js";
+import { PendingAuthStore } from "../../src/services/pending-auth-store.js";
 
 const VALID_CODE_CHALLENGE = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
 const VALID_REDIRECT_URI = "https://app.example.com/oauth/callback";
@@ -134,6 +136,36 @@ describe("Apple OAuth routes", () => {
       });
 
       assert.equal(res.statusCode, 400);
+    });
+  });
+
+  // ── POST /auth/apple/init ──────────────────────────────────────────────────
+
+  describe("POST /auth/apple/init", () => {
+    it("records clientType and the optional device descriptor on the pending session", async () => {
+      const sessionToken = crypto.randomBytes(32).toString("hex");
+      const res = await ctx.app.inject({
+        method: "POST",
+        url: "/auth/apple/init",
+        headers: {
+          "content-type": "application/json",
+          "x-sesori-session-token": sessionToken,
+        },
+        payload: JSON.stringify({
+          clientType: "app_ios",
+          device: { name: "Alex's iPhone", osVersion: "17.2", appVersion: "1.2.0" },
+        }),
+      });
+
+      assert.equal(res.statusCode, 200);
+      const pendingSession = ctx.pendingAuthStore.getSession(PendingAuthStore.hashToken(sessionToken));
+      assert.equal(pendingSession?.provider, "apple");
+      assert.equal(pendingSession?.clientType, "app_ios");
+      assert.deepEqual(pendingSession?.device, {
+        name: "Alex's iPhone",
+        osVersion: "17.2",
+        appVersion: "1.2.0",
+      });
     });
   });
 

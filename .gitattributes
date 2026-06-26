@@ -1,0 +1,5 @@
+# Generated code — collapse diffs on GitHub and exclude from language stats
+*.test.ts linguist-generated=true
+*.test.js linguist-generated=true
+*.test.tsx linguist-generated=true
+*.test.jsx linguist-generated=true

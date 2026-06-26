@@ -5,9 +5,15 @@
  * `code` and `state`. Rather than exchanging the code and immediately issuing
  * tokens to whoever triggered the callback (vulnerable to phishing redirects
  * that trick the user into completing sign-in for an attacker-controlled
- * session token), we render a confirmation page showing a 4-character visual
- * code that the Sesori app/bridge also displays. Tokens are issued only after
- * the user explicitly confirms in-browser.
+ * session token), we render a confirmation page describing the device that
+ * started the sign-in. Tokens are issued only after the user explicitly
+ * confirms in-browser.
+ *
+ * The page shows the requesting device's type + OS (derived from the
+ * enum-bounded `clientType` captured at init) and, when the client supplied
+ * one, a human-readable device name. The device name is UNTRUSTED
+ * client-supplied text (recognition aid only, HTML-escaped here); the
+ * trustworthy signal is `clientType`.
  *
  * Two handlers are exported:
  *  - `handleProviderCallbackRedirect`: GET handler invoked by the OAuth
@@ -29,6 +35,7 @@
 import { z } from "zod";
 import type { FastifyInstance, FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import type { OAuthClient } from "../../clients/auth/oauth-client.js";
+import { OAuthClientType } from "../../models/api.js";
 import type { AuthService } from "../../services/auth-service.js";
 import {
   PendingAuthStatus,
@@ -131,7 +138,6 @@ export async function handleProviderCallbackRedirect<TClient extends OAuthClient
     case PendingAuthStatus.Denied:
       return sendDeniedPage({
         reply: params.reply,
-        userCode: session.userCode,
         title: "Sign-in cancelled",
         message: "This sign-in request was cancelled. Return to Sesori to start again.",
       });
@@ -239,7 +245,6 @@ async function handleProviderErrorCallback(params: {
     params.pendingAuthStore.denySession(params.session.tokenHash);
     return sendDeniedPage({
       reply: params.reply,
-      userCode: params.session.userCode,
       title: "Sign-in cancelled",
       message: "You cancelled this sign-in request. You can return to Sesori and try again.",
     });
@@ -312,7 +317,6 @@ export async function handleProviderCallbackAction(params: {
     params.pendingAuthStore.denySession(session.tokenHash);
     return sendDeniedPage({
       reply: params.reply,
-      userCode: session.userCode,
       title: "Sign-in cancelled",
       message: "This sign-in request was cancelled. Return to Sesori and try again when you're ready.",
     });
@@ -329,7 +333,6 @@ export async function handleProviderCallbackAction(params: {
   if (session.status === PendingAuthStatus.Denied) {
     return sendDeniedPage({
       reply: params.reply,
-      userCode: session.userCode,
       title: "Sign-in cancelled",
       message: "This sign-in request was already cancelled.",
     });
@@ -357,7 +360,7 @@ export async function handleProviderCallbackAction(params: {
   return sendSuccessPage({
     reply: params.reply,
     title: "Sign-in confirmed",
-    message: `You're all set. Return to Sesori and enter code ${completedSession.userCode} if prompted.`,
+    message: "You're all set. Return to Sesori to finish signing in.",
   });
 }
 
@@ -379,7 +382,9 @@ function sendConfirmationPage(params: {
     <style>
       body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f172a; color: #e2e8f0; margin: 0; padding: 24px; }
       .card { max-width: 480px; margin: 48px auto; background: #111827; border: 1px solid #334155; border-radius: 16px; padding: 24px; }
-      .code { font-size: 32px; font-weight: 700; letter-spacing: 0.18em; margin: 16px 0; }
+      .device { margin: 16px 0; padding: 16px; background: #0f172a; border: 1px solid #334155; border-radius: 12px; }
+      .device-name { font-size: 20px; font-weight: 700; }
+      .device-meta { margin-top: 4px; color: #94a3b8; font-size: 14px; }
       .actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 24px; }
       button { border: 0; border-radius: 999px; padding: 12px 18px; font: inherit; cursor: pointer; }
       .confirm { background: #22c55e; color: #052e16; }
@@ -390,8 +395,8 @@ function sendConfirmationPage(params: {
   <body>
     <main class="card">
       <h1>Confirm Sesori sign-in</h1>
-      <p>You're signing in with ${escapeHtml(params.providerName)}. Make sure this 4-character code matches the Sesori app before continuing.</p>
-      <div class="code">${escapeHtml(params.session.userCode)}</div>
+      <p>You're signing in with ${escapeHtml(params.providerName)}. Only continue if you just started this sign-in from the device below.</p>
+      ${renderRequestingDeviceHtml(params.session)}
       <p>Sesori will finish sign-in only after you explicitly confirm here.</p>
       <div class="actions">
         <form method="POST" action="${escapeHtml(formAction)}">
@@ -410,20 +415,70 @@ function sendConfirmationPage(params: {
 </html>`);
 }
 
+/**
+ * Renders the "requesting device" panel for the confirmation page. Returns
+ * fully HTML-escaped markup. When the client supplied a `device` object the
+ * human-readable name is shown prominently; otherwise we fall back to a generic
+ * message that still names the device type/OS derived from the trusted,
+ * enum-bounded `clientType`.
+ */
+function renderRequestingDeviceHtml(session: PendingAuthSession): string {
+  const typeLabel = describeClientType(session.clientType);
+  const device = session.device;
+
+  if (!device) {
+    return `<div class="device"><div class="device-meta">A ${escapeHtml(typeLabel)} is requesting to sign in.</div></div>`;
+  }
+
+  const meta = [typeLabel];
+  if (device.osVersion) {
+    meta.push(device.osVersion);
+  }
+  if (device.appVersion) {
+    meta.push(`Sesori ${device.appVersion}`);
+  }
+
+  return `<div class="device"><div class="device-name">${escapeHtml(device.name)}</div><div class="device-meta">${escapeHtml(meta.join(" · "))}</div></div>`;
+}
+
+/**
+ * Maps the enum-bounded `clientType` to a human-readable "device type + OS
+ * family" label. This is the trustworthy half of the device description — it
+ * cannot be set to arbitrary text (unlike the free-text device name).
+ */
+function describeClientType(clientType: OAuthClientType | undefined): string {
+  switch (clientType) {
+    case OAuthClientType.BridgeMacOS:
+    case OAuthClientType.AppMacOS:
+      return "macOS desktop";
+    case OAuthClientType.BridgeWindows:
+    case OAuthClientType.AppWindows:
+      return "Windows desktop";
+    case OAuthClientType.BridgeLinux:
+    case OAuthClientType.AppLinux:
+      return "Linux desktop";
+    case OAuthClientType.AppIOS:
+      return "iPhone or iPad";
+    case OAuthClientType.AppAndroid:
+      return "Android device";
+    case OAuthClientType.Bridge:
+      return "desktop app";
+    case OAuthClientType.App:
+      return "mobile app";
+    case undefined:
+      return "device";
+  }
+}
+
 function sendSuccessPage(params: { reply: FastifyReply; title: string; message: string }): FastifyReply {
   return params.reply.status(200).type("text/html; charset=utf-8").send(renderMessagePage(params));
 }
 
-function sendDeniedPage(params: {
-  reply: FastifyReply;
-  userCode: string;
-  title: string;
-  message: string;
-}): FastifyReply {
+function sendDeniedPage(params: { reply: FastifyReply; title: string; message: string }): FastifyReply {
   return params.reply
     .status(200)
     .type("text/html; charset=utf-8")
-    .send(renderMessagePage({ title: params.title, message: `${params.message} Code ${params.userCode}.` }));
+    .send(renderMessagePage({ title: params.title, message: params.message }));
 }
 
 function sendErrorPage(params: {

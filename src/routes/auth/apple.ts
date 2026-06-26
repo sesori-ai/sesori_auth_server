@@ -98,13 +98,15 @@ export const appleRoutes: FastifyPluginAsync<AppleRouteOptions> = async (fastify
   });
 
   fastify.post<{ Body: unknown; Reply: OAuthPendingInitReply }>("/auth/apple/init", async (request) => {
-    parseOAuthPendingInitBody(request.body);
+    const { clientType, device } = parseOAuthPendingInitBody(request.body);
 
     const sessionToken = parseSessionTokenHeader(request.headers["x-sesori-session-token"]);
     const { session, codeChallenge } = createPendingOAuthInit({
       provider: OAuthProviderName.Apple,
       pendingAuthStore,
       sessionToken,
+      clientType,
+      device,
     });
 
     const authUrl = new URL("https://appleid.apple.com/auth/authorize");

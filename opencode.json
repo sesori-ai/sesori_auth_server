@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["github:sesori-ai/opencode-pr-monitor#v0.1.3"],
+  "references": {
+    "sesori-apps-monorepo": {
+      "repository": "sesori-ai/sesori_apps_monorepo",
+      "description": "Sesori apps monorepo — contains the Sesori client apps and the Sesori bridge"
+    },
+    "sesori-relay": {
+      "repository": "sesori-ai/sesori_relay_server",
+      "description": "Sesori relay server — WebSocket routing of encrypted frames between bridge and client app"
+    }
+  },
+  "permission": {
+    "skill": {
+      "pr-inline-comments": "deny"
+    }
+  }
+}

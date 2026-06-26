@@ -66,11 +66,11 @@ npm run start:local
 
 ### OAuth (anti-phishing confirmation flow)
 
-The newer flow keeps the client in control of when tokens are issued. The client generates a random 64-char hex `X-Sesori-Session-Token` (case-insensitive on input, canonicalized to lowercase server-side), sends the **raw** value in the header on every request to `/auth/{provider}/init` and `/auth/session/status`, and the server stores only the SHA-256 digest internally — the raw token never touches disk or logs. The browser-side confirmation page shows a 4-char visual code that the client also displays — users only confirm when both match.
+The newer flow keeps the client in control of when tokens are issued. The client generates a random 64-char hex `X-Sesori-Session-Token` (case-insensitive on input, canonicalized to lowercase server-side), sends the **raw** value in the header on every request to `/auth/{provider}/init` and `/auth/session/status`, and the server stores only the SHA-256 digest internally — the raw token never touches disk or logs. The browser-side confirmation page describes the device that started the sign-in — its type/OS (from the enum-bounded `clientType`) plus an optional human-readable device name — and the user explicitly confirms before tokens are issued. The device name is an untrusted recognition aid (HTML-escaped); the trustworthy signal is `clientType`.
 
 | Method | Path                            | Auth | Description                                                                                                  |
 | ------ | ------------------------------- | ---- | ------------------------------------------------------------------------------------------------------------ |
-| `POST` | `/auth/github/init`             | No   | Start pending GitHub OAuth (requires `X-Sesori-Session-Token` header, `clientType` body)                     |
+| `POST` | `/auth/github/init`             | No   | Start pending GitHub OAuth (requires `X-Sesori-Session-Token` header, `clientType` body; optional `device` `{ name, osVersion?, appVersion? }`) |
 | `GET`  | `/auth/github/callback`         | No   | Provider redirect → renders the confirmation interstitial HTML                                               |
 | `POST` | `/auth/github/callback/confirm` | No   | User confirms/denies sign-in (form-encoded body `state`, `action`)                                           |
 | `POST` | `/auth/google/init`             | No   | (same shape as github)                                                                                       |
