@@ -6,6 +6,7 @@ import path from "node:path";
 import process from "node:process";
 
 const FORMAT = "sesori-plan-definition-v1";
+const ROOT_ENTRIES = new Set(["PLAN.md", "TRACKER.md", "CONSIDERATIONS.md", "stages"]);
 
 function encodeLength(value) {
   const buffer = Buffer.allocUnsafe(8);
@@ -41,6 +42,15 @@ async function requireEntry(entryPath, predicate, missingMessage, unsupportedMes
   }
 }
 
+async function validateRootEntries(root) {
+  const entries = await readdir(root, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!ROOT_ENTRIES.has(entry.name)) {
+      throw new Error(`Unsupported plan root entry: ${path.join(root, entry.name)}`);
+    }
+  }
+}
+
 async function main() {
   const planArg = process.argv[2];
   if (!planArg || process.argv.length !== 3) {
@@ -49,6 +59,7 @@ async function main() {
 
   const root = path.resolve(planArg);
   const planPath = path.join(root, "PLAN.md");
+  const trackerPath = path.join(root, "TRACKER.md");
   const stagesPath = path.join(root, "stages");
 
   await requireEntry(
@@ -58,11 +69,18 @@ async function main() {
     `Unsupported non-file plan entry: ${planPath}`,
   );
   await requireEntry(
+    trackerPath,
+    (entry) => entry.isFile(),
+    `Missing plan tracker: ${trackerPath}`,
+    `Unsupported non-file plan entry: ${trackerPath}`,
+  );
+  await requireEntry(
     stagesPath,
     (entry) => entry.isDirectory(),
     `Missing stages directory: ${stagesPath}`,
     `Unsupported non-directory plan entry: ${stagesPath}`,
   );
+  await validateRootEntries(root);
 
   const files = ["PLAN.md"];
   const considerationsPath = path.join(root, "CONSIDERATIONS.md");

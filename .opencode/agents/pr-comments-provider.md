@@ -2,7 +2,6 @@
 name: pr-comments-provider
 description: Fetches inline PR review comments. Delegate when the user asks about PR comments, code review feedback, unresolved review threads, or recent reviewer activity on a PR. Returns only the requested JSON result.
 mode: subagent
-model: minimax/MiniMax-M3
 permission:
   "*": deny
   bash: ask

@@ -7,7 +7,11 @@ variant: high
 temperature: 0.1
 permission:
   "*": deny
-  read: allow
+  read:
+    "*": allow
+    "*.env": deny
+    "*.env.*": deny
+    "*.env.example": allow
   glob: allow
   grep: allow
   webfetch: allow
