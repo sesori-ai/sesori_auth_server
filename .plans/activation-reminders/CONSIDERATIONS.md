@@ -64,6 +64,8 @@ Each future due query uses equality conditions for stage completion and sent sta
 
 Separate bridge indexes are intentional because bridge reminder 1 and bridge reminder 2 have independent sent markers. This avoids relying on a broad scan of all bridge-incomplete users.
 
+Bridge reminder 2 additionally requires a bridge reminder 1 sent marker. The scheduler evaluates bridge reminder 2 before bridge reminder 1, so a first marker written during the current sweep cannot make an overdue user receive both messages back-to-back; the follow-up waits until at least the next sweep.
+
 ## Delivery Guarantees
 
 The intended user-level behavior is one recorded completion per reminder kind. Unresolved sends remain eligible for retry, subject to the documented post-FCM/pre-MongoDB crash window. PR3 uses:

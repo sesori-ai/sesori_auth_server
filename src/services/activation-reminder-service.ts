@@ -5,7 +5,9 @@ import type {
 } from "../repositories/activation-state-repo.js";
 import type { NotificationPayload, NotificationService } from "./notification-service.js";
 
-const REMINDER_KINDS = ["bridge_1", "bridge_2", "session"] as const satisfies readonly ActivationReminderKind[];
+// Evaluate the follow-up before the first bridge reminder so a marker written
+// later in this sweep cannot make both messages send back-to-back.
+const REMINDER_KINDS = ["bridge_2", "bridge_1", "session"] as const satisfies readonly ActivationReminderKind[];
 
 const REMINDER_PAYLOADS: Record<ActivationReminderKind, NotificationPayload> = {
   bridge_1: {

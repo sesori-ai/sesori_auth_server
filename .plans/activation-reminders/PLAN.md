@@ -43,7 +43,7 @@ This file is the authoritative implementation tracker. A future session should r
 - Bridge setup is the first bridge registration, not the first relay connection.
 - First session is the first valid authenticated `POST /sessions/generate-metadata` call. Metadata failure is non-fatal in the bridge and session creation continues, so the response does not need to succeed. This deliberately measures creation of a new text-backed session, not messages in existing sessions.
 - Bridge reminder 1 is due approximately 2 hours after mobile setup.
-- Bridge reminder 2 is due approximately 24 hours after mobile setup.
+- Bridge reminder 2 is due approximately 24 hours after mobile setup, but only after bridge reminder 1 completed in an earlier sweep.
 - The single session reminder is due approximately 24 hours after both mobile and bridge setup. Its organic baseline is `max(mobileSetupAt, bridgeSetupAt)`.
 - A roughly 15-minute sweep is sufficient; reminder timing is intentionally approximate.
 - No quiet-hours handling in V1.
@@ -245,6 +245,7 @@ Acceptance criteria:
 - [x] Start polling only when enabled, stop queued work during disposal, and await the current candidate before MongoDB closes.
 - [x] Emit structured, first-writer milestone logs and per-reminder/sweep outcome logs.
 - [x] Test inclusive cutoffs, independent markers, batch caps, stage races, conditional writes, send outcomes, retry behavior, single-flight behavior, and scheduler disposal.
+- [x] Prevent overdue users from receiving both bridge reminders in the same sweep.
 - [x] `npm run build` passes.
 - [x] `npm run lint` passes without warnings.
 - [x] `npm run format:check` passes.
@@ -326,3 +327,4 @@ PR4 exit condition:
 - 2026-07-15: PR2 second automated review addressed. Added safe cleanup for the superseded device-token index and changed invalid token owner handling to the typed repository-boundary error. Confirmed mobile/bridge concurrency already resolves from earliest durable source timestamps. All verification passed.
 - 2026-07-15: PR2 third automated review addressed. Required a full desired-index option match before cleanup and preserved earlier observed session timestamps when an initial read loses a race. All verification passed.
 - 2026-07-15: PR2 merged as #40. PR3 implementation completed and opened as #41: default-off configuration, indexed due queries, conditional markers, FCM delivery, a bounded single-flight scheduler, graceful disposal, and structured logs. Pre-delivery review hardened transient per-token retries, timer validation, shutdown cancellation, and concurrent milestone-log ownership. All verification passed. PR4 must wait for live merge verification.
+- 2026-07-15: PR3 review feedback addressed. Restored the plan's static intended-status semantics and staged overdue bridge reminders across separate sweeps so enabling a delayed scheduler cannot send both messages back-to-back.

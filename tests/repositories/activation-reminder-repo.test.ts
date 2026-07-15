@@ -41,17 +41,21 @@ describe("ActivationStateRepository reminders", () => {
     return user.userId;
   }
 
-  it("finds bridge reminders by inclusive cutoff, own marker, completion, order, and limit", async () => {
+  it("finds staged bridge reminders by inclusive cutoff, completion, order, and limit", async () => {
     const cutoff = new Date("2026-07-15T12:00:00.000Z");
-    const old = await seed({ bridgeReminderBaseAt: new Date("2026-07-15T08:00:00.000Z") });
+    const firstOld = await seed({ bridgeReminderBaseAt: new Date("2026-07-15T08:00:00.000Z") });
+    const secondOld = await seed({
+      bridgeReminderBaseAt: new Date("2026-07-15T08:15:00.000Z"),
+      bridgeReminder1SentAt: cutoff,
+    });
     const bridge2AlreadySent = await seed({
       bridgeReminderBaseAt: new Date("2026-07-15T09:00:00.000Z"),
       bridgeReminder2SentAt: cutoff,
     });
-    const exact = await seed({ bridgeReminderBaseAt: cutoff });
+    const exactFirst = await seed({ bridgeReminderBaseAt: cutoff });
+    const exactSecond = await seed({ bridgeReminderBaseAt: cutoff, bridgeReminder1SentAt: cutoff });
     const future = await seed({ bridgeReminderBaseAt: new Date(cutoff.getTime() + 1) });
     const completed = await seed({ bridgeReminderBaseAt: oldDate(), bridgeSetupAt: cutoff });
-    const bridge1AlreadySent = await seed({ bridgeReminderBaseAt: oldDate(), bridgeReminder1SentAt: cutoff });
     await seed({ bridgeReminderBaseAt: null });
 
     const bridge1 = await repo.findDueReminders("bridge_1", cutoff, 10);
@@ -60,18 +64,19 @@ describe("ActivationStateRepository reminders", () => {
 
     assert.deepEqual(
       bridge1.map((candidate) => candidate.userId),
-      [old, bridge2AlreadySent, exact],
+      [firstOld, bridge2AlreadySent, exactFirst],
     );
     assert.deepEqual(
       bridge2.map((candidate) => candidate.userId),
-      [old, bridge1AlreadySent, exact],
+      [secondOld, exactSecond],
     );
     assert.deepEqual(
       limited.map((candidate) => candidate.userId),
-      [old, bridge2AlreadySent],
+      [firstOld, bridge2AlreadySent],
     );
     assert.ok(!bridge1.some((candidate) => candidate.userId === future));
     assert.ok(!bridge1.some((candidate) => candidate.userId === completed));
+    assert.ok(!bridge2.some((candidate) => candidate.userId === firstOld));
   });
 
   it("finds session reminders by inclusive cutoff and excludes completed or sent states", async () => {

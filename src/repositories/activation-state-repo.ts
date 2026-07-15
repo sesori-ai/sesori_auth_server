@@ -33,6 +33,7 @@ function reminderEligibilityFilter(kind: ActivationReminderKind, cutoff: Date): 
     case "bridge_2":
       return {
         bridgeSetupAt: null,
+        bridgeReminder1SentAt: { $ne: null },
         bridgeReminder2SentAt: null,
         bridgeReminderBaseAt: { $lte: cutoff },
       };

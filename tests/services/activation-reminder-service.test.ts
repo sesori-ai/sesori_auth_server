@@ -131,16 +131,16 @@ describe("ActivationReminderService", () => {
       })),
       [
         {
-          userId: "bridge-1-user",
-          category: "system_update",
-          title: "Finish setting up Sesori",
-          collapseKey: "activation_bridge_1",
-        },
-        {
           userId: "bridge-2-user",
           category: "system_update",
           title: "Your Sesori setup is unfinished",
           collapseKey: "activation_bridge_2",
+        },
+        {
+          userId: "bridge-1-user",
+          category: "system_update",
+          title: "Finish setting up Sesori",
+          collapseKey: "activation_bridge_1",
         },
         {
           userId: "session-user",
@@ -152,6 +152,10 @@ describe("ActivationReminderService", () => {
     );
     assert.equal(repo.markCalls.length, 3);
     assert.ok(repo.findCalls.every((call) => call.batchLimit === DEFAULT_OPTIONS.batchLimit));
+    assert.deepEqual(
+      repo.findCalls.map((call) => call.kind),
+      ["bridge_2", "bridge_1", "session"],
+    );
     assert.equal(result.reminders.session.sent, 1);
     assert.equal(result.reminders.session.noDevices, 1);
   });
