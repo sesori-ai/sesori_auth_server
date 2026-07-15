@@ -41,7 +41,9 @@ export class ActivationService {
         ? undefined
         : (bridgeSetupAt ?? (observedMilestone === "bridgeSetupAt" ? observedAt : undefined)),
       firstSessionAt: existing?.firstSessionAt
-        ? undefined
+        ? observedMilestone === "firstSessionAt" && observedAt < existing.firstSessionAt
+          ? observedAt
+          : undefined
         : (firstSessionAt ?? (observedMilestone === "firstSessionAt" ? observedAt : undefined)),
     };
     if (existing && !update.mobileSetupAt && !update.bridgeSetupAt && !update.firstSessionAt) {

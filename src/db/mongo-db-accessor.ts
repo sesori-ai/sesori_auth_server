@@ -134,7 +134,7 @@ export class MongoDbAccessor {
         if (dbName === MongoDbDatabase.Auth && collectionName === AuthDbCollection.DeviceTokens) {
           const currentIndexes = await collection.indexes();
           const replacementExists = currentIndexes.some((index) =>
-            indexKeyMatches(index.key as IndexSpecification, { userId: 1, createdAt: 1 }),
+            indexMatchesDesired(index, { spec: { userId: 1, createdAt: 1 } }),
           );
           const superseded = currentIndexes.find((index) =>
             indexKeyMatches(index.key as IndexSpecification, { userId: 1 }),

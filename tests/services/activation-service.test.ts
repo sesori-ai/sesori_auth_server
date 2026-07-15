@@ -147,6 +147,17 @@ describe("ActivationService", () => {
     assert.equal(state.sessionReminderBaseAt?.toISOString(), bridge.addedAt.toISOString());
   });
 
+  it("preserves an earlier observed session time when its initial read loses a race", async () => {
+    const user = await ctx.createUser();
+    const earlierAt = new Date("2026-07-12T10:00:00.000Z");
+    const laterAt = new Date("2026-07-12T10:00:01.000Z");
+    await activationStateRepo.recordMilestones(user.userId, { firstSessionAt: laterAt }, laterAt);
+
+    const state = await service.recordFirstSession(user.userId, earlierAt);
+
+    assert.equal(state.firstSessionAt?.toISOString(), earlierAt.toISOString());
+  });
+
   it("retries unresolved historical reconciliation on later token registration", async () => {
     const user = await ctx.createUser();
     const mobileAt = new Date("2026-07-10T08:00:00.000Z");

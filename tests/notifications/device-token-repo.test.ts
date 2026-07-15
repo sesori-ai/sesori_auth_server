@@ -140,6 +140,32 @@ describe("DeviceTokenRepository", () => {
     });
   });
 
+  it("ensureIndexes retains the user-only index when the compound replacement has conflicting options", async () => {
+    const collection = ctx.dbAccessor.getCollection<DeviceToken>(MongoDbDatabase.Auth, AuthDbCollection.DeviceTokens);
+    await collection.deleteMany({});
+    await collection.dropIndex("userId_1_createdAt_1");
+    await collection.createIndex({ userId: 1, createdAt: 1 }, { unique: true });
+    await collection.createIndex({ userId: 1 });
+
+    await ctx.dbAccessor.ensureIndexes();
+
+    let indexes = await collection.indexes();
+    assert.equal(
+      indexes.some((candidate) => candidate.name === "userId_1"),
+      true,
+    );
+    assert.equal(indexes.find((candidate) => candidate.name === "userId_1_createdAt_1")?.unique, true);
+
+    await collection.dropIndex("userId_1_createdAt_1");
+    await ctx.dbAccessor.ensureIndexes();
+    indexes = await collection.indexes();
+    assert.equal(
+      indexes.some((candidate) => candidate.name === "userId_1"),
+      false,
+    );
+    assert.equal(indexes.find((candidate) => candidate.name === "userId_1_createdAt_1")?.unique, undefined);
+  });
+
   it("deleteByToken removes specific token", async () => {
     const user = await ctx.createUser();
 
