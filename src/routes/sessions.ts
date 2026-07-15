@@ -3,6 +3,7 @@ import { BadRequestError } from "../lib/errors.js";
 import { generateMetadataBodySchema } from "../models/api.js";
 import type { GenerateMetadataBody, GenerateMetadataReply } from "../models/api.js";
 import type { SessionMetadataService } from "../services/session-metadata-service.js";
+import type { ActivationService } from "../services/activation-service.js";
 
 const METADATA_RATE_LIMIT = {
   max: 5,
@@ -12,11 +13,12 @@ const METADATA_RATE_LIMIT = {
 
 export type SessionRouteOptions = {
   sessionMetadataService: SessionMetadataService;
+  activationService: ActivationService;
   requireAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
 };
 
 export const sessionRoutes: FastifyPluginAsync<SessionRouteOptions> = async (fastify, opts) => {
-  const { sessionMetadataService, requireAuth } = opts;
+  const { sessionMetadataService, activationService, requireAuth } = opts;
 
   fastify.post<{ Body: GenerateMetadataBody; Reply: GenerateMetadataReply }>(
     "/sessions/generate-metadata",
@@ -28,6 +30,11 @@ export const sessionRoutes: FastifyPluginAsync<SessionRouteOptions> = async (fas
       }
 
       const userId = request.user!.userId.toString();
+      try {
+        await activationService.recordFirstSession(userId);
+      } catch (error) {
+        console.warn("[ActivationService] Failed to record first session", { userId, error });
+      }
 
       return sessionMetadataService.generateMetadata({
         userId,

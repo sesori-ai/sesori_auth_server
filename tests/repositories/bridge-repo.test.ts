@@ -2,6 +2,8 @@ import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
 import { BridgeRepository } from "../../src/repositories/bridge-repo.js";
+import type { Bridge } from "../../src/models/documents.js";
+import { AuthDbCollection, MongoDbDatabase } from "../../src/types/mongo.js";
 
 describe("BridgeRepository", () => {
   let ctx: TestContext;
@@ -88,6 +90,24 @@ describe("BridgeRepository", () => {
     const bridges = await repo.findByUserId(user.userId);
     assert.equal(bridges.length, 1);
     assert.equal(bridges[0]?.bridgeId, b1.bridgeId);
+  });
+
+  it("findEarliestAddedAt includes revoked bridges", async () => {
+    const user = await ctx.createUser();
+    const repo = new BridgeRepository(ctx.dbAccessor);
+    const first = await repo.register({ userId: user.userId, name: "First", platform: "macos" });
+    const second = await repo.register({ userId: user.userId, name: "Second", platform: "linux" });
+    const firstAt = new Date("2026-07-10T10:00:00.000Z");
+    const secondAt = new Date("2026-07-12T10:00:00.000Z");
+    const collection = ctx.dbAccessor.getCollection<Bridge>(MongoDbDatabase.Auth, AuthDbCollection.Bridges);
+    await collection.updateOne({ bridgeId: first.bridgeId }, { $set: { addedAt: firstAt } });
+    await collection.updateOne({ bridgeId: second.bridgeId }, { $set: { addedAt: secondAt } });
+    await repo.revoke(first.bridgeId, user.userId, new Date("2026-07-13T10:00:00.000Z"));
+
+    assert.equal((await repo.findEarliestAddedAt(user.userId))?.toISOString(), firstAt.toISOString());
+    assert.equal(await repo.findEarliestAddedAt("invalid-id"), null);
+    const index = (await collection.indexes()).find((candidate) => candidate.name === "userId_1_addedAt_1");
+    assert.deepEqual(index?.key, { userId: 1, addedAt: 1 });
   });
 
   it("register is not an upsert — second call creates a new row", async () => {

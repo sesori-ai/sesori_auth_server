@@ -4,6 +4,12 @@ import { InternalServerError } from "../lib/errors.js";
 import type { ActivationState } from "../models/documents.js";
 import { AuthDbCollection, MongoDbDatabase } from "../types/mongo.js";
 
+export type ActivationMilestoneUpdate = {
+  mobileSetupAt?: Date;
+  bridgeSetupAt?: Date;
+  firstSessionAt?: Date;
+};
+
 export class ActivationStateRepository {
   readonly #collection: Collection<ActivationState>;
 
@@ -59,5 +65,55 @@ export class ActivationStateRepository {
       }
       throw error;
     }
+  }
+
+  async recordMilestones(userId: string, update: ActivationMilestoneUpdate, at = new Date()): Promise<ActivationState> {
+    await this.createIfAbsent(userId, at);
+    const objectUserId = new ObjectId(userId);
+    const mobileCandidate = update.mobileSetupAt ?? null;
+    const bridgeCandidate = update.bridgeSetupAt ?? null;
+    const sessionCandidate = update.firstSessionAt ?? null;
+    const state = await this.#collection.findOneAndUpdate(
+      { userId: objectUserId },
+      [
+        {
+          $set: {
+            mobileSetupAt: { $ifNull: ["$mobileSetupAt", mobileCandidate] },
+            bridgeSetupAt: { $ifNull: ["$bridgeSetupAt", bridgeCandidate] },
+            firstSessionAt: { $ifNull: ["$firstSessionAt", sessionCandidate] },
+            bridgeReminderBaseAt: {
+              $ifNull: ["$bridgeReminderBaseAt", { $ifNull: ["$mobileSetupAt", mobileCandidate] }],
+            },
+            updatedAt: at,
+          },
+        },
+        {
+          $set: {
+            sessionReminderBaseAt: {
+              $ifNull: [
+                "$sessionReminderBaseAt",
+                {
+                  $cond: [
+                    {
+                      $and: [{ $ne: ["$mobileSetupAt", null] }, { $ne: ["$bridgeSetupAt", null] }],
+                    },
+                    {
+                      $cond: [{ $gte: ["$mobileSetupAt", "$bridgeSetupAt"] }, "$mobileSetupAt", "$bridgeSetupAt"],
+                    },
+                    null,
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      ],
+      { returnDocument: "after" },
+    );
+
+    if (!state) {
+      throw new InternalServerError({ debugMessage: "Failed to record activation milestones" });
+    }
+    return state;
   }
 }

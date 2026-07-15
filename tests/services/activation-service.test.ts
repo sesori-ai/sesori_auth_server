@@ -1,0 +1,169 @@
+import assert from "node:assert/strict";
+import { after, before, describe, it } from "node:test";
+import { ObjectId } from "mongodb";
+import type { Bridge, DailyUsage, DeviceToken } from "../../src/models/documents.js";
+import { ActivationStateRepository } from "../../src/repositories/activation-state-repo.js";
+import { BridgeRepository } from "../../src/repositories/bridge-repo.js";
+import { DailyUsageRepository } from "../../src/repositories/daily-usage-repo.js";
+import { DeviceTokenRepository } from "../../src/repositories/device-token-repo.js";
+import { ActivationService } from "../../src/services/activation-service.js";
+import { AuthDbCollection, MongoDbDatabase } from "../../src/types/mongo.js";
+import { createTestApp, type TestContext } from "../helpers/setup.js";
+
+describe("ActivationService", () => {
+  let ctx: TestContext;
+  let activationStateRepo: ActivationStateRepository;
+  let bridgeRepo: BridgeRepository;
+  let dailyUsageRepo: DailyUsageRepository;
+  let deviceTokenRepo: DeviceTokenRepository;
+  let service: ActivationService;
+
+  before(async () => {
+    ctx = await createTestApp();
+    activationStateRepo = new ActivationStateRepository(ctx.dbAccessor);
+    bridgeRepo = new BridgeRepository(ctx.dbAccessor);
+    dailyUsageRepo = new DailyUsageRepository(ctx.dbAccessor);
+    deviceTokenRepo = new DeviceTokenRepository(ctx.dbAccessor);
+    service = new ActivationService({ activationStateRepo, bridgeRepo, dailyUsageRepo, deviceTokenRepo });
+  });
+
+  after(async () => {
+    await ctx.cleanup();
+  });
+
+  it("enrolls mobile setup and reconciles historical bridge and session milestones", async () => {
+    const user = await ctx.createUser();
+    const mobileAt = new Date("2026-07-10T08:00:00.000Z");
+    const bridgeAt = new Date("2026-07-11T09:00:00.000Z");
+    const sessionAt = new Date("2026-07-12T10:00:00.000Z");
+    const observedAt = new Date("2026-07-15T10:00:00.000Z");
+    await ctx.dbAccessor.getCollection<DeviceToken>(MongoDbDatabase.Auth, AuthDbCollection.DeviceTokens).insertOne({
+      _id: new ObjectId(),
+      userId: new ObjectId(user.userId),
+      token: `activation-token-${user.userId}`,
+      platform: "ios",
+      createdAt: mobileAt,
+      updatedAt: mobileAt,
+    });
+    const bridge = await bridgeRepo.register({ userId: user.userId, name: "Historical", platform: "macos" });
+    await ctx.dbAccessor
+      .getCollection<Bridge>(MongoDbDatabase.Auth, AuthDbCollection.Bridges)
+      .updateOne({ bridgeId: bridge.bridgeId }, { $set: { addedAt: bridgeAt, revokedAt: observedAt } });
+    await ctx.dbAccessor.getCollection<DailyUsage>(MongoDbDatabase.Auth, AuthDbCollection.DailyUsage).insertOne({
+      _id: new ObjectId(),
+      userId: new ObjectId(user.userId),
+      date: "2026-07-12",
+      transcriptionSeconds: 0,
+      metadataRequestCount: 1,
+      createdAt: sessionAt,
+      updatedAt: sessionAt,
+    });
+
+    const state = await service.recordMobileSetup(user.userId, observedAt);
+
+    assert.equal(state.mobileSetupAt?.toISOString(), mobileAt.toISOString());
+    assert.equal(state.bridgeSetupAt?.toISOString(), bridgeAt.toISOString());
+    assert.equal(state.firstSessionAt?.toISOString(), sessionAt.toISOString());
+    assert.equal(state.bridgeReminderBaseAt?.toISOString(), mobileAt.toISOString());
+    assert.equal(state.sessionReminderBaseAt?.toISOString(), bridgeAt.toISOString());
+  });
+
+  it("records bridge and session milestones before mobile setup without creating reminder baselines", async () => {
+    const user = await ctx.createUser();
+    const bridgeAt = new Date("2026-07-12T10:00:00.000Z");
+    const sessionAt = new Date("2026-07-12T11:00:00.000Z");
+
+    await service.recordBridgeSetup(user.userId, bridgeAt);
+    const state = await service.recordFirstSession(user.userId, sessionAt);
+
+    assert.equal(state.mobileSetupAt, null);
+    assert.equal(state.bridgeSetupAt?.toISOString(), bridgeAt.toISOString());
+    assert.equal(state.firstSessionAt?.toISOString(), sessionAt.toISOString());
+    assert.equal(state.bridgeReminderBaseAt, null);
+    assert.equal(state.sessionReminderBaseAt, null);
+  });
+
+  it("uses the earliest historical bridge when recording a later registration", async () => {
+    const user = await ctx.createUser();
+    const historicalAt = new Date("2026-07-10T10:00:00.000Z");
+    const observedAt = new Date("2026-07-15T10:00:00.000Z");
+    const historical = await bridgeRepo.register({ userId: user.userId, name: "Historical", platform: "macos" });
+    const collection = ctx.dbAccessor.getCollection<Bridge>(MongoDbDatabase.Auth, AuthDbCollection.Bridges);
+    await collection.updateOne(
+      { bridgeId: historical.bridgeId },
+      { $set: { addedAt: historicalAt, revokedAt: observedAt } },
+    );
+    await bridgeRepo.register({ userId: user.userId, name: "Current", platform: "linux" });
+
+    const state = await service.recordBridgeSetup(user.userId, observedAt);
+
+    assert.equal(state.bridgeSetupAt?.toISOString(), historicalAt.toISOString());
+  });
+
+  it("uses historical metadata evidence when recording a later session request", async () => {
+    const user = await ctx.createUser();
+    const historicalAt = new Date("2026-07-10T10:00:00.000Z");
+    const observedAt = new Date("2026-07-15T10:00:00.000Z");
+    await ctx.dbAccessor.getCollection<DailyUsage>(MongoDbDatabase.Auth, AuthDbCollection.DailyUsage).insertOne({
+      _id: new ObjectId(),
+      userId: new ObjectId(user.userId),
+      date: "2026-07-10",
+      transcriptionSeconds: 0,
+      metadataRequestCount: 1,
+      createdAt: historicalAt,
+      updatedAt: historicalAt,
+    });
+
+    const state = await service.recordFirstSession(user.userId, observedAt);
+
+    assert.equal(state.firstSessionAt?.toISOString(), historicalAt.toISOString());
+  });
+
+  it("retries unresolved historical reconciliation on later token registration", async () => {
+    const user = await ctx.createUser();
+    const mobileAt = new Date("2026-07-10T08:00:00.000Z");
+    const bridgeAt = new Date("2026-07-11T09:00:00.000Z");
+    const sessionAt = new Date("2026-07-12T10:00:00.000Z");
+    const collection = ctx.dbAccessor.getCollection<DeviceToken>(MongoDbDatabase.Auth, AuthDbCollection.DeviceTokens);
+    await collection.insertOne({
+      _id: new ObjectId(),
+      userId: new ObjectId(user.userId),
+      token: `retry-token-${user.userId}`,
+      platform: "ios",
+      createdAt: mobileAt,
+      updatedAt: mobileAt,
+    });
+    await service.recordMobileSetup(user.userId, mobileAt);
+
+    const bridge = await bridgeRepo.register({ userId: user.userId, name: "Later", platform: "macos" });
+    await ctx.dbAccessor
+      .getCollection<Bridge>(MongoDbDatabase.Auth, AuthDbCollection.Bridges)
+      .updateOne({ bridgeId: bridge.bridgeId }, { $set: { addedAt: bridgeAt } });
+    await ctx.dbAccessor.getCollection<DailyUsage>(MongoDbDatabase.Auth, AuthDbCollection.DailyUsage).insertOne({
+      _id: new ObjectId(),
+      userId: new ObjectId(user.userId),
+      date: "2026-07-12",
+      transcriptionSeconds: 0,
+      metadataRequestCount: 1,
+      createdAt: sessionAt,
+      updatedAt: sessionAt,
+    });
+
+    const state = await service.recordMobileSetup(user.userId, new Date("2026-07-15T10:00:00.000Z"));
+
+    assert.equal(state.mobileSetupAt?.toISOString(), mobileAt.toISOString());
+    assert.equal(state.bridgeSetupAt?.toISOString(), bridgeAt.toISOString());
+    assert.equal(state.firstSessionAt?.toISOString(), sessionAt.toISOString());
+    assert.equal(state.sessionReminderBaseAt?.toISOString(), bridgeAt.toISOString());
+  });
+
+  it("falls back to the observed registration time when no token history is available", async () => {
+    const user = await ctx.createUser();
+    const observedAt = new Date("2026-07-12T10:00:00.000Z");
+
+    const state = await service.recordMobileSetup(user.userId, observedAt);
+
+    assert.equal(state.mobileSetupAt?.toISOString(), observedAt.toISOString());
+    assert.equal(state.bridgeReminderBaseAt?.toISOString(), observedAt.toISOString());
+  });
+});

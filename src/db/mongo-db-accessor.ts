@@ -38,6 +38,7 @@ const DATABASE_CONFIG: Record<MongoDbDatabase, DatabaseConfig<string>> = {
         // Covers the hot /auth/me path: findByUserId and revokeAllForUser
         // filter on { userId, revokedAt: null }. No query filters on status.
         { spec: { userId: 1, revokedAt: 1 } },
+        { spec: { userId: 1, addedAt: 1 } },
       ],
       [AuthDbCollection.ActivationStates]: [
         { spec: { userId: 1 }, options: { unique: true } },

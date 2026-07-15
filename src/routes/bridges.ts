@@ -7,6 +7,7 @@ import {
   type BridgesListReply,
 } from "../models/api.js";
 import type { BridgeService } from "../services/bridge-service.js";
+import type { ActivationService } from "../services/activation-service.js";
 
 function getUserId(request: FastifyRequest): string {
   if (!request.user) throw new UnauthenticatedError();
@@ -15,11 +16,12 @@ function getUserId(request: FastifyRequest): string {
 
 export type BridgeRouteOptions = {
   bridgeService: BridgeService;
+  activationService: ActivationService;
   requireAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
 };
 
 export const bridgeRoutes: FastifyPluginAsync<BridgeRouteOptions> = async (fastify, opts) => {
-  const { bridgeService, requireAuth } = opts;
+  const { bridgeService, activationService, requireAuth } = opts;
 
   // Idempotent registration: an optional bridgeId that matches a non-revoked
   // bridge owned by the caller updates that bridge (200); otherwise a new
@@ -35,6 +37,11 @@ export const bridgeRoutes: FastifyPluginAsync<BridgeRouteOptions> = async (fasti
 
       const userId = getUserId(request);
       const { bridge, created } = await bridgeService.registerForUser(userId, bodyResult.data);
+      try {
+        await activationService.recordBridgeSetup(userId, new Date(bridge.addedAt));
+      } catch (error) {
+        console.warn("[ActivationService] Failed to record bridge setup", { userId, error });
+      }
       reply.status(created ? 201 : 200);
       return bridge;
     },

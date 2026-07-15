@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
+import { ObjectId } from "mongodb";
+import type { DeviceToken } from "../../src/models/documents.js";
 import { DeviceTokenRepository } from "../../src/repositories/device-token-repo.js";
+import { AuthDbCollection, MongoDbDatabase } from "../../src/types/mongo.js";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
 
 describe("DeviceTokenRepository", () => {
@@ -32,6 +35,7 @@ describe("DeviceTokenRepository", () => {
 
     await repo.upsertToken(user.userId, "token-idempotent", "ios");
     const first = await repo.findByUserId(user.userId);
+    const firstCreatedAt = first[0]?.createdAt;
     const firstUpdatedAt = first[0]?.updatedAt;
 
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -40,9 +44,30 @@ describe("DeviceTokenRepository", () => {
     const second = await repo.findByUserId(user.userId);
     assert.equal(second.length, 1);
     assert.equal(second[0]?.platform, "android");
+    assert.ok(firstCreatedAt instanceof Date);
     assert.ok(firstUpdatedAt instanceof Date);
+    assert.equal(second[0]?.createdAt.toISOString(), firstCreatedAt.toISOString());
     assert.ok(second[0]?.updatedAt instanceof Date);
     assert.ok((second[0]?.updatedAt.getTime() ?? 0) >= firstUpdatedAt.getTime());
+  });
+
+  it("upsertToken resets createdAt when a token moves to another user", async () => {
+    const firstUser = await ctx.createUser();
+    const secondUser = await ctx.createUser();
+
+    await repo.upsertToken(firstUser.userId, "token-transferred", "ios");
+    const firstRegistration = (await repo.findByUserId(firstUser.userId))[0];
+    assert.ok(firstRegistration);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    await repo.upsertToken(secondUser.userId, "token-transferred", "android");
+
+    assert.equal((await repo.findByUserId(firstUser.userId)).length, 0);
+    const transferred = (await repo.findByUserId(secondUser.userId))[0];
+    assert.ok(transferred);
+    assert.equal(transferred.platform, "android");
+    assert.ok(transferred.createdAt.getTime() > firstRegistration.createdAt.getTime());
+    assert.equal(transferred.createdAt.toISOString(), transferred.updatedAt.toISOString());
   });
 
   it("findByUserId returns all tokens for user", async () => {
@@ -54,6 +79,34 @@ describe("DeviceTokenRepository", () => {
     const tokens = await repo.findByUserId(user.userId);
     assert.equal(tokens.length, 2);
     assert.deepEqual(new Set(tokens.map((token) => token.token)), new Set(["token-list-1", "token-list-2"]));
+  });
+
+  it("findEarliestCreatedAt returns the first extant token registration", async () => {
+    const user = await ctx.createUser();
+    const firstAt = new Date("2026-07-10T10:00:00.000Z");
+    const secondAt = new Date("2026-07-12T10:00:00.000Z");
+    const collection = ctx.dbAccessor.getCollection<DeviceToken>(MongoDbDatabase.Auth, AuthDbCollection.DeviceTokens);
+    await collection.insertMany([
+      {
+        _id: new ObjectId(),
+        userId: new ObjectId(user.userId),
+        token: `earliest-token-${user.userId}`,
+        platform: "ios",
+        createdAt: firstAt,
+        updatedAt: firstAt,
+      },
+      {
+        _id: new ObjectId(),
+        userId: new ObjectId(user.userId),
+        token: `later-token-${user.userId}`,
+        platform: "android",
+        createdAt: secondAt,
+        updatedAt: secondAt,
+      },
+    ]);
+
+    assert.equal((await repo.findEarliestCreatedAt(user.userId))?.toISOString(), firstAt.toISOString());
+    assert.equal(await repo.findEarliestCreatedAt("invalid-id"), null);
   });
 
   it("deleteByToken removes specific token", async () => {

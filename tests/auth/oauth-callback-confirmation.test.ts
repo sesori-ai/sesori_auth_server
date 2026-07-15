@@ -116,6 +116,7 @@ function createTestServices(params: {
     deviceTokenRepo: {} as AppServices["deviceTokenRepo"],
     notificationService: {} as AppServices["notificationService"],
     bridgeStateTracker: {} as AppServices["bridgeStateTracker"],
+    activationService: {} as AppServices["activationService"],
     stateStore: new StateStore(),
     pendingAuthStore: params.pendingAuthStore,
     githubClient: githubClient as unknown as AppServices["githubClient"],
