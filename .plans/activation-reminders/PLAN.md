@@ -185,6 +185,8 @@ Acceptance criteria:
 - [x] Retain the earliest first-session candidate when concurrent initial writes reach MongoDB out of order.
 - [x] On device-token registration, enroll the user from the earliest extant token, reset transferred-token history for the new owner, and retry unresolved bridge/session reconciliation.
 - [x] Add `{ userId: 1, createdAt: 1 }` to support historical device-token lookup.
+- [x] Remove the superseded `{ userId: 1 }` token index after confirming its compound replacement exists.
+- [x] Validate token owner IDs with the typed internal error used at repository boundaries.
 - [x] Reconcile bridge state from the earliest historical bridge, including revoked bridges.
 - [x] Add `{ userId: 1, addedAt: 1 }` to support historical bridge lookup.
 - [x] Reconcile session state from historical `dailyUsage.metadataRequestCount > 0` data using the earliest qualifying document's `createdAt`.
@@ -212,11 +214,11 @@ PR2 non-goals:
 
 PR2 verification results:
 
-- Focused activation/repository/route suite: passed, 103 tests.
+- Focused activation/repository/route suite: passed, 104 tests.
 - `npm run build`: passed.
 - `npm run lint`: passed with no warnings.
 - `npm run format:check`: passed.
-- `npm test`: passed, 355 tests passed, 1 skipped, 0 failed across 39 top-level suites.
+- `npm test`: passed, 356 tests passed, 1 skipped, 0 failed across 39 top-level suites.
 - `npm run circular-dependencies`: passed; no circular dependencies found.
 - `git diff --check`: passed.
 
@@ -294,3 +296,4 @@ PR4 exit condition:
 - 2026-07-15: Human PR1 review feedback addressed. Documented timestamp and index invariants in source, clarified intended status labels, and made concurrent first-enrollment upserts recover from duplicate-key races. All verification passed.
 - 2026-07-15: PR1 merged as #38. PR2 implementation completed: atomic milestone recording, historical reconciliation, three failure-isolated endpoint hooks, lifetime revoke semantics, and comprehensive tests. Pre-delivery review also hardened transferred-token timestamps, direct bridge/session historical reconciliation, retry repair, and concurrent first writes. All verification passed. PR3 is next and has not started.
 - 2026-07-15: PR2 automated review feedback addressed. Added cross-stage repair from every event hook, earliest-wins concurrent session recording, defensive token user validation, and the compound token reconciliation index. Retained the documented metadata-attempt and historical timestamp semantics. All verification passed.
+- 2026-07-15: PR2 second automated review addressed. Added safe cleanup for the superseded device-token index and changed invalid token owner handling to the typed repository-boundary error. Confirmed mobile/bridge concurrency already resolves from earliest durable source timestamps. All verification passed.

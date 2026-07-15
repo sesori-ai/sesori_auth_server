@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { ObjectId } from "mongodb";
+import { InternalServerError } from "../../src/lib/errors.js";
 import type { DeviceToken } from "../../src/models/documents.js";
 import { DeviceTokenRepository } from "../../src/repositories/device-token-repo.js";
 import { AuthDbCollection, MongoDbDatabase } from "../../src/types/mongo.js";
@@ -71,7 +72,14 @@ describe("DeviceTokenRepository", () => {
   });
 
   it("upsertToken rejects an invalid user id", async () => {
-    await assert.rejects(() => repo.upsertToken("invalid-id", "token-invalid", "ios"), /Invalid userId/);
+    await assert.rejects(
+      () => repo.upsertToken("invalid-id", "token-invalid", "ios"),
+      (error: unknown) => {
+        assert.ok(error instanceof InternalServerError);
+        assert.equal(error.debugMessage, "Invalid device token userId");
+        return true;
+      },
+    );
   });
 
   it("findByUserId returns all tokens for user", async () => {
@@ -113,6 +121,23 @@ describe("DeviceTokenRepository", () => {
     assert.equal(await repo.findEarliestCreatedAt("invalid-id"), null);
     const index = (await collection.indexes()).find((candidate) => candidate.name === "userId_1_createdAt_1");
     assert.deepEqual(index?.key, { userId: 1, createdAt: 1 });
+  });
+
+  it("ensureIndexes removes the superseded user-only token index", async () => {
+    const collection = ctx.dbAccessor.getCollection<DeviceToken>(MongoDbDatabase.Auth, AuthDbCollection.DeviceTokens);
+    await collection.createIndex({ userId: 1 });
+
+    await ctx.dbAccessor.ensureIndexes();
+
+    const indexes = await collection.indexes();
+    assert.equal(
+      indexes.some((candidate) => candidate.name === "userId_1"),
+      false,
+    );
+    assert.deepEqual(indexes.find((candidate) => candidate.name === "userId_1_createdAt_1")?.key, {
+      userId: 1,
+      createdAt: 1,
+    });
   });
 
   it("deleteByToken removes specific token", async () => {

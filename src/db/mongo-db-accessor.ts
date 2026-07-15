@@ -128,6 +128,21 @@ export class MongoDbAccessor {
             throw error;
           }
         }
+
+        // The compound lookup index supersedes PR1's user-only token index.
+        // Drop the old index only after confirming its replacement exists.
+        if (dbName === MongoDbDatabase.Auth && collectionName === AuthDbCollection.DeviceTokens) {
+          const currentIndexes = await collection.indexes();
+          const replacementExists = currentIndexes.some((index) =>
+            indexKeyMatches(index.key as IndexSpecification, { userId: 1, createdAt: 1 }),
+          );
+          const superseded = currentIndexes.find((index) =>
+            indexKeyMatches(index.key as IndexSpecification, { userId: 1 }),
+          );
+          if (replacementExists && superseded?.name) {
+            await collection.dropIndex(superseded.name);
+          }
+        }
       }
     }
   }
