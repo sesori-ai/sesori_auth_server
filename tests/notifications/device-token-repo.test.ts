@@ -70,6 +70,10 @@ describe("DeviceTokenRepository", () => {
     assert.equal(transferred.createdAt.toISOString(), transferred.updatedAt.toISOString());
   });
 
+  it("upsertToken rejects an invalid user id", async () => {
+    await assert.rejects(() => repo.upsertToken("invalid-id", "token-invalid", "ios"), /Invalid userId/);
+  });
+
   it("findByUserId returns all tokens for user", async () => {
     const user = await ctx.createUser();
 
@@ -107,6 +111,8 @@ describe("DeviceTokenRepository", () => {
 
     assert.equal((await repo.findEarliestCreatedAt(user.userId))?.toISOString(), firstAt.toISOString());
     assert.equal(await repo.findEarliestCreatedAt("invalid-id"), null);
+    const index = (await collection.indexes()).find((candidate) => candidate.name === "userId_1_createdAt_1");
+    assert.deepEqual(index?.key, { userId: 1, createdAt: 1 });
   });
 
   it("deleteByToken removes specific token", async () => {

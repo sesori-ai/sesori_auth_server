@@ -97,6 +97,7 @@ Planned indexes:
 - `{ bridgeSetupAt: 1, bridgeReminder1SentAt: 1, bridgeReminderBaseAt: 1 }`.
 - `{ bridgeSetupAt: 1, bridgeReminder2SentAt: 1, bridgeReminderBaseAt: 1 }`.
 - `{ firstSessionAt: 1, sessionReminderSentAt: 1, sessionReminderBaseAt: 1 }`.
+- Supporting historical mobile reconciliation: `deviceTokens { userId: 1, createdAt: 1 }`.
 - Supporting historical bridge reconciliation: `bridges { userId: 1, addedAt: 1 }`.
 
 The equality fields precede each due-time range field so the future sweep queries can use the indexes directly.
@@ -180,13 +181,16 @@ Intended post-merge status: merged
 Acceptance criteria:
 
 - [x] Add `ActivationService` to own reconciliation and milestone invariants.
-- [x] Add an atomic, set-once milestone update that derives reminder baselines correctly for either event order.
+- [x] Add an atomic milestone update that preserves first-event timestamps and derives reminder baselines correctly for either event order.
+- [x] Retain the earliest first-session candidate when concurrent initial writes reach MongoDB out of order.
 - [x] On device-token registration, enroll the user from the earliest extant token, reset transferred-token history for the new owner, and retry unresolved bridge/session reconciliation.
+- [x] Add `{ userId: 1, createdAt: 1 }` to support historical device-token lookup.
 - [x] Reconcile bridge state from the earliest historical bridge, including revoked bridges.
 - [x] Add `{ userId: 1, addedAt: 1 }` to support historical bridge lookup.
 - [x] Reconcile session state from historical `dailyUsage.metadataRequestCount > 0` data using the earliest qualifying document's `createdAt`.
 - [x] Set `bridgeSetupAt` idempotently after bridge registration, using the earliest historical `addedAt` across active and revoked bridges.
 - [x] Set `firstSessionAt` before metadata generation for a valid authenticated request, preferring earlier historical metadata evidence when present, because the bridge proceeds when metadata generation fails.
+- [x] Reconcile all still-missing historical milestones from each event hook so a later event repairs an earlier failure-isolated write.
 - [x] Derive `sessionReminderBaseAt` from the later of mobile and bridge setup.
 - [x] Catch and log activation errors at every endpoint boundary without changing the existing endpoint response.
 - [x] Document that logout/revoke retains lifetime activation history.
@@ -208,11 +212,11 @@ PR2 non-goals:
 
 PR2 verification results:
 
-- Focused activation/repository/route suite: passed, 99 tests.
+- Focused activation/repository/route suite: passed, 103 tests.
 - `npm run build`: passed.
 - `npm run lint`: passed with no warnings.
 - `npm run format:check`: passed.
-- `npm test`: passed, 351 tests passed, 1 skipped, 0 failed across 39 top-level suites.
+- `npm test`: passed, 355 tests passed, 1 skipped, 0 failed across 39 top-level suites.
 - `npm run circular-dependencies`: passed; no circular dependencies found.
 - `git diff --check`: passed.
 
@@ -289,3 +293,4 @@ PR4 exit condition:
 - 2026-07-15: PR1 review feedback addressed. Clarified metadata-attempt semantics, retry and FCM-unavailable behavior, and backfill race guarantees; added defensive ObjectId validation and tests. All verification passed.
 - 2026-07-15: Human PR1 review feedback addressed. Documented timestamp and index invariants in source, clarified intended status labels, and made concurrent first-enrollment upserts recover from duplicate-key races. All verification passed.
 - 2026-07-15: PR1 merged as #38. PR2 implementation completed: atomic milestone recording, historical reconciliation, three failure-isolated endpoint hooks, lifetime revoke semantics, and comprehensive tests. Pre-delivery review also hardened transferred-token timestamps, direct bridge/session historical reconciliation, retry repair, and concurrent first writes. All verification passed. PR3 is next and has not started.
+- 2026-07-15: PR2 automated review feedback addressed. Added cross-stage repair from every event hook, earliest-wins concurrent session recording, defensive token user validation, and the compound token reconciliation index. Retained the documented metadata-attempt and historical timestamp semantics. All verification passed.

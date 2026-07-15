@@ -100,6 +100,20 @@ describe("ActivationService", () => {
     assert.equal(state.bridgeSetupAt?.toISOString(), historicalAt.toISOString());
   });
 
+  it("repairs mobile setup from token history when recording bridge setup", async () => {
+    const user = await ctx.createUser();
+    await deviceTokenRepo.upsertToken(user.userId, `bridge-repair-token-${user.userId}`, "ios");
+    const mobileAt = await deviceTokenRepo.findEarliestCreatedAt(user.userId);
+    const bridge = await bridgeRepo.register({ userId: user.userId, name: "Repair", platform: "macos" });
+
+    const state = await service.recordBridgeSetup(user.userId, bridge.addedAt);
+
+    assert.equal(state.mobileSetupAt?.toISOString(), mobileAt?.toISOString());
+    assert.equal(state.bridgeSetupAt?.toISOString(), bridge.addedAt.toISOString());
+    assert.equal(state.bridgeReminderBaseAt?.toISOString(), mobileAt?.toISOString());
+    assert.equal(state.sessionReminderBaseAt?.toISOString(), bridge.addedAt.toISOString());
+  });
+
   it("uses historical metadata evidence when recording a later session request", async () => {
     const user = await ctx.createUser();
     const historicalAt = new Date("2026-07-10T10:00:00.000Z");
@@ -117,6 +131,20 @@ describe("ActivationService", () => {
     const state = await service.recordFirstSession(user.userId, observedAt);
 
     assert.equal(state.firstSessionAt?.toISOString(), historicalAt.toISOString());
+  });
+
+  it("repairs bridge setup from bridge history when recording a session", async () => {
+    const user = await ctx.createUser();
+    const mobileAt = new Date("2026-07-10T10:00:00.000Z");
+    const sessionAt = new Date("2026-07-12T10:00:00.000Z");
+    await activationStateRepo.recordMilestones(user.userId, { mobileSetupAt: mobileAt }, mobileAt);
+    const bridge = await bridgeRepo.register({ userId: user.userId, name: "Repair", platform: "linux" });
+
+    const state = await service.recordFirstSession(user.userId, sessionAt);
+
+    assert.equal(state.bridgeSetupAt?.toISOString(), bridge.addedAt.toISOString());
+    assert.equal(state.firstSessionAt?.toISOString(), sessionAt.toISOString());
+    assert.equal(state.sessionReminderBaseAt?.toISOString(), bridge.addedAt.toISOString());
   });
 
   it("retries unresolved historical reconciliation on later token registration", async () => {

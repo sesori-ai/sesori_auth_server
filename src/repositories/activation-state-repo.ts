@@ -80,7 +80,21 @@ export class ActivationStateRepository {
           $set: {
             mobileSetupAt: { $ifNull: ["$mobileSetupAt", mobileCandidate] },
             bridgeSetupAt: { $ifNull: ["$bridgeSetupAt", bridgeCandidate] },
-            firstSessionAt: { $ifNull: ["$firstSessionAt", sessionCandidate] },
+            firstSessionAt: {
+              $cond: [
+                { $eq: [sessionCandidate, null] },
+                "$firstSessionAt",
+                {
+                  $cond: [
+                    {
+                      $or: [{ $eq: ["$firstSessionAt", null] }, { $lt: [sessionCandidate, "$firstSessionAt"] }],
+                    },
+                    sessionCandidate,
+                    "$firstSessionAt",
+                  ],
+                },
+              ],
+            },
             bridgeReminderBaseAt: {
               $ifNull: ["$bridgeReminderBaseAt", { $ifNull: ["$mobileSetupAt", mobileCandidate] }],
             },

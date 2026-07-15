@@ -165,6 +165,17 @@ describe("ActivationStateRepository", () => {
     assert.equal(state?.sessionReminderBaseAt?.toISOString(), bridgeAt.toISOString());
   });
 
+  it("retains the earlier first-session candidate when concurrent writes arrive out of order", async () => {
+    const user = await ctx.createUser();
+    const earlierAt = new Date("2026-07-12T10:00:00.000Z");
+    const laterAt = new Date("2026-07-12T10:00:01.000Z");
+
+    await repo.recordMilestones(user.userId, { firstSessionAt: laterAt }, laterAt);
+    const state = await repo.recordMilestones(user.userId, { firstSessionAt: earlierAt }, earlierAt);
+
+    assert.equal(state.firstSessionAt?.toISOString(), earlierAt.toISOString());
+  });
+
   it("creates the indexes needed by future reminder sweeps", async () => {
     const collection = ctx.dbAccessor.getCollection<ActivationState>(
       MongoDbDatabase.Auth,

@@ -11,6 +11,9 @@ export class DeviceTokenRepository {
   }
 
   async upsertToken(userId: string, token: string, platform: "ios" | "android"): Promise<void> {
+    if (!ObjectId.isValid(userId)) {
+      throw new Error("Invalid userId");
+    }
     const now = new Date();
     const objectUserId = new ObjectId(userId);
     await this.#collection.updateOne(
