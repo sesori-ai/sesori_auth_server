@@ -69,9 +69,9 @@ else
   exit 2
 fi
 
-BODY_FILE_PATTERN="^/tmp/pr_${PR_NUMBER}_thread_${COMMENT_ID}_reply_[A-Za-z0-9_-]+\\.md$"
+BODY_FILE_PATTERN="^(/private)?/tmp/pr_${PR_NUMBER}_thread_${COMMENT_ID}_reply_[A-Za-z0-9_-]+\\.md$"
 if ! [[ "$BODY_FILE" =~ $BODY_FILE_PATTERN ]]; then
-  echo "Error: Reply body file must use /tmp/pr_${PR_NUMBER}_thread_${COMMENT_ID}_reply_<unique>.md" >&2
+  echo "Error: Reply body file must use /tmp (or /private/tmp)/pr_${PR_NUMBER}_thread_${COMMENT_ID}_reply_<unique>.md" >&2
   exit 2
 fi
 

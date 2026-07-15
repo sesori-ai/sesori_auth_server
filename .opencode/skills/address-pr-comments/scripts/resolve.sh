@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-Usage: resolve.sh <pr-number> <comment-id> [--repo OWNER/REPO]
+Usage: resolve.sh <pr-number> <thread-id> [--repo OWNER/REPO]
 
 Resolves the PR review thread containing the given comment via the GitHub
 GraphQL API (thread resolution is not exposed over REST). Idempotent: an
@@ -11,7 +11,7 @@ already-resolved thread is reported and exits 0.
 
 Arguments:
   pr-number    The pull request number
-  comment-id   A comment ID belonging to the thread (thread_id from fetch.sh)
+  thread-id    The root comment ID returned as thread_id by fetch.sh
 
 Flags:
   --repo OWNER/REPO  Override the current repo. Defaults to gh repo view.
@@ -66,9 +66,9 @@ fi
 OWNER="${REPO%%/*}"
 NAME="${REPO##*/}"
 
-# Find the GraphQL thread node containing the comment. fetch.sh reports the
-# root comment's numeric database ID as thread_id, so match any comment in each
-# thread against it. --paginate walks PRs with more than 100 threads.
+# Find the GraphQL thread by the root comment ID that fetch.sh reports as
+# thread_id. --paginate walks PRs with more than 100 threads; only the root
+# comment is needed regardless of how many replies a thread contains.
 THREAD_JSON="$(gh api graphql --paginate \
   -f owner="$OWNER" -f name="$NAME" -F pr="$PR_NUMBER" \
   -f query='
@@ -80,14 +80,14 @@ THREAD_JSON="$(gh api graphql --paginate \
             nodes {
               id
               isResolved
-              comments(first: 100) { nodes { databaseId } }
+              comments(first: 1) { nodes { databaseId } }
             }
           }
         }
       }
     }' \
   --jq ".data.repository.pullRequest.reviewThreads.nodes[]
-        | select(.comments.nodes[].databaseId == ${COMMENT_ID})" | head -n 1)"
+        | select(.comments.nodes[0].databaseId == ${COMMENT_ID})" | head -n 1)"
 
 if [[ -z "$THREAD_JSON" ]]; then
   echo "Error: no review thread containing comment ${COMMENT_ID} found on PR #${PR_NUMBER} in ${REPO}" >&2

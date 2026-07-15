@@ -31,6 +31,16 @@ async function collectFiles(root, current, files) {
   }
 }
 
+async function requireEntry(entryPath, predicate, missingMessage, unsupportedMessage) {
+  try {
+    const entry = await lstat(entryPath);
+    if (!predicate(entry)) throw new Error(unsupportedMessage);
+  } catch (error) {
+    if (error?.code === "ENOENT") throw new Error(missingMessage);
+    throw error;
+  }
+}
+
 async function main() {
   const planArg = process.argv[2];
   if (!planArg || process.argv.length !== 3) {
@@ -41,12 +51,18 @@ async function main() {
   const planPath = path.join(root, "PLAN.md");
   const stagesPath = path.join(root, "stages");
 
-  if (!(await lstat(planPath)).isFile()) {
-    throw new Error(`Missing plan definition: ${planPath}`);
-  }
-  if (!(await lstat(stagesPath)).isDirectory()) {
-    throw new Error(`Missing stages directory: ${stagesPath}`);
-  }
+  await requireEntry(
+    planPath,
+    (entry) => entry.isFile(),
+    `Missing plan definition: ${planPath}`,
+    `Unsupported non-file plan entry: ${planPath}`,
+  );
+  await requireEntry(
+    stagesPath,
+    (entry) => entry.isDirectory(),
+    `Missing stages directory: ${stagesPath}`,
+    `Unsupported non-directory plan entry: ${stagesPath}`,
+  );
 
   const files = ["PLAN.md"];
   const considerationsPath = path.join(root, "CONSIDERATIONS.md");
