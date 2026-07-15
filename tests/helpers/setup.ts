@@ -21,6 +21,7 @@ import { GlossaryEntryRepository } from "../../src/repositories/glossary-entry-r
 import { OAuthAccountRepository } from "../../src/repositories/oauth-account-repo.js";
 import { PasswordAccountRepository } from "../../src/repositories/password-account-repo.js";
 import { UserRepository } from "../../src/repositories/user-repo.js";
+import { ActivationStateRepository } from "../../src/repositories/activation-state-repo.js";
 import { buildApp } from "../../src/server.js";
 import { AuthService } from "../../src/services/auth-service.js";
 import { BridgeService } from "../../src/services/bridge-service.js";
@@ -144,6 +145,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   const dailyUsageRepo = new DailyUsageRepository(dbAccessor);
   const deviceTokenRepo = new DeviceTokenRepository(dbAccessor);
   const bridgeRepo = new BridgeRepository(dbAccessor);
+  const activationStateRepo = new ActivationStateRepository(dbAccessor);
 
   const tokenService = new TokenService(privPem, pubPem);
   const stateStore = new StateStore();
@@ -189,6 +191,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     deviceTokenRepo,
     notificationService,
     bridgeStateTracker,
+    activationStateRepo,
     stateStore,
     githubClient,
     googleClient,

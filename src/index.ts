@@ -18,6 +18,7 @@ import { GlossaryEntryRepository } from "./repositories/glossary-entry-repo.js";
 import { OAuthAccountRepository } from "./repositories/oauth-account-repo.js";
 import { PasswordAccountRepository } from "./repositories/password-account-repo.js";
 import { UserRepository } from "./repositories/user-repo.js";
+import { ActivationStateRepository } from "./repositories/activation-state-repo.js";
 import { buildApp } from "./server.js";
 import { AuthService } from "./services/auth-service.js";
 import { AppleNativeVerifier } from "./services/apple-native-verifier.js";
@@ -60,6 +61,7 @@ async function main() {
   const dailyUsageRepo = new DailyUsageRepository(dbAccessor);
   const deviceTokenRepo = new DeviceTokenRepository(dbAccessor);
   const bridgeRepo = new BridgeRepository(dbAccessor);
+  const activationStateRepo = new ActivationStateRepository(dbAccessor);
 
   const tokenService = new TokenService(config.JWT_PRIVATE_KEY, config.JWT_PUBLIC_KEY);
   const pendingAuthStore = new PendingAuthStore({
@@ -139,6 +141,7 @@ async function main() {
     deviceTokenRepo,
     notificationService,
     bridgeStateTracker,
+    activationStateRepo,
     stateStore,
     githubClient,
     googleClient,
