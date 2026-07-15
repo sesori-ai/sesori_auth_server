@@ -130,7 +130,7 @@ The equality fields precede each due-time range field so the future sweep querie
 | --- | --------------------------------------------------------------------------------------------- | -------------- | ---------------------- | ----------------------------------------- |
 | PR1 | Plans, collection, indexes, schema, repository, composition wiring, repository tests          | complete       | merged                 | Dormant; creates collection/indexes only. |
 | PR2 | Milestone capture, enrollment reconciliation, endpoint hooks, failure isolation               | complete       | merged                 | Records state only; sends nothing.        |
-| PR3 | Config, reminder queries/service, FCM sends, 15-minute scheduler, structured logs             | complete       | no PR opened           | Sending remains off by default.           |
+| PR3 | Config, reminder queries/service, FCM sends, 15-minute scheduler, structured logs             | complete       | open as #41            | Sending remains off by default.           |
 | PR4 | Idempotent dry-run-capable active backfill with controlled re-engagement baselines and jitter | not started    | no PR opened           | No effect until manually executed.        |
 
 ## PR1 - Dormant Data Layer
@@ -230,7 +230,7 @@ PR2 exit condition:
 
 Implementation: complete
 
-Live GitHub status: no PR opened; verify before starting PR4.
+Live GitHub status: open as #41; verify merge status before starting PR4.
 
 Acceptance criteria:
 
@@ -324,4 +324,4 @@ PR4 exit condition:
 - 2026-07-15: PR2 automated review feedback addressed. Added cross-stage repair from every event hook, earliest-wins concurrent session recording, defensive token user validation, and the compound token reconciliation index. Retained the documented metadata-attempt and historical timestamp semantics. All verification passed.
 - 2026-07-15: PR2 second automated review addressed. Added safe cleanup for the superseded device-token index and changed invalid token owner handling to the typed repository-boundary error. Confirmed mobile/bridge concurrency already resolves from earliest durable source timestamps. All verification passed.
 - 2026-07-15: PR2 third automated review addressed. Required a full desired-index option match before cleanup and preserved earlier observed session timestamps when an initial read loses a race. All verification passed.
-- 2026-07-15: PR2 merged as #40. PR3 implementation completed: default-off configuration, indexed due queries, conditional markers, FCM delivery, a bounded single-flight scheduler, graceful disposal, and structured logs. Pre-delivery review hardened transient per-token retries, timer validation, shutdown cancellation, and concurrent milestone-log ownership. All verification passed. PR3 has not yet been opened; PR4 must wait for live merge verification.
+- 2026-07-15: PR2 merged as #40. PR3 implementation completed and opened as #41: default-off configuration, indexed due queries, conditional markers, FCM delivery, a bounded single-flight scheduler, graceful disposal, and structured logs. Pre-delivery review hardened transient per-token retries, timer validation, shutdown cancellation, and concurrent milestone-log ownership. All verification passed. PR4 must wait for live merge verification.
