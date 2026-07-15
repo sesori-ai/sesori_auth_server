@@ -32,7 +32,7 @@ Historical reconciliation should include revoked bridges. A revoked bridge still
 
 ### First Session
 
-The selected signal is the first successful request to `/sessions/generate-metadata`. It is specific to creating a new session with a non-empty text prompt, unlike sending a message in an existing session.
+The selected signal is the first valid authenticated request to `/sessions/generate-metadata`. The bridge treats metadata errors as non-fatal and continues session creation with no generated metadata, so a successful HTTP response is not required. Historical `metadataRequestCount` is therefore useful evidence of this signal, although a narrow crash window remains between the metadata call and local session creation.
 
 Known limitation: command-only session creation may not call metadata generation. Such a user can receive a session reminder despite having created a command-only session. The agreed copy asks them to create a new session and remains directionally correct. A dedicated bridge-to-auth session-created event is deferred.
 
@@ -54,12 +54,13 @@ Separate bridge indexes are intentional because bridge reminder 1 and bridge rem
 
 ## Delivery Guarantees
 
-The intended user-level behavior is one attempt per reminder kind. PR3 should use:
+The intended user-level behavior is one recorded completion per reminder kind. Unresolved sends remain eligible for retry, subject to the documented post-FCM/pre-MongoDB crash window. PR3 should use:
 
 - A single-process, single-flight sweep.
 - Conditional sent-marker updates.
 - Completion checks before sending.
-- A sent marker after `NotificationService.sendToUser` resolves, even when zero devices were notified.
+- A sent marker after `NotificationService.sendToUser` resolves while FCM is available, even when zero devices were notified because no registered tokens remain.
+- An explicit unavailable outcome (or a disabled sweep) when Firebase initialization failed, leaving the reminder retryable.
 - Retry when the send call throws before resolving.
 
 Strict exactly-once push delivery is impossible with the current FCM API and MongoDB in separate systems. A process can crash after FCM accepts a push but before MongoDB records `sentAt`, causing a retry after restart. Marking before send would instead create a crash window that permanently loses reminders. The plan prefers the small duplicate-delivery risk over silent loss. Do not claim strict exactly-once delivery in implementation or documentation.
@@ -83,7 +84,7 @@ Activation is secondary telemetry/engagement behavior. Existing endpoint success
 - Applying writes requires an explicit operator flag.
 - The script is idempotent and does not overwrite existing non-null milestones or sent markers.
 - Deterministic jitter avoids changing baselines on repeated runs.
-- Fully activated users never receive activation reminders.
+- Backfill does not intentionally target fully activated users; a narrow send/completion race may still produce a stale reminder.
 - Users without device tokens are not made reminder-eligible.
 - Operational counts are reviewed before applying.
 

@@ -6,7 +6,7 @@ Improve user activation by measuring and nudging users through this funnel:
 
 1. Mobile setup: the user registers a push-notification device token.
 2. Bridge setup: the user registers the desktop bridge.
-3. Full activation: the user creates a new session, represented by the first successful call to `POST /sessions/generate-metadata`.
+3. Full activation: the user creates a new session, represented by the first valid authenticated call to `POST /sessions/generate-metadata`.
 
 This file is the authoritative implementation tracker. A future session should read this file and `.plans/activation-reminders/CONSIDERATIONS.md` before changing code.
 
@@ -39,7 +39,7 @@ This file is the authoritative implementation tracker. A future session should r
 - Notification taps rely on the app's default open behavior; V1 adds no activation-specific deep link.
 - Mobile setup is the first device-token registration, not account creation.
 - Bridge setup is the first bridge registration, not the first relay connection.
-- First session is the first `POST /sessions/generate-metadata` call. This deliberately measures creation of a new text-backed session, not messages in existing sessions.
+- First session is the first valid authenticated `POST /sessions/generate-metadata` call. Metadata failure is non-fatal in the bridge and session creation continues, so the response does not need to succeed. This deliberately measures creation of a new text-backed session, not messages in existing sessions.
 - Bridge reminder 1 is due approximately 2 hours after mobile setup.
 - Bridge reminder 2 is due approximately 24 hours after mobile setup.
 - The single session reminder is due approximately 24 hours after both mobile and bridge setup. Its organic baseline is `max(mobileSetupAt, bridgeSetupAt)`.
@@ -107,7 +107,7 @@ The equality fields precede each due-time range field so the future sweep querie
 - Sending is gated by `ACTIVATION_REMINDERS_ENABLED`, defaulting to false.
 - Milestone recording remains active independently of the sending flag.
 - Activation tracking failures are logged and isolated from the user-facing endpoint that produced the milestone.
-- Reminder attempts are marked after `NotificationService.sendToUser` resolves, including a result with zero notified devices. A thrown send error remains retryable.
+- Reminder completion is marked after `NotificationService.sendToUser` resolves while FCM is available, including a result with zero registered devices. FCM-unavailable and thrown-send outcomes remain retryable.
 - See `CONSIDERATIONS.md` for the narrow crash window in which strict exactly-once delivery cannot be guaranteed.
 
 ## Configuration Target
@@ -161,11 +161,11 @@ PR1 non-goals:
 
 PR1 verification results:
 
-- `node --import tsx --test --test-concurrency=1 "tests/repositories/activation-state-repo.test.ts"`: passed, 4 tests.
+- `node --import tsx --test --test-concurrency=1 "tests/repositories/activation-state-repo.test.ts"`: passed, 6 tests.
 - `npm run build`: passed.
 - `npm run lint`: passed with no warnings.
 - `npm run format:check`: passed.
-- `npm test`: passed, 331 tests passed, 1 skipped, 0 failed across 37 top-level suites.
+- `npm test`: passed, 333 tests passed, 1 skipped, 0 failed across 37 top-level suites.
 - `npm run circular-dependencies`: passed; no circular dependencies found.
 - `git diff --check`: passed.
 
@@ -180,7 +180,7 @@ Planned work:
 - Reconcile bridge state from the earliest historical bridge, including revoked bridges, so a previously completed setup is not presented as new.
 - Reconcile session state from historical `dailyUsage.metadataRequestCount > 0` data, using the best available date.
 - Set `bridgeSetupAt` idempotently after bridge registration.
-- Set `firstSessionAt` idempotently after a successful metadata generation request.
+- Set `firstSessionAt` idempotently when a valid authenticated metadata request is accepted, before metadata generation, because the bridge proceeds with session creation even when metadata generation fails.
 - Recompute `sessionReminderBaseAt` as the later setup time when both setup timestamps become available.
 - Catch and log activation errors at each endpoint boundary so activation tracking cannot break existing behavior.
 - Add route/service tests for ordering, retries, and failure isolation.
@@ -199,6 +199,7 @@ Planned work:
 - Add indexed repository queries for each due reminder.
 - Add conditional sent-marker writes so stale sweep results cannot mark an already-completed stage.
 - Add `ActivationReminderService` with single-flight sweep behavior and bounded batches.
+- Expose FCM availability so an uninitialized Firebase client cannot convert eligible reminders into completed zero-device sends.
 - Send the approved copy through existing `NotificationService` under category `system_update`.
 - Use distinct collapse keys per reminder kind.
 - Start the interval only when enabled and dispose it during graceful shutdown.
@@ -254,3 +255,4 @@ PR4 exit condition:
 
 - 2026-07-12: Interview completed. Product behavior, scheduling, copy, backfill policy, reporting, and four-PR split agreed.
 - 2026-07-12: PR1 implementation completed. Added the resumable plan, activation-state collection/schema/indexes, dormant repository/composition wiring, and focused tests. All verification passed. This document records PR1's intended post-merge status as merged; live GitHub status must always be verified separately. PR2 is next and has not started.
+- 2026-07-15: PR1 review feedback addressed. Clarified metadata-attempt semantics, retry and FCM-unavailable behavior, and backfill race guarantees; added defensive ObjectId validation and tests. All verification passed.

@@ -12,10 +12,16 @@ export class ActivationStateRepository {
   }
 
   async findByUserId(userId: string): Promise<ActivationState | null> {
+    if (!ObjectId.isValid(userId)) {
+      return null;
+    }
     return this.#collection.findOne({ userId: new ObjectId(userId) });
   }
 
   async createIfAbsent(userId: string, at = new Date()): Promise<ActivationState> {
+    if (!ObjectId.isValid(userId)) {
+      throw new InternalServerError({ debugMessage: "Invalid activation state userId" });
+    }
     const objectUserId = new ObjectId(userId);
     const state = await this.#collection.findOneAndUpdate(
       { userId: objectUserId },

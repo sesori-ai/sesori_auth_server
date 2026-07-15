@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
+import { InternalServerError } from "../../src/lib/errors.js";
 import { activationStateSchema, type ActivationState } from "../../src/models/documents.js";
 import { ActivationStateRepository } from "../../src/repositories/activation-state-repo.js";
 import { AuthDbCollection, MongoDbDatabase } from "../../src/types/mongo.js";
@@ -52,6 +53,14 @@ describe("ActivationStateRepository", () => {
     assert.equal(second.updatedAt.toISOString(), firstAt.toISOString());
   });
 
+  it("rejects creation with an invalid user id", async () => {
+    await assert.rejects(
+      () => repo.createIfAbsent("invalid-id"),
+      (error: unknown) =>
+        error instanceof InternalServerError && error.debugMessage === "Invalid activation state userId",
+    );
+  });
+
   it("finds by user id and returns null for a missing state", async () => {
     const user = await ctx.createUser();
     const missingUser = await ctx.createUser();
@@ -62,6 +71,10 @@ describe("ActivationStateRepository", () => {
 
     assert.equal(found?._id.toHexString(), created._id.toHexString());
     assert.equal(missing, null);
+  });
+
+  it("returns null when finding with an invalid user id", async () => {
+    assert.equal(await repo.findByUserId("invalid-id"), null);
   });
 
   it("creates the indexes needed by future reminder sweeps", async () => {
