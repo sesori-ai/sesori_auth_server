@@ -47,6 +47,17 @@ const configSchema = z.object({
     .union([z.literal("true"), z.literal("false"), z.literal("1"), z.literal("0")])
     .optional()
     .transform((v) => v === "true" || v === "1"),
+  ACTIVATION_REMINDERS_ENABLED: z
+    .union([z.literal("true"), z.literal("false"), z.literal("1"), z.literal("0")])
+    .optional()
+    .transform((v) => v === "true" || v === "1"),
+  // Node clamps larger timer delays to 1 ms, which would turn a bad value into
+  // a near-continuous sweep.
+  ACTIVATION_SWEEP_INTERVAL_MS: z.coerce.number().int().positive().max(2_147_483_647).default(900_000),
+  ACTIVATION_BRIDGE_REMINDER_1_DELAY_MS: z.coerce.number().int().positive().default(7_200_000),
+  ACTIVATION_BRIDGE_REMINDER_2_DELAY_MS: z.coerce.number().int().positive().default(86_400_000),
+  ACTIVATION_SESSION_REMINDER_DELAY_MS: z.coerce.number().int().positive().default(86_400_000),
+  ACTIVATION_SWEEP_BATCH_LIMIT: z.coerce.number().int().positive().default(500),
   OPENAI_API_KEY: z.string().min(1, "OPENAI_API_KEY is required"),
   OPENAI_TRANSCRIPTION_MODEL: z.string().min(1).default("gpt-4o-mini-transcribe"),
   OPENAI_METADATA_MODEL: z.string().min(1).default("gpt-5-nano"),

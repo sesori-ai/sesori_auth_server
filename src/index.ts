@@ -21,6 +21,7 @@ import { UserRepository } from "./repositories/user-repo.js";
 import { ActivationStateRepository } from "./repositories/activation-state-repo.js";
 import { buildApp } from "./server.js";
 import { AuthService } from "./services/auth-service.js";
+import { ActivationReminderService } from "./services/activation-reminder-service.js";
 import { ActivationService } from "./services/activation-service.js";
 import { AppleNativeVerifier } from "./services/apple-native-verifier.js";
 import { BridgeService } from "./services/bridge-service.js";
@@ -98,6 +99,18 @@ async function main() {
     dailyUsageRepo,
     deviceTokenRepo,
   });
+  const activationReminderService = new ActivationReminderService({
+    activationStateRepo,
+    notificationService,
+    options: {
+      enabled: config.ACTIVATION_REMINDERS_ENABLED,
+      sweepIntervalMs: config.ACTIVATION_SWEEP_INTERVAL_MS,
+      bridgeReminder1DelayMs: config.ACTIVATION_BRIDGE_REMINDER_1_DELAY_MS,
+      bridgeReminder2DelayMs: config.ACTIVATION_BRIDGE_REMINDER_2_DELAY_MS,
+      sessionReminderDelayMs: config.ACTIVATION_SESSION_REMINDER_DELAY_MS,
+      batchLimit: config.ACTIVATION_SWEEP_BATCH_LIMIT,
+    },
+  });
 
   const openai = new OpenAIClient({ apiKey: config.OPENAI_API_KEY, model: config.OPENAI_TRANSCRIPTION_MODEL });
   console.log(`OpenAI client initialized (model: ${config.OPENAI_TRANSCRIPTION_MODEL})`);
@@ -159,13 +172,15 @@ async function main() {
 
   const address = await app.listen({ port: config.PORT, host: "0.0.0.0" });
   console.log(`Server listening at ${address}`);
+  activationReminderService.start();
 
   const signals = ["SIGINT", "SIGTERM"] as const;
   for (const signal of signals) {
     process.on(signal, async () => {
       console.log(`Received ${signal}, shutting down gracefully...`);
+      const reminderDisposal = activationReminderService.dispose();
       bridgeStateTracker.dispose();
-      await app.close();
+      await Promise.all([app.close(), reminderDisposal]);
       await dbConnector.close();
       process.exit(0);
     });
