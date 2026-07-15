@@ -13,13 +13,14 @@ This file is the authoritative implementation tracker. A future session should r
 ## Current State
 
 - Branch: `activation-rate-plan`
-- Implementation checkpoint: PR2 complete; PR3 not started
+- Implementation checkpoint: PR3 complete; PR4 not started
 - PR1 delivery status: merged as PR #38
-- PR2 intended post-merge status: merged
+- PR2 delivery status: merged as PR #40
+- PR3 intended post-merge status: merged
 - Live GitHub delivery state: do not infer it from this static file; verify with `gh pr list --head activation-rate-plan --state all`
 - Last updated: 2026-07-15
-- If PR2 is still open: review and merge PR2; do not start PR3 on top of an unmerged slice
-- If PR2 is merged: begin PR3 with the gated reminder sweep and sending behavior described below
+- If PR3 is still open: review and merge PR3; do not start PR4 on top of an unmerged slice
+- If PR3 is merged: PR4 is next, but start it only when explicitly requested
 
 ## Resume Instructions
 
@@ -126,12 +127,12 @@ The equality fields precede each due-time range field so the future sweep querie
 
 ## PR Status
 
-| PR  | Scope                                                                                         | Implementation | Live GitHub checkpoint | Production behavior                       |
-| --- | --------------------------------------------------------------------------------------------- | -------------- | ---------------------- | ----------------------------------------- |
-| PR1 | Plans, collection, indexes, schema, repository, composition wiring, repository tests          | complete       | merged                 | Dormant; creates collection/indexes only. |
-| PR2 | Milestone capture, enrollment reconciliation, endpoint hooks, failure isolation               | complete       | merged                 | Records state only; sends nothing.        |
-| PR3 | Config, reminder queries/service, FCM sends, 15-minute scheduler, structured logs             | complete       | open as #41            | Sending remains off by default.           |
-| PR4 | Idempotent dry-run-capable active backfill with controlled re-engagement baselines and jitter | not started    | no PR opened           | No effect until manually executed.        |
+| PR  | Scope                                                                                         | Implementation | Intended post-merge status | Production behavior                       |
+| --- | --------------------------------------------------------------------------------------------- | -------------- | -------------------------- | ----------------------------------------- |
+| PR1 | Plans, collection, indexes, schema, repository, composition wiring, repository tests          | complete       | merged                     | Dormant; creates collection/indexes only. |
+| PR2 | Milestone capture, enrollment reconciliation, endpoint hooks, failure isolation               | complete       | merged                     | Records state only; sends nothing.        |
+| PR3 | Config, reminder queries/service, FCM sends, 15-minute scheduler, structured logs             | complete       | merged                     | Sending remains off by default.           |
+| PR4 | Idempotent dry-run-capable active backfill with controlled re-engagement baselines and jitter | not started    | pending                    | No effect until manually executed.        |
 
 ## PR1 - Dormant Data Layer
 
@@ -230,7 +231,7 @@ PR2 exit condition:
 
 Implementation: complete
 
-Live GitHub status: open as #41; verify merge status before starting PR4.
+Intended post-merge status: merged
 
 Acceptance criteria:
 
