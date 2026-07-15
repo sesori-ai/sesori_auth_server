@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
+import { Collection, MongoServerError } from "mongodb";
 import { InternalServerError } from "../../src/lib/errors.js";
 import { activationStateSchema, type ActivationState } from "../../src/models/documents.js";
 import { ActivationStateRepository } from "../../src/repositories/activation-state-repo.js";
@@ -51,6 +52,18 @@ describe("ActivationStateRepository", () => {
     assert.equal(second._id.toHexString(), first._id.toHexString());
     assert.equal(second.createdAt.toISOString(), firstAt.toISOString());
     assert.equal(second.updatedAt.toISOString(), firstAt.toISOString());
+  });
+
+  it("returns the winner after losing a concurrent creation race", async (t) => {
+    const user = await ctx.createUser();
+    const winner = await repo.createIfAbsent(user.userId);
+    t.mock.method(Collection.prototype, "findOneAndUpdate", async () => {
+      throw new MongoServerError({ message: "duplicate key", code: 11000 });
+    });
+
+    const state = await repo.createIfAbsent(user.userId);
+
+    assert.equal(state._id.toHexString(), winner._id.toHexString());
   });
 
   it("rejects creation with an invalid user id", async () => {

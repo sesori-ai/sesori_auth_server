@@ -14,9 +14,9 @@ This file is the authoritative implementation tracker. A future session should r
 
 - Branch: `activation-rate-plan`
 - Implementation checkpoint: PR1 complete; PR2 not started
-- PR1 post-merge status: merged
+- PR1 intended post-merge status: merged
 - Live GitHub delivery state: do not infer it from this static file; verify with `gh pr list --head activation-rate-plan --state all`
-- Last updated: 2026-07-12
+- Last updated: 2026-07-15
 - If PR1 is still open: review and merge PR1; do not start PR2 on top of an unmerged slice
 - If PR1 is merged: begin PR2 by reviewing the PR1 repository API and adding the activation service/reconciliation methods described below
 
@@ -29,7 +29,7 @@ This file is the authoritative implementation tracker. A future session should r
 5. Find the first PR whose implementation is not complete in the status table below.
 6. Work only on that PR's unchecked acceptance criteria unless the user explicitly expands scope.
 7. Run that PR's verification commands.
-8. Update implementation status, post-merge status, completed checkboxes, verification results, and continuation instructions.
+8. Update implementation status, intended post-merge status, completed checkboxes, verification results, and continuation instructions.
 9. Do not start the next PR in the same session unless the user asks.
 
 ## Product Decisions
@@ -123,18 +123,18 @@ The equality fields precede each due-time range field so the future sweep querie
 
 ## PR Status
 
-| PR  | Scope                                                                                         | Implementation | Post-merge status | Production behavior                       |
-| --- | --------------------------------------------------------------------------------------------- | -------------- | ----------------- | ----------------------------------------- |
-| PR1 | Plans, collection, indexes, schema, repository, composition wiring, repository tests          | complete       | merged            | Dormant; creates collection/indexes only. |
-| PR2 | Milestone capture, enrollment reconciliation, endpoint hooks, failure isolation               | not started    | pending           | Records state only; sends nothing.        |
-| PR3 | Config, reminder queries/service, FCM sends, 15-minute scheduler, structured logs             | not started    | pending           | Sending remains off by default.           |
-| PR4 | Idempotent dry-run-capable active backfill with controlled re-engagement baselines and jitter | not started    | pending           | No effect until manually executed.        |
+| PR  | Scope                                                                                         | Implementation | Intended post-merge status | Production behavior                       |
+| --- | --------------------------------------------------------------------------------------------- | -------------- | -------------------------- | ----------------------------------------- |
+| PR1 | Plans, collection, indexes, schema, repository, composition wiring, repository tests          | complete       | merged                     | Dormant; creates collection/indexes only. |
+| PR2 | Milestone capture, enrollment reconciliation, endpoint hooks, failure isolation               | not started    | pending                    | Records state only; sends nothing.        |
+| PR3 | Config, reminder queries/service, FCM sends, 15-minute scheduler, structured logs             | not started    | pending                    | Sending remains off by default.           |
+| PR4 | Idempotent dry-run-capable active backfill with controlled re-engagement baselines and jitter | not started    | pending                    | No effect until manually executed.        |
 
 ## PR1 - Dormant Data Layer
 
 Implementation: complete
 
-Post-merge status: merged
+Intended post-merge status: merged
 
 Acceptance criteria:
 
@@ -161,11 +161,11 @@ PR1 non-goals:
 
 PR1 verification results:
 
-- `node --import tsx --test --test-concurrency=1 "tests/repositories/activation-state-repo.test.ts"`: passed, 6 tests.
+- `node --import tsx --test --test-concurrency=1 "tests/repositories/activation-state-repo.test.ts"`: passed, 7 tests.
 - `npm run build`: passed.
 - `npm run lint`: passed with no warnings.
 - `npm run format:check`: passed.
-- `npm test`: passed, 333 tests passed, 1 skipped, 0 failed across 37 top-level suites.
+- `npm test`: passed, 334 tests passed, 1 skipped, 0 failed across 37 top-level suites.
 - `npm run circular-dependencies`: passed; no circular dependencies found.
 - `git diff --check`: passed.
 
@@ -256,3 +256,4 @@ PR4 exit condition:
 - 2026-07-12: Interview completed. Product behavior, scheduling, copy, backfill policy, reporting, and four-PR split agreed.
 - 2026-07-12: PR1 implementation completed. Added the resumable plan, activation-state collection/schema/indexes, dormant repository/composition wiring, and focused tests. All verification passed. This document records PR1's intended post-merge status as merged; live GitHub status must always be verified separately. PR2 is next and has not started.
 - 2026-07-15: PR1 review feedback addressed. Clarified metadata-attempt semantics, retry and FCM-unavailable behavior, and backfill race guarantees; added defensive ObjectId validation and tests. All verification passed.
+- 2026-07-15: Human PR1 review feedback addressed. Documented timestamp and index invariants in source, clarified intended status labels, and made concurrent first-enrollment upserts recover from duplicate-key races. All verification passed.

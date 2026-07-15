@@ -1,4 +1,4 @@
-import { Collection, ObjectId } from "mongodb";
+import { Collection, MongoServerError, ObjectId } from "mongodb";
 import { MongoDbAccessor } from "../db/mongo-db-accessor.js";
 import { InternalServerError } from "../lib/errors.js";
 import type { ActivationState } from "../models/documents.js";
@@ -23,31 +23,41 @@ export class ActivationStateRepository {
       throw new InternalServerError({ debugMessage: "Invalid activation state userId" });
     }
     const objectUserId = new ObjectId(userId);
-    const state = await this.#collection.findOneAndUpdate(
-      { userId: objectUserId },
-      {
-        $setOnInsert: {
-          _id: new ObjectId(),
-          userId: objectUserId,
-          mobileSetupAt: null,
-          bridgeSetupAt: null,
-          firstSessionAt: null,
-          bridgeReminderBaseAt: null,
-          sessionReminderBaseAt: null,
-          bridgeReminder1SentAt: null,
-          bridgeReminder2SentAt: null,
-          sessionReminderSentAt: null,
-          backfilledAt: null,
-          createdAt: at,
-          updatedAt: at,
+    try {
+      const state = await this.#collection.findOneAndUpdate(
+        { userId: objectUserId },
+        {
+          $setOnInsert: {
+            _id: new ObjectId(),
+            userId: objectUserId,
+            mobileSetupAt: null,
+            bridgeSetupAt: null,
+            firstSessionAt: null,
+            bridgeReminderBaseAt: null,
+            sessionReminderBaseAt: null,
+            bridgeReminder1SentAt: null,
+            bridgeReminder2SentAt: null,
+            sessionReminderSentAt: null,
+            backfilledAt: null,
+            createdAt: at,
+            updatedAt: at,
+          },
         },
-      },
-      { upsert: true, returnDocument: "after" },
-    );
+        { upsert: true, returnDocument: "after" },
+      );
 
-    if (!state) {
-      throw new InternalServerError({ debugMessage: "Failed to create activation state" });
+      if (!state) {
+        throw new InternalServerError({ debugMessage: "Failed to create activation state" });
+      }
+      return state;
+    } catch (error) {
+      if (error instanceof MongoServerError && error.code === 11000) {
+        const winner = await this.#collection.findOne({ userId: objectUserId });
+        if (winner) {
+          return winner;
+        }
+      }
+      throw error;
     }
-    return state;
   }
 }
