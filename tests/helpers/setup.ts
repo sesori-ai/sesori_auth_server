@@ -24,6 +24,7 @@ import { UserRepository } from "../../src/repositories/user-repo.js";
 import { ActivationStateRepository } from "../../src/repositories/activation-state-repo.js";
 import { buildApp } from "../../src/server.js";
 import { AuthService } from "../../src/services/auth-service.js";
+import { ActivationService } from "../../src/services/activation-service.js";
 import { BridgeService } from "../../src/services/bridge-service.js";
 import { BridgeStateTracker } from "../../src/services/bridge-state-tracker.js";
 import { NotificationService } from "../../src/services/notification-service.js";
@@ -71,6 +72,7 @@ export type TestAppOverrides = {
   sessionMetadataService?: SessionMetadataService;
   installScriptService?: InstallScriptService;
   legalDocumentService?: LegalDocumentService;
+  activationService?: ActivationService;
 };
 
 export type { OAuthClient };
@@ -171,6 +173,9 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   const notificationService = overrides?.notificationService ?? new NotificationService(deviceTokenRepo, null);
   const bridgeStateTracker = overrides?.bridgeStateTracker ?? new BridgeStateTracker(notificationService);
   const bridgeService = overrides?.bridgeService ?? new BridgeService({ bridgeRepo, bridgeStateTracker });
+  const activationService =
+    overrides?.activationService ??
+    new ActivationService({ activationStateRepo, bridgeRepo, dailyUsageRepo, deviceTokenRepo });
   const authService = new AuthService({ tokenService, userRepo, oauthAccountRepo, passwordAccountRepo, bridgeService });
   const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
   const sessionMetadataService =
@@ -191,7 +196,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     deviceTokenRepo,
     notificationService,
     bridgeStateTracker,
-    activationStateRepo,
+    activationService,
     stateStore,
     githubClient,
     googleClient,

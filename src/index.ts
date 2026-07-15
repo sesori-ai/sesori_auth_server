@@ -21,6 +21,7 @@ import { UserRepository } from "./repositories/user-repo.js";
 import { ActivationStateRepository } from "./repositories/activation-state-repo.js";
 import { buildApp } from "./server.js";
 import { AuthService } from "./services/auth-service.js";
+import { ActivationService } from "./services/activation-service.js";
 import { AppleNativeVerifier } from "./services/apple-native-verifier.js";
 import { BridgeService } from "./services/bridge-service.js";
 import { BridgeStateTracker } from "./services/bridge-state-tracker.js";
@@ -91,6 +92,12 @@ async function main() {
   const notificationService = new NotificationService(deviceTokenRepo, messaging);
   const bridgeStateTracker = new BridgeStateTracker(notificationService);
   const bridgeService = new BridgeService({ bridgeRepo, bridgeStateTracker });
+  const activationService = new ActivationService({
+    activationStateRepo,
+    bridgeRepo,
+    dailyUsageRepo,
+    deviceTokenRepo,
+  });
 
   const openai = new OpenAIClient({ apiKey: config.OPENAI_API_KEY, model: config.OPENAI_TRANSCRIPTION_MODEL });
   console.log(`OpenAI client initialized (model: ${config.OPENAI_TRANSCRIPTION_MODEL})`);
@@ -141,7 +148,7 @@ async function main() {
     deviceTokenRepo,
     notificationService,
     bridgeStateTracker,
-    activationStateRepo,
+    activationService,
     stateStore,
     githubClient,
     googleClient,

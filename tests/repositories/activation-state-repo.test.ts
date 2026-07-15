@@ -90,6 +90,92 @@ describe("ActivationStateRepository", () => {
     assert.equal(await repo.findByUserId("invalid-id"), null);
   });
 
+  it("derives reminder baselines when mobile setup is recorded before bridge setup", async () => {
+    const user = await ctx.createUser();
+    const mobileAt = new Date("2026-07-12T10:00:00.000Z");
+    const bridgeAt = new Date("2026-07-12T12:00:00.000Z");
+
+    const mobileState = await repo.recordMilestones(user.userId, { mobileSetupAt: mobileAt }, mobileAt);
+    const completeSetupState = await repo.recordMilestones(user.userId, { bridgeSetupAt: bridgeAt }, bridgeAt);
+
+    assert.equal(mobileState.mobileSetupAt?.toISOString(), mobileAt.toISOString());
+    assert.equal(mobileState.bridgeReminderBaseAt?.toISOString(), mobileAt.toISOString());
+    assert.equal(mobileState.sessionReminderBaseAt, null);
+    assert.equal(completeSetupState.bridgeSetupAt?.toISOString(), bridgeAt.toISOString());
+    assert.equal(completeSetupState.sessionReminderBaseAt?.toISOString(), bridgeAt.toISOString());
+  });
+
+  it("derives the session baseline from the later mobile setup when events arrive out of order", async () => {
+    const user = await ctx.createUser();
+    const bridgeAt = new Date("2026-07-12T10:00:00.000Z");
+    const mobileAt = new Date("2026-07-12T12:00:00.000Z");
+
+    const bridgeState = await repo.recordMilestones(user.userId, { bridgeSetupAt: bridgeAt }, bridgeAt);
+    const completeSetupState = await repo.recordMilestones(user.userId, { mobileSetupAt: mobileAt }, mobileAt);
+
+    assert.equal(bridgeState.bridgeSetupAt?.toISOString(), bridgeAt.toISOString());
+    assert.equal(bridgeState.bridgeReminderBaseAt, null);
+    assert.equal(bridgeState.sessionReminderBaseAt, null);
+    assert.equal(completeSetupState.bridgeReminderBaseAt?.toISOString(), mobileAt.toISOString());
+    assert.equal(completeSetupState.sessionReminderBaseAt?.toISOString(), mobileAt.toISOString());
+  });
+
+  it("does not overwrite recorded milestones or reminder baselines", async () => {
+    const user = await ctx.createUser();
+    const firstMobileAt = new Date("2026-07-12T10:00:00.000Z");
+    const firstBridgeAt = new Date("2026-07-12T12:00:00.000Z");
+    const firstSessionAt = new Date("2026-07-12T13:00:00.000Z");
+    await repo.recordMilestones(
+      user.userId,
+      { mobileSetupAt: firstMobileAt, bridgeSetupAt: firstBridgeAt, firstSessionAt },
+      firstSessionAt,
+    );
+
+    const state = await repo.recordMilestones(
+      user.userId,
+      {
+        mobileSetupAt: new Date("2026-07-13T10:00:00.000Z"),
+        bridgeSetupAt: new Date("2026-07-13T12:00:00.000Z"),
+        firstSessionAt: new Date("2026-07-13T13:00:00.000Z"),
+      },
+      new Date("2026-07-13T13:00:00.000Z"),
+    );
+
+    assert.equal(state.mobileSetupAt?.toISOString(), firstMobileAt.toISOString());
+    assert.equal(state.bridgeSetupAt?.toISOString(), firstBridgeAt.toISOString());
+    assert.equal(state.firstSessionAt?.toISOString(), firstSessionAt.toISOString());
+    assert.equal(state.bridgeReminderBaseAt?.toISOString(), firstMobileAt.toISOString());
+    assert.equal(state.sessionReminderBaseAt?.toISOString(), firstBridgeAt.toISOString());
+  });
+
+  it("derives valid baselines from concurrent first milestone writes", async () => {
+    const user = await ctx.createUser();
+    const mobileAt = new Date("2026-07-12T10:00:00.000Z");
+    const bridgeAt = new Date("2026-07-12T12:00:00.000Z");
+
+    await Promise.all([
+      repo.recordMilestones(user.userId, { mobileSetupAt: mobileAt }, mobileAt),
+      repo.recordMilestones(user.userId, { bridgeSetupAt: bridgeAt }, bridgeAt),
+    ]);
+
+    const state = await repo.findByUserId(user.userId);
+    assert.equal(state?.mobileSetupAt?.toISOString(), mobileAt.toISOString());
+    assert.equal(state?.bridgeSetupAt?.toISOString(), bridgeAt.toISOString());
+    assert.equal(state?.bridgeReminderBaseAt?.toISOString(), mobileAt.toISOString());
+    assert.equal(state?.sessionReminderBaseAt?.toISOString(), bridgeAt.toISOString());
+  });
+
+  it("retains the earlier first-session candidate when concurrent writes arrive out of order", async () => {
+    const user = await ctx.createUser();
+    const earlierAt = new Date("2026-07-12T10:00:00.000Z");
+    const laterAt = new Date("2026-07-12T10:00:01.000Z");
+
+    await repo.recordMilestones(user.userId, { firstSessionAt: laterAt }, laterAt);
+    const state = await repo.recordMilestones(user.userId, { firstSessionAt: earlierAt }, earlierAt);
+
+    assert.equal(state.firstSessionAt?.toISOString(), earlierAt.toISOString());
+  });
+
   it("creates the indexes needed by future reminder sweeps", async () => {
     const collection = ctx.dbAccessor.getCollection<ActivationState>(
       MongoDbDatabase.Auth,

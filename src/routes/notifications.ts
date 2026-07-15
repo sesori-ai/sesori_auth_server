@@ -13,6 +13,7 @@ import type { DeviceTokenRepository } from "../repositories/device-token-repo.js
 import type { BridgeService } from "../services/bridge-service.js";
 import type { BridgeStateTracker } from "../services/bridge-state-tracker.js";
 import type { NotificationService } from "../services/notification-service.js";
+import type { ActivationService } from "../services/activation-service.js";
 import type { Config } from "../config.js";
 
 // Allow up to 5 minutes of NTP clock skew between the relay and this server
@@ -29,6 +30,7 @@ export type NotificationRouteOptions = {
   notificationService: NotificationService;
   bridgeService: BridgeService;
   bridgeStateTracker: BridgeStateTracker;
+  activationService: ActivationService;
   requireAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   requireRelayAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
 };
@@ -45,6 +47,7 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
     notificationService,
     bridgeService,
     bridgeStateTracker,
+    activationService,
     requireAuth,
     requireRelayAuth,
   } = opts;
@@ -60,6 +63,11 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
 
       const userId = getUserId(request);
       await deviceTokenRepo.upsertToken(userId, bodyResult.data.token, bodyResult.data.platform);
+      try {
+        await activationService.recordMobileSetup(userId);
+      } catch (error) {
+        console.warn("[ActivationService] Failed to record mobile setup", { userId, error });
+      }
       return { ok: true };
     },
   );

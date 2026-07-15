@@ -1,6 +1,8 @@
-import { describe, it, before, after, beforeEach } from "node:test";
+import { describe, it, before, after, afterEach, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
+import { ActivationStateRepository } from "../../src/repositories/activation-state-repo.js";
+import { ActivationService } from "../../src/services/activation-service.js";
 import { BridgeStateTracker } from "../../src/services/bridge-state-tracker.js";
 import type { NotificationService } from "../../src/services/notification-service.js";
 
@@ -14,6 +16,7 @@ type BridgeSummaryBody = {
 
 describe("/auth/bridges routes", () => {
   let ctx: TestContext;
+  let activationStateRepo: ActivationStateRepository;
   const cancelledLegacyUsers: string[] = [];
   const cancelledBridgeKeys: { userId: string; bridgeId: string }[] = [];
 
@@ -31,6 +34,7 @@ describe("/auth/bridges routes", () => {
 
   before(async () => {
     ctx = await createTestApp({ bridgeStateTracker: bridgeStateTrackerMock });
+    activationStateRepo = new ActivationStateRepository(ctx.dbAccessor);
   });
 
   after(async () => {
@@ -40,6 +44,10 @@ describe("/auth/bridges routes", () => {
   beforeEach(() => {
     cancelledLegacyUsers.length = 0;
     cancelledBridgeKeys.length = 0;
+  });
+
+  afterEach(() => {
+    mock.restoreAll();
   });
 
   async function registerBridge(accessToken: string, payload: { name: string; platform: string; bridgeId?: string }) {
@@ -68,6 +76,23 @@ describe("/auth/bridges routes", () => {
     assert.ok(typeof body.addedAt === "string");
     assert.ok(!("status" in body), "status must not leak into the API");
     assert.ok(!("bridgeToken" in body), "bridgeToken must not exist in the API");
+    const activationState = await activationStateRepo.findByUserId(user.userId);
+    assert.equal(activationState?.bridgeSetupAt?.toISOString(), body.addedAt);
+    assert.equal(activationState?.sessionReminderBaseAt, null);
+  });
+
+  it("POST /auth/bridges succeeds when activation recording fails", async () => {
+    const user = await ctx.createUser();
+    const recordMock = mock.method(ActivationService.prototype, "recordBridgeSetup", async () => {
+      throw new Error("activation unavailable");
+    });
+    const warnMock = mock.method(console, "warn", () => {});
+
+    const res = await registerBridge(user.accessToken, { name: "Still Registered", platform: "linux" });
+
+    assert.equal(res.statusCode, 201);
+    assert.equal(recordMock.mock.callCount(), 1);
+    assert.equal(warnMock.mock.callCount(), 1);
   });
 
   it("POST /auth/bridges with an owned bridgeId updates it in place and returns 200", async () => {

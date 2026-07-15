@@ -22,7 +22,7 @@ MongoDB TTL indexes are not a scheduler: they delete documents eventually but do
 
 ### Mobile Setup
 
-The first device-token registration is used rather than user creation because it means the app is installed, authenticated, has notification permission, and can actually receive a reminder. Users without a device token may still be represented during active backfill for funnel completeness, but are not reminder-eligible.
+The first device-token registration is used rather than user creation because it means the app is installed, authenticated, has notification permission, and can actually receive a reminder. Users without a device token may still be represented during active backfill for funnel completeness, but are not reminder-eligible. When the same FCM token moves between accounts, its token-document `createdAt` resets for the new owner so one user's setup timestamp is not imported into another user's activation history.
 
 ### Bridge Setup
 
@@ -33,6 +33,8 @@ Historical reconciliation should include revoked bridges. A revoked bridge still
 ### First Session
 
 The selected signal is the first valid authenticated request to `/sessions/generate-metadata`. The bridge treats metadata errors as non-fatal and continues session creation with no generated metadata, so a successful HTTP response is not required. Historical `metadataRequestCount` is therefore useful evidence of this signal, although a narrow crash window remains between the metadata call and local session creation.
+
+Historical daily-usage documents do not store the exact first metadata-request time. Reconciliation uses the earliest qualifying document's `createdAt` as the best available timestamp; it may predate the metadata request within that UTC day when transcription created the document first.
 
 Known limitation: command-only session creation may not call metadata generation. Such a user can receive a session reminder despite having created a command-only session. The agreed copy asks them to create a new session and remains directionally correct. A dedicated bridge-to-auth session-created event is deferred.
 
@@ -45,6 +47,10 @@ Real milestone timestamps and reminder baselines serve different purposes and mu
 - Organic bridge reminders use the mobile setup timestamp.
 - Organic session reminders use the later of mobile and bridge setup.
 - Backfilled incomplete users preserve old real timestamps but use a new, jittered baseline for a controlled re-engagement wave.
+
+## Account Revocation
+
+Logout and account revoke remove device tokens, and account revoke also revokes bridges, but neither clears `activationStates`. Milestones represent lifetime first completion for this user, so re-authentication does not restart first-time onboarding. A future re-engagement campaign must use separate campaign baselines and sent markers rather than erasing activation history.
 
 ## Index Design
 

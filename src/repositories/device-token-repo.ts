@@ -1,5 +1,6 @@
 import { Collection, ObjectId } from "mongodb";
 import { MongoDbAccessor } from "../db/mongo-db-accessor.js";
+import { InternalServerError } from "../lib/errors.js";
 import type { DeviceToken } from "../models/documents.js";
 import { MongoDbDatabase, AuthDbCollection } from "../types/mongo.js";
 
@@ -11,19 +12,39 @@ export class DeviceTokenRepository {
   }
 
   async upsertToken(userId: string, token: string, platform: "ios" | "android"): Promise<void> {
+    if (!ObjectId.isValid(userId)) {
+      throw new InternalServerError({ debugMessage: "Invalid device token userId" });
+    }
     const now = new Date();
+    const objectUserId = new ObjectId(userId);
     await this.#collection.updateOne(
       { token },
-      {
-        $set: { userId: new ObjectId(userId), platform, updatedAt: now },
-        $setOnInsert: { createdAt: now },
-      },
+      [
+        {
+          $set: {
+            userId: objectUserId,
+            platform,
+            // A token moved to another account is a new registration for that
+            // user; same-user retries retain the original setup timestamp.
+            createdAt: {
+              $cond: [{ $eq: ["$userId", objectUserId] }, { $ifNull: ["$createdAt", now] }, now],
+            },
+            updatedAt: now,
+          },
+        },
+      ],
       { upsert: true },
     );
   }
 
   async findByUserId(userId: string): Promise<DeviceToken[]> {
     return this.#collection.find({ userId: new ObjectId(userId) }).toArray();
+  }
+
+  async findEarliestCreatedAt(userId: string): Promise<Date | null> {
+    if (!ObjectId.isValid(userId)) return null;
+    const token = await this.#collection.findOne({ userId: new ObjectId(userId) }, { sort: { createdAt: 1 } });
+    return token?.createdAt ?? null;
   }
 
   async deleteByToken(token: string): Promise<void> {

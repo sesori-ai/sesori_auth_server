@@ -22,6 +22,15 @@ export class DailyUsageRepository {
     return doc?.transcriptionSeconds ?? 0;
   }
 
+  async findEarliestMetadataRequestAt(userId: string): Promise<Date | null> {
+    if (!ObjectId.isValid(userId)) return null;
+    const usage = await this.#collection.findOne(
+      { userId: new ObjectId(userId), metadataRequestCount: { $gt: 0 } },
+      { sort: { date: 1 } },
+    );
+    return usage?.createdAt ?? null;
+  }
+
   /**
    * Atomically increments today's transcription seconds for a user (upsert).
    * Returns the total BEFORE the increment (`previousTotal`) and AFTER (`newTotal`).

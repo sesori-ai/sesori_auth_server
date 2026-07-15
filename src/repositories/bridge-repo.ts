@@ -59,6 +59,12 @@ export class BridgeRepository {
       .toArray();
   }
 
+  async findEarliestAddedAt(userId: string): Promise<Date | null> {
+    if (!ObjectId.isValid(userId)) return null;
+    const bridge = await this.#collection.findOne({ userId: new ObjectId(userId) }, { sort: { addedAt: 1 } });
+    return bridge?.addedAt ?? null;
+  }
+
   async register(input: RegisterBridgeInput): Promise<Bridge> {
     if (!ObjectId.isValid(input.userId)) {
       throw new Error("Invalid userId");

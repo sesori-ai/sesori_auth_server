@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
-import { after, before, beforeEach, describe, it } from "node:test";
+import { after, afterEach, before, beforeEach, describe, it, mock } from "node:test";
+import { ActivationStateRepository } from "../../src/repositories/activation-state-repo.js";
 import { DeviceTokenRepository } from "../../src/repositories/device-token-repo.js";
+import { ActivationService } from "../../src/services/activation-service.js";
 import type { BridgeStateTracker } from "../../src/services/bridge-state-tracker.js";
 import type { NotificationService } from "../../src/services/notification-service.js";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
@@ -27,6 +29,7 @@ function hasProjectId(payload: unknown): payload is { data: { projectId: string 
 describe("Notification routes", () => {
   let ctx: TestContext;
   let deviceTokenRepo: DeviceTokenRepository;
+  let activationStateRepo: ActivationStateRepository;
   const sendCalls: SendCall[] = [];
   const trackerCalls: TrackerCall[] = [];
   const cancelledLegacyUsers: string[] = [];
@@ -58,12 +61,17 @@ describe("Notification routes", () => {
       bridgeStateTracker: bridgeStateTrackerMock,
     });
     deviceTokenRepo = new DeviceTokenRepository(ctx.dbAccessor);
+    activationStateRepo = new ActivationStateRepository(ctx.dbAccessor);
   });
 
   beforeEach(() => {
     sendCalls.length = 0;
     trackerCalls.length = 0;
     cancelledLegacyUsers.length = 0;
+  });
+
+  afterEach(() => {
+    mock.restoreAll();
   });
 
   after(async () => {
@@ -90,6 +98,32 @@ describe("Notification routes", () => {
     assert.equal(tokens.length, 1);
     assert.equal(tokens[0]?.token, "fcm-token-1");
     assert.equal(tokens[0]?.platform, "ios");
+    const activationState = await activationStateRepo.findByUserId(user.userId);
+    assert.ok(activationState?.mobileSetupAt);
+    assert.equal(activationState.bridgeReminderBaseAt?.toISOString(), activationState.mobileSetupAt.toISOString());
+  });
+
+  it("POST /notifications/register-token succeeds when activation recording fails", async () => {
+    const user = await ctx.createUser();
+    const recordMock = mock.method(ActivationService.prototype, "recordMobileSetup", async () => {
+      throw new Error("activation unavailable");
+    });
+    const warnMock = mock.method(console, "warn", () => {});
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/notifications/register-token",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ token: "fcm-token-soft-fail", platform: "android" }),
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(recordMock.mock.callCount(), 1);
+    assert.equal(warnMock.mock.callCount(), 1);
+    assert.equal((await deviceTokenRepo.findByUserId(user.userId)).length, 1);
   });
 
   it("POST /notifications/register-token returns 401 without auth", async () => {

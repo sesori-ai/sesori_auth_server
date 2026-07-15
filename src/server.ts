@@ -9,7 +9,7 @@ import { createAuthMiddleware } from "./middleware/auth.js";
 import { createRelayAuthMiddleware } from "./middleware/relay-auth.js";
 import type { HealthReply } from "./models/api.js";
 import type { DeviceTokenRepository } from "./repositories/device-token-repo.js";
-import type { ActivationStateRepository } from "./repositories/activation-state-repo.js";
+import type { ActivationService } from "./services/activation-service.js";
 import type { AuthService } from "./services/auth-service.js";
 import type { BridgeService } from "./services/bridge-service.js";
 import type { BridgeStateTracker } from "./services/bridge-state-tracker.js";
@@ -47,7 +47,7 @@ export type AppServices = {
   deviceTokenRepo: DeviceTokenRepository;
   notificationService: NotificationService;
   bridgeStateTracker: BridgeStateTracker;
-  activationStateRepo: ActivationStateRepository;
+  activationService: ActivationService;
   stateStore: StateStore;
   githubClient: OAuthClient;
   googleClient: OAuthClient;
@@ -157,15 +157,18 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
     notificationService: services.notificationService,
     bridgeService: services.bridgeService,
     bridgeStateTracker: services.bridgeStateTracker,
+    activationService: services.activationService,
     requireAuth,
     requireRelayAuth,
   });
   await app.register(bridgeRoutes, {
     bridgeService: services.bridgeService,
+    activationService: services.activationService,
     requireAuth,
   });
   await app.register(sessionRoutes, {
     sessionMetadataService: services.sessionMetadataService,
+    activationService: services.activationService,
     requireAuth,
   });
 

@@ -32,12 +32,16 @@ const DATABASE_CONFIG: Record<MongoDbDatabase, DatabaseConfig<string>> = {
       ],
       [AuthDbCollection.GlossaryEntries]: [{ spec: { userId: 1, word: 1 }, options: { unique: true } }],
       [AuthDbCollection.DailyUsage]: [{ spec: { userId: 1, date: 1 }, options: { unique: true } }],
-      [AuthDbCollection.DeviceTokens]: [{ spec: { token: 1 }, options: { unique: true } }, { spec: { userId: 1 } }],
+      [AuthDbCollection.DeviceTokens]: [
+        { spec: { token: 1 }, options: { unique: true } },
+        { spec: { userId: 1, createdAt: 1 } },
+      ],
       [AuthDbCollection.Bridges]: [
         { spec: { bridgeId: 1 }, options: { unique: true } },
         // Covers the hot /auth/me path: findByUserId and revokeAllForUser
         // filter on { userId, revokedAt: null }. No query filters on status.
         { spec: { userId: 1, revokedAt: 1 } },
+        { spec: { userId: 1, addedAt: 1 } },
       ],
       [AuthDbCollection.ActivationStates]: [
         { spec: { userId: 1 }, options: { unique: true } },
@@ -122,6 +126,21 @@ export class MongoDbAccessor {
               continue;
             }
             throw error;
+          }
+        }
+
+        // The compound lookup index supersedes PR1's user-only token index.
+        // Drop the old index only after confirming its replacement exists.
+        if (dbName === MongoDbDatabase.Auth && collectionName === AuthDbCollection.DeviceTokens) {
+          const currentIndexes = await collection.indexes();
+          const replacementExists = currentIndexes.some((index) =>
+            indexMatchesDesired(index, { spec: { userId: 1, createdAt: 1 } }),
+          );
+          const superseded = currentIndexes.find((index) =>
+            indexKeyMatches(index.key as IndexSpecification, { userId: 1 }),
+          );
+          if (replacementExists && superseded?.name) {
+            await collection.dropIndex(superseded.name);
           }
         }
       }

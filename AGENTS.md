@@ -29,7 +29,7 @@ src/
 │       ├── init.ts               # Shared helpers: parseSessionTokenHeader, createPendingOAuthInit, …
 │       ├── provider-callback.ts  # GET interstitial + POST confirm/deny (HTML responses)
 │       └── session-status.ts     # GET /auth/session/status long-poll
-├── services/          # Business logic — auth-service.ts, token-service.ts, voice-service.ts
+├── services/          # Business logic — auth-service.ts, token-service.ts, activation-service.ts, voice-service.ts
 │   └── pending-auth-store.ts     # In-memory LRU of pending OAuth sessions (anti-phishing flow)
 ├── config.ts          # Zod-validated env config
 ├── index.ts           # Composition root (wires all dependencies)
@@ -72,7 +72,7 @@ src/
 
 The activation-reminder feature is intentionally split into independently deployable PRs. `.plans/activation-reminders/PLAN.md` is the authoritative implementation checkpoint and `.plans/activation-reminders/CONSIDERATIONS.md` records the product and architecture decisions. Verify live GitHub state before starting the next slice; do not infer merge status from the static plan alone.
 
-`activationStates` stores one document per user. Milestones are real event timestamps, reminder baselines are campaign scheduling timestamps that may diverge during backfill, and sent markers independently suppress each reminder. Do not conflate these categories. PR1 only establishes the dormant collection, indexes, repository, and wiring; later behavior must follow the staged acceptance criteria in the plan.
+`activationStates` stores one document per user. Milestones are real event timestamps, reminder baselines are campaign scheduling timestamps that may diverge during backfill, and sent markers independently suppress each reminder. Do not conflate these categories. `ActivationService` records milestones from device-token registration, bridge registration, and accepted metadata requests; these secondary writes are failure-isolated from the existing endpoint response. Logout/revoke does not erase lifetime activation history. Later reminder and backfill behavior must follow the staged acceptance criteria in the plan.
 
 ## BRIDGE SUBSYSTEM
 

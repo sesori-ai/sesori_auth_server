@@ -13,12 +13,13 @@ This file is the authoritative implementation tracker. A future session should r
 ## Current State
 
 - Branch: `activation-rate-plan`
-- Implementation checkpoint: PR1 complete; PR2 not started
-- PR1 intended post-merge status: merged
+- Implementation checkpoint: PR2 complete; PR3 not started
+- PR1 delivery status: merged as PR #38
+- PR2 intended post-merge status: merged
 - Live GitHub delivery state: do not infer it from this static file; verify with `gh pr list --head activation-rate-plan --state all`
 - Last updated: 2026-07-15
-- If PR1 is still open: review and merge PR1; do not start PR2 on top of an unmerged slice
-- If PR1 is merged: begin PR2 by reviewing the PR1 repository API and adding the activation service/reconciliation methods described below
+- If PR2 is still open: review and merge PR2; do not start PR3 on top of an unmerged slice
+- If PR2 is merged: begin PR3 with the gated reminder sweep and sending behavior described below
 
 ## Resume Instructions
 
@@ -96,6 +97,8 @@ Planned indexes:
 - `{ bridgeSetupAt: 1, bridgeReminder1SentAt: 1, bridgeReminderBaseAt: 1 }`.
 - `{ bridgeSetupAt: 1, bridgeReminder2SentAt: 1, bridgeReminderBaseAt: 1 }`.
 - `{ firstSessionAt: 1, sessionReminderSentAt: 1, sessionReminderBaseAt: 1 }`.
+- Supporting historical mobile reconciliation: `deviceTokens { userId: 1, createdAt: 1 }`.
+- Supporting historical bridge reconciliation: `bridges { userId: 1, addedAt: 1 }`.
 
 The equality fields precede each due-time range field so the future sweep queries can use the indexes directly.
 
@@ -126,7 +129,7 @@ The equality fields precede each due-time range field so the future sweep querie
 | PR  | Scope                                                                                         | Implementation | Intended post-merge status | Production behavior                       |
 | --- | --------------------------------------------------------------------------------------------- | -------------- | -------------------------- | ----------------------------------------- |
 | PR1 | Plans, collection, indexes, schema, repository, composition wiring, repository tests          | complete       | merged                     | Dormant; creates collection/indexes only. |
-| PR2 | Milestone capture, enrollment reconciliation, endpoint hooks, failure isolation               | not started    | pending                    | Records state only; sends nothing.        |
+| PR2 | Milestone capture, enrollment reconciliation, endpoint hooks, failure isolation               | complete       | merged                     | Records state only; sends nothing.        |
 | PR3 | Config, reminder queries/service, FCM sends, 15-minute scheduler, structured logs             | not started    | pending                    | Sending remains off by default.           |
 | PR4 | Idempotent dry-run-capable active backfill with controlled re-engagement baselines and jitter | not started    | pending                    | No effect until manually executed.        |
 
@@ -171,19 +174,53 @@ PR1 verification results:
 
 ## PR2 - Milestone Capture
 
-Status: pending
+Implementation: complete
 
-Planned work:
+Intended post-merge status: merged
 
-- Add an `ActivationService` that owns cross-collection reconciliation and milestone invariants.
-- On first device-token registration, enroll the user and reconcile pre-existing bridge/session state.
-- Reconcile bridge state from the earliest historical bridge, including revoked bridges, so a previously completed setup is not presented as new.
-- Reconcile session state from historical `dailyUsage.metadataRequestCount > 0` data, using the best available date.
-- Set `bridgeSetupAt` idempotently after bridge registration.
-- Set `firstSessionAt` idempotently when a valid authenticated metadata request is accepted, before metadata generation, because the bridge proceeds with session creation even when metadata generation fails.
-- Recompute `sessionReminderBaseAt` as the later setup time when both setup timestamps become available.
-- Catch and log activation errors at each endpoint boundary so activation tracking cannot break existing behavior.
-- Add route/service tests for ordering, retries, and failure isolation.
+Acceptance criteria:
+
+- [x] Add `ActivationService` to own reconciliation and milestone invariants.
+- [x] Add an atomic milestone update that preserves first-event timestamps and derives reminder baselines correctly for either event order.
+- [x] Retain the earliest first-session candidate when concurrent initial reads/writes reach MongoDB out of order.
+- [x] On device-token registration, enroll the user from the earliest extant token, reset transferred-token history for the new owner, and retry unresolved bridge/session reconciliation.
+- [x] Add `{ userId: 1, createdAt: 1 }` to support historical device-token lookup.
+- [x] Remove the superseded `{ userId: 1 }` token index only after confirming the exact desired compound replacement exists.
+- [x] Validate token owner IDs with the typed internal error used at repository boundaries.
+- [x] Reconcile bridge state from the earliest historical bridge, including revoked bridges.
+- [x] Add `{ userId: 1, addedAt: 1 }` to support historical bridge lookup.
+- [x] Reconcile session state from historical `dailyUsage.metadataRequestCount > 0` data using the earliest qualifying document's `createdAt`.
+- [x] Set `bridgeSetupAt` idempotently after bridge registration, using the earliest historical `addedAt` across active and revoked bridges.
+- [x] Set `firstSessionAt` before metadata generation for a valid authenticated request, preferring earlier historical metadata evidence when present, because the bridge proceeds when metadata generation fails.
+- [x] Reconcile all still-missing historical milestones from each event hook so a later event repairs an earlier failure-isolated write.
+- [x] Derive `sessionReminderBaseAt` from the later of mobile and bridge setup.
+- [x] Catch and log activation errors at every endpoint boundary without changing the existing endpoint response.
+- [x] Document that logout/revoke retains lifetime activation history.
+- [x] Add repository, service, event-order, reconciliation, route, metadata-failure, and failure-isolation tests.
+- [x] `npm run build` passes.
+- [x] `npm run lint` passes without warnings.
+- [x] `npm run format:check` passes.
+- [x] Focused PR2 tests pass.
+- [x] Full test suite passes.
+- [x] `npm run circular-dependencies` passes.
+- [x] `git diff --check` passes.
+
+PR2 non-goals:
+
+- No reminder due-query or scheduler exists yet.
+- No activation configuration variables are added yet.
+- No activation push is sent.
+- No existing-user backfill command is added.
+
+PR2 verification results:
+
+- Focused activation/repository/route suite: passed, 106 tests.
+- `npm run build`: passed.
+- `npm run lint`: passed with no warnings.
+- `npm run format:check`: passed.
+- `npm test`: passed, 358 tests passed, 1 skipped, 0 failed across 39 top-level suites.
+- `npm run circular-dependencies`: passed; no circular dependencies found.
+- `git diff --check`: passed.
 
 PR2 exit condition:
 
@@ -257,3 +294,7 @@ PR4 exit condition:
 - 2026-07-12: PR1 implementation completed. Added the resumable plan, activation-state collection/schema/indexes, dormant repository/composition wiring, and focused tests. All verification passed. This document records PR1's intended post-merge status as merged; live GitHub status must always be verified separately. PR2 is next and has not started.
 - 2026-07-15: PR1 review feedback addressed. Clarified metadata-attempt semantics, retry and FCM-unavailable behavior, and backfill race guarantees; added defensive ObjectId validation and tests. All verification passed.
 - 2026-07-15: Human PR1 review feedback addressed. Documented timestamp and index invariants in source, clarified intended status labels, and made concurrent first-enrollment upserts recover from duplicate-key races. All verification passed.
+- 2026-07-15: PR1 merged as #38. PR2 implementation completed: atomic milestone recording, historical reconciliation, three failure-isolated endpoint hooks, lifetime revoke semantics, and comprehensive tests. Pre-delivery review also hardened transferred-token timestamps, direct bridge/session historical reconciliation, retry repair, and concurrent first writes. All verification passed. PR3 is next and has not started.
+- 2026-07-15: PR2 automated review feedback addressed. Added cross-stage repair from every event hook, earliest-wins concurrent session recording, defensive token user validation, and the compound token reconciliation index. Retained the documented metadata-attempt and historical timestamp semantics. All verification passed.
+- 2026-07-15: PR2 second automated review addressed. Added safe cleanup for the superseded device-token index and changed invalid token owner handling to the typed repository-boundary error. Confirmed mobile/bridge concurrency already resolves from earliest durable source timestamps. All verification passed.
+- 2026-07-15: PR2 third automated review addressed. Required a full desired-index option match before cleanup and preserved earlier observed session timestamps when an initial read loses a race. All verification passed.
