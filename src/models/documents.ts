@@ -91,3 +91,28 @@ export const bridgeSchema = z.object({
 });
 
 export type Bridge = z.infer<typeof bridgeSchema>;
+
+/**
+ * One activation-funnel document per user. Do not conflate these categories:
+ * milestones are real event times; reminder baselines are campaign start times
+ * that may diverge after backfill; sent markers independently suppress each
+ * reminder; backfilledAt records enrollment by the backfill script.
+ * See .plans/activation-reminders/CONSIDERATIONS.md, "Timestamp Semantics".
+ */
+export const activationStateSchema = z.object({
+  _id: z.instanceof(ObjectId),
+  userId: z.instanceof(ObjectId),
+  mobileSetupAt: z.date().nullable(),
+  bridgeSetupAt: z.date().nullable(),
+  firstSessionAt: z.date().nullable(),
+  bridgeReminderBaseAt: z.date().nullable(),
+  sessionReminderBaseAt: z.date().nullable(),
+  bridgeReminder1SentAt: z.date().nullable(),
+  bridgeReminder2SentAt: z.date().nullable(),
+  sessionReminderSentAt: z.date().nullable(),
+  backfilledAt: z.date().nullable(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
+export type ActivationState = z.infer<typeof activationStateSchema>;

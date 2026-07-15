@@ -5,6 +5,8 @@ Node.js/TypeScript authentication service. Social login (GitHub, Google) via OAu
 ## STRUCTURE
 
 ```
+.plans/
+└── activation-reminders/ # Resumable multi-PR plan + design considerations for the activation funnel
 src/
 ├── types/             # Enums + shared types (mongo.ts, oauth.ts)
 ├── clients/
@@ -19,7 +21,7 @@ src/
 ├── lib/               # Utilities (state-store.ts — LRU singleton, errors.ts — ApiError hierarchy)
 ├── middleware/         # createAuthMiddleware factory → requireAuth preHandler hook
 ├── models/            # Zod schemas — api.ts, bridge.ts (shared bridge enums/schemas), documents.ts, jwt.ts
-├── repositories/      # Data access — user-repo.ts, oauth-account-repo.ts, bridge-repo.ts, glossary-entry-repo.ts
+├── repositories/      # Data access — user-repo.ts, oauth-account-repo.ts, bridge-repo.ts, activation-state-repo.ts, …
 ├── routes/
 │   └── auth/          # OAuth + pending-confirmation flow
 │       ├── github.ts             # GET /auth/github, POST /auth/github/init, POST/GET callbacks
@@ -36,17 +38,18 @@ src/
 
 ## WHERE TO LOOK
 
-| Task                       | Location                                                                 | Notes                                                                                       |
-| -------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
-| Add OAuth provider         | `src/clients/auth/` + `src/routes/auth/`                                 | Extend OAuthClient, implement exchangeCode + resolveIdentity, add route plugin in server.ts |
-| OAuth pending/confirm flow | `src/routes/auth/init.ts` + `provider-callback.ts` + `session-status.ts` | Anti-phishing interstitial; pending state in `src/services/pending-auth-store.ts`           |
-| Modify JWT claims          | `src/models/jwt.ts` + `src/services/token-service.ts`                    | Zod schema defines payload shape                                                            |
-| Add API endpoint           | `src/routes/`                                                            | Register as Fastify plugin in `server.ts`, add to AppServices if deps needed                |
-| Change DB schema           | `src/models/documents.ts` + `src/repositories/`                          | Zod document schemas, raw MongoDB driver                                                    |
-| Add DB collection          | `src/types/mongo.ts` + `src/db/mongo-db-accessor.ts`                     | Add to AuthDbCollection enum + DATABASE_CONFIG                                              |
-| Auth middleware            | `src/middleware/auth.ts`                                                 | `createAuthMiddleware(tokenService)` factory                                                |
+| Task                       | Location                                                                                                                                | Notes                                                                                       |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Add OAuth provider         | `src/clients/auth/` + `src/routes/auth/`                                                                                                | Extend OAuthClient, implement exchangeCode + resolveIdentity, add route plugin in server.ts |
+| OAuth pending/confirm flow | `src/routes/auth/init.ts` + `provider-callback.ts` + `session-status.ts`                                                                | Anti-phishing interstitial; pending state in `src/services/pending-auth-store.ts`           |
+| Modify JWT claims          | `src/models/jwt.ts` + `src/services/token-service.ts`                                                                                   | Zod schema defines payload shape                                                            |
+| Add API endpoint           | `src/routes/`                                                                                                                           | Register as Fastify plugin in `server.ts`, add to AppServices if deps needed                |
+| Change DB schema           | `src/models/documents.ts` + `src/repositories/`                                                                                         | Zod document schemas, raw MongoDB driver                                                    |
+| Add DB collection          | `src/types/mongo.ts` + `src/db/mongo-db-accessor.ts`                                                                                    | Add to AuthDbCollection enum + DATABASE_CONFIG                                              |
+| Auth middleware            | `src/middleware/auth.ts`                                                                                                                | `createAuthMiddleware(tokenService)` factory                                                |
 | Manage bridges             | `src/routes/bridges.ts` + `src/services/bridge-service.ts` + `src/repositories/bridge-repo.ts` + `src/services/bridge-state-tracker.ts` | Per-bridge registry behind `/auth/me bridges[]`; see BRIDGE SUBSYSTEM below                 |
-| Wire dependencies          | `src/index.ts`                                                           | Composition root — all instantiation happens here                                           |
+| Activation reminders       | `.plans/activation-reminders/` + `src/repositories/activation-state-repo.ts`                                                            | Read `PLAN.md` and `CONSIDERATIONS.md` before continuing the staged implementation          |
+| Wire dependencies          | `src/index.ts`                                                                                                                          | Composition root — all instantiation happens here                                           |
 
 ## CONVENTIONS
 
@@ -64,6 +67,12 @@ src/
 - **Pending OAuth sessions are in-process only.** `PendingAuthStore` is an in-memory LRU with a 5-minute TTL. The store is NOT shared between instances. Horizontal scaling of this service requires either sticky sessions (`X-Sesori-Session-Token` → consistent instance) OR migrating the store to Redis. Until then: **single-instance deploys only**.
 - Tunable via `PENDING_AUTH_MAX_SESSIONS` (default 10k entries ≈ 10 MB) and `PENDING_AUTH_POLL_TIMEOUT_MS` (default 30s long-poll cap).
 - **Bridge notification debounce is in-process only.** `BridgeStateTracker` keeps per-(userId, bridgeId) debounce timers and last-notified state in a process-local Map: pending notifications are lost on restart, the map is unbounded for the process lifetime (acceptable under the 50-bridges-per-user registration cap), and multiple instances would double-notify. Same single-instance constraint as above.
+
+## ACTIVATION REMINDERS
+
+The activation-reminder feature is intentionally split into independently deployable PRs. `.plans/activation-reminders/PLAN.md` is the authoritative implementation checkpoint and `.plans/activation-reminders/CONSIDERATIONS.md` records the product and architecture decisions. Verify live GitHub state before starting the next slice; do not infer merge status from the static plan alone.
+
+`activationStates` stores one document per user. Milestones are real event timestamps, reminder baselines are campaign scheduling timestamps that may diverge during backfill, and sent markers independently suppress each reminder. Do not conflate these categories. PR1 only establishes the dormant collection, indexes, repository, and wiring; later behavior must follow the staged acceptance criteria in the plan.
 
 ## BRIDGE SUBSYSTEM
 

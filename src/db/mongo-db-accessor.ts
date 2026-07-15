@@ -39,6 +39,16 @@ const DATABASE_CONFIG: Record<MongoDbDatabase, DatabaseConfig<string>> = {
         // filter on { userId, revokedAt: null }. No query filters on status.
         { spec: { userId: 1, revokedAt: 1 } },
       ],
+      [AuthDbCollection.ActivationStates]: [
+        { spec: { userId: 1 }, options: { unique: true } },
+        // Reminder sweeps filter on stage-completion and sent-marker equality,
+        // then range on the baseline. Keep equality fields before the range;
+        // the two bridge reminders need separate indexes for their sent markers.
+        // See .plans/activation-reminders/CONSIDERATIONS.md, "Index Design".
+        { spec: { bridgeSetupAt: 1, bridgeReminder1SentAt: 1, bridgeReminderBaseAt: 1 } },
+        { spec: { bridgeSetupAt: 1, bridgeReminder2SentAt: 1, bridgeReminderBaseAt: 1 } },
+        { spec: { firstSessionAt: 1, sessionReminderSentAt: 1, sessionReminderBaseAt: 1 } },
+      ],
     },
   } satisfies DatabaseConfig<AuthDbCollection>,
 };
