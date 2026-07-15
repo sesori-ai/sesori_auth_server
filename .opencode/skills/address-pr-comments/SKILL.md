@@ -5,7 +5,7 @@ description: Address unresolved inline PR review comments on a GitHub pull reque
 
 # address-pr-comments
 
-Addresses unresolved inline PR review comments by assessing their validity, implementing fixes, and leaving a reply on each comment thread. Every thread gets a response — either confirming the fix or explaining why the comment was not addressed.
+Addresses unresolved inline PR review comments by assessing their validity, implementing fixes, and leaving a reply on each comment thread. Every thread gets a response — either confirming the fix or explaining why the comment was not addressed. Threads whose fix has been implemented and pushed are then **resolved** by the agent; threads that were declined (or need human judgment) stay unresolved so the reviewer can accept or reject the decision.
 
 ## Core Rules
 
@@ -13,30 +13,39 @@ Addresses unresolved inline PR review comments by assessing their validity, impl
 2. **Every thread gets a reply**: After assessing and acting on a comment, you MUST post a reply to that comment thread. No thread should be left without a response.
 3. **Do not reply twice**: Before posting a reply, inspect the comments after the most recent `[Sesori reply]`. If the last comment is already a `[Sesori reply]` and there are no later reviewer comments, skip the thread. If the only later comments are acknowledgment-only bot comments (for example "Acknowledged", "Thanks", "Looks good", or "Accepted") with no new request, objection, question, or requested change, skip the thread. Do not skip if a later comment raises a follow-up, pushback, asks for clarification, or requests additional changes; handle that as a new actionable comment.
 4. **Reply prefix**: Every reply must start with `[Sesori reply]` so it is clear the response comes from the agent, not the human user.
-5. **All comments are assessed**: Every comment must be evaluated for validity. Do not automatically assume any comment is correct.
-6. **Extra scrutiny for AI/bot comments**: Comments from AI reviewers or bots require more careful assessment. They are more likely to be incorrect, irrelevant, or based on stale context.
-7. **Human comments are trusted by default**: Comments from actual humans should be assumed valid unless you have a strong reason to believe they are wrong, detrimental, or cause likely unintended side effects.
-8. **Single commit**: All fixes can be committed together in a single commit. The user squash-merges at the end.
-9. **Never amend**: Always create new commits when addressing feedback. Do not use `git commit --amend`, `git rebase` to rewrite published history, or any other history-rewriting operation. If you make a mistake in a commit, fix it with a follow-up commit rather than rewriting.
-10. **Never force push**: Do not use force push under any circumstances. If the remote branch has moved ahead of your local branch, pull/merge and continue with normal commits. History rewriting on a shared branch is forbidden.
-11. **Outdated comments**: If `is_outdated == true`, assess whether the comment is still relevant. If the issue still exists in the current code, address it. If not, reply explaining why it is no longer applicable.
+5. **Resolve what you fixed; leave what you declined**: After replying, RESOLVE the thread when its status is `Addressed` (fix implemented and pushed). Leave the thread UNRESOLVED when the status is `Not addressed`, `Partially addressed`, or `Question` — those carry a decision or an open point the human reviewer must be able to double-check and either accept (by resolving it themselves) or push back on.
+6. **All comments are assessed**: Every comment must be evaluated for validity. Do not automatically assume any comment is correct.
+7. **Extra scrutiny for AI/bot comments**: Comments from AI reviewers or bots require more careful assessment. They are more likely to be incorrect, irrelevant, or based on stale context.
+8. **Human comments are trusted by default**: Comments from actual humans should be assumed valid unless you have a strong reason to believe they are wrong, detrimental, or cause likely unintended side effects.
+9. **Single commit**: All fixes can be committed together in a single commit. The user squash-merges at the end.
+10. **Never amend**: Always create new commits when addressing feedback. Do not use `git commit --amend`, `git rebase` to rewrite published history, or any other history-rewriting operation. If you make a mistake in a commit, fix it with a follow-up commit rather than rewriting.
+11. **Never force push**: Do not use force push under any circumstances. If the remote branch has moved ahead of your local branch, pull/merge and continue with normal commits. History rewriting on a shared branch is forbidden.
+12. **Outdated comments**: If `is_outdated == true`, assess whether the comment is still relevant. If the issue still exists in the current code, address it. If not, reply explaining why it is no longer applicable.
 
 ## Workflow
 
 ### Step 1: Fetch Unresolved Comments
 
-Use the `pr-inline-comments` skill to fetch ONLY unresolved comments:
+Delegate fetching to `pr-comments-provider`, requesting ONLY unresolved comments
+and passing the explicit repository and PR number. This project denies direct
+loading of `pr-inline-comments` by default; the provider is the intentionally
+restricted agent that can load it.
+
+If the active agent has an explicit per-agent allow for `pr-inline-comments`, it
+may run the project-root script directly instead:
 
 ```bash
-../pr-inline-comments/scripts/fetch.sh <pr-number> --unresolved [--repo OWNER/REPO]
+.opencode/skills/pr-inline-comments/scripts/fetch.sh <pr-number> --unresolved [--repo OWNER/REPO]
 ```
 
 If the user specifies a time window (e.g., "since yesterday"), also pass `--since <ISO_8601>`.
 
-**Important:** The JSON output can be large and may get truncated in the terminal. Always save it to a file first:
+**Important:** The JSON output can be large and may get truncated in the
+terminal. When running the script directly, save it to a uniquely named file:
 
 ```bash
-../pr-inline-comments/scripts/fetch.sh <pr-number> --unresolved > /tmp/pr_comments.json
+OUTFILE="/tmp/pr_<pr-number>_comments_<unique-suffix>.json"
+.opencode/skills/pr-inline-comments/scripts/fetch.sh <pr-number> --unresolved > "$OUTFILE"
 ```
 
 Then parse the file with `jq` or similar tools. You will receive an array of thread objects. Each thread contains:
@@ -61,7 +70,7 @@ A comment is **invalid** if:
 - It is based on a misunderstanding of the code
 - The suggestion would introduce a bug or worsen the code
 - It is stylistically opinionated without project convention backing
-- It suggests that the syntax is invalid but the analyzer accepts it
+- It claims syntax or typing is invalid but the TypeScript/compiler checks accept it
 - It is outdated and no longer applies
 - It is from an AI/bot and contains obvious hallucinations or generic advice
 
@@ -76,6 +85,25 @@ For AI/bot comments:
 - Verify the claim by reading the actual code
 - Check if the suggestion aligns with existing codebase patterns
 - Do not implement blindly — apply the same critical thinking you would use on your own code
+
+#### Avoid the bot-review spiral
+
+Every pushed commit can trigger a fresh round of AI-reviewer comments about new
+edge cases, and fixing those spawns the next round. Do not loop indefinitely:
+
+- **Raise the bar with each round.** A bot-reported edge case earns a code
+  change only when it is plausible in a real user flow AND has a meaningful
+  consequence (security weakness, data loss, wrong routing, or a stuck flow).
+  Contrived scenarios, cosmetic transients, and pre-existing behavior merely
+  exposed by the PR get a `Not addressed` reply with the rationale.
+- **Repeated findings in one seam are a signal, not a to-do list.** If several
+  rounds cluster around the same structural seam, stop patching point by point:
+  fix the seam once at its root, or surface the pattern to the user as a possible
+  design problem before writing more code.
+- **Check comments against documented product and security direction.** A bot
+  may flag intended behavior as a bug. When a "fix" would violate repository
+  instructions, a locked plan decision, or a cross-repository contract, decline
+  it and explain why.
 
 #### Acknowledgment-only bot follow-ups
 
@@ -113,7 +141,15 @@ Fix guidelines:
 - If you are changing logic or fixing logic bugs/edge case omissions/etc, use TDD (write a failing test first)
 - Do not suppress type errors with `as any`, `@ts-ignore`, or `@ts-expect-error`
 
-### Step 4: Commit and Push Changes
+### Step 4: Run the Required Review Gate
+
+After implementing fixes and running applicable verification, rerun the
+repository's required pre-push reviewer over the complete updated PR diff.
+For auth-server implementation PRs this is `aristotle-impl-review`; plan-only
+PRs follow `sesori-plan-maker` and rerun `aristotle-plan-review`. Treat rejection
+as blocking and iterate to approval. Never update a PR under a stale approval.
+
+### Step 5: Commit and Push Changes
 
 After all fixes have been implemented, check the worktree status first. If there are pre-existing modifications or untracked files unrelated to the PR comments, warn the user and ask whether to proceed before committing.
 
@@ -148,7 +184,7 @@ git push origin <branch-name>
 
 **No changes to commit:** If all fetched comments were invalid, outdated, or questions requiring no code change, skip the commit and push steps. Proceed directly to posting replies.
 
-### Step 5: Leave Replies
+### Step 6: Leave Replies
 
 After the commit has been successfully pushed, post a reply to each comment thread explaining what was done.
 
@@ -182,21 +218,21 @@ Addressed (simple fix):
 ```
 [Sesori reply] Addressed (in commit a1b2c3d)
 
-Changed the loop boundary from `i <= n` to `i < n` in `src/utils.ts` to fix the off-by-one error.
+Changed the token-expiry boundary in `src/services/token-service.ts` to reject the expired edge case.
 ```
 
 Addressed (complex fix requiring more context):
 ```
 [Sesori reply] Addressed (in commit a1b2c3d)
 
-Extracted the retry logic into a separate `RetryService` in `src/services/retry_service.dart`. This centralizes the backoff strategy and makes it reusable across the HTTP client and the WebSocket reconnect flow.
+Added the missing refresh-token payload check in `src/services/auth-service.ts` and kept the existing `ApiError` mapping intact.
 ```
 
 Not addressed (AI comment found invalid):
 ```
 [Sesori reply] Not addressed
 
-This suggestion would introduce a race condition. The current implementation already handles synchronization correctly via the existing mutex.
+This would replace the repository's atomic conditional update with a read-then-write race, so the current implementation is retained.
 ```
 
 Not addressed (outdated):
@@ -210,7 +246,7 @@ Partially addressed:
 ```
 [Sesori reply] Partially addressed (in commit a1b2c3d)
 
-Renamed the function as requested. Did not remove the platform abstraction because it would break Windows support and duplicate OS detection logic.
+Renamed the function as requested. Kept the legacy bridge-status branch because the documented relay rollout flag has not been enabled yet.
 ```
 
 Question:
@@ -222,13 +258,34 @@ Could you clarify what you mean by "optimize this"? Are you looking for time com
 
 **Posting replies via helper script:**
 
-Use the included `reply.sh` helper script:
+Write each generated reply to a uniquely named temporary file with a file-writing
+tool, then pass that file to the helper. Never interpolate generated reply text
+into a shell command: Markdown backticks, `$()`, quotes, or malicious review
+content could otherwise be evaluated by the shell.
 
 ```bash
-./scripts/reply.sh <pr-number> <thread_id> "Addressed: Fixed the null check."
+REPLY_FILE="/tmp/pr_<pr-number>_thread_<thread_id>_reply_<unique-suffix>.md"
+.opencode/skills/address-pr-comments/scripts/reply.sh \
+  <pr-number> <thread_id> --body-file "$REPLY_FILE" [--repo OWNER/REPO]
 ```
 
-The script automatically prefixes the body with `[Sesori reply]` if not already present.
+The script automatically prefixes the body with `[Sesori reply]` if not already
+present. Delete the temporary reply file after the helper succeeds.
+
+### Step 7: Resolve the Addressed Threads
+
+After the reply is posted, resolve every thread whose status is `Addressed`,
+using the included `resolve.sh` helper. Thread resolution requires the GraphQL
+API; the script maps the comment ID to its thread and is idempotent:
+
+```bash
+.opencode/skills/address-pr-comments/scripts/resolve.sh <pr-number> <thread_id> [--repo OWNER/REPO]
+```
+
+Do NOT resolve threads replied with `Not addressed`, `Partially addressed`, or
+`Question`. Those stay open on purpose: the human reviewer reads the rationale
+and either agrees (resolving the thread themselves) or pushes back. Resolving a
+declined thread would hide the disagreement.
 
 ## Edge Cases
 
@@ -257,6 +314,8 @@ If the user explicitly asks you to look at resolved comments, omit the `--unreso
 ## Dependencies
 
 - `gh` (authenticated via `gh auth login`)
+- `jq` 1.6+
+- `pr-comments-provider` agent (default restricted fetch path)
 - `pr-inline-comments` skill (for fetching comments)
 - Access to the repository working tree (to read and edit files)
 
@@ -268,7 +327,7 @@ If the user invokes this skill without an explicit PR number (e.g. "address the 
 
 User: "Address the comments on PR 42"
 
-1. Fetch unresolved comments using the `pr-inline-comments` skill
+1. Fetch unresolved comments through `pr-comments-provider`
 2. Receive 3 threads:
    - Thread 1 (human): "This loop has an off-by-one error"
    - Thread 2 (bot): "Consider using a more functional approach"
@@ -278,8 +337,11 @@ User: "Address the comments on PR 42"
    - Thread 2: AI suggestion. Current imperative approach is clearer here. Do not implement.
    - Thread 3: Valid. Add null check.
 4. Implement fixes for threads 1 and 3.
-5. Make a single commit and push
-6. Post replies:
-   - Thread 1: `[Sesori reply] Addressed (in commit a1b2c3d)\n\nChanged the loop boundary from i <= n to i < n in src/utils.ts to fix the off-by-one error.]`
-   - Thread 2: `[Sesori reply] Not addressed\n\nThe current imperative approach is intentional and more readable here.]`
-   - Thread 3: `[Sesori reply] Addressed (in commit a1b2c3d)\n\nAdded null check in src/services/user_service.dart before accessing user.email.`
+5. Run the required Aristotle review to approval
+6. Make a single commit and push
+7. Post replies:
+   - Thread 1: `[Sesori reply] Addressed (in commit a1b2c3d)\n\nCorrected the expiry boundary in src/services/token-service.ts.`
+   - Thread 2: `[Sesori reply] Not addressed\n\nThe current imperative approach is intentional and more readable here.`
+   - Thread 3: `[Sesori reply] Addressed (in commit a1b2c3d)\n\nAdded a null check in src/services/auth-service.ts before reading the provider email.`
+8. Resolve threads 1 and 3 with `.opencode/skills/address-pr-comments/scripts/resolve.sh 42 <thread_id>`. Thread 2
+   stays unresolved for the reviewer to accept or reject the decision.

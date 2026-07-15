@@ -1,6 +1,6 @@
 ---
 name: monitor-pr
-description: Monitor GitHub PRs with the pr_monitor tool and handle incoming "[PR Monitor]" reports. Use immediately after raising a PR, or when the user asks to monitor/watch a PR. Address automatically everything it flags. For PR comments, rely on the address-pr-comments skill to address them.
+description: Monitor GitHub PRs with the pr_monitor tool and handle incoming "[PR Monitor]" reports. Use immediately after raising a PR, when the user asks to monitor/watch a PR, and whenever a "[PR Monitor]" message arrives in the session (CI results, new review comments, merge conflicts, approvals). Requires gh.
 ---
 
 # monitor-pr
