@@ -1,6 +1,7 @@
 import { Collection, ObjectId } from "mongodb";
 import { MongoDbAccessor } from "../db/mongo-db-accessor.js";
 import { InternalServerError } from "../lib/errors.js";
+import type { DevicePlatform } from "../models/device.js";
 import type { DeviceToken } from "../models/documents.js";
 import { MongoDbDatabase, AuthDbCollection } from "../types/mongo.js";
 
@@ -11,12 +12,16 @@ export class DeviceTokenRepository {
     this.#collection = accessor.getCollection<DeviceToken>(MongoDbDatabase.Auth, AuthDbCollection.DeviceTokens);
   }
 
-  async upsertToken(userId: string, token: string, platform: "ios" | "android"): Promise<void> {
+  async upsertToken(userId: string, token: string, platform: DevicePlatform): Promise<void> {
     if (!ObjectId.isValid(userId)) {
       throw new InternalServerError({ debugMessage: "Invalid device token userId" });
     }
     const now = new Date();
     const objectUserId = new ObjectId(userId);
+    const sameOwner = { $eq: ["$userId", objectUserId] };
+    // Concurrent writes to one token serialize, so these predicates inspect the
+    // owner left by the preceding write. Same-owner platform changes preserve
+    // the first app-registration timestamp; ownership changes reset it.
     await this.#collection.updateOne(
       { token },
       [
@@ -24,10 +29,8 @@ export class DeviceTokenRepository {
           $set: {
             userId: objectUserId,
             platform,
-            // A token moved to another account is a new registration for that
-            // user; same-user retries retain the original setup timestamp.
             createdAt: {
-              $cond: [{ $eq: ["$userId", objectUserId] }, { $ifNull: ["$createdAt", now] }, now],
+              $cond: [sameOwner, { $ifNull: ["$createdAt", now] }, now],
             },
             updatedAt: now,
           },
@@ -42,7 +45,10 @@ export class DeviceTokenRepository {
   }
 
   async findEarliestCreatedAt(userId: string): Promise<Date | null> {
-    if (!ObjectId.isValid(userId)) return null;
+    if (!ObjectId.isValid(userId)) {
+      return null;
+    }
+
     const token = await this.#collection.findOne({ userId: new ObjectId(userId) }, { sort: { createdAt: 1 } });
     return token?.createdAt ?? null;
   }

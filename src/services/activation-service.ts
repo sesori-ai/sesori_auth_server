@@ -68,7 +68,7 @@ export class ActivationService {
     return state;
   }
 
-  async recordMobileSetup(userId: string, observedAt = new Date()): Promise<ActivationState> {
+  async recordAppSetup(userId: string, observedAt = new Date()): Promise<ActivationState> {
     return this.#recordReconciledMilestones(userId, "mobileSetupAt", observedAt);
   }
 

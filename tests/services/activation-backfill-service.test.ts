@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { ObjectId } from "mongodb";
-import { BridgeStatus } from "../../src/models/bridge.js";
+import { BridgePlatform, BridgeStatus } from "../../src/models/bridge.js";
+import { DevicePlatform } from "../../src/models/device.js";
 import type { ActivationState, Bridge, DailyUsage, DeviceToken } from "../../src/models/documents.js";
 import { ActivationStateRepository } from "../../src/repositories/activation-state-repo.js";
 import { BridgeRepository } from "../../src/repositories/bridge-repo.js";
@@ -42,12 +43,16 @@ describe("ActivationBackfillService", () => {
     await ctx.cleanup();
   });
 
-  async function seedToken(userId: string, createdAt: Date): Promise<void> {
+  async function seedToken(
+    userId: string,
+    createdAt: Date,
+    platform: DevicePlatform = DevicePlatform.ios,
+  ): Promise<void> {
     await ctx.dbAccessor.getCollection<DeviceToken>(MongoDbDatabase.Auth, AuthDbCollection.DeviceTokens).insertOne({
       _id: new ObjectId(),
       userId: new ObjectId(userId),
       token: `backfill-token-${userId}`,
-      platform: "ios",
+      platform,
       createdAt,
       updatedAt: createdAt,
     });
@@ -59,7 +64,7 @@ describe("ActivationBackfillService", () => {
       bridgeId: `br_${userId}`,
       userId: new ObjectId(userId),
       name: "Historical bridge",
-      platform: "macos",
+      platform: BridgePlatform.macos,
       status: BridgeStatus.inactive,
       addedAt,
       lastSeenAt: null,
@@ -204,6 +209,26 @@ describe("ActivationBackfillService", () => {
       (await activationStateRepo.findByUserId(bridge1.userId))?.bridgeReminderBaseAt?.toISOString(),
       bridge1Baseline.toISOString(),
     );
+  });
+
+  it("uses a desktop-only token as app activation evidence", async () => {
+    const user = await ctx.createUser();
+    const appSetupAt = new Date("2026-06-01T08:00:00.000Z");
+    await seedToken(user.userId, appSetupAt, DevicePlatform.windows);
+
+    const report = await service.run({
+      apply: true,
+      backfillAt: BACKFILL_AT,
+      batchLimit: 10,
+      jitterWindowMs: 0,
+    });
+    const state = await activationStateRepo.findByUserId(user.userId);
+
+    assert.equal(report.usersApplied, 1);
+    assert.equal(report.byStage[ActivationBackfillStage.BridgeIncomplete].applied, 1);
+    assert.equal(report.byReminder[ActivationBackfillReminder.Bridge1].applied, 1);
+    assert.equal(state?.mobileSetupAt?.toISOString(), appSetupAt.toISOString());
+    assert.equal(state?.bridgeReminderBaseAt?.toISOString(), BACKFILL_AT.toISOString());
   });
 
   it("produces stable bounded jitter", () => {

@@ -28,9 +28,11 @@ Reminder delivery is sequential within each kind. The default batch is 100, whic
 
 ## Milestone Semantics
 
-### Mobile Setup
+### App Setup
 
-The first device-token registration is used rather than user creation because it means the app is installed, authenticated, has notification permission, and can actually receive a reminder. Users without a device token may still be represented during active backfill for funnel completeness, but are not reminder-eligible. When the same FCM token moves between accounts, its token-document `createdAt` resets for the new owner so one user's setup timestamp is not imported into another user's activation history.
+The first device-token registration from any supported app platform is used rather than user creation because it proves that an app is installed, authenticated, and has produced a push token. iOS, Android, macOS, Windows, and Linux registrations are equal evidence for this first funnel stage. Users without any device token may still be represented during active backfill for funnel completeness, but are not reminder-eligible. When the same FCM token moves between accounts, its token-document `createdAt` resets for the new owner so one user's setup timestamp is not imported into another user's activation history.
+
+The persisted `mobileSetupAt` field, `MobileIncomplete` stage value, and `mobile_setup` structured-log value are historical names retained to avoid a data migration and analytics break. They all mean app setup across every supported platform. A same-owner token update retains its original `createdAt` even when its platform changes; an ownership change resets `createdAt`. Concurrent updates to one token serialize atomically, each update evaluates the owner left by the preceding write, and the last serialized update determines the final owner and platform.
 
 ### Bridge Setup
 
@@ -52,8 +54,8 @@ Real milestone timestamps and reminder baselines serve different purposes and mu
 
 - Real timestamps support funnel analytics and historical reconciliation.
 - Reminder baselines control when the current campaign begins.
-- Organic bridge reminders use the mobile setup timestamp.
-- Organic session reminders use the later of mobile and bridge setup.
+- Organic bridge reminders use the app setup timestamp stored in `mobileSetupAt`.
+- Organic session reminders use the later of app and bridge setup.
 - Backfilled incomplete users preserve old real timestamps but use a new, jittered baseline for a controlled re-engagement wave.
 
 ## Account Revocation
@@ -109,7 +111,7 @@ Milestone logs are emitted only by the atomic update that first claims a previou
 - The first apply claims `backfilledAt` atomically and may replace only the currently relevant unsent stage's old organic baseline with `backfilledAt + jitter`; later runs cannot move it again. The update pipeline chooses that stage after merging historical evidence and milestones committed before the atomic write. A milestone committed afterward follows the normal organic stage-transition baseline rules.
 - The two bridge reminders share one baseline. If bridge reminder 1 was already sent, bridge reminder 2 is the currently relevant unsent reminder and receives the controlled baseline.
 - Backfill does not intentionally target fully activated users; a narrow send/completion race may still produce a stale reminder.
-- Users without device tokens are not made reminder-eligible.
+- Users without a device token on any supported app platform are not made reminder-eligible by backfill.
 - Operational counts are reviewed before applying. Proposed counts describe the pre-write snapshot; applied counts describe the atomic post-write state and may differ when organic milestones race the command.
 - Dry-run performs no writes, including index creation.
 
@@ -123,3 +125,11 @@ Each slice must be safe to merge and deploy independently:
 - PR4 is inert until an operator runs it with apply enabled.
 
 No plaintext environment files or credentials are introduced. Configuration changes in PR3 follow the existing Zod/env conventions and encrypted environment workflow.
+
+### App-Platform Deployment And Rollback
+
+PR #43 widens the token-registration boundary from iOS/Android to iOS, Android, macOS, Windows, and Linux. Deploy it before releasing a future Windows or Linux app producer. The current apps producer emits iOS, Android, and macOS.
+
+If a newly supported registration reaches the older auth server, the request receives a 400 and the client logs the failure. The current client does not retry on a timer; registration remains absent until application restart, a subsequent authentication-state transition, or FCM token refresh. A future Windows/Linux producer must therefore enforce the auth-first release gate or add and test bounded retry behavior.
+
+Rolling back to the pre-PR server restores iOS/Android-only request validation, so desktop clients cannot add or refresh registrations until the fixed version returns. Existing desktop token documents do not require cleanup: repository reads do not runtime-parse or branch on their platform, and those documents remain valid push endpoints and app-setup evidence. Prefer rolling forward so desktop registrations continue to work.

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BridgePlatform, bridgeIdSchema, bridgePlatformSchema } from "./bridge.js";
+import { devicePlatformSchema } from "./device.js";
 
 export { BridgePlatform, bridgeIdSchema, bridgePlatformSchema };
 
@@ -184,7 +185,7 @@ export type GlossaryRemoveReply = {
 
 export const registerTokenBodySchema = z.object({
   token: z.string().min(1),
-  platform: z.enum(["ios", "android"]),
+  platform: devicePlatformSchema,
 });
 export type RegisterTokenBody = z.infer<typeof registerTokenBodySchema>;
 

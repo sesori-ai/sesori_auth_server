@@ -64,9 +64,9 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
       const userId = getUserId(request);
       await deviceTokenRepo.upsertToken(userId, bodyResult.data.token, bodyResult.data.platform);
       try {
-        await activationService.recordMobileSetup(userId);
+        await activationService.recordAppSetup(userId);
       } catch (error) {
-        console.warn("[ActivationService] Failed to record mobile setup", { userId, error });
+        console.warn("[ActivationService] Failed to record app setup", { userId, error });
       }
       return { ok: true };
     },

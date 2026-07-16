@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, describe, it, mock } from "node:test";
+import { DevicePlatform } from "../../src/models/device.js";
 import { ActivationStateRepository } from "../../src/repositories/activation-state-repo.js";
 import { DeviceTokenRepository } from "../../src/repositories/device-token-repo.js";
 import { ActivationService } from "../../src/services/activation-service.js";
@@ -78,34 +79,91 @@ describe("Notification routes", () => {
     await ctx.cleanup();
   });
 
-  it("POST /notifications/register-token returns 200 with valid body and auth", async () => {
+  it("POST /notifications/register-token accepts and persists every supported platform", async () => {
     const user = await ctx.createUser();
+    const desktopPlatforms = ["macos", "windows", "linux"] as const;
+    const mobilePlatforms = ["ios", "android"] as const;
+    const register = async (platform: (typeof desktopPlatforms)[number] | (typeof mobilePlatforms)[number]) => {
+      const res = await ctx.app.inject({
+        method: "POST",
+        url: "/notifications/register-token",
+        headers: {
+          authorization: `Bearer ${user.accessToken}`,
+          "content-type": "application/json",
+        },
+        payload: JSON.stringify({ token: `fcm-token-${platform}`, platform }),
+      });
 
-    const res = await ctx.app.inject({
-      method: "POST",
-      url: "/notifications/register-token",
-      headers: {
-        authorization: `Bearer ${user.accessToken}`,
-        "content-type": "application/json",
-      },
-      payload: JSON.stringify({ token: "fcm-token-1", platform: "ios" }),
-    });
+      assert.equal(res.statusCode, 200, platform);
+      assert.deepEqual(res.json(), { ok: true }, platform);
+    };
 
-    assert.equal(res.statusCode, 200);
-    assert.deepEqual(res.json(), { ok: true });
+    for (const platform of desktopPlatforms) {
+      await register(platform);
+    }
+    const firstAppToken = (await deviceTokenRepo.findByUserId(user.userId)).find(
+      (token) => token.token === "fcm-token-macos",
+    );
+    const desktopActivationState = await activationStateRepo.findByUserId(user.userId);
+    assert.ok(firstAppToken);
+    assert.equal(desktopActivationState?.mobileSetupAt?.toISOString(), firstAppToken.createdAt.toISOString());
 
+    for (const platform of mobilePlatforms) {
+      await register(platform);
+    }
+
+    const supportedPlatforms = [...desktopPlatforms, ...mobilePlatforms];
     const tokens = await deviceTokenRepo.findByUserId(user.userId);
-    assert.equal(tokens.length, 1);
-    assert.equal(tokens[0]?.token, "fcm-token-1");
-    assert.equal(tokens[0]?.platform, "ios");
+    assert.equal(tokens.length, supportedPlatforms.length);
+    const platformsByToken = new Map(tokens.map((token) => [token.token, token.platform]));
+    for (const platform of supportedPlatforms) {
+      assert.equal(platformsByToken.get(`fcm-token-${platform}`), platform);
+    }
+
     const activationState = await activationStateRepo.findByUserId(user.userId);
     assert.ok(activationState?.mobileSetupAt);
-    assert.equal(activationState.bridgeReminderBaseAt?.toISOString(), activationState.mobileSetupAt.toISOString());
+    assert.equal(activationState.mobileSetupAt.toISOString(), firstAppToken.createdAt.toISOString());
+    assert.equal(activationState.bridgeReminderBaseAt?.toISOString(), firstAppToken.createdAt.toISOString());
+  });
+
+  it("POST /notifications/register-token preserves first app activation when a token changes platform", async () => {
+    const user = await ctx.createUser();
+    const token = `fcm-transition-${user.userId}`;
+    const register = (platform: "macos" | "ios") =>
+      ctx.app.inject({
+        method: "POST",
+        url: "/notifications/register-token",
+        headers: {
+          authorization: `Bearer ${user.accessToken}`,
+          "content-type": "application/json",
+        },
+        payload: JSON.stringify({ token, platform }),
+      });
+
+    const desktopResponse = await register("macos");
+    assert.equal(desktopResponse.statusCode, 200);
+    const desktopToken = (await deviceTokenRepo.findByUserId(user.userId))[0];
+    const desktopActivationState = await activationStateRepo.findByUserId(user.userId);
+    assert.ok(desktopToken);
+    assert.equal(desktopActivationState?.mobileSetupAt?.toISOString(), desktopToken.createdAt.toISOString());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const mobileResponse = await register("ios");
+    assert.equal(mobileResponse.statusCode, 200);
+    const mobileToken = (await deviceTokenRepo.findByUserId(user.userId))[0];
+    const activationState = await activationStateRepo.findByUserId(user.userId);
+
+    assert.ok(mobileToken);
+    assert.equal(mobileToken.platform, "ios");
+    assert.equal(mobileToken.createdAt.toISOString(), desktopToken.createdAt.toISOString());
+    assert.ok(mobileToken.updatedAt.getTime() > desktopToken.updatedAt.getTime());
+    assert.equal(activationState?.mobileSetupAt?.toISOString(), desktopToken.createdAt.toISOString());
+    assert.equal(activationState?.bridgeReminderBaseAt?.toISOString(), desktopToken.createdAt.toISOString());
   });
 
   it("POST /notifications/register-token succeeds when activation recording fails", async () => {
     const user = await ctx.createUser();
-    const recordMock = mock.method(ActivationService.prototype, "recordMobileSetup", async () => {
+    const recordMock = mock.method(ActivationService.prototype, "recordAppSetup", async () => {
       throw new Error("activation unavailable");
     });
     const warnMock = mock.method(console, "warn", () => {});
@@ -151,12 +209,13 @@ describe("Notification routes", () => {
     });
 
     assert.equal(res.statusCode, 400);
+    assert.deepEqual(res.json(), { error: "bad_request" });
   });
 
   it("DELETE /notifications/tokens/:token returns 200 with auth", async () => {
     const user = await ctx.createUser();
     const token = "token/with:special?chars";
-    await deviceTokenRepo.upsertToken(user.userId, token, "android");
+    await deviceTokenRepo.upsertToken(user.userId, token, DevicePlatform.android);
 
     const res = await ctx.app.inject({
       method: "DELETE",
