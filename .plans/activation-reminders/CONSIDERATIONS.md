@@ -30,7 +30,9 @@ Reminder delivery is sequential within each kind. The default batch is 100, whic
 
 ### Mobile Setup
 
-The first device-token registration is used rather than user creation because it means the app is installed, authenticated, has notification permission, and can actually receive a reminder. Users without a device token may still be represented during active backfill for funnel completeness, but are not reminder-eligible. When the same FCM token moves between accounts, its token-document `createdAt` resets for the new owner so one user's setup timestamp is not imported into another user's activation history.
+The first iOS/Android device-token registration is used rather than user creation because it means the mobile app is installed, authenticated, has notification permission, and can actually receive a reminder. Desktop tokens remain valid notification endpoints but do not establish or reconcile this phone-oriented milestone. Users without a mobile device token may still be represented during active backfill for funnel completeness, but are not reminder-eligible. When the same FCM token moves between accounts, its token-document `createdAt` resets for the new owner so one user's setup timestamp is not imported into another user's activation history.
+
+Token timestamps also preserve the mobile boundary when one FCM token changes platform for the same owner. Mobile-to-mobile and desktop-to-desktop updates retain the original `createdAt`. Mobile-to-desktop updates retain it while the document is excluded from mobile evidence. Desktop-to-mobile updates reset `createdAt` at the first qualifying mobile registration. Concurrent updates to one token serialize atomically; each update evaluates the owner and platform left by the preceding write, and the last serialized update determines the final owner and platform.
 
 ### Bridge Setup
 
@@ -109,7 +111,7 @@ Milestone logs are emitted only by the atomic update that first claims a previou
 - The first apply claims `backfilledAt` atomically and may replace only the currently relevant unsent stage's old organic baseline with `backfilledAt + jitter`; later runs cannot move it again. The update pipeline chooses that stage after merging historical evidence and milestones committed before the atomic write. A milestone committed afterward follows the normal organic stage-transition baseline rules.
 - The two bridge reminders share one baseline. If bridge reminder 1 was already sent, bridge reminder 2 is the currently relevant unsent reminder and receives the controlled baseline.
 - Backfill does not intentionally target fully activated users; a narrow send/completion race may still produce a stale reminder.
-- Users without device tokens are not made reminder-eligible.
+- Users without iOS/Android device tokens are not made reminder-eligible by backfill; desktop-only tokens are not mobile setup evidence.
 - Operational counts are reviewed before applying. Proposed counts describe the pre-write snapshot; applied counts describe the atomic post-write state and may differ when organic milestones race the command.
 - Dry-run performs no writes, including index creation.
 
@@ -123,3 +125,20 @@ Each slice must be safe to merge and deploy independently:
 - PR4 is inert until an operator runs it with apply enabled.
 
 No plaintext environment files or credentials are introduced. Configuration changes in PR3 follow the existing Zod/env conventions and encrypted environment workflow.
+
+### Desktop Token Rollback
+
+PR #43 deploys desktop-token acceptance together with mobile-only activation reconciliation. Its `master` base rejects desktop platforms and assumes every persisted token is mobile evidence, so rolling back to that code while desktop token documents remain is unsafe. Prefer rolling forward. If rollback is unavoidable:
+
+1. Quiesce every auth-server instance so no token can be inserted during cleanup.
+2. Record the affected document count, without logging token values, then delete desktop token documents:
+
+   ```javascript
+   db.deviceTokens.countDocuments({ platform: { $in: ["macos", "windows", "linux"] } });
+   db.deviceTokens.deleteMany({ platform: { $in: ["macos", "windows", "linux"] } });
+   ```
+
+3. Verify the same `countDocuments` query returns `0`.
+4. Only then deploy the old server and resume traffic. Do not run activation backfill before the zero-count check.
+
+This preserves iOS/Android tokens and valid lifetime activation history, but desktop push delivery remains unavailable until the fixed version is restored.

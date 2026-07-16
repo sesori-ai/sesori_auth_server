@@ -230,7 +230,7 @@ export class ActivationBackfillService {
     }
 
     const [mobileSetupAt, bridgeSetupAt, firstSessionAt] = await Promise.all([
-      this.#deviceTokenRepo.findEarliestCreatedAt(userId),
+      this.#deviceTokenRepo.findEarliestMobileCreatedAt(userId),
       this.#bridgeRepo.findEarliestAddedAt(userId),
       this.#dailyUsageRepo.findEarliestMetadataRequestAt(userId),
     ]);

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { ObjectId } from "mongodb";
 import { BridgeStatus } from "../../src/models/bridge.js";
+import { DevicePlatform } from "../../src/models/device.js";
 import type { ActivationState, Bridge, DailyUsage, DeviceToken } from "../../src/models/documents.js";
 import { ActivationStateRepository } from "../../src/repositories/activation-state-repo.js";
 import { BridgeRepository } from "../../src/repositories/bridge-repo.js";
@@ -42,12 +43,16 @@ describe("ActivationBackfillService", () => {
     await ctx.cleanup();
   });
 
-  async function seedToken(userId: string, createdAt: Date): Promise<void> {
+  async function seedToken(
+    userId: string,
+    createdAt: Date,
+    platform: DevicePlatform = DevicePlatform.ios,
+  ): Promise<void> {
     await ctx.dbAccessor.getCollection<DeviceToken>(MongoDbDatabase.Auth, AuthDbCollection.DeviceTokens).insertOne({
       _id: new ObjectId(),
       userId: new ObjectId(userId),
       token: `backfill-token-${userId}`,
-      platform: "ios",
+      platform,
       createdAt,
       updatedAt: createdAt,
     });
@@ -206,6 +211,25 @@ describe("ActivationBackfillService", () => {
     );
   });
 
+  it("does not use a desktop-only token as mobile activation evidence", async () => {
+    const user = await ctx.createUser();
+    await seedToken(user.userId, new Date("2026-06-01T08:00:00.000Z"), DevicePlatform.windows);
+
+    const report = await service.run({
+      apply: true,
+      backfillAt: BACKFILL_AT,
+      batchLimit: 10,
+      jitterWindowMs: 0,
+    });
+    const state = await activationStateRepo.findByUserId(user.userId);
+
+    assert.equal(report.usersApplied, 1);
+    assert.equal(report.byStage[ActivationBackfillStage.MobileIncomplete].applied, 1);
+    assert.equal(report.byReminder[ActivationBackfillReminder.None].applied, 1);
+    assert.equal(state?.mobileSetupAt, null);
+    assert.equal(state?.bridgeReminderBaseAt, null);
+  });
+
   it("produces stable bounded jitter", () => {
     const userId = new ObjectId().toHexString();
     const first = deterministicActivationJitterMs(userId, JITTER_WINDOW_MS);
@@ -240,7 +264,7 @@ describe("ActivationBackfillService", () => {
     const failedUser = await ctx.createUser();
     const successfulUser = await ctx.createUser();
     const deviceTokenRepo = new DeviceTokenRepository(ctx.dbAccessor);
-    t.mock.method(deviceTokenRepo, "findEarliestCreatedAt", async (userId: string) => {
+    t.mock.method(deviceTokenRepo, "findEarliestMobileCreatedAt", async (userId: string) => {
       if (userId === failedUser.userId) {
         throw new Error("token lookup failed");
       }

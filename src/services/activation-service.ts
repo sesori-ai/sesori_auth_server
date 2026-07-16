@@ -1,3 +1,4 @@
+import { isMobileDevicePlatform, type DevicePlatform } from "../models/device.js";
 import type { ActivationState } from "../models/documents.js";
 import type { ActivationMilestoneUpdate, ActivationStateRepository } from "../repositories/activation-state-repo.js";
 import type { BridgeRepository } from "../repositories/bridge-repo.js";
@@ -29,7 +30,7 @@ export class ActivationService {
   ): Promise<ActivationState> {
     const existing = await this.#activationStateRepo.findByUserId(userId);
     const [mobileSetupAt, bridgeSetupAt, firstSessionAt] = await Promise.all([
-      existing?.mobileSetupAt ? null : this.#deviceTokenRepo.findEarliestCreatedAt(userId),
+      existing?.mobileSetupAt ? null : this.#deviceTokenRepo.findEarliestMobileCreatedAt(userId),
       existing?.bridgeSetupAt ? null : this.#bridgeRepo.findEarliestAddedAt(userId),
       existing?.firstSessionAt ? null : this.#dailyUsageRepo.findEarliestMetadataRequestAt(userId),
     ]);
@@ -68,7 +69,15 @@ export class ActivationService {
     return state;
   }
 
-  async recordMobileSetup(userId: string, observedAt = new Date()): Promise<ActivationState> {
+  async recordDeviceTokenRegistration(
+    userId: string,
+    platform: DevicePlatform,
+    observedAt = new Date(),
+  ): Promise<ActivationState | null> {
+    if (!isMobileDevicePlatform(platform)) {
+      return null;
+    }
+
     return this.#recordReconciledMilestones(userId, "mobileSetupAt", observedAt);
   }
 

@@ -31,7 +31,7 @@ describe("DeviceTokenRepository", () => {
     assert.equal(tokens[0]?.platform, "ios");
   });
 
-  it("upsertToken with same token updates timestamp (idempotent)", async () => {
+  it("upsertToken preserves createdAt for a same-owner mobile-to-mobile update", async () => {
     const user = await ctx.createUser();
 
     await repo.upsertToken(user.userId, "token-idempotent", "ios");
@@ -52,6 +52,54 @@ describe("DeviceTokenRepository", () => {
     assert.ok((second[0]?.updatedAt.getTime() ?? 0) >= firstUpdatedAt.getTime());
   });
 
+  it("upsertToken preserves createdAt for a same-owner desktop-to-desktop update", async () => {
+    const user = await ctx.createUser();
+    await repo.upsertToken(user.userId, "token-desktop-retry", "macos");
+    const first = (await repo.findByUserId(user.userId))[0];
+    assert.ok(first);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    await repo.upsertToken(user.userId, "token-desktop-retry", "linux");
+
+    const updated = (await repo.findByUserId(user.userId))[0];
+    assert.ok(updated);
+    assert.equal(updated.platform, "linux");
+    assert.equal(updated.createdAt.toISOString(), first.createdAt.toISOString());
+    assert.ok(updated.updatedAt.getTime() > first.updatedAt.getTime());
+  });
+
+  it("upsertToken preserves createdAt for a same-owner mobile-to-desktop update", async () => {
+    const user = await ctx.createUser();
+    await repo.upsertToken(user.userId, "token-mobile-to-desktop", "ios");
+    const first = (await repo.findByUserId(user.userId))[0];
+    assert.ok(first);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    await repo.upsertToken(user.userId, "token-mobile-to-desktop", "macos");
+
+    const updated = (await repo.findByUserId(user.userId))[0];
+    assert.ok(updated);
+    assert.equal(updated.platform, "macos");
+    assert.equal(updated.createdAt.toISOString(), first.createdAt.toISOString());
+    assert.ok(updated.updatedAt.getTime() > first.updatedAt.getTime());
+  });
+
+  it("upsertToken resets createdAt for a same-owner desktop-to-mobile update", async () => {
+    const user = await ctx.createUser();
+    await repo.upsertToken(user.userId, "token-desktop-to-mobile", "macos");
+    const first = (await repo.findByUserId(user.userId))[0];
+    assert.ok(first);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    await repo.upsertToken(user.userId, "token-desktop-to-mobile", "ios");
+
+    const updated = (await repo.findByUserId(user.userId))[0];
+    assert.ok(updated);
+    assert.equal(updated.platform, "ios");
+    assert.ok(updated.createdAt.getTime() > first.createdAt.getTime());
+    assert.equal(updated.createdAt.toISOString(), updated.updatedAt.toISOString());
+  });
+
   it("upsertToken resets createdAt when a token moves to another user", async () => {
     const firstUser = await ctx.createUser();
     const secondUser = await ctx.createUser();
@@ -69,6 +117,33 @@ describe("DeviceTokenRepository", () => {
     assert.equal(transferred.platform, "android");
     assert.ok(transferred.createdAt.getTime() > firstRegistration.createdAt.getTime());
     assert.equal(transferred.createdAt.toISOString(), transferred.updatedAt.toISOString());
+  });
+
+  it("upsertToken serializes concurrent owner and platform transitions", async () => {
+    const firstUser = await ctx.createUser();
+    const secondUser = await ctx.createUser();
+    await repo.upsertToken(firstUser.userId, "token-concurrent-transition", "macos");
+    const seeded = (await repo.findByUserId(firstUser.userId))[0];
+    assert.ok(seeded);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    await Promise.all([
+      repo.upsertToken(firstUser.userId, "token-concurrent-transition", "ios"),
+      repo.upsertToken(secondUser.userId, "token-concurrent-transition", "linux"),
+    ]);
+
+    const firstOwnerTokens = await repo.findByUserId(firstUser.userId);
+    const secondOwnerTokens = await repo.findByUserId(secondUser.userId);
+    assert.equal(firstOwnerTokens.length + secondOwnerTokens.length, 1);
+    const finalToken = firstOwnerTokens[0] ?? secondOwnerTokens[0];
+    assert.ok(finalToken);
+    if (firstOwnerTokens.length === 1) {
+      assert.equal(finalToken.platform, "ios");
+    } else {
+      assert.equal(finalToken.platform, "linux");
+    }
+    assert.ok(finalToken.createdAt.getTime() > seeded.createdAt.getTime());
+    assert.equal(finalToken.createdAt.toISOString(), finalToken.updatedAt.toISOString());
   });
 
   it("upsertToken rejects an invalid user id", async () => {
@@ -93,32 +168,41 @@ describe("DeviceTokenRepository", () => {
     assert.deepEqual(new Set(tokens.map((token) => token.token)), new Set(["token-list-1", "token-list-2"]));
   });
 
-  it("findEarliestCreatedAt returns the first extant token registration", async () => {
+  it("findEarliestMobileCreatedAt ignores desktop token registrations", async () => {
     const user = await ctx.createUser();
-    const firstAt = new Date("2026-07-10T10:00:00.000Z");
-    const secondAt = new Date("2026-07-12T10:00:00.000Z");
+    const desktopAt = new Date("2026-07-09T10:00:00.000Z");
+    const firstMobileAt = new Date("2026-07-10T10:00:00.000Z");
+    const secondMobileAt = new Date("2026-07-12T10:00:00.000Z");
     const collection = ctx.dbAccessor.getCollection<DeviceToken>(MongoDbDatabase.Auth, AuthDbCollection.DeviceTokens);
     await collection.insertMany([
       {
         _id: new ObjectId(),
         userId: new ObjectId(user.userId),
-        token: `earliest-token-${user.userId}`,
-        platform: "ios",
-        createdAt: firstAt,
-        updatedAt: firstAt,
+        token: `desktop-token-${user.userId}`,
+        platform: "macos",
+        createdAt: desktopAt,
+        updatedAt: desktopAt,
       },
       {
         _id: new ObjectId(),
         userId: new ObjectId(user.userId),
-        token: `later-token-${user.userId}`,
+        token: `earliest-mobile-token-${user.userId}`,
+        platform: "ios",
+        createdAt: firstMobileAt,
+        updatedAt: firstMobileAt,
+      },
+      {
+        _id: new ObjectId(),
+        userId: new ObjectId(user.userId),
+        token: `later-mobile-token-${user.userId}`,
         platform: "android",
-        createdAt: secondAt,
-        updatedAt: secondAt,
+        createdAt: secondMobileAt,
+        updatedAt: secondMobileAt,
       },
     ]);
 
-    assert.equal((await repo.findEarliestCreatedAt(user.userId))?.toISOString(), firstAt.toISOString());
-    assert.equal(await repo.findEarliestCreatedAt("invalid-id"), null);
+    assert.equal((await repo.findEarliestMobileCreatedAt(user.userId))?.toISOString(), firstMobileAt.toISOString());
+    assert.equal(await repo.findEarliestMobileCreatedAt("invalid-id"), null);
     const index = (await collection.indexes()).find((candidate) => candidate.name === "userId_1_createdAt_1");
     assert.deepEqual(index?.key, { userId: 1, createdAt: 1 });
   });

@@ -80,9 +80,9 @@ describe("Notification routes", () => {
 
   it("POST /notifications/register-token accepts and persists every supported platform", async () => {
     const user = await ctx.createUser();
-    const supportedPlatforms = ["ios", "android", "macos", "windows", "linux"] as const;
-
-    for (const platform of supportedPlatforms) {
+    const desktopPlatforms = ["macos", "windows", "linux"] as const;
+    const mobilePlatforms = ["ios", "android"] as const;
+    const register = async (platform: (typeof desktopPlatforms)[number] | (typeof mobilePlatforms)[number]) => {
       const res = await ctx.app.inject({
         method: "POST",
         url: "/notifications/register-token",
@@ -93,10 +93,20 @@ describe("Notification routes", () => {
         payload: JSON.stringify({ token: `fcm-token-${platform}`, platform }),
       });
 
-      assert.equal(res.statusCode, 200);
-      assert.deepEqual(res.json(), { ok: true });
+      assert.equal(res.statusCode, 200, platform);
+      assert.deepEqual(res.json(), { ok: true }, platform);
+    };
+
+    for (const platform of desktopPlatforms) {
+      await register(platform);
+    }
+    assert.equal(await activationStateRepo.findByUserId(user.userId), null);
+
+    for (const platform of mobilePlatforms) {
+      await register(platform);
     }
 
+    const supportedPlatforms = [...desktopPlatforms, ...mobilePlatforms];
     const tokens = await deviceTokenRepo.findByUserId(user.userId);
     assert.equal(tokens.length, supportedPlatforms.length);
     const platformsByToken = new Map(tokens.map((token) => [token.token, token.platform]));
@@ -109,9 +119,43 @@ describe("Notification routes", () => {
     assert.equal(activationState.bridgeReminderBaseAt?.toISOString(), activationState.mobileSetupAt.toISOString());
   });
 
+  it("POST /notifications/register-token starts mobile activation when a desktop token becomes mobile", async () => {
+    const user = await ctx.createUser();
+    const token = `fcm-transition-${user.userId}`;
+    const register = (platform: "macos" | "ios") =>
+      ctx.app.inject({
+        method: "POST",
+        url: "/notifications/register-token",
+        headers: {
+          authorization: `Bearer ${user.accessToken}`,
+          "content-type": "application/json",
+        },
+        payload: JSON.stringify({ token, platform }),
+      });
+
+    const desktopResponse = await register("macos");
+    assert.equal(desktopResponse.statusCode, 200);
+    const desktopToken = (await deviceTokenRepo.findByUserId(user.userId))[0];
+    assert.ok(desktopToken);
+    assert.equal(await activationStateRepo.findByUserId(user.userId), null);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const mobileResponse = await register("ios");
+    assert.equal(mobileResponse.statusCode, 200);
+    const mobileToken = (await deviceTokenRepo.findByUserId(user.userId))[0];
+    const activationState = await activationStateRepo.findByUserId(user.userId);
+
+    assert.ok(mobileToken);
+    assert.equal(mobileToken.platform, "ios");
+    assert.ok(mobileToken.createdAt.getTime() > desktopToken.createdAt.getTime());
+    assert.equal(mobileToken.createdAt.toISOString(), mobileToken.updatedAt.toISOString());
+    assert.equal(activationState?.mobileSetupAt?.toISOString(), mobileToken.createdAt.toISOString());
+    assert.equal(activationState?.bridgeReminderBaseAt?.toISOString(), mobileToken.createdAt.toISOString());
+  });
+
   it("POST /notifications/register-token succeeds when activation recording fails", async () => {
     const user = await ctx.createUser();
-    const recordMock = mock.method(ActivationService.prototype, "recordMobileSetup", async () => {
+    const recordMock = mock.method(ActivationService.prototype, "recordDeviceTokenRegistration", async () => {
       throw new Error("activation unavailable");
     });
     const warnMock = mock.method(console, "warn", () => {});
@@ -128,6 +172,7 @@ describe("Notification routes", () => {
 
     assert.equal(res.statusCode, 200);
     assert.equal(recordMock.mock.callCount(), 1);
+    assert.equal(recordMock.mock.calls[0]?.arguments[1], "android");
     assert.equal(warnMock.mock.callCount(), 1);
     assert.equal((await deviceTokenRepo.findByUserId(user.userId)).length, 1);
   });
