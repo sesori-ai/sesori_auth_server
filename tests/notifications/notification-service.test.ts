@@ -57,6 +57,14 @@ const payload: NotificationPayload = {
 };
 
 describe("NotificationService", () => {
+  it("exposes whether Firebase messaging is available", () => {
+    const tokenRepo = createMockDeviceTokenRepo([]);
+    const messaging = createMockMessaging([]);
+
+    assert.equal(new NotificationService(tokenRepo.repo, messaging.messaging).isAvailable, true);
+    assert.equal(new NotificationService(tokenRepo.repo, null).isAvailable, false);
+  });
+
   it("sends to all user tokens and returns success count", async () => {
     const tokenRepo = createMockDeviceTokenRepo([
       { userId: "user-1", token: "token-a", platform: "ios" },
@@ -67,7 +75,7 @@ describe("NotificationService", () => {
 
     const result = await service.sendToUser("user-1", payload);
 
-    assert.deepEqual(result, { devicesNotified: 2 });
+    assert.deepEqual(result, { devicesNotified: 2, retryableFailures: 0 });
     assert.equal(messaging.calls.length, 1);
     assert.equal(messaging.calls[0]?.length, 2);
 
@@ -131,7 +139,7 @@ describe("NotificationService", () => {
 
     const result = await service.sendToUser("user-1", payload);
 
-    assert.deepEqual(result, { devicesNotified: 0 });
+    assert.deepEqual(result, { devicesNotified: 0, retryableFailures: 0 });
     assert.equal(messaging.calls.length, 0);
   });
 
@@ -148,7 +156,7 @@ describe("NotificationService", () => {
 
     const result = await service.sendToUser("user-1", payload);
 
-    assert.deepEqual(result, { devicesNotified: 1 });
+    assert.deepEqual(result, { devicesNotified: 1, retryableFailures: 0 });
     assert.deepEqual(
       tokenRepo.getStoredTokens().map((t) => t.token),
       ["token-live"],
@@ -168,7 +176,7 @@ describe("NotificationService", () => {
 
     const result = await service.sendToUser("user-1", payload);
 
-    assert.deepEqual(result, { devicesNotified: 0 });
+    assert.deepEqual(result, { devicesNotified: 0, retryableFailures: 0 });
     assert.deepEqual(tokenRepo.getStoredTokens(), []);
   });
 
@@ -191,7 +199,7 @@ describe("NotificationService", () => {
 
     try {
       const result = await service.sendToUser("user-1", payload);
-      assert.deepEqual(result, { devicesNotified: 1 });
+      assert.deepEqual(result, { devicesNotified: 1, retryableFailures: 1 });
     } finally {
       console.warn = originalWarn;
     }
@@ -209,6 +217,6 @@ describe("NotificationService", () => {
 
     const result = await service.sendToUser("user-1", payload);
 
-    assert.deepEqual(result, { devicesNotified: 0 });
+    assert.deepEqual(result, { devicesNotified: 0, retryableFailures: 0 });
   });
 });

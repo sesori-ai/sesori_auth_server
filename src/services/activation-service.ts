@@ -50,7 +50,22 @@ export class ActivationService {
       return existing;
     }
 
-    return this.#activationStateRepo.recordMilestones(userId, update, observedAt);
+    const { state, recorded } = await this.#activationStateRepo.recordMilestonesWithResult(userId, update, observedAt);
+    const milestones = [
+      { kind: "mobile_setup", occurredAt: recorded.mobileSetupAt },
+      { kind: "bridge_setup", occurredAt: recorded.bridgeSetupAt },
+      { kind: "first_session", occurredAt: recorded.firstSessionAt },
+    ] as const;
+    for (const milestone of milestones) {
+      if (milestone.occurredAt) {
+        console.log("[ActivationService] Milestone recorded", {
+          userId,
+          milestone: milestone.kind,
+          occurredAt: milestone.occurredAt,
+        });
+      }
+    }
+    return state;
   }
 
   async recordMobileSetup(userId: string, observedAt = new Date()): Promise<ActivationState> {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { after, before, describe, it } from "node:test";
+import { after, afterEach, before, beforeEach, describe, it, mock } from "node:test";
 import { ObjectId } from "mongodb";
 import type { Bridge, DailyUsage, DeviceToken } from "../../src/models/documents.js";
 import { ActivationStateRepository } from "../../src/repositories/activation-state-repo.js";
@@ -17,6 +17,7 @@ describe("ActivationService", () => {
   let dailyUsageRepo: DailyUsageRepository;
   let deviceTokenRepo: DeviceTokenRepository;
   let service: ActivationService;
+  let logCalls: unknown[][];
 
   before(async () => {
     ctx = await createTestApp();
@@ -29,6 +30,17 @@ describe("ActivationService", () => {
 
   after(async () => {
     await ctx.cleanup();
+  });
+
+  beforeEach(() => {
+    logCalls = [];
+    mock.method(console, "log", (...args: unknown[]) => {
+      logCalls.push(args);
+    });
+  });
+
+  afterEach(() => {
+    mock.restoreAll();
   });
 
   it("enrolls mobile setup and reconciles historical bridge and session milestones", async () => {
@@ -66,6 +78,10 @@ describe("ActivationService", () => {
     assert.equal(state.firstSessionAt?.toISOString(), sessionAt.toISOString());
     assert.equal(state.bridgeReminderBaseAt?.toISOString(), mobileAt.toISOString());
     assert.equal(state.sessionReminderBaseAt?.toISOString(), bridgeAt.toISOString());
+    assert.deepEqual(
+      logCalls.map((args) => (args[1] as { milestone: string }).milestone),
+      ["mobile_setup", "bridge_setup", "first_session"],
+    );
   });
 
   it("records bridge and session milestones before mobile setup without creating reminder baselines", async () => {
@@ -81,6 +97,18 @@ describe("ActivationService", () => {
     assert.equal(state.firstSessionAt?.toISOString(), sessionAt.toISOString());
     assert.equal(state.bridgeReminderBaseAt, null);
     assert.equal(state.sessionReminderBaseAt, null);
+  });
+
+  it("logs a first milestone once when concurrent hooks race", async () => {
+    const user = await ctx.createUser();
+    const bridgeAt = new Date("2026-07-12T10:00:00.000Z");
+
+    await Promise.all([
+      service.recordBridgeSetup(user.userId, bridgeAt),
+      service.recordBridgeSetup(user.userId, bridgeAt),
+    ]);
+
+    assert.equal(logCalls.filter((args) => (args[1] as { milestone: string }).milestone === "bridge_setup").length, 1);
   });
 
   it("uses the earliest historical bridge when recording a later registration", async () => {

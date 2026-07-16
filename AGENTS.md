@@ -29,7 +29,7 @@ src/
 │       ├── init.ts               # Shared helpers: parseSessionTokenHeader, createPendingOAuthInit, …
 │       ├── provider-callback.ts  # GET interstitial + POST confirm/deny (HTML responses)
 │       └── session-status.ts     # GET /auth/session/status long-poll
-├── services/          # Business logic — auth-service.ts, token-service.ts, activation-service.ts, voice-service.ts
+├── services/          # Business logic - auth, activation, reminders, tokens, voice, etc.
 │   └── pending-auth-store.ts     # In-memory LRU of pending OAuth sessions (anti-phishing flow)
 ├── config.ts          # Zod-validated env config
 ├── index.ts           # Composition root (wires all dependencies)
@@ -48,7 +48,7 @@ src/
 | Add DB collection          | `src/types/mongo.ts` + `src/db/mongo-db-accessor.ts`                                                                                    | Add to AuthDbCollection enum + DATABASE_CONFIG                                              |
 | Auth middleware            | `src/middleware/auth.ts`                                                                                                                | `createAuthMiddleware(tokenService)` factory                                                |
 | Manage bridges             | `src/routes/bridges.ts` + `src/services/bridge-service.ts` + `src/repositories/bridge-repo.ts` + `src/services/bridge-state-tracker.ts` | Per-bridge registry behind `/auth/me bridges[]`; see BRIDGE SUBSYSTEM below                 |
-| Activation reminders       | `.plans/activation-reminders/` + `src/repositories/activation-state-repo.ts`                                                            | Read `PLAN.md` and `CONSIDERATIONS.md` before continuing the staged implementation          |
+| Activation reminders       | `.plans/activation-reminders/` + `src/services/activation-reminder-service.ts` + `src/repositories/activation-state-repo.ts`            | Read `PLAN.md` and `CONSIDERATIONS.md` before continuing the staged implementation          |
 | Wire dependencies          | `src/index.ts`                                                                                                                          | Composition root — all instantiation happens here                                           |
 
 ## CONVENTIONS
@@ -67,12 +67,15 @@ src/
 - **Pending OAuth sessions are in-process only.** `PendingAuthStore` is an in-memory LRU with a 5-minute TTL. The store is NOT shared between instances. Horizontal scaling of this service requires either sticky sessions (`X-Sesori-Session-Token` → consistent instance) OR migrating the store to Redis. Until then: **single-instance deploys only**.
 - Tunable via `PENDING_AUTH_MAX_SESSIONS` (default 10k entries ≈ 10 MB) and `PENDING_AUTH_POLL_TIMEOUT_MS` (default 30s long-poll cap).
 - **Bridge notification debounce is in-process only.** `BridgeStateTracker` keeps per-(userId, bridgeId) debounce timers and last-notified state in a process-local Map: pending notifications are lost on restart, the map is unbounded for the process lifetime (acceptable under the 50-bridges-per-user registration cap), and multiple instances would double-notify. Same single-instance constraint as above.
+- **Activation reminder polling is in-process only.** `ActivationReminderService` has a process-local interval and single-flight guard. Multiple enabled instances can send the same reminder before either writes its MongoDB marker. Keep `ACTIVATION_REMINDERS_ENABLED=false` on all but one instance unless a distributed lease or claim is added.
 
 ## ACTIVATION REMINDERS
 
 The activation-reminder feature is intentionally split into independently deployable PRs. `.plans/activation-reminders/PLAN.md` is the authoritative implementation checkpoint and `.plans/activation-reminders/CONSIDERATIONS.md` records the product and architecture decisions. Verify live GitHub state before starting the next slice; do not infer merge status from the static plan alone.
 
-`activationStates` stores one document per user. Milestones are real event timestamps, reminder baselines are campaign scheduling timestamps that may diverge during backfill, and sent markers independently suppress each reminder. Do not conflate these categories. `ActivationService` records milestones from device-token registration, bridge registration, and accepted metadata requests; these secondary writes are failure-isolated from the existing endpoint response. Logout/revoke does not erase lifetime activation history. Later reminder and backfill behavior must follow the staged acceptance criteria in the plan.
+`activationStates` stores one document per user. Milestones are real event timestamps, reminder baselines are campaign scheduling timestamps that may diverge during backfill, and sent markers independently suppress each reminder. Do not conflate these categories. `ActivationService` records milestones from device-token registration, bridge registration, and accepted metadata requests; these secondary writes are failure-isolated from the existing endpoint response. Logout/revoke does not erase lifetime activation history.
+
+`ActivationReminderService` is disabled by default. Its delivery order is due query, immediate eligibility recheck, FCM send, then conditional sent-marker write. Genuine zero-device results are marked complete; FCM-unavailable, thrown sends, and zero-success results with retryable token failures remain eligible. Disposal stops queued candidates, awaits the current candidate through its marker write, and must complete before MongoDB closes. Later backfill behavior must follow the staged acceptance criteria in the plan.
 
 ## BRIDGE SUBSYSTEM
 

@@ -18,6 +18,12 @@ Reminder timing is measured in hours and does not need exact execution. A roughl
 
 MongoDB TTL indexes are not a scheduler: they delete documents eventually but do not execute application code, so they are not suitable here.
 
+## Scheduler Lifecycle And Scaling
+
+The interval and single-flight guard are process-local. Enabling reminders on multiple auth-server instances can select and send the same reminder before either instance writes its sent marker. Keep reminder sending single-instance unless a distributed lease or claim mechanism is added.
+
+Graceful disposal stops the interval and declines queued candidates, but lets the currently executing candidate finish through its conditional marker write before MongoDB closes. Fastify stops accepting traffic concurrently. This bounds shutdown to the current FCM/database operation rather than the entire selected batch.
+
 ## Milestone Semantics
 
 ### Mobile Setup
@@ -58,9 +64,11 @@ Each future due query uses equality conditions for stage completion and sent sta
 
 Separate bridge indexes are intentional because bridge reminder 1 and bridge reminder 2 have independent sent markers. This avoids relying on a broad scan of all bridge-incomplete users.
 
+Bridge reminder 2 additionally requires a bridge reminder 1 sent marker. The scheduler evaluates bridge reminder 2 before bridge reminder 1, so a first marker written during the current sweep cannot make an overdue user receive both messages back-to-back; the follow-up waits until at least the next sweep.
+
 ## Delivery Guarantees
 
-The intended user-level behavior is one recorded completion per reminder kind. Unresolved sends remain eligible for retry, subject to the documented post-FCM/pre-MongoDB crash window. PR3 should use:
+The intended user-level behavior is one recorded completion per reminder kind. Unresolved sends remain eligible for retry, subject to the documented post-FCM/pre-MongoDB crash window. PR3 uses:
 
 - A single-process, single-flight sweep.
 - Conditional sent-marker updates.
@@ -68,6 +76,7 @@ The intended user-level behavior is one recorded completion per reminder kind. U
 - A sent marker after `NotificationService.sendToUser` resolves while FCM is available, even when zero devices were notified because no registered tokens remain.
 - An explicit unavailable outcome (or a disabled sweep) when Firebase initialization failed, leaving the reminder retryable.
 - Retry when the send call throws before resolving.
+- Retry when every token has a non-token FCM failure and no device receives the notification. If at least one device receives it, the user-level reminder is complete even if another token has a retryable failure.
 
 Strict exactly-once push delivery is impossible with the current FCM API and MongoDB in separate systems. A process can crash after FCM accepts a push but before MongoDB records `sentAt`, causing a retry after restart. Marking before send would instead create a crash window that permanently loses reminders. The plan prefers the small duplicate-delivery risk over silent loss. Do not claim strict exactly-once delivery in implementation or documentation.
 
@@ -83,6 +92,8 @@ Activation is secondary telemetry/engagement behavior. Existing endpoint success
 - Bridge registration must succeed if activation persistence fails.
 - Metadata generation must preserve its current response if activation persistence fails.
 - Failures should be structured and observable, not silently ignored.
+
+Milestone logs are emitted only by the atomic update that first claims a previously null milestone, avoiding duplicate funnel events when concurrent hooks race. MongoDB remains the authoritative source for funnel state and reminder completion.
 
 ## Backfill Safety
 

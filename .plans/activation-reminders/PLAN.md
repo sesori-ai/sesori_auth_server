@@ -13,13 +13,14 @@ This file is the authoritative implementation tracker. A future session should r
 ## Current State
 
 - Branch: `activation-rate-plan`
-- Implementation checkpoint: PR2 complete; PR3 not started
+- Implementation checkpoint: PR3 complete; PR4 not started
 - PR1 delivery status: merged as PR #38
-- PR2 intended post-merge status: merged
+- PR2 delivery status: merged as PR #40
+- PR3 intended post-merge status: merged
 - Live GitHub delivery state: do not infer it from this static file; verify with `gh pr list --head activation-rate-plan --state all`
 - Last updated: 2026-07-15
-- If PR2 is still open: review and merge PR2; do not start PR3 on top of an unmerged slice
-- If PR2 is merged: begin PR3 with the gated reminder sweep and sending behavior described below
+- If PR3 is still open: review and merge PR3; do not start PR4 on top of an unmerged slice
+- If PR3 is merged: PR4 is next, but start it only when explicitly requested
 
 ## Resume Instructions
 
@@ -42,7 +43,7 @@ This file is the authoritative implementation tracker. A future session should r
 - Bridge setup is the first bridge registration, not the first relay connection.
 - First session is the first valid authenticated `POST /sessions/generate-metadata` call. Metadata failure is non-fatal in the bridge and session creation continues, so the response does not need to succeed. This deliberately measures creation of a new text-backed session, not messages in existing sessions.
 - Bridge reminder 1 is due approximately 2 hours after mobile setup.
-- Bridge reminder 2 is due approximately 24 hours after mobile setup.
+- Bridge reminder 2 is due approximately 24 hours after mobile setup, but only after bridge reminder 1 completed in an earlier sweep.
 - The single session reminder is due approximately 24 hours after both mobile and bridge setup. Its organic baseline is `max(mobileSetupAt, bridgeSetupAt)`.
 - A roughly 15-minute sweep is sufficient; reminder timing is intentionally approximate.
 - No quiet-hours handling in V1.
@@ -110,7 +111,7 @@ The equality fields precede each due-time range field so the future sweep querie
 - Sending is gated by `ACTIVATION_REMINDERS_ENABLED`, defaulting to false.
 - Milestone recording remains active independently of the sending flag.
 - Activation tracking failures are logged and isolated from the user-facing endpoint that produced the milestone.
-- Reminder completion is marked after `NotificationService.sendToUser` resolves while FCM is available, including a result with zero registered devices. FCM-unavailable and thrown-send outcomes remain retryable.
+- Reminder completion is marked after `NotificationService.sendToUser` resolves while FCM is available, including a result with zero registered devices. FCM-unavailable, thrown-send, and zero-success results containing retryable per-token failures remain retryable.
 - See `CONSIDERATIONS.md` for the narrow crash window in which strict exactly-once delivery cannot be guaranteed.
 
 ## Configuration Target
@@ -130,7 +131,7 @@ The equality fields precede each due-time range field so the future sweep querie
 | --- | --------------------------------------------------------------------------------------------- | -------------- | -------------------------- | ----------------------------------------- |
 | PR1 | Plans, collection, indexes, schema, repository, composition wiring, repository tests          | complete       | merged                     | Dormant; creates collection/indexes only. |
 | PR2 | Milestone capture, enrollment reconciliation, endpoint hooks, failure isolation               | complete       | merged                     | Records state only; sends nothing.        |
-| PR3 | Config, reminder queries/service, FCM sends, 15-minute scheduler, structured logs             | not started    | pending                    | Sending remains off by default.           |
+| PR3 | Config, reminder queries/service, FCM sends, 15-minute scheduler, structured logs             | complete       | merged                     | Sending remains off by default.           |
 | PR4 | Idempotent dry-run-capable active backfill with controlled re-engagement baselines and jitter | not started    | pending                    | No effect until manually executed.        |
 
 ## PR1 - Dormant Data Layer
@@ -228,20 +229,47 @@ PR2 exit condition:
 
 ## PR3 - Reminder Sweep And Sending
 
-Status: pending
+Implementation: complete
 
-Planned work:
+Intended post-merge status: merged
 
-- Add the activation configuration variables with sending disabled by default.
-- Add indexed repository queries for each due reminder.
-- Add conditional sent-marker writes so stale sweep results cannot mark an already-completed stage.
-- Add `ActivationReminderService` with single-flight sweep behavior and bounded batches.
-- Expose FCM availability so an uninitialized Firebase client cannot convert eligible reminders into completed zero-device sends.
-- Send the approved copy through existing `NotificationService` under category `system_update`.
-- Use distinct collapse keys per reminder kind.
-- Start the interval only when enabled and dispose it during graceful shutdown.
-- Emit structured milestone/reminder logs suitable for initial funnel analysis.
-- Test cutoffs, stage completion races, no-overlap behavior, send outcomes, and retry behavior.
+Acceptance criteria:
+
+- [x] Add validated activation configuration with `ACTIVATION_REMINDERS_ENABLED=false` by default.
+- [x] Add indexed, inclusive-cutoff due queries with an independently bounded batch for each reminder kind.
+- [x] Recheck eligibility immediately before delivery and conditionally write each sent marker afterward.
+- [x] Add `ActivationReminderService` with single-flight sweeps and no interval overlap.
+- [x] Expose FCM availability so failed Firebase initialization cannot become a completed zero-device send.
+- [x] Mark genuine zero-device sends complete while leaving thrown sends and all-transient token failures retryable.
+- [x] Send the approved copy through `NotificationService` under `system_update` with a distinct collapse key per kind.
+- [x] Start polling only when enabled, stop queued work during disposal, and await the current candidate before MongoDB closes.
+- [x] Emit structured, first-writer milestone logs and per-reminder/sweep outcome logs.
+- [x] Test inclusive cutoffs, independent markers, batch caps, stage races, conditional writes, send outcomes, retry behavior, single-flight behavior, and scheduler disposal.
+- [x] Prevent overdue users from receiving both bridge reminders in the same sweep.
+- [x] `npm run build` passes.
+- [x] `npm run lint` passes without warnings.
+- [x] `npm run format:check` passes.
+- [x] Focused PR3 tests pass.
+- [x] Full test suite passes.
+- [x] `npm run circular-dependencies` passes.
+- [x] `git diff --check` passes.
+
+PR3 non-goals:
+
+- No existing-user backfill command is added.
+- No distributed lease or multi-instance exactly-once guarantee is added.
+- No metrics endpoint, dashboard, deep link, quiet-hours policy, or notification preference is added.
+
+PR3 verification results:
+
+- Focused repository, reminder, activation, and notification suite: passed, 48 tests.
+- `npm run build`: passed.
+- `npm run lint`: passed with no warnings.
+- `npm run format:check`: passed.
+- `npm test`: passed, 376 tests passed, 1 skipped, 0 failed across 41 top-level suites.
+- `npm run circular-dependencies`: passed; no circular dependencies found.
+- `git diff --check`: passed.
+- Two independent pre-delivery reviews reported no findings after retry, timer-bound, shutdown, and concurrent-log hardening.
 
 PR3 exit condition:
 
@@ -298,3 +326,5 @@ PR4 exit condition:
 - 2026-07-15: PR2 automated review feedback addressed. Added cross-stage repair from every event hook, earliest-wins concurrent session recording, defensive token user validation, and the compound token reconciliation index. Retained the documented metadata-attempt and historical timestamp semantics. All verification passed.
 - 2026-07-15: PR2 second automated review addressed. Added safe cleanup for the superseded device-token index and changed invalid token owner handling to the typed repository-boundary error. Confirmed mobile/bridge concurrency already resolves from earliest durable source timestamps. All verification passed.
 - 2026-07-15: PR2 third automated review addressed. Required a full desired-index option match before cleanup and preserved earlier observed session timestamps when an initial read loses a race. All verification passed.
+- 2026-07-15: PR2 merged as #40. PR3 implementation completed and opened as #41: default-off configuration, indexed due queries, conditional markers, FCM delivery, a bounded single-flight scheduler, graceful disposal, and structured logs. Pre-delivery review hardened transient per-token retries, timer validation, shutdown cancellation, and concurrent milestone-log ownership. All verification passed. PR4 must wait for live merge verification.
+- 2026-07-15: PR3 review feedback addressed. Restored the plan's static intended-status semantics and staged overdue bridge reminders across separate sweeps so enabling a delayed scheduler cannot send both messages back-to-back.

@@ -16,6 +16,11 @@ export interface NotificationPayload {
   data?: NotificationData | null;
 }
 
+export interface NotificationDeliveryResult {
+  devicesNotified: number;
+  retryableFailures: number;
+}
+
 export class NotificationService {
   readonly #deviceTokenRepo: DeviceTokenRepository;
   readonly #messaging: Messaging | null;
@@ -25,14 +30,18 @@ export class NotificationService {
     this.#messaging = messaging;
   }
 
-  async sendToUser(userId: string, payload: NotificationPayload): Promise<{ devicesNotified: number }> {
+  get isAvailable(): boolean {
+    return this.#messaging !== null;
+  }
+
+  async sendToUser(userId: string, payload: NotificationPayload): Promise<NotificationDeliveryResult> {
     if (!this.#messaging) {
-      return { devicesNotified: 0 };
+      return { devicesNotified: 0, retryableFailures: 0 };
     }
 
     const tokens = await this.#deviceTokenRepo.findByUserId(userId);
     if (tokens.length === 0) {
-      return { devicesNotified: 0 };
+      return { devicesNotified: 0, retryableFailures: 0 };
     }
 
     // FCM data must be a flat Record<string, string>. Flatten NotificationData and filter nulls.
@@ -62,17 +71,19 @@ export class NotificationService {
     const response = await this.#messaging.sendEach(messages);
 
     const staleTokens: string[] = [];
+    let retryableFailures = 0;
     response.responses.forEach((r, i) => {
-      if (!r.error) {
+      if (r.success) {
         return;
       }
 
-      const code = r.error.code;
+      const code = r.error?.code;
       if (code === "messaging/registration-token-not-registered" || code === "messaging/invalid-registration-token") {
         staleTokens.push(tokens[i].token);
         return;
       }
 
+      retryableFailures += 1;
       console.warn("Non-token FCM error while sending push notification", { userId, token: tokens[i].token, code });
     });
 
@@ -80,6 +91,6 @@ export class NotificationService {
       await this.#deviceTokenRepo.deleteByTokens(staleTokens);
     }
 
-    return { devicesNotified: response.successCount };
+    return { devicesNotified: response.successCount, retryableFailures };
   }
 }
