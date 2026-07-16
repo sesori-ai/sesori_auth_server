@@ -78,26 +78,32 @@ describe("Notification routes", () => {
     await ctx.cleanup();
   });
 
-  it("POST /notifications/register-token returns 200 with valid body and auth", async () => {
+  it("POST /notifications/register-token accepts and persists every supported platform", async () => {
     const user = await ctx.createUser();
+    const supportedPlatforms = ["ios", "android", "macos", "windows", "linux"] as const;
 
-    const res = await ctx.app.inject({
-      method: "POST",
-      url: "/notifications/register-token",
-      headers: {
-        authorization: `Bearer ${user.accessToken}`,
-        "content-type": "application/json",
-      },
-      payload: JSON.stringify({ token: "fcm-token-1", platform: "ios" }),
-    });
+    for (const platform of supportedPlatforms) {
+      const res = await ctx.app.inject({
+        method: "POST",
+        url: "/notifications/register-token",
+        headers: {
+          authorization: `Bearer ${user.accessToken}`,
+          "content-type": "application/json",
+        },
+        payload: JSON.stringify({ token: `fcm-token-${platform}`, platform }),
+      });
 
-    assert.equal(res.statusCode, 200);
-    assert.deepEqual(res.json(), { ok: true });
+      assert.equal(res.statusCode, 200);
+      assert.deepEqual(res.json(), { ok: true });
+    }
 
     const tokens = await deviceTokenRepo.findByUserId(user.userId);
-    assert.equal(tokens.length, 1);
-    assert.equal(tokens[0]?.token, "fcm-token-1");
-    assert.equal(tokens[0]?.platform, "ios");
+    assert.equal(tokens.length, supportedPlatforms.length);
+    const platformsByToken = new Map(tokens.map((token) => [token.token, token.platform]));
+    for (const platform of supportedPlatforms) {
+      assert.equal(platformsByToken.get(`fcm-token-${platform}`), platform);
+    }
+
     const activationState = await activationStateRepo.findByUserId(user.userId);
     assert.ok(activationState?.mobileSetupAt);
     assert.equal(activationState.bridgeReminderBaseAt?.toISOString(), activationState.mobileSetupAt.toISOString());
@@ -151,6 +157,7 @@ describe("Notification routes", () => {
     });
 
     assert.equal(res.statusCode, 400);
+    assert.deepEqual(res.json(), { error: "bad_request" });
   });
 
   it("DELETE /notifications/tokens/:token returns 200 with auth", async () => {

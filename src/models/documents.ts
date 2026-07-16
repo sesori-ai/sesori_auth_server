@@ -1,6 +1,7 @@
 import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { bridgeIdSchema, bridgePlatformSchema, bridgeStatusSchema } from "./bridge.js";
+import { devicePlatformSchema } from "./device.js";
 
 export const userSchema = z.object({
   _id: z.instanceof(ObjectId),
@@ -68,7 +69,7 @@ export const deviceTokenSchema = z.object({
   _id: z.instanceof(ObjectId),
   userId: z.instanceof(ObjectId),
   token: z.string(),
-  platform: z.enum(["ios", "android"]),
+  platform: devicePlatformSchema,
   createdAt: z.date(),
   updatedAt: z.date(),
 });

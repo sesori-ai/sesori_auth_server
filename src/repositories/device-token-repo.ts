@@ -1,6 +1,7 @@
 import { Collection, ObjectId } from "mongodb";
 import { MongoDbAccessor } from "../db/mongo-db-accessor.js";
 import { InternalServerError } from "../lib/errors.js";
+import type { DevicePlatform } from "../models/device.js";
 import type { DeviceToken } from "../models/documents.js";
 import { MongoDbDatabase, AuthDbCollection } from "../types/mongo.js";
 
@@ -11,7 +12,7 @@ export class DeviceTokenRepository {
     this.#collection = accessor.getCollection<DeviceToken>(MongoDbDatabase.Auth, AuthDbCollection.DeviceTokens);
   }
 
-  async upsertToken(userId: string, token: string, platform: "ios" | "android"): Promise<void> {
+  async upsertToken(userId: string, token: string, platform: DevicePlatform): Promise<void> {
     if (!ObjectId.isValid(userId)) {
       throw new InternalServerError({ debugMessage: "Invalid device token userId" });
     }
