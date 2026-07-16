@@ -18,7 +18,7 @@ This file is the authoritative implementation tracker. A future session should r
 - PR2 delivery status: merged as PR #40
 - PR3 delivery status: merged as PR #41 (`c0ec782`)
 - PR4 delivery status: merged as PR #42
-- Live GitHub delivery state: verify with `gh pr list --head activation-reminder-backfill --state all`
+- Live GitHub delivery state: verify with `gh pr list --head invalid-request-body-log --state all`
 - Last updated: 2026-07-16
 - PR4 is the final planned implementation slice. PR #43 preserves the all-app activation semantics while widening token registration to all supported platforms.
 
