@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, describe, it, mock } from "node:test";
+import { DevicePlatform } from "../../src/models/device.js";
 import { ActivationStateRepository } from "../../src/repositories/activation-state-repo.js";
 import { DeviceTokenRepository } from "../../src/repositories/device-token-repo.js";
 import { ActivationService } from "../../src/services/activation-service.js";
@@ -214,7 +215,7 @@ describe("Notification routes", () => {
   it("DELETE /notifications/tokens/:token returns 200 with auth", async () => {
     const user = await ctx.createUser();
     const token = "token/with:special?chars";
-    await deviceTokenRepo.upsertToken(user.userId, token, "android");
+    await deviceTokenRepo.upsertToken(user.userId, token, DevicePlatform.android);
 
     const res = await ctx.app.inject({
       method: "DELETE",

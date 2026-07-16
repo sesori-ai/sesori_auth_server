@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { ObjectId } from "mongodb";
-import { BridgeStatus } from "../../src/models/bridge.js";
+import { BridgePlatform, BridgeStatus } from "../../src/models/bridge.js";
 import { DevicePlatform } from "../../src/models/device.js";
 import type { ActivationState, Bridge, DailyUsage, DeviceToken } from "../../src/models/documents.js";
 import { ActivationStateRepository } from "../../src/repositories/activation-state-repo.js";
@@ -64,7 +64,7 @@ describe("ActivationBackfillService", () => {
       bridgeId: `br_${userId}`,
       userId: new ObjectId(userId),
       name: "Historical bridge",
-      platform: "macos",
+      platform: BridgePlatform.macos,
       status: BridgeStatus.inactive,
       addedAt,
       lastSeenAt: null,

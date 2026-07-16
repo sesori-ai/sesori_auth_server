@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, describe, it, mock } from "node:test";
 import { ObjectId } from "mongodb";
+import { BridgePlatform } from "../../src/models/bridge.js";
+import { DevicePlatform } from "../../src/models/device.js";
 import type { Bridge, DailyUsage, DeviceToken } from "../../src/models/documents.js";
 import { ActivationStateRepository } from "../../src/repositories/activation-state-repo.js";
 import { BridgeRepository } from "../../src/repositories/bridge-repo.js";
@@ -53,11 +55,15 @@ describe("ActivationService", () => {
       _id: new ObjectId(),
       userId: new ObjectId(user.userId),
       token: `activation-token-${user.userId}`,
-      platform: "ios",
+      platform: DevicePlatform.ios,
       createdAt: mobileAt,
       updatedAt: mobileAt,
     });
-    const bridge = await bridgeRepo.register({ userId: user.userId, name: "Historical", platform: "macos" });
+    const bridge = await bridgeRepo.register({
+      userId: user.userId,
+      name: "Historical",
+      platform: BridgePlatform.macos,
+    });
     await ctx.dbAccessor
       .getCollection<Bridge>(MongoDbDatabase.Auth, AuthDbCollection.Bridges)
       .updateOne({ bridgeId: bridge.bridgeId }, { $set: { addedAt: bridgeAt, revokedAt: observedAt } });
@@ -129,13 +135,17 @@ describe("ActivationService", () => {
     const user = await ctx.createUser();
     const historicalAt = new Date("2026-07-10T10:00:00.000Z");
     const observedAt = new Date("2026-07-15T10:00:00.000Z");
-    const historical = await bridgeRepo.register({ userId: user.userId, name: "Historical", platform: "macos" });
+    const historical = await bridgeRepo.register({
+      userId: user.userId,
+      name: "Historical",
+      platform: BridgePlatform.macos,
+    });
     const collection = ctx.dbAccessor.getCollection<Bridge>(MongoDbDatabase.Auth, AuthDbCollection.Bridges);
     await collection.updateOne(
       { bridgeId: historical.bridgeId },
       { $set: { addedAt: historicalAt, revokedAt: observedAt } },
     );
-    await bridgeRepo.register({ userId: user.userId, name: "Current", platform: "linux" });
+    await bridgeRepo.register({ userId: user.userId, name: "Current", platform: BridgePlatform.linux });
 
     const state = await service.recordBridgeSetup(user.userId, observedAt);
 
@@ -144,9 +154,13 @@ describe("ActivationService", () => {
 
   it("repairs mobile setup from token history when recording bridge setup", async () => {
     const user = await ctx.createUser();
-    await deviceTokenRepo.upsertToken(user.userId, `bridge-repair-token-${user.userId}`, "ios");
+    await deviceTokenRepo.upsertToken(user.userId, `bridge-repair-token-${user.userId}`, DevicePlatform.ios);
     const mobileAt = await deviceTokenRepo.findEarliestCreatedAt(user.userId);
-    const bridge = await bridgeRepo.register({ userId: user.userId, name: "Repair", platform: "macos" });
+    const bridge = await bridgeRepo.register({
+      userId: user.userId,
+      name: "Repair",
+      platform: BridgePlatform.macos,
+    });
 
     const state = await service.recordBridgeSetup(user.userId, bridge.addedAt);
 
@@ -158,9 +172,13 @@ describe("ActivationService", () => {
 
   it("reconciles app setup from a persisted desktop token", async () => {
     const user = await ctx.createUser();
-    await deviceTokenRepo.upsertToken(user.userId, `desktop-only-token-${user.userId}`, "windows");
+    await deviceTokenRepo.upsertToken(user.userId, `desktop-only-token-${user.userId}`, DevicePlatform.windows);
     const appSetupAt = await deviceTokenRepo.findEarliestCreatedAt(user.userId);
-    const bridge = await bridgeRepo.register({ userId: user.userId, name: "Desktop only", platform: "windows" });
+    const bridge = await bridgeRepo.register({
+      userId: user.userId,
+      name: "Desktop only",
+      platform: BridgePlatform.windows,
+    });
 
     const state = await service.recordBridgeSetup(user.userId, bridge.addedAt);
 
@@ -194,7 +212,7 @@ describe("ActivationService", () => {
     const mobileAt = new Date("2026-07-10T10:00:00.000Z");
     const sessionAt = new Date("2026-07-12T10:00:00.000Z");
     await activationStateRepo.recordMilestones(user.userId, { mobileSetupAt: mobileAt }, mobileAt);
-    const bridge = await bridgeRepo.register({ userId: user.userId, name: "Repair", platform: "linux" });
+    const bridge = await bridgeRepo.register({ userId: user.userId, name: "Repair", platform: BridgePlatform.linux });
 
     const state = await service.recordFirstSession(user.userId, sessionAt);
 
@@ -224,13 +242,13 @@ describe("ActivationService", () => {
       _id: new ObjectId(),
       userId: new ObjectId(user.userId),
       token: `retry-token-${user.userId}`,
-      platform: "ios",
+      platform: DevicePlatform.ios,
       createdAt: mobileAt,
       updatedAt: mobileAt,
     });
     await service.recordAppSetup(user.userId, mobileAt);
 
-    const bridge = await bridgeRepo.register({ userId: user.userId, name: "Later", platform: "macos" });
+    const bridge = await bridgeRepo.register({ userId: user.userId, name: "Later", platform: BridgePlatform.macos });
     await ctx.dbAccessor
       .getCollection<Bridge>(MongoDbDatabase.Auth, AuthDbCollection.Bridges)
       .updateOne({ bridgeId: bridge.bridgeId }, { $set: { addedAt: bridgeAt } });
