@@ -100,7 +100,12 @@ describe("Notification routes", () => {
     for (const platform of desktopPlatforms) {
       await register(platform);
     }
-    assert.equal(await activationStateRepo.findByUserId(user.userId), null);
+    const firstAppToken = (await deviceTokenRepo.findByUserId(user.userId)).find(
+      (token) => token.token === "fcm-token-macos",
+    );
+    const desktopActivationState = await activationStateRepo.findByUserId(user.userId);
+    assert.ok(firstAppToken);
+    assert.equal(desktopActivationState?.mobileSetupAt?.toISOString(), firstAppToken.createdAt.toISOString());
 
     for (const platform of mobilePlatforms) {
       await register(platform);
@@ -116,10 +121,11 @@ describe("Notification routes", () => {
 
     const activationState = await activationStateRepo.findByUserId(user.userId);
     assert.ok(activationState?.mobileSetupAt);
-    assert.equal(activationState.bridgeReminderBaseAt?.toISOString(), activationState.mobileSetupAt.toISOString());
+    assert.equal(activationState.mobileSetupAt.toISOString(), firstAppToken.createdAt.toISOString());
+    assert.equal(activationState.bridgeReminderBaseAt?.toISOString(), firstAppToken.createdAt.toISOString());
   });
 
-  it("POST /notifications/register-token starts mobile activation when a desktop token becomes mobile", async () => {
+  it("POST /notifications/register-token preserves first app activation when a token changes platform", async () => {
     const user = await ctx.createUser();
     const token = `fcm-transition-${user.userId}`;
     const register = (platform: "macos" | "ios") =>
@@ -136,8 +142,9 @@ describe("Notification routes", () => {
     const desktopResponse = await register("macos");
     assert.equal(desktopResponse.statusCode, 200);
     const desktopToken = (await deviceTokenRepo.findByUserId(user.userId))[0];
+    const desktopActivationState = await activationStateRepo.findByUserId(user.userId);
     assert.ok(desktopToken);
-    assert.equal(await activationStateRepo.findByUserId(user.userId), null);
+    assert.equal(desktopActivationState?.mobileSetupAt?.toISOString(), desktopToken.createdAt.toISOString());
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     const mobileResponse = await register("ios");
@@ -147,15 +154,15 @@ describe("Notification routes", () => {
 
     assert.ok(mobileToken);
     assert.equal(mobileToken.platform, "ios");
-    assert.ok(mobileToken.createdAt.getTime() > desktopToken.createdAt.getTime());
-    assert.equal(mobileToken.createdAt.toISOString(), mobileToken.updatedAt.toISOString());
-    assert.equal(activationState?.mobileSetupAt?.toISOString(), mobileToken.createdAt.toISOString());
-    assert.equal(activationState?.bridgeReminderBaseAt?.toISOString(), mobileToken.createdAt.toISOString());
+    assert.equal(mobileToken.createdAt.toISOString(), desktopToken.createdAt.toISOString());
+    assert.ok(mobileToken.updatedAt.getTime() > desktopToken.updatedAt.getTime());
+    assert.equal(activationState?.mobileSetupAt?.toISOString(), desktopToken.createdAt.toISOString());
+    assert.equal(activationState?.bridgeReminderBaseAt?.toISOString(), desktopToken.createdAt.toISOString());
   });
 
   it("POST /notifications/register-token succeeds when activation recording fails", async () => {
     const user = await ctx.createUser();
-    const recordMock = mock.method(ActivationService.prototype, "recordDeviceTokenRegistration", async () => {
+    const recordMock = mock.method(ActivationService.prototype, "recordAppSetup", async () => {
       throw new Error("activation unavailable");
     });
     const warnMock = mock.method(console, "warn", () => {});
@@ -172,7 +179,6 @@ describe("Notification routes", () => {
 
     assert.equal(res.statusCode, 200);
     assert.equal(recordMock.mock.callCount(), 1);
-    assert.equal(recordMock.mock.calls[0]?.arguments[1], "android");
     assert.equal(warnMock.mock.callCount(), 1);
     assert.equal((await deviceTokenRepo.findByUserId(user.userId)).length, 1);
   });

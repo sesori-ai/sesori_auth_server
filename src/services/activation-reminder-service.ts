@@ -19,7 +19,7 @@ const REMINDER_PAYLOADS: Record<ActivationReminderKind, NotificationPayload> = {
   [ActivationReminderKind.Bridge1]: {
     category: "system_update",
     title: "Finish setting up Sesori",
-    body: "Install the Sesori bridge on your computer to start using Sesori from your phone.",
+    body: "Install the Sesori bridge on your computer to connect your coding agents.",
     collapseKey: "activation_bridge_1",
   },
   [ActivationReminderKind.Bridge2]: {

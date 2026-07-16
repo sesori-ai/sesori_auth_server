@@ -211,9 +211,10 @@ describe("ActivationBackfillService", () => {
     );
   });
 
-  it("does not use a desktop-only token as mobile activation evidence", async () => {
+  it("uses a desktop-only token as app activation evidence", async () => {
     const user = await ctx.createUser();
-    await seedToken(user.userId, new Date("2026-06-01T08:00:00.000Z"), DevicePlatform.windows);
+    const appSetupAt = new Date("2026-06-01T08:00:00.000Z");
+    await seedToken(user.userId, appSetupAt, DevicePlatform.windows);
 
     const report = await service.run({
       apply: true,
@@ -224,10 +225,10 @@ describe("ActivationBackfillService", () => {
     const state = await activationStateRepo.findByUserId(user.userId);
 
     assert.equal(report.usersApplied, 1);
-    assert.equal(report.byStage[ActivationBackfillStage.MobileIncomplete].applied, 1);
-    assert.equal(report.byReminder[ActivationBackfillReminder.None].applied, 1);
-    assert.equal(state?.mobileSetupAt, null);
-    assert.equal(state?.bridgeReminderBaseAt, null);
+    assert.equal(report.byStage[ActivationBackfillStage.BridgeIncomplete].applied, 1);
+    assert.equal(report.byReminder[ActivationBackfillReminder.Bridge1].applied, 1);
+    assert.equal(state?.mobileSetupAt?.toISOString(), appSetupAt.toISOString());
+    assert.equal(state?.bridgeReminderBaseAt?.toISOString(), BACKFILL_AT.toISOString());
   });
 
   it("produces stable bounded jitter", () => {
@@ -264,7 +265,7 @@ describe("ActivationBackfillService", () => {
     const failedUser = await ctx.createUser();
     const successfulUser = await ctx.createUser();
     const deviceTokenRepo = new DeviceTokenRepository(ctx.dbAccessor);
-    t.mock.method(deviceTokenRepo, "findEarliestMobileCreatedAt", async (userId: string) => {
+    t.mock.method(deviceTokenRepo, "findEarliestCreatedAt", async (userId: string) => {
       if (userId === failedUser.userId) {
         throw new Error("token lookup failed");
       }

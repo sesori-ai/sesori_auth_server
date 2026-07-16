@@ -84,7 +84,7 @@ describe("DeviceTokenRepository", () => {
     assert.ok(updated.updatedAt.getTime() > first.updatedAt.getTime());
   });
 
-  it("upsertToken resets createdAt for a same-owner desktop-to-mobile update", async () => {
+  it("upsertToken preserves createdAt for a same-owner desktop-to-mobile update", async () => {
     const user = await ctx.createUser();
     await repo.upsertToken(user.userId, "token-desktop-to-mobile", "macos");
     const first = (await repo.findByUserId(user.userId))[0];
@@ -96,8 +96,8 @@ describe("DeviceTokenRepository", () => {
     const updated = (await repo.findByUserId(user.userId))[0];
     assert.ok(updated);
     assert.equal(updated.platform, "ios");
-    assert.ok(updated.createdAt.getTime() > first.createdAt.getTime());
-    assert.equal(updated.createdAt.toISOString(), updated.updatedAt.toISOString());
+    assert.equal(updated.createdAt.toISOString(), first.createdAt.toISOString());
+    assert.ok(updated.updatedAt.getTime() > first.updatedAt.getTime());
   });
 
   it("upsertToken resets createdAt when a token moves to another user", async () => {
@@ -168,7 +168,7 @@ describe("DeviceTokenRepository", () => {
     assert.deepEqual(new Set(tokens.map((token) => token.token)), new Set(["token-list-1", "token-list-2"]));
   });
 
-  it("findEarliestMobileCreatedAt ignores desktop token registrations", async () => {
+  it("findEarliestCreatedAt returns the first app registration on any platform", async () => {
     const user = await ctx.createUser();
     const desktopAt = new Date("2026-07-09T10:00:00.000Z");
     const firstMobileAt = new Date("2026-07-10T10:00:00.000Z");
@@ -201,8 +201,8 @@ describe("DeviceTokenRepository", () => {
       },
     ]);
 
-    assert.equal((await repo.findEarliestMobileCreatedAt(user.userId))?.toISOString(), firstMobileAt.toISOString());
-    assert.equal(await repo.findEarliestMobileCreatedAt("invalid-id"), null);
+    assert.equal((await repo.findEarliestCreatedAt(user.userId))?.toISOString(), desktopAt.toISOString());
+    assert.equal(await repo.findEarliestCreatedAt("invalid-id"), null);
     const index = (await collection.indexes()).find((candidate) => candidate.name === "userId_1_createdAt_1");
     assert.deepEqual(index?.key, { userId: 1, createdAt: 1 });
   });

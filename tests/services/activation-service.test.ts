@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, describe, it, mock } from "node:test";
 import { ObjectId } from "mongodb";
-import { DevicePlatform } from "../../src/models/device.js";
 import type { Bridge, DailyUsage, DeviceToken } from "../../src/models/documents.js";
 import { ActivationStateRepository } from "../../src/repositories/activation-state-repo.js";
 import { BridgeRepository } from "../../src/repositories/bridge-repo.js";
@@ -72,9 +71,8 @@ describe("ActivationService", () => {
       updatedAt: sessionAt,
     });
 
-    const state = await service.recordDeviceTokenRegistration(user.userId, DevicePlatform.ios, observedAt);
+    const state = await service.recordAppSetup(user.userId, observedAt);
 
-    assert.ok(state);
     assert.equal(state.mobileSetupAt?.toISOString(), mobileAt.toISOString());
     assert.equal(state.bridgeSetupAt?.toISOString(), bridgeAt.toISOString());
     assert.equal(state.firstSessionAt?.toISOString(), sessionAt.toISOString());
@@ -86,15 +84,18 @@ describe("ActivationService", () => {
     );
   });
 
-  it("ignores desktop device-token registrations", async () => {
+  it("records app setup for a device-token registration", async () => {
     const user = await ctx.createUser();
+    const observedAt = new Date("2026-07-12T10:00:00.000Z");
 
-    for (const platform of [DevicePlatform.macos, DevicePlatform.windows, DevicePlatform.linux]) {
-      assert.equal(await service.recordDeviceTokenRegistration(user.userId, platform), null);
-    }
+    const state = await service.recordAppSetup(user.userId, observedAt);
 
-    assert.equal(await activationStateRepo.findByUserId(user.userId), null);
-    assert.deepEqual(logCalls, []);
+    assert.equal(state.mobileSetupAt?.toISOString(), observedAt.toISOString());
+    assert.equal(state.bridgeReminderBaseAt?.toISOString(), observedAt.toISOString());
+    assert.deepEqual(
+      logCalls.map((args) => (args[1] as { milestone: string }).milestone),
+      ["mobile_setup"],
+    );
   });
 
   it("records bridge and session milestones before mobile setup without creating reminder baselines", async () => {
@@ -144,7 +145,7 @@ describe("ActivationService", () => {
   it("repairs mobile setup from token history when recording bridge setup", async () => {
     const user = await ctx.createUser();
     await deviceTokenRepo.upsertToken(user.userId, `bridge-repair-token-${user.userId}`, "ios");
-    const mobileAt = await deviceTokenRepo.findEarliestMobileCreatedAt(user.userId);
+    const mobileAt = await deviceTokenRepo.findEarliestCreatedAt(user.userId);
     const bridge = await bridgeRepo.register({ userId: user.userId, name: "Repair", platform: "macos" });
 
     const state = await service.recordBridgeSetup(user.userId, bridge.addedAt);
@@ -155,17 +156,18 @@ describe("ActivationService", () => {
     assert.equal(state.sessionReminderBaseAt?.toISOString(), bridge.addedAt.toISOString());
   });
 
-  it("does not infer mobile setup from a persisted desktop token", async () => {
+  it("reconciles app setup from a persisted desktop token", async () => {
     const user = await ctx.createUser();
-    await deviceTokenRepo.upsertToken(user.userId, `desktop-only-token-${user.userId}`, DevicePlatform.windows);
+    await deviceTokenRepo.upsertToken(user.userId, `desktop-only-token-${user.userId}`, "windows");
+    const appSetupAt = await deviceTokenRepo.findEarliestCreatedAt(user.userId);
     const bridge = await bridgeRepo.register({ userId: user.userId, name: "Desktop only", platform: "windows" });
 
     const state = await service.recordBridgeSetup(user.userId, bridge.addedAt);
 
-    assert.equal(state.mobileSetupAt, null);
+    assert.equal(state.mobileSetupAt?.toISOString(), appSetupAt?.toISOString());
     assert.equal(state.bridgeSetupAt?.toISOString(), bridge.addedAt.toISOString());
-    assert.equal(state.bridgeReminderBaseAt, null);
-    assert.equal(state.sessionReminderBaseAt, null);
+    assert.equal(state.bridgeReminderBaseAt?.toISOString(), appSetupAt?.toISOString());
+    assert.equal(state.sessionReminderBaseAt?.toISOString(), bridge.addedAt.toISOString());
   });
 
   it("uses historical metadata evidence when recording a later session request", async () => {
@@ -226,7 +228,7 @@ describe("ActivationService", () => {
       createdAt: mobileAt,
       updatedAt: mobileAt,
     });
-    await service.recordDeviceTokenRegistration(user.userId, DevicePlatform.ios, mobileAt);
+    await service.recordAppSetup(user.userId, mobileAt);
 
     const bridge = await bridgeRepo.register({ userId: user.userId, name: "Later", platform: "macos" });
     await ctx.dbAccessor
@@ -242,13 +244,8 @@ describe("ActivationService", () => {
       updatedAt: sessionAt,
     });
 
-    const state = await service.recordDeviceTokenRegistration(
-      user.userId,
-      DevicePlatform.ios,
-      new Date("2026-07-15T10:00:00.000Z"),
-    );
+    const state = await service.recordAppSetup(user.userId, new Date("2026-07-15T10:00:00.000Z"));
 
-    assert.ok(state);
     assert.equal(state.mobileSetupAt?.toISOString(), mobileAt.toISOString());
     assert.equal(state.bridgeSetupAt?.toISOString(), bridgeAt.toISOString());
     assert.equal(state.firstSessionAt?.toISOString(), sessionAt.toISOString());
@@ -259,9 +256,8 @@ describe("ActivationService", () => {
     const user = await ctx.createUser();
     const observedAt = new Date("2026-07-12T10:00:00.000Z");
 
-    const state = await service.recordDeviceTokenRegistration(user.userId, DevicePlatform.android, observedAt);
+    const state = await service.recordAppSetup(user.userId, observedAt);
 
-    assert.ok(state);
     assert.equal(state.mobileSetupAt?.toISOString(), observedAt.toISOString());
     assert.equal(state.bridgeReminderBaseAt?.toISOString(), observedAt.toISOString());
   });

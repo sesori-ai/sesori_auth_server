@@ -4,7 +4,7 @@
 
 Improve user activation by measuring and nudging users through this funnel:
 
-1. Mobile setup: the user registers an iOS or Android push-notification device token.
+1. App setup: the user registers a push-notification device token from any supported app platform.
 2. Bridge setup: the user registers the desktop bridge.
 3. Full activation: the user creates a new session, represented by the first valid authenticated call to `POST /sessions/generate-metadata`.
 
@@ -12,15 +12,15 @@ This file is the authoritative implementation tracker. A future session should r
 
 ## Current State
 
-- Branch: `activation-reminder-backfill`
-- Implementation checkpoint: PR4 complete; delivery pending
+- Branch: `invalid-request-body-log`
+- Implementation checkpoint: PR4 merged; PR #43 app-platform follow-up open
 - PR1 delivery status: merged as PR #38
 - PR2 delivery status: merged as PR #40
 - PR3 delivery status: merged as PR #41 (`c0ec782`)
-- PR4 intended post-merge status: merged; verify live state rather than inferring it from this file
+- PR4 delivery status: merged as PR #42
 - Live GitHub delivery state: verify with `gh pr list --head activation-reminder-backfill --state all`
 - Last updated: 2026-07-16
-- PR4 is the final planned implementation slice. Finish its commit, review, PR, and merge workflow before running the production backfill.
+- PR4 is the final planned implementation slice. PR #43 preserves the all-app activation semantics while widening token registration to all supported platforms.
 
 ## Resume Instructions
 
@@ -39,12 +39,12 @@ This file is the authoritative implementation tracker. A future session should r
 - V1 implementation is auth-server-only. Full-stack changes remain permissible later, but no Flutter, bridge, or relay changes are needed for V1.
 - Existing FCM infrastructure and the `system_update` notification category are reused.
 - Notification taps rely on the app's default open behavior; V1 adds no activation-specific deep link.
-- Mobile setup is the first iOS/Android device-token registration, not account creation. Desktop tokens remain valid push endpoints but do not establish this milestone.
+- App setup is the first device-token registration from any supported app platform, not account creation. The supported values are iOS, Android, macOS, Windows, and Linux.
 - Bridge setup is the first bridge registration, not the first relay connection.
 - First session is the first valid authenticated `POST /sessions/generate-metadata` call. Metadata failure is non-fatal in the bridge and session creation continues, so the response does not need to succeed. This deliberately measures creation of a new text-backed session, not messages in existing sessions.
-- Bridge reminder 1 is due approximately 2 hours after mobile setup.
-- Bridge reminder 2 is due approximately 24 hours after mobile setup, but only after bridge reminder 1 completed in an earlier sweep.
-- The single session reminder is due approximately 24 hours after both mobile and bridge setup. Its organic baseline is `max(mobileSetupAt, bridgeSetupAt)`.
+- Bridge reminder 1 is due approximately 2 hours after app setup.
+- Bridge reminder 2 is due approximately 24 hours after app setup, but only after bridge reminder 1 completed in an earlier sweep.
+- The single session reminder is due approximately 24 hours after both app and bridge setup. Its organic baseline is `max(mobileSetupAt, bridgeSetupAt)`.
 - A roughly 15-minute sweep is sufficient; reminder timing is intentionally approximate.
 - No quiet-hours handling in V1.
 - Existing users are actively backfilled. Incomplete users enter a controlled re-engagement sequence measured from backfill time with deterministic jitter.
@@ -56,7 +56,7 @@ All reminders use category `system_update`.
 
 | Reminder      | Title                           | Body                                                                                         |
 | ------------- | ------------------------------- | -------------------------------------------------------------------------------------------- |
-| Bridge 1      | Finish setting up Sesori        | Install the Sesori bridge on your computer to start using Sesori from your phone.            |
+| Bridge 1      | Finish setting up Sesori        | Install the Sesori bridge on your computer to connect your coding agents.                    |
 | Bridge 2      | Your Sesori setup is unfinished | You haven't connected your computer yet. Install the Sesori bridge to unlock Sesori.         |
 | First session | Start your first session        | You're all set up! You haven't started a new session yet - create one to put Sesori to work. |
 
@@ -86,9 +86,10 @@ updatedAt: Date
 
 Field invariants:
 
-- `bridgeReminderBaseAt` is set only after mobile setup is known.
-- `sessionReminderBaseAt` is set only after both mobile and bridge setup are known.
-- Mobile and bridge timestamps are set once; `firstSessionAt` retains the earliest observed candidate when better evidence arrives.
+- `mobileSetupAt`, `MobileIncomplete`, and the `mobile_setup` log value are historical persisted/operational names retained for compatibility; they represent app setup across every supported platform.
+- `bridgeReminderBaseAt` is set only after app setup is known.
+- `sessionReminderBaseAt` is set only after both app and bridge setup are known.
+- App and bridge timestamps are set once; `firstSessionAt` retains the earliest observed candidate when better evidence arrives.
 - Backfill timestamps remain separate from reminder baselines so analytics are not rewritten to make scheduling convenient.
 - Sent timestamps are independent so each reminder can be measured and suppressed separately.
 
@@ -98,7 +99,7 @@ Planned indexes:
 - `{ bridgeSetupAt: 1, bridgeReminder1SentAt: 1, bridgeReminderBaseAt: 1 }`.
 - `{ bridgeSetupAt: 1, bridgeReminder2SentAt: 1, bridgeReminderBaseAt: 1 }`.
 - `{ firstSessionAt: 1, sessionReminderSentAt: 1, sessionReminderBaseAt: 1 }`.
-- Supporting historical iOS/Android token reconciliation: `deviceTokens { userId: 1, createdAt: 1 }`.
+- Supporting historical app-token reconciliation: `deviceTokens { userId: 1, createdAt: 1 }`.
 - Supporting historical bridge reconciliation: `bridges { userId: 1, addedAt: 1 }`.
 
 The equality fields precede each due-time range field so the future sweep queries can use the indexes directly.
@@ -184,7 +185,7 @@ Acceptance criteria:
 - [x] Add `ActivationService` to own reconciliation and milestone invariants.
 - [x] Add an atomic milestone update that preserves first-event timestamps and derives reminder baselines correctly for either event order.
 - [x] Retain the earliest first-session candidate when concurrent initial reads/writes reach MongoDB out of order.
-- [x] On iOS/Android device-token registration, enroll the user from the earliest extant mobile token, reset transferred-token history for the new owner, and retry unresolved bridge/session reconciliation. Desktop token registration does not establish mobile setup.
+- [x] On device-token registration from any supported app platform, enroll the user from the earliest extant token, reset transferred-token history for the new owner, preserve same-owner history across platform changes, and retry unresolved bridge/session reconciliation.
 - [x] Add `{ userId: 1, createdAt: 1 }` to support historical device-token lookup.
 - [x] Remove the superseded `{ userId: 1 }` token index only after confirming the exact desired compound replacement exists.
 - [x] Validate token owner IDs with the typed internal error used at repository boundaries.
@@ -194,7 +195,7 @@ Acceptance criteria:
 - [x] Set `bridgeSetupAt` idempotently after bridge registration, using the earliest historical `addedAt` across active and revoked bridges.
 - [x] Set `firstSessionAt` before metadata generation for a valid authenticated request, preferring earlier historical metadata evidence when present, because the bridge proceeds when metadata generation fails.
 - [x] Reconcile all still-missing historical milestones from each event hook so a later event repairs an earlier failure-isolated write.
-- [x] Derive `sessionReminderBaseAt` from the later of mobile and bridge setup.
+- [x] Derive `sessionReminderBaseAt` from the later of app and bridge setup.
 - [x] Catch and log activation errors at every endpoint boundary without changing the existing endpoint response.
 - [x] Document that logout/revoke retains lifetime activation history.
 - [x] Add repository, service, event-order, reconciliation, route, metadata-failure, and failure-isolation tests.
@@ -286,14 +287,14 @@ Acceptance criteria:
 - [x] Add an idempotent operator-run script and package command.
 - [x] Require dry-run by default and an explicit apply flag for writes.
 - [x] Iterate existing users in bounded keyset batches, with each command's cohort fixed at its start timestamp.
-- [x] Set `mobileSetupAt` from the earliest extant iOS/Android device token; record users without a current mobile token without making them reminder-eligible.
+- [x] Set the historically named `mobileSetupAt` from the earliest extant device token on any supported app platform; record users without a current token without making them reminder-eligible.
 - [x] Set `bridgeSetupAt` from the earliest historical bridge registration, including revoked bridges.
 - [x] Set `firstSessionAt` from historical metadata usage when available without replacing precise organic timestamps.
 - [x] Preserve real milestone timestamps and sent markers for analytics and suppression.
 - [x] For currently incomplete, push-reachable users, atomically set only the current unsent reminder baseline to backfill time plus deterministic jitter.
 - [x] Re-evaluate the current stage in the atomic write so a milestone committed during reconciliation cannot strand the controlled baseline on a completed stage.
 - [x] Do not schedule bridge reminders for users who already have a bridge.
-- [x] Do not schedule session reminders unless both mobile and bridge setup are known.
+- [x] Do not schedule session reminders unless both app and bridge setup are known.
 - [x] Report cumulative and final proposed/applied counts by activation stage and reminder sequence.
 - [x] Document dry-run review, apply, timing, interruption, rerun, and monitoring operations.
 - [x] Test dry-run safety, explicit apply gating, idempotency, reconciliation, fixed cohorts, stage races, tokenless users, and controlled baseline assignment.
@@ -351,5 +352,5 @@ PR4 exit condition:
 - 2026-07-15: PR2 third automated review addressed. Required a full desired-index option match before cleanup and preserved earlier observed session timestamps when an initial read loses a race. All verification passed.
 - 2026-07-15: PR2 merged as #40. PR3 implementation completed and opened as #41: default-off configuration, indexed due queries, conditional markers, FCM delivery, a bounded single-flight scheduler, graceful disposal, and structured logs. Pre-delivery review hardened transient per-token retries, timer validation, shutdown cancellation, and concurrent milestone-log ownership. All verification passed. PR4 must wait for live merge verification.
 - 2026-07-15: PR3 review feedback addressed. Restored the plan's static intended-status semantics and staged overdue bridge reminders across separate sweeps so enabling a delayed scheduler cannot send both messages back-to-back.
-- 2026-07-16: PR3 merged as #41 (`c0ec782`). PR4 implementation completed on `activation-reminder-backfill`: dry-run-first operator tooling, fixed-cohort keyset batching, historical reconciliation, atomic controlled baselines, deterministic jitter, progress/final reporting, an operations runbook, and comprehensive tests. Post-merge PR3 feedback was also addressed with enums, CAS semantics, bounded disposal, token-safe logging, structured-log regressions, throughput defaults, and architecture documentation. All verification passed; PR4 delivery is pending.
-- 2026-07-16: PR #43 expands push-token storage to macOS, Windows, and Linux while shipping mobile-only activation reconciliation and desktop-to-mobile timestamp resets in the same deployment. Only iOS/Android token registrations establish or reconcile `mobileSetupAt`; desktop tokens remain notification endpoints without entering the phone-oriented onboarding funnel. Rolling back to the pre-PR code requires the quiesced desktop-token cleanup documented in `CONSIDERATIONS.md`.
+- 2026-07-16: PR3 merged as #41 (`c0ec782`). PR4 implemented dry-run-first operator tooling, fixed-cohort keyset batching, historical reconciliation, atomic controlled baselines, deterministic jitter, progress/final reporting, an operations runbook, and comprehensive tests, then merged as PR #42. Post-merge PR3 feedback was also addressed with enums, CAS semantics, bounded disposal, token-safe logging, structured-log regressions, throughput defaults, and architecture documentation. All verification passed.
+- 2026-07-16: PR #43 expands push-token storage to macOS, Windows, and Linux while preserving the product funnel's all-app activation semantics. Every supported app token establishes or reconciles the historically named `mobileSetupAt`; same-owner platform changes retain the first registration timestamp, ownership transfers reset it, and bridge-reminder copy is platform-neutral.

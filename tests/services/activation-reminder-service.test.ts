@@ -173,6 +173,10 @@ describe("ActivationReminderService", () => {
     assert.ok(repo.findCalls.every((call) => call.batchLimit === DEFAULT_OPTIONS.batchLimit));
     assert.equal(result.reminders[ActivationReminderKind.Session].sent, 1);
     assert.equal(result.reminders[ActivationReminderKind.Session].noDevices, 1);
+    assert.equal(
+      notification.sendCalls.find((call) => call.payload.collapseKey === "activation_bridge_1")?.payload.body,
+      "Install the Sesori bridge on your computer to connect your coding agents.",
+    );
     assert.ok(logCalls.some((args) => args[0] === "[ActivationReminderService] Reminder sent"));
     assert.ok(logCalls.some((args) => args[0] === "[ActivationReminderService] Sweep completed"));
   });

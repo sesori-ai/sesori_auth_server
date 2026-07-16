@@ -1,7 +1,7 @@
 import { Collection, ObjectId } from "mongodb";
 import { MongoDbAccessor } from "../db/mongo-db-accessor.js";
 import { InternalServerError } from "../lib/errors.js";
-import { isMobileDevicePlatform, MOBILE_DEVICE_PLATFORMS, type DevicePlatform } from "../models/device.js";
+import type { DevicePlatform } from "../models/device.js";
 import type { DeviceToken } from "../models/documents.js";
 import { MongoDbDatabase, AuthDbCollection } from "../types/mongo.js";
 
@@ -20,12 +20,8 @@ export class DeviceTokenRepository {
     const objectUserId = new ObjectId(userId);
     const sameOwner = { $eq: ["$userId", objectUserId] };
     // Concurrent writes to one token serialize, so these predicates inspect the
-    // owner/platform left by the preceding write. Ownership changes and
-    // same-owner desktop-to-mobile transitions reset the qualifying timestamp;
-    // all other same-owner platform changes preserve it.
-    const preserveCreatedAt = isMobileDevicePlatform(platform)
-      ? { $and: [sameOwner, { $in: ["$platform", MOBILE_DEVICE_PLATFORMS] }] }
-      : sameOwner;
+    // owner left by the preceding write. Same-owner platform changes preserve
+    // the first app-registration timestamp; ownership changes reset it.
     await this.#collection.updateOne(
       { token },
       [
@@ -34,7 +30,7 @@ export class DeviceTokenRepository {
             userId: objectUserId,
             platform,
             createdAt: {
-              $cond: [preserveCreatedAt, { $ifNull: ["$createdAt", now] }, now],
+              $cond: [sameOwner, { $ifNull: ["$createdAt", now] }, now],
             },
             updatedAt: now,
           },
@@ -48,12 +44,12 @@ export class DeviceTokenRepository {
     return this.#collection.find({ userId: new ObjectId(userId) }).toArray();
   }
 
-  async findEarliestMobileCreatedAt(userId: string): Promise<Date | null> {
-    if (!ObjectId.isValid(userId)) return null;
-    const token = await this.#collection.findOne(
-      { userId: new ObjectId(userId), platform: { $in: MOBILE_DEVICE_PLATFORMS } },
-      { sort: { createdAt: 1 } },
-    );
+  async findEarliestCreatedAt(userId: string): Promise<Date | null> {
+    if (!ObjectId.isValid(userId)) {
+      return null;
+    }
+
+    const token = await this.#collection.findOne({ userId: new ObjectId(userId) }, { sort: { createdAt: 1 } });
     return token?.createdAt ?? null;
   }
 

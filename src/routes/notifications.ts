@@ -64,9 +64,9 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
       const userId = getUserId(request);
       await deviceTokenRepo.upsertToken(userId, bodyResult.data.token, bodyResult.data.platform);
       try {
-        await activationService.recordDeviceTokenRegistration(userId, bodyResult.data.platform);
+        await activationService.recordAppSetup(userId);
       } catch (error) {
-        console.warn("[ActivationService] Failed to record device token registration", { userId, error });
+        console.warn("[ActivationService] Failed to record app setup", { userId, error });
       }
       return { ok: true };
     },
