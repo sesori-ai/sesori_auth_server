@@ -22,7 +22,9 @@ MongoDB TTL indexes are not a scheduler: they delete documents eventually but do
 
 The interval and single-flight guard are process-local. Enabling reminders on multiple auth-server instances can select and send the same reminder before either instance writes its sent marker. Keep reminder sending single-instance unless a distributed lease or claim mechanism is added.
 
-Graceful disposal stops the interval and declines queued candidates, but lets the currently executing candidate finish through its conditional marker write before MongoDB closes. Fastify stops accepting traffic concurrently. This bounds shutdown to the current FCM/database operation rather than the entire selected batch.
+Graceful disposal stops the interval and declines queued candidates, then waits up to 15 seconds for the currently executing candidate to finish through its conditional marker write before MongoDB closes. Fastify stops accepting traffic concurrently. If FCM is still unresolved at the timeout, a late result cannot start stale-token cleanup or the marker write, so the reminder remains retryable and retains the existing narrow duplicate-delivery risk.
+
+Reminder delivery is sequential within each kind. The default batch is 100, which keeps a pessimistic 200-400 ms FCM round-trip batch well below the 15-minute interval. Raise it only after measuring production FCM latency.
 
 ## Milestone Semantics
 
@@ -66,6 +68,8 @@ Separate bridge indexes are intentional because bridge reminder 1 and bridge rem
 
 Bridge reminder 2 additionally requires a bridge reminder 1 sent marker. The scheduler evaluates bridge reminder 2 before bridge reminder 1, so a first marker written during the current sweep cannot make an overdue user receive both messages back-to-back; the follow-up waits until at least the next sweep.
 
+The bridge reminder 2 index covers stage completion, its own sent marker, and the baseline range. The `bridgeReminder1SentAt != null` sequence gate is a residual FETCH filter; this is acceptable at current scale but must be revisited with `explain("executionStats")` before roughly 100k activation-state documents. Replacing it with the baseline cutoff would change timing semantics and is not equivalent.
+
 ## Delivery Guarantees
 
 The intended user-level behavior is one recorded completion per reminder kind. Unresolved sends remain eligible for retry, subject to the documented post-FCM/pre-MongoDB crash window. PR3 uses:
@@ -101,9 +105,13 @@ Milestone logs are emitted only by the atomic update that first claims a previou
 - Applying writes requires an explicit operator flag.
 - The script is idempotent and does not overwrite existing non-null milestones or sent markers.
 - Deterministic jitter avoids changing baselines on repeated runs.
+- Each command fixes its cohort to users created no later than that command's `backfilledAt`, so users created during a long run remain on organic enrollment.
+- The first apply claims `backfilledAt` atomically and may replace only the currently relevant unsent stage's old organic baseline with `backfilledAt + jitter`; later runs cannot move it again. The update pipeline chooses that stage after merging historical evidence and milestones committed before the atomic write. A milestone committed afterward follows the normal organic stage-transition baseline rules.
+- The two bridge reminders share one baseline. If bridge reminder 1 was already sent, bridge reminder 2 is the currently relevant unsent reminder and receives the controlled baseline.
 - Backfill does not intentionally target fully activated users; a narrow send/completion race may still produce a stale reminder.
 - Users without device tokens are not made reminder-eligible.
-- Operational counts are reviewed before applying.
+- Operational counts are reviewed before applying. Proposed counts describe the pre-write snapshot; applied counts describe the atomic post-write state and may differ when organic milestones race the command.
+- Dry-run performs no writes, including index creation.
 
 ## Production Compatibility
 

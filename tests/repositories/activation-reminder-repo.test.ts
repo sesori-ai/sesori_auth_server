@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import type { Collection } from "mongodb";
+import { Collection } from "mongodb";
 import type { ActivationState } from "../../src/models/documents.js";
-import { ActivationStateRepository } from "../../src/repositories/activation-state-repo.js";
+import { ActivationReminderKind, ActivationStateRepository } from "../../src/repositories/activation-state-repo.js";
 import { AuthDbCollection, MongoDbDatabase } from "../../src/types/mongo.js";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
 
@@ -58,9 +58,9 @@ describe("ActivationStateRepository reminders", () => {
     const completed = await seed({ bridgeReminderBaseAt: oldDate(), bridgeSetupAt: cutoff });
     await seed({ bridgeReminderBaseAt: null });
 
-    const bridge1 = await repo.findDueReminders("bridge_1", cutoff, 10);
-    const bridge2 = await repo.findDueReminders("bridge_2", cutoff, 10);
-    const limited = await repo.findDueReminders("bridge_1", cutoff, 2);
+    const bridge1 = await repo.findDueReminders(ActivationReminderKind.Bridge1, cutoff, 10);
+    const bridge2 = await repo.findDueReminders(ActivationReminderKind.Bridge2, cutoff, 10);
+    const limited = await repo.findDueReminders(ActivationReminderKind.Bridge1, cutoff, 2);
 
     assert.deepEqual(
       bridge1.map((candidate) => candidate.userId),
@@ -87,7 +87,7 @@ describe("ActivationStateRepository reminders", () => {
     const completed = await seed({ sessionReminderBaseAt: oldDate(), firstSessionAt: cutoff });
     const sent = await seed({ sessionReminderBaseAt: oldDate(), sessionReminderSentAt: cutoff });
 
-    const due = await repo.findDueReminders("session", cutoff, 10);
+    const due = await repo.findDueReminders(ActivationReminderKind.Session, cutoff, 10);
 
     assert.deepEqual(
       due.map((candidate) => candidate.userId),
@@ -99,7 +99,7 @@ describe("ActivationStateRepository reminders", () => {
   });
 
   it("rejects an invalid reminder batch limit", async () => {
-    await assert.rejects(() => repo.findDueReminders("bridge_1", new Date(), 0), {
+    await assert.rejects(() => repo.findDueReminders(ActivationReminderKind.Bridge1, new Date(), 0), {
       message: "internal_server_error",
     });
   });
@@ -110,12 +110,21 @@ describe("ActivationStateRepository reminders", () => {
     const laterSentAt = new Date("2026-07-15T12:02:00.000Z");
     const userId = await seed({ bridgeReminderBaseAt: oldDate() });
 
-    assert.equal(await repo.isReminderStillDue(userId, "bridge_1", cutoff), true);
-    assert.equal(await repo.markReminderSentIfStillDue(userId, "bridge_1", cutoff, firstSentAt), true);
-    assert.equal(await repo.markReminderSentIfStillDue(userId, "bridge_1", cutoff, laterSentAt), false);
-    assert.equal(await repo.isReminderStillDue(userId, "bridge_1", cutoff), false);
-    assert.equal(await repo.isReminderStillDue(userId, "bridge_2", cutoff), true);
-    assert.equal(await repo.markReminderSentIfStillDue(userId, "bridge_2", cutoff, laterSentAt), true);
+    assert.equal(await repo.isReminderStillDue(userId, ActivationReminderKind.Bridge1, cutoff), true);
+    assert.equal(
+      await repo.markReminderSentIfStillDue(userId, ActivationReminderKind.Bridge1, cutoff, firstSentAt),
+      true,
+    );
+    assert.equal(
+      await repo.markReminderSentIfStillDue(userId, ActivationReminderKind.Bridge1, cutoff, laterSentAt),
+      false,
+    );
+    assert.equal(await repo.isReminderStillDue(userId, ActivationReminderKind.Bridge1, cutoff), false);
+    assert.equal(await repo.isReminderStillDue(userId, ActivationReminderKind.Bridge2, cutoff), true);
+    assert.equal(
+      await repo.markReminderSentIfStillDue(userId, ActivationReminderKind.Bridge2, cutoff, laterSentAt),
+      true,
+    );
 
     const state = await repo.findByUserId(userId);
     assert.equal(state?.bridgeReminder1SentAt?.toISOString(), firstSentAt.toISOString());
@@ -128,10 +137,13 @@ describe("ActivationStateRepository reminders", () => {
     const userId = await seed({ sessionReminderBaseAt: oldDate() });
     await repo.recordMilestones(userId, { firstSessionAt: cutoff }, cutoff);
 
-    assert.equal(await repo.isReminderStillDue(userId, "session", cutoff), false);
-    assert.equal(await repo.markReminderSentIfStillDue(userId, "session", cutoff, cutoff), false);
-    assert.equal(await repo.isReminderStillDue("invalid-id", "session", cutoff), false);
-    assert.equal(await repo.markReminderSentIfStillDue("invalid-id", "session", cutoff, cutoff), false);
+    assert.equal(await repo.isReminderStillDue(userId, ActivationReminderKind.Session, cutoff), false);
+    assert.equal(await repo.markReminderSentIfStillDue(userId, ActivationReminderKind.Session, cutoff, cutoff), false);
+    assert.equal(await repo.isReminderStillDue("invalid-id", ActivationReminderKind.Session, cutoff), false);
+    assert.equal(
+      await repo.markReminderSentIfStillDue("invalid-id", ActivationReminderKind.Session, cutoff, cutoff),
+      false,
+    );
     assert.equal((await repo.findByUserId(userId))?.sessionReminderSentAt, null);
   });
 
@@ -140,11 +152,41 @@ describe("ActivationStateRepository reminders", () => {
     const userId = await seed({ sessionReminderBaseAt: oldDate() });
 
     const results = await Promise.all([
-      repo.markReminderSentIfStillDue(userId, "session", cutoff, new Date("2026-07-15T12:01:00.000Z")),
-      repo.markReminderSentIfStillDue(userId, "session", cutoff, new Date("2026-07-15T12:02:00.000Z")),
+      repo.markReminderSentIfStillDue(
+        userId,
+        ActivationReminderKind.Session,
+        cutoff,
+        new Date("2026-07-15T12:01:00.000Z"),
+      ),
+      repo.markReminderSentIfStillDue(
+        userId,
+        ActivationReminderKind.Session,
+        cutoff,
+        new Date("2026-07-15T12:02:00.000Z"),
+      ),
     ]);
 
     assert.deepEqual([...results].sort(), [false, true]);
+  });
+
+  it("treats a matched eligibility CAS as successful even if the update is a no-op", async (t) => {
+    t.mock.method(Collection.prototype, "updateOne", async () => ({
+      acknowledged: true,
+      matchedCount: 1,
+      modifiedCount: 0,
+      upsertedCount: 0,
+      upsertedId: null,
+    }));
+
+    assert.equal(
+      await repo.markReminderSentIfStillDue(
+        "000000000000000000000001",
+        ActivationReminderKind.Session,
+        new Date(),
+        new Date(),
+      ),
+      true,
+    );
   });
 
   function oldDate(): Date {

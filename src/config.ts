@@ -57,7 +57,7 @@ const configSchema = z.object({
   ACTIVATION_BRIDGE_REMINDER_1_DELAY_MS: z.coerce.number().int().positive().default(7_200_000),
   ACTIVATION_BRIDGE_REMINDER_2_DELAY_MS: z.coerce.number().int().positive().default(86_400_000),
   ACTIVATION_SESSION_REMINDER_DELAY_MS: z.coerce.number().int().positive().default(86_400_000),
-  ACTIVATION_SWEEP_BATCH_LIMIT: z.coerce.number().int().positive().default(500),
+  ACTIVATION_SWEEP_BATCH_LIMIT: z.coerce.number().int().positive().default(100),
   OPENAI_API_KEY: z.string().min(1, "OPENAI_API_KEY is required"),
   OPENAI_TRANSCRIPTION_MODEL: z.string().min(1).default("gpt-4o-mini-transcribe"),
   OPENAI_METADATA_MODEL: z.string().min(1).default("gpt-5-nano"),

@@ -1,5 +1,6 @@
-import { Collection, ObjectId } from "mongodb";
+import { Collection, ObjectId, type Filter } from "mongodb";
 import { MongoDbAccessor } from "../db/mongo-db-accessor.js";
+import { InternalServerError } from "../lib/errors.js";
 import type { User } from "../models/documents.js";
 import { MongoDbDatabase, AuthDbCollection } from "../types/mongo.js";
 
@@ -25,6 +26,31 @@ export class UserRepository {
 
     await this.#collection.insertOne(user);
     return user;
+  }
+
+  async findIdBatch(afterUserId: string | null, batchLimit: number, createdAtOrBefore: Date): Promise<string[]> {
+    if (!Number.isSafeInteger(batchLimit) || batchLimit < 1) {
+      throw new InternalServerError({ debugMessage: "Invalid user batch limit" });
+    }
+
+    if (afterUserId !== null && !ObjectId.isValid(afterUserId)) {
+      throw new InternalServerError({ debugMessage: "Invalid user pagination cursor" });
+    }
+
+    if (Number.isNaN(createdAtOrBefore.getTime())) {
+      throw new InternalServerError({ debugMessage: "Invalid user creation cutoff" });
+    }
+
+    const filter: Filter<User> = {
+      createdAt: { $lte: createdAtOrBefore },
+      ...(afterUserId === null ? {} : { _id: { $gt: new ObjectId(afterUserId) } }),
+    };
+    const users = await this.#collection
+      .find(filter, { projection: { _id: 1 } })
+      .sort({ _id: 1 })
+      .limit(batchLimit)
+      .toArray();
+    return users.map((user) => user._id.toHexString());
   }
 
   async incrementTokenVersion(userId: string): Promise<void> {

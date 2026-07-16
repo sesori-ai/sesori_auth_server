@@ -12,15 +12,15 @@ This file is the authoritative implementation tracker. A future session should r
 
 ## Current State
 
-- Branch: `activation-rate-plan`
-- Implementation checkpoint: PR3 complete; PR4 not started
+- Branch: `activation-reminder-backfill`
+- Implementation checkpoint: PR4 complete; delivery pending
 - PR1 delivery status: merged as PR #38
 - PR2 delivery status: merged as PR #40
-- PR3 intended post-merge status: merged
-- Live GitHub delivery state: do not infer it from this static file; verify with `gh pr list --head activation-rate-plan --state all`
-- Last updated: 2026-07-15
-- If PR3 is still open: review and merge PR3; do not start PR4 on top of an unmerged slice
-- If PR3 is merged: PR4 is next, but start it only when explicitly requested
+- PR3 delivery status: merged as PR #41 (`c0ec782`)
+- PR4 intended post-merge status: merged; verify live state rather than inferring it from this file
+- Live GitHub delivery state: verify with `gh pr list --head activation-reminder-backfill --state all`
+- Last updated: 2026-07-16
+- PR4 is the final planned implementation slice. Finish its commit, review, PR, and merge workflow before running the production backfill.
 
 ## Resume Instructions
 
@@ -88,7 +88,7 @@ Field invariants:
 
 - `bridgeReminderBaseAt` is set only after mobile setup is known.
 - `sessionReminderBaseAt` is set only after both mobile and bridge setup are known.
-- Milestone timestamps record the best known real event time and are set once.
+- Mobile and bridge timestamps are set once; `firstSessionAt` retains the earliest observed candidate when better evidence arrives.
 - Backfill timestamps remain separate from reminder baselines so analytics are not rewritten to make scheduling convenient.
 - Sent timestamps are independent so each reminder can be measured and suppressed separately.
 
@@ -123,7 +123,7 @@ The equality fields precede each due-time range field so the future sweep querie
 | `ACTIVATION_BRIDGE_REMINDER_1_DELAY_MS` | `7200000`  | Two-hour first bridge delay.                               |
 | `ACTIVATION_BRIDGE_REMINDER_2_DELAY_MS` | `86400000` | Twenty-four-hour second bridge delay.                      |
 | `ACTIVATION_SESSION_REMINDER_DELAY_MS`  | `86400000` | Twenty-four-hour session delay after both setups.          |
-| `ACTIVATION_SWEEP_BATCH_LIMIT`          | `500`      | Maximum records processed for one reminder kind per sweep. |
+| `ACTIVATION_SWEEP_BATCH_LIMIT`          | `100`      | Maximum records processed for one reminder kind per sweep. |
 
 ## PR Status
 
@@ -132,7 +132,7 @@ The equality fields precede each due-time range field so the future sweep querie
 | PR1 | Plans, collection, indexes, schema, repository, composition wiring, repository tests          | complete       | merged                     | Dormant; creates collection/indexes only. |
 | PR2 | Milestone capture, enrollment reconciliation, endpoint hooks, failure isolation               | complete       | merged                     | Records state only; sends nothing.        |
 | PR3 | Config, reminder queries/service, FCM sends, 15-minute scheduler, structured logs             | complete       | merged                     | Sending remains off by default.           |
-| PR4 | Idempotent dry-run-capable active backfill with controlled re-engagement baselines and jitter | not started    | pending                    | No effect until manually executed.        |
+| PR4 | Idempotent dry-run-capable active backfill with controlled re-engagement baselines and jitter | complete       | merged                     | No effect until manually executed.        |
 
 ## PR1 - Dormant Data Layer
 
@@ -242,7 +242,7 @@ Acceptance criteria:
 - [x] Expose FCM availability so failed Firebase initialization cannot become a completed zero-device send.
 - [x] Mark genuine zero-device sends complete while leaving thrown sends and all-transient token failures retryable.
 - [x] Send the approved copy through `NotificationService` under `system_update` with a distinct collapse key per kind.
-- [x] Start polling only when enabled, stop queued work during disposal, and await the current candidate before MongoDB closes.
+- [x] Start polling only when enabled, stop queued work during disposal, and wait up to 15 seconds for the current candidate before MongoDB closes.
 - [x] Emit structured, first-writer milestone logs and per-reminder/sweep outcome logs.
 - [x] Test inclusive cutoffs, independent markers, batch caps, stage races, conditional writes, send outcomes, retry behavior, single-flight behavior, and scheduler disposal.
 - [x] Prevent overdue users from receiving both bridge reminders in the same sweep.
@@ -277,22 +277,45 @@ PR3 exit condition:
 
 ## PR4 - Existing-User Backfill
 
-Status: pending
+Implementation: complete
 
-Planned work:
+Intended post-merge status: merged
 
-- Add an idempotent operator-run script and package command.
-- Require dry-run by default and an explicit apply flag for writes.
-- Iterate existing users in bounded batches.
-- Set `mobileSetupAt` from the earliest extant device token; users without a token are recorded but are not reminder-eligible.
-- Set `bridgeSetupAt` from the earliest historical bridge registration.
-- Set `firstSessionAt` from historical metadata usage when available.
-- Preserve real milestone timestamps for analytics.
-- For currently incomplete, push-reachable users, set only the relevant reminder baseline to backfill time plus deterministic jitter.
-- Do not schedule bridge reminders for users who already have a bridge.
-- Do not schedule session reminders unless both mobile and bridge setup are known.
-- Report proposed/applied counts by activation stage and reminder sequence.
-- Test dry-run safety, idempotency, reconciliation, and controlled baseline assignment.
+Acceptance criteria:
+
+- [x] Add an idempotent operator-run script and package command.
+- [x] Require dry-run by default and an explicit apply flag for writes.
+- [x] Iterate existing users in bounded keyset batches, with each command's cohort fixed at its start timestamp.
+- [x] Set `mobileSetupAt` from the earliest extant device token; record users without a current token without making them reminder-eligible.
+- [x] Set `bridgeSetupAt` from the earliest historical bridge registration, including revoked bridges.
+- [x] Set `firstSessionAt` from historical metadata usage when available without replacing precise organic timestamps.
+- [x] Preserve real milestone timestamps and sent markers for analytics and suppression.
+- [x] For currently incomplete, push-reachable users, atomically set only the current unsent reminder baseline to backfill time plus deterministic jitter.
+- [x] Re-evaluate the current stage in the atomic write so a milestone committed during reconciliation cannot strand the controlled baseline on a completed stage.
+- [x] Do not schedule bridge reminders for users who already have a bridge.
+- [x] Do not schedule session reminders unless both mobile and bridge setup are known.
+- [x] Report cumulative and final proposed/applied counts by activation stage and reminder sequence.
+- [x] Document dry-run review, apply, timing, interruption, rerun, and monitoring operations.
+- [x] Test dry-run safety, explicit apply gating, idempotency, reconciliation, fixed cohorts, stage races, tokenless users, and controlled baseline assignment.
+- [x] `npm run build` passes.
+- [x] `npm run lint` passes without warnings.
+- [x] `npm run format:check` passes.
+- [x] Focused PR4 and reminder-hardening tests pass.
+- [x] Full test suite passes.
+- [x] `npm run circular-dependencies` passes.
+- [x] `git diff --check origin/master` passes.
+
+PR4 verification results:
+
+- Focused backfill, repository, reminder, and notification suite: passed, 55 tests.
+- `npm run build`: passed.
+- `npm run lint`: passed with no warnings.
+- `npm run format:check`: passed.
+- `npm test`: passed, 393 tests passed, 1 skipped, 0 failed across 71 suites.
+- `npm run circular-dependencies`: passed; no circular dependencies found.
+- `npm run backfill-activation -- --help`: passed without requiring database configuration.
+- `git diff --check origin/master`: passed.
+- Independent pre-delivery reviews hardened atomic current-stage assignment, fixed run cohorts, tokenless-user behavior, CLI validation/lifecycle, partial progress reporting, and bounded shutdown writes.
 
 PR4 exit condition:
 
@@ -328,3 +351,4 @@ PR4 exit condition:
 - 2026-07-15: PR2 third automated review addressed. Required a full desired-index option match before cleanup and preserved earlier observed session timestamps when an initial read loses a race. All verification passed.
 - 2026-07-15: PR2 merged as #40. PR3 implementation completed and opened as #41: default-off configuration, indexed due queries, conditional markers, FCM delivery, a bounded single-flight scheduler, graceful disposal, and structured logs. Pre-delivery review hardened transient per-token retries, timer validation, shutdown cancellation, and concurrent milestone-log ownership. All verification passed. PR4 must wait for live merge verification.
 - 2026-07-15: PR3 review feedback addressed. Restored the plan's static intended-status semantics and staged overdue bridge reminders across separate sweeps so enabling a delayed scheduler cannot send both messages back-to-back.
+- 2026-07-16: PR3 merged as #41 (`c0ec782`). PR4 implementation completed on `activation-reminder-backfill`: dry-run-first operator tooling, fixed-cohort keyset batching, historical reconciliation, atomic controlled baselines, deterministic jitter, progress/final reporting, an operations runbook, and comprehensive tests. Post-merge PR3 feedback was also addressed with enums, CAS semantics, bounded disposal, token-safe logging, structured-log regressions, throughput defaults, and architecture documentation. All verification passed; PR4 delivery is pending.

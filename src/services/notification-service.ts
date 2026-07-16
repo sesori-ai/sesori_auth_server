@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Messaging, BaseMessage } from "firebase-admin/messaging";
 import type { DeviceTokenRepository } from "../repositories/device-token-repo.js";
 
@@ -34,12 +35,18 @@ export class NotificationService {
     return this.#messaging !== null;
   }
 
-  async sendToUser(userId: string, payload: NotificationPayload): Promise<NotificationDeliveryResult> {
+  async sendToUser(
+    userId: string,
+    payload: NotificationPayload,
+    abortSignal?: AbortSignal,
+  ): Promise<NotificationDeliveryResult> {
+    abortSignal?.throwIfAborted();
     if (!this.#messaging) {
       return { devicesNotified: 0, retryableFailures: 0 };
     }
 
     const tokens = await this.#deviceTokenRepo.findByUserId(userId);
+    abortSignal?.throwIfAborted();
     if (tokens.length === 0) {
       return { devicesNotified: 0, retryableFailures: 0 };
     }
@@ -69,6 +76,7 @@ export class NotificationService {
     }));
 
     const response = await this.#messaging.sendEach(messages);
+    abortSignal?.throwIfAborted();
 
     const staleTokens: string[] = [];
     let retryableFailures = 0;
@@ -84,11 +92,13 @@ export class NotificationService {
       }
 
       retryableFailures += 1;
-      console.warn("Non-token FCM error while sending push notification", { userId, token: tokens[i].token, code });
+      const tokenFingerprint = createHash("sha256").update(tokens[i].token).digest("hex").slice(0, 12);
+      console.warn("Non-token FCM error while sending push notification", { userId, tokenFingerprint, code });
     });
 
     if (staleTokens.length > 0) {
       await this.#deviceTokenRepo.deleteByTokens(staleTokens);
+      abortSignal?.throwIfAborted();
     }
 
     return { devicesNotified: response.successCount, retryableFailures };

@@ -15,7 +15,24 @@ export type ActivationMilestoneRecordResult = {
   recorded: ActivationMilestoneUpdate;
 };
 
-export type ActivationReminderKind = "bridge_1" | "bridge_2" | "session";
+export type ActivationBackfillInput = {
+  mobileSetupAt: Date | null;
+  bridgeSetupAt: Date | null;
+  firstSessionAt: Date | null;
+  reminderBaseAt: Date | null;
+  backfilledAt: Date;
+};
+
+export type ActivationBackfillApplyResult = {
+  state: ActivationState;
+  applied: boolean;
+};
+
+export enum ActivationReminderKind {
+  Bridge1 = "bridge_1",
+  Bridge2 = "bridge_2",
+  Session = "session",
+}
 
 export type DueActivationReminder = {
   userId: string;
@@ -24,20 +41,22 @@ export type DueActivationReminder = {
 
 function reminderEligibilityFilter(kind: ActivationReminderKind, cutoff: Date): Filter<ActivationState> {
   switch (kind) {
-    case "bridge_1":
+    case ActivationReminderKind.Bridge1:
       return {
         bridgeSetupAt: null,
         bridgeReminder1SentAt: null,
         bridgeReminderBaseAt: { $lte: cutoff },
       };
-    case "bridge_2":
+    case ActivationReminderKind.Bridge2:
       return {
         bridgeSetupAt: null,
+        // The existing bridge-2 index narrows stage, sent marker, and baseline;
+        // this sequence gate remains a FETCH residual at the current scale.
         bridgeReminder1SentAt: { $ne: null },
         bridgeReminder2SentAt: null,
         bridgeReminderBaseAt: { $lte: cutoff },
       };
-    case "session":
+    case ActivationReminderKind.Session:
       return {
         firstSessionAt: null,
         sessionReminderSentAt: null,
@@ -119,6 +138,7 @@ export class ActivationStateRepository {
     const sessionCandidate = update.firstSessionAt ?? null;
     const previous = await this.#collection.findOneAndUpdate(
       { userId: objectUserId },
+      // KEEP IN SYNC with the post-image reconstruction below.
       [
         {
           $set: {
@@ -173,9 +193,9 @@ export class ActivationStateRepository {
       throw new InternalServerError({ debugMessage: "Failed to record activation milestones" });
     }
 
-    // Reproduce the two update-pipeline stages against the atomically returned
-    // pre-image so callers receive the state written by this operation and can
-    // identify which first milestones this operation actually claimed.
+    // KEEP IN SYNC with the aggregation pipeline above. Reproduce its stages
+    // against the atomic pre-image so callers receive this operation's state
+    // and can identify which first milestones it actually claimed.
     const mobileSetupAt = previous.mobileSetupAt ?? mobileCandidate;
     const bridgeSetupAt = previous.bridgeSetupAt ?? bridgeCandidate;
     const firstSessionAt =
@@ -205,6 +225,73 @@ export class ActivationStateRepository {
     };
   }
 
+  async applyBackfill(userId: string, input: ActivationBackfillInput): Promise<ActivationBackfillApplyResult> {
+    await this.createIfAbsent(userId, input.backfilledAt);
+    const objectUserId = new ObjectId(userId);
+    const state = await this.#collection.findOneAndUpdate(
+      { userId: objectUserId, backfilledAt: null },
+      [
+        {
+          $set: {
+            mobileSetupAt: { $ifNull: ["$mobileSetupAt", input.mobileSetupAt] },
+            bridgeSetupAt: { $ifNull: ["$bridgeSetupAt", input.bridgeSetupAt] },
+            // Backfill evidence can be day-level approximate; never replace a
+            // precise organic milestone that is already present.
+            firstSessionAt: { $ifNull: ["$firstSessionAt", input.firstSessionAt] },
+          },
+        },
+        {
+          $set: {
+            bridgeReminderBaseAt: {
+              $cond: [
+                {
+                  $and: [
+                    { $ne: [input.reminderBaseAt, null] },
+                    { $ne: ["$mobileSetupAt", null] },
+                    { $eq: ["$bridgeSetupAt", null] },
+                    // Both bridge reminders share this baseline; reminder 2 is
+                    // still eligible after reminder 1 has been sent.
+                    { $eq: ["$bridgeReminder2SentAt", null] },
+                  ],
+                },
+                input.reminderBaseAt,
+                "$bridgeReminderBaseAt",
+              ],
+            },
+            sessionReminderBaseAt: {
+              $cond: [
+                {
+                  $and: [
+                    { $ne: [input.reminderBaseAt, null] },
+                    { $ne: ["$mobileSetupAt", null] },
+                    { $ne: ["$bridgeSetupAt", null] },
+                    { $eq: ["$firstSessionAt", null] },
+                    { $eq: ["$sessionReminderSentAt", null] },
+                  ],
+                },
+                input.reminderBaseAt,
+                "$sessionReminderBaseAt",
+              ],
+            },
+            backfilledAt: input.backfilledAt,
+            updatedAt: "$$NOW",
+          },
+        },
+      ],
+      { returnDocument: "after" },
+    );
+
+    if (state) {
+      return { state, applied: true };
+    }
+
+    const existing = await this.#collection.findOne({ userId: objectUserId });
+    if (!existing) {
+      throw new InternalServerError({ debugMessage: "Failed to apply activation backfill" });
+    }
+    return { state: existing, applied: false };
+  }
+
   async findDueReminders(
     kind: ActivationReminderKind,
     cutoff: Date,
@@ -214,7 +301,8 @@ export class ActivationStateRepository {
       throw new InternalServerError({ debugMessage: "Invalid activation reminder batch limit" });
     }
 
-    const sort: Sort = kind === "session" ? { sessionReminderBaseAt: 1 } : { bridgeReminderBaseAt: 1 };
+    const sort: Sort =
+      kind === ActivationReminderKind.Session ? { sessionReminderBaseAt: 1 } : { bridgeReminderBaseAt: 1 };
     const states = await this.#collection
       .find(reminderEligibilityFilter(kind, cutoff))
       .sort(sort)
@@ -222,7 +310,8 @@ export class ActivationStateRepository {
       .toArray();
 
     return states.map((state) => {
-      const baselineAt = kind === "session" ? state.sessionReminderBaseAt : state.bridgeReminderBaseAt;
+      const baselineAt =
+        kind === ActivationReminderKind.Session ? state.sessionReminderBaseAt : state.bridgeReminderBaseAt;
       if (!baselineAt) {
         throw new InternalServerError({ debugMessage: "Due activation reminder is missing its baseline" });
       }
@@ -252,12 +341,12 @@ export class ActivationStateRepository {
     }
     const filter = { ...reminderEligibilityFilter(kind, cutoff), userId: new ObjectId(userId) };
     const update =
-      kind === "bridge_1"
+      kind === ActivationReminderKind.Bridge1
         ? { $set: { bridgeReminder1SentAt: sentAt, updatedAt: sentAt } }
-        : kind === "bridge_2"
+        : kind === ActivationReminderKind.Bridge2
           ? { $set: { bridgeReminder2SentAt: sentAt, updatedAt: sentAt } }
           : { $set: { sessionReminderSentAt: sentAt, updatedAt: sentAt } };
     const result = await this.#collection.updateOne(filter, update);
-    return result.modifiedCount === 1;
+    return result.matchedCount === 1;
   }
 }
