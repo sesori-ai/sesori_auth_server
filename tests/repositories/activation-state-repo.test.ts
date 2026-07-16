@@ -96,8 +96,10 @@ describe("ActivationStateRepository", () => {
     const bridgeAt = new Date("2026-07-12T12:00:00.000Z");
 
     const mobileState = await repo.recordMilestones(user.userId, { mobileSetupAt: mobileAt }, mobileAt);
+    const persistedMobileState = await repo.findByUserId(user.userId);
     const completeSetupState = await repo.recordMilestones(user.userId, { bridgeSetupAt: bridgeAt }, bridgeAt);
 
+    assert.deepEqual(mobileState, persistedMobileState);
     assert.equal(mobileState.mobileSetupAt?.toISOString(), mobileAt.toISOString());
     assert.equal(mobileState.bridgeReminderBaseAt?.toISOString(), mobileAt.toISOString());
     assert.equal(mobileState.sessionReminderBaseAt, null);
@@ -174,6 +176,112 @@ describe("ActivationStateRepository", () => {
     const state = await repo.recordMilestones(user.userId, { firstSessionAt: earlierAt }, earlierAt);
 
     assert.equal(state.firstSessionAt?.toISOString(), earlierAt.toISOString());
+  });
+
+  it("applies controlled backfill fields once and preserves them on rerun", async () => {
+    const user = await ctx.createUser();
+    const oldBaseline = new Date("2026-07-01T10:00:00.000Z");
+    const mobileAt = new Date("2026-06-01T10:00:00.000Z");
+    const backfilledAt = new Date("2026-07-16T10:00:00.000Z");
+    const controlledBaseline = new Date("2026-07-16T12:00:00.000Z");
+    const preciseSessionAt = new Date("2026-06-05T10:00:00.000Z");
+    const approximateSessionAt = new Date("2026-06-04T00:00:00.000Z");
+    const collection = ctx.dbAccessor.getCollection<ActivationState>(
+      MongoDbDatabase.Auth,
+      AuthDbCollection.ActivationStates,
+    );
+    const dormant = await repo.createIfAbsent(user.userId, oldBaseline);
+    await collection.updateOne(
+      { _id: dormant._id },
+      { $set: { bridgeReminderBaseAt: oldBaseline, firstSessionAt: preciseSessionAt } },
+    );
+
+    const first = await repo.applyBackfill(user.userId, {
+      mobileSetupAt: mobileAt,
+      bridgeSetupAt: null,
+      firstSessionAt: approximateSessionAt,
+      reminderBaseAt: controlledBaseline,
+      backfilledAt,
+    });
+    const second = await repo.applyBackfill(user.userId, {
+      mobileSetupAt: new Date("2026-06-02T10:00:00.000Z"),
+      bridgeSetupAt: new Date("2026-06-03T10:00:00.000Z"),
+      firstSessionAt: null,
+      reminderBaseAt: new Date("2026-07-17T10:00:00.000Z"),
+      backfilledAt: new Date("2026-07-17T10:00:00.000Z"),
+    });
+
+    assert.equal(first.applied, true);
+    assert.equal(first.state.mobileSetupAt?.toISOString(), mobileAt.toISOString());
+    assert.equal(first.state.firstSessionAt?.toISOString(), preciseSessionAt.toISOString());
+    assert.equal(first.state.bridgeReminderBaseAt?.toISOString(), controlledBaseline.toISOString());
+    assert.equal(first.state.backfilledAt?.toISOString(), backfilledAt.toISOString());
+    assert.equal(second.applied, false);
+    assert.equal(second.state.bridgeSetupAt, null);
+    assert.equal(second.state.bridgeReminderBaseAt?.toISOString(), controlledBaseline.toISOString());
+    assert.equal(second.state.backfilledAt?.toISOString(), backfilledAt.toISOString());
+  });
+
+  it("does not schedule a stage completed or sent before the atomic backfill write", async () => {
+    const user = await ctx.createUser();
+    const at = new Date("2026-07-16T10:00:00.000Z");
+    const oldBridgeBaseline = new Date("2026-06-01T10:00:00.000Z");
+    const bridgeAt = new Date("2026-06-02T10:00:00.000Z");
+    const sessionSentAt = new Date("2026-06-03T10:00:00.000Z");
+    const collection = ctx.dbAccessor.getCollection<ActivationState>(
+      MongoDbDatabase.Auth,
+      AuthDbCollection.ActivationStates,
+    );
+    const dormant = await repo.createIfAbsent(user.userId, at);
+    await collection.updateOne(
+      { _id: dormant._id },
+      {
+        $set: {
+          bridgeSetupAt: bridgeAt,
+          bridgeReminderBaseAt: oldBridgeBaseline,
+          sessionReminderSentAt: sessionSentAt,
+        },
+      },
+    );
+
+    const result = await repo.applyBackfill(user.userId, {
+      mobileSetupAt: at,
+      bridgeSetupAt: null,
+      firstSessionAt: null,
+      reminderBaseAt: at,
+      backfilledAt: at,
+    });
+
+    assert.equal(result.applied, true);
+    assert.equal(result.state.bridgeReminderBaseAt?.toISOString(), oldBridgeBaseline.toISOString());
+    assert.equal(result.state.sessionReminderBaseAt, null);
+    assert.equal(result.state.sessionReminderSentAt?.toISOString(), sessionSentAt.toISOString());
+  });
+
+  it("assigns the controlled baseline to the current stage after an organic milestone race", async () => {
+    const user = await ctx.createUser();
+    const mobileAt = new Date("2026-06-01T10:00:00.000Z");
+    const bridgeAt = new Date("2026-06-02T10:00:00.000Z");
+    const oldBridgeBaseline = new Date("2026-06-01T10:00:00.000Z");
+    const controlledBaseline = new Date("2026-07-16T12:00:00.000Z");
+    const backfilledAt = new Date("2026-07-16T10:00:00.000Z");
+    await repo.recordMilestones(user.userId, { mobileSetupAt: mobileAt }, mobileAt);
+    await repo.recordMilestones(user.userId, { bridgeSetupAt: bridgeAt }, bridgeAt);
+    const beforeApply = new Date();
+
+    const result = await repo.applyBackfill(user.userId, {
+      mobileSetupAt: mobileAt,
+      bridgeSetupAt: null,
+      firstSessionAt: null,
+      reminderBaseAt: controlledBaseline,
+      backfilledAt,
+    });
+
+    assert.equal(result.applied, true);
+    assert.equal(result.state.bridgeReminderBaseAt?.toISOString(), oldBridgeBaseline.toISOString());
+    assert.equal(result.state.sessionReminderBaseAt?.toISOString(), controlledBaseline.toISOString());
+    assert.equal(result.state.backfilledAt?.toISOString(), backfilledAt.toISOString());
+    assert.ok(result.state.updatedAt.getTime() >= beforeApply.getTime());
   });
 
   it("creates the indexes needed by future reminder sweeps", async () => {

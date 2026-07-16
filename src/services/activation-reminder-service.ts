@@ -1,28 +1,34 @@
-import type {
+import {
   ActivationReminderKind,
-  ActivationStateRepository,
-  DueActivationReminder,
+  type ActivationStateRepository,
+  type DueActivationReminder,
 } from "../repositories/activation-state-repo.js";
 import type { NotificationPayload, NotificationService } from "./notification-service.js";
 
+export const ACTIVATION_REMINDER_DISPOSE_TIMEOUT_MS = 15_000;
+
 // Evaluate the follow-up before the first bridge reminder so a marker written
 // later in this sweep cannot make both messages send back-to-back.
-const REMINDER_KINDS = ["bridge_2", "bridge_1", "session"] as const satisfies readonly ActivationReminderKind[];
+const REMINDER_KINDS = [
+  ActivationReminderKind.Bridge2,
+  ActivationReminderKind.Bridge1,
+  ActivationReminderKind.Session,
+] as const;
 
 const REMINDER_PAYLOADS: Record<ActivationReminderKind, NotificationPayload> = {
-  bridge_1: {
+  [ActivationReminderKind.Bridge1]: {
     category: "system_update",
     title: "Finish setting up Sesori",
     body: "Install the Sesori bridge on your computer to start using Sesori from your phone.",
     collapseKey: "activation_bridge_1",
   },
-  bridge_2: {
+  [ActivationReminderKind.Bridge2]: {
     category: "system_update",
     title: "Your Sesori setup is unfinished",
     body: "You haven't connected your computer yet. Install the Sesori bridge to unlock Sesori.",
     collapseKey: "activation_bridge_2",
   },
-  session: {
+  [ActivationReminderKind.Session]: {
     category: "system_update",
     title: "Start your first session",
     body: "You're all set up! You haven't started a new session yet - create one to put Sesori to work.",
@@ -47,8 +53,14 @@ export type ActivationReminderCounters = {
   failed: number;
 };
 
+export enum ActivationSweepStatus {
+  Disabled = "disabled",
+  Unavailable = "unavailable",
+  Completed = "completed",
+}
+
 export type ActivationReminderSweepResult = {
-  status: "disabled" | "unavailable" | "completed";
+  status: ActivationSweepStatus;
   reminders: Record<ActivationReminderKind, ActivationReminderCounters>;
 };
 
@@ -56,13 +68,13 @@ function emptyCounters(): ActivationReminderCounters {
   return { due: 0, sent: 0, noDevices: 0, skipped: 0, failed: 0 };
 }
 
-function emptyResult(status: ActivationReminderSweepResult["status"]): ActivationReminderSweepResult {
+function emptyResult(status: ActivationSweepStatus): ActivationReminderSweepResult {
   return {
     status,
     reminders: {
-      bridge_1: emptyCounters(),
-      bridge_2: emptyCounters(),
-      session: emptyCounters(),
+      [ActivationReminderKind.Bridge1]: emptyCounters(),
+      [ActivationReminderKind.Bridge2]: emptyCounters(),
+      [ActivationReminderKind.Session]: emptyCounters(),
     },
   };
 }
@@ -71,9 +83,11 @@ export class ActivationReminderService {
   readonly #activationStateRepo: ActivationStateRepository;
   readonly #notificationService: NotificationService;
   readonly #options: ActivationReminderServiceOptions;
+  readonly #disposalAbortController = new AbortController();
   #timer: ReturnType<typeof setInterval> | null = null;
   #inFlight: Promise<ActivationReminderSweepResult> | null = null;
   #disposed = false;
+  #disposeTimedOut = false;
 
   constructor(deps: {
     activationStateRepo: ActivationStateRepository;
@@ -101,12 +115,14 @@ export class ActivationReminderService {
 
   sweepOnce(now = new Date()): Promise<ActivationReminderSweepResult> {
     if (!this.#options.enabled || this.#disposed) {
-      return Promise.resolve(emptyResult("disabled"));
+      return Promise.resolve(emptyResult(ActivationSweepStatus.Disabled));
     }
+
     if (!this.#notificationService.isAvailable) {
       console.warn("[ActivationReminderService] FCM unavailable, reminder sweep skipped", { at: now });
-      return Promise.resolve(emptyResult("unavailable"));
+      return Promise.resolve(emptyResult(ActivationSweepStatus.Unavailable));
     }
+
     if (this.#inFlight) {
       return this.#inFlight;
     }
@@ -115,10 +131,14 @@ export class ActivationReminderService {
     this.#inFlight = sweep;
     void sweep.then(
       () => {
-        if (this.#inFlight === sweep) this.#inFlight = null;
+        if (this.#inFlight === sweep) {
+          this.#inFlight = null;
+        }
       },
       () => {
-        if (this.#inFlight === sweep) this.#inFlight = null;
+        if (this.#inFlight === sweep) {
+          this.#inFlight = null;
+        }
       },
     );
     return sweep;
@@ -130,13 +150,42 @@ export class ActivationReminderService {
       clearInterval(this.#timer);
       this.#timer = null;
     }
-    await this.#inFlight;
+
+    const inFlight = this.#inFlight;
+    if (!inFlight) {
+      return;
+    }
+
+    let timedOut = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    const timeoutPromise = new Promise<void>((resolve) => {
+      timeout = setTimeout(() => {
+        timedOut = true;
+        this.#disposeTimedOut = true;
+        this.#disposalAbortController.abort();
+        resolve();
+      }, ACTIVATION_REMINDER_DISPOSE_TIMEOUT_MS);
+      timeout.unref?.();
+    });
+    await Promise.race([inFlight.then(() => undefined), timeoutPromise]);
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+
+    if (timedOut) {
+      console.warn("[ActivationReminderService] Disposal timed out with reminder delivery still in flight", {
+        timeoutMs: ACTIVATION_REMINDER_DISPOSE_TIMEOUT_MS,
+      });
+    }
   }
 
   async #runSweep(now: Date): Promise<ActivationReminderSweepResult> {
-    const result = emptyResult("completed");
+    const result = emptyResult(ActivationSweepStatus.Completed);
     for (const kind of REMINDER_KINDS) {
-      if (this.#disposed) break;
+      if (this.#disposed) {
+        break;
+      }
+
       try {
         result.reminders[kind] = await this.#processKind(kind, now);
       } catch (error) {
@@ -155,7 +204,10 @@ export class ActivationReminderService {
     counters.due = due.length;
 
     for (const reminder of due) {
-      if (this.#disposed) break;
+      if (this.#disposed) {
+        break;
+      }
+
       await this.#processReminder(kind, reminder, cutoff, counters);
     }
     return counters;
@@ -174,12 +226,24 @@ export class ActivationReminderService {
         return;
       }
 
-      if (this.#disposed) return;
+      if (this.#disposed) {
+        return;
+      }
 
       const { devicesNotified, retryableFailures } = await this.#notificationService.sendToUser(
         reminder.userId,
         REMINDER_PAYLOADS[kind],
+        this.#disposalAbortController.signal,
       );
+      if (this.#disposeTimedOut) {
+        counters.failed += 1;
+        return;
+      }
+
+      // Resolved delivery outcomes:
+      // - zero success + zero retryable failures: complete (no tokens or only stale tokens)
+      // - at least one success: complete, even if another token failed transiently
+      // - zero success + retryable failures: keep eligible for the next sweep
       if (devicesNotified === 0 && retryableFailures > 0) {
         counters.failed += 1;
         console.warn("[ActivationReminderService] Reminder delivery unresolved", {
@@ -202,7 +266,10 @@ export class ActivationReminderService {
       }
 
       counters.sent += 1;
-      if (devicesNotified === 0) counters.noDevices += 1;
+      if (devicesNotified === 0) {
+        counters.noDevices += 1;
+      }
+
       console.log("[ActivationReminderService] Reminder sent", {
         kind,
         userId: reminder.userId,
@@ -223,11 +290,11 @@ export class ActivationReminderService {
 
   #delayFor(kind: ActivationReminderKind): number {
     switch (kind) {
-      case "bridge_1":
+      case ActivationReminderKind.Bridge1:
         return this.#options.bridgeReminder1DelayMs;
-      case "bridge_2":
+      case ActivationReminderKind.Bridge2:
         return this.#options.bridgeReminder2DelayMs;
-      case "session":
+      case ActivationReminderKind.Session:
         return this.#options.sessionReminderDelayMs;
     }
   }

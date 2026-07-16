@@ -125,6 +125,34 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 | `PENDING_AUTH_POLL_TIMEOUT_MS` | Max long-poll duration on `/auth/session/status`. Default `30000`.                                                                                                                          |
 | `RELAY_WEBHOOK_SECRET`         | Shared secret authenticating the relay on `/internal/*` endpoints.                                                                                                                          |
 | `AUTH_REQUIRE_BRIDGE_ID_IN_STATUS` | Transition gate for per-bridge tracking: when `true`, `/internal/bridge-status` rejects payloads without `bridgeId` (400). Default `false`. Flip together with the relay's `RELAY_REQUIRE_BRIDGE_ID` once the bridge fleet has rolled over. |
+| `ACTIVATION_REMINDERS_ENABLED` | Master switch for activation reminder polling. Default `false`. Enable on only one server instance until distributed leasing exists.                                                         |
+| `ACTIVATION_SWEEP_INTERVAL_MS` | Reminder polling interval in milliseconds. Default `900000` (15 minutes).                                                                                                                    |
+| `ACTIVATION_BRIDGE_REMINDER_1_DELAY_MS` | Delay from the bridge reminder baseline to the first bridge reminder. Default `7200000` (2 hours).                                                                                           |
+| `ACTIVATION_BRIDGE_REMINDER_2_DELAY_MS` | Delay from the bridge reminder baseline to the second bridge reminder. Default `86400000` (24 hours).                                                                                        |
+| `ACTIVATION_SESSION_REMINDER_DELAY_MS` | Delay from the session reminder baseline to the first-session reminder. Default `86400000` (24 hours).                                                                                       |
+| `ACTIVATION_SWEEP_BATCH_LIMIT` | Maximum candidates queried per reminder kind per sweep. Default `100`; delivery is sequential, so raise only after measuring FCM latency.                                                    |
+
+Activation reminder timers and single-flight state are process-local. Keep `ACTIVATION_REMINDERS_ENABLED=false` on every instance except the single designated sender; multiple enabled instances can duplicate notifications.
+
+## Activation backfill
+
+Deploy the activation-state schema and indexes before running the existing-user backfill. The command requires `MONGODB_URI`, defaults to dry-run, and does not create indexes or write documents unless `--apply` is present.
+
+```bash
+# Preview with the production encrypted environment.
+sops exec-env env/app/prod.env \
+  'npm run backfill-activation -- --batch-limit 500 --jitter-window-ms 86400000'
+
+# Persist after reviewing the preview report.
+sops exec-env env/app/prod.env \
+  'npm run backfill-activation -- --apply --batch-limit 500 --jitter-window-ms 86400000'
+```
+
+Before applying, require `usersFailed: 0` and review `byStage` and `byReminder` against the expected cohort. A reminder baseline is the command start time plus deterministic per-user jitter; the configured reminder delay is added afterward. With the default jitter, bridge reminder 1 is due roughly 2-26 hours after the command, while bridge reminder 2 and the session reminder are due roughly 24-48 hours afterward.
+
+The command fixes its cohort at startup, so accounts created while it runs continue through organic enrollment. It logs cumulative counters after every batch and exits nonzero on fatal or per-user failures. Apply is idempotent: each successful user is atomically stamped with `backfilledAt`, and a rerun skips that user while retrying unstamped failures. If the command is interrupted, rerun it with `--apply`; do not edit activation records manually. Proposed and applied stage counts can differ when an organic milestone lands during the run because the atomic write assigns the baseline to the stage current at write time.
+
+The backfill itself sends no notifications. Delivery still requires the default-off activation reminder scheduler to be enabled on exactly one server instance; monitor `[ActivationBackfill]` and `[ActivationReminderService]` logs during rollout.
 
 ## npm scripts
 
@@ -140,6 +168,7 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 | `npm run env:decrypt`     | Decrypt `env/app/local.env` → `.env`                      |
 | `npm run env:edit`        | Edit encrypted env in `$EDITOR`                           |
 | `npm run env:update-keys` | Re-encrypt all env files after adding a team member's key |
+| `npm run backfill-activation` | Preview activation backfill; pass `-- --apply` to persist |
 
 ## Project structure
 

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { describe, it } from "node:test";
 import type { Messaging } from "firebase-admin/messaging";
 import type { DeviceTokenRepository } from "../../src/repositories/device-token-repo.js";
@@ -180,6 +181,35 @@ describe("NotificationService", () => {
     assert.deepEqual(tokenRepo.getStoredTokens(), []);
   });
 
+  it("does not start stale-token cleanup after delivery is aborted", async () => {
+    const tokenRepo = createMockDeviceTokenRepo([{ userId: "user-1", token: "token-stale", platform: "ios" }]);
+    const abortController = new AbortController();
+    const messaging = {
+      sendEach: async () => {
+        abortController.abort();
+        return {
+          successCount: 0,
+          failureCount: 1,
+          responses: [
+            {
+              success: false,
+              error: { code: "messaging/registration-token-not-registered" },
+            },
+          ],
+        };
+      },
+    } as unknown as Messaging;
+    const service = new NotificationService(tokenRepo.repo, messaging);
+
+    await assert.rejects(() => service.sendToUser("user-1", payload, abortController.signal), {
+      name: "AbortError",
+    });
+    assert.deepEqual(
+      tokenRepo.getStoredTokens().map((token) => token.token),
+      ["token-stale"],
+    );
+  });
+
   it("logs non-token Firebase errors and keeps the token", async () => {
     const tokenRepo = createMockDeviceTokenRepo([
       { userId: "user-1", token: "token-live", platform: "ios" },
@@ -205,6 +235,12 @@ describe("NotificationService", () => {
     }
 
     assert.equal(warns.length, 1);
+    assert.deepEqual(warns[0]?.[1], {
+      userId: "user-1",
+      tokenFingerprint: createHash("sha256").update("token-keep").digest("hex").slice(0, 12),
+      code: "messaging/internal-error",
+    });
+    assert.equal(JSON.stringify(warns).includes("token-keep"), false);
     assert.deepEqual(
       tokenRepo.getStoredTokens().map((t) => t.token),
       ["token-live", "token-keep"],

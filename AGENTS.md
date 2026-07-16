@@ -61,6 +61,8 @@ src/
 - **Config**: All env vars validated by Zod schema at startup (`src/config.ts`)
 - **Secrets**: SOPS + age encryption for env files (`env/app/*.env`). NEVER commit plaintext `.env` or `*.pem`
 - **Types**: Shared types in `src/types/`. DB-specific config types stay in `src/db/`.
+- **Enums**: Use string-valued enums for domain discriminators that are compared or switched on. Do not scatter raw string literals through string-literal unions.
+- **Control flow**: Always use braces for `if`, loops, and other control-flow bodies. Separate adjacent guard blocks with a blank line.
 
 ## SCALING CONSTRAINTS
 
@@ -75,7 +77,7 @@ The activation-reminder feature is intentionally split into independently deploy
 
 `activationStates` stores one document per user. Milestones are real event timestamps, reminder baselines are campaign scheduling timestamps that may diverge during backfill, and sent markers independently suppress each reminder. Do not conflate these categories. `ActivationService` records milestones from device-token registration, bridge registration, and accepted metadata requests; these secondary writes are failure-isolated from the existing endpoint response. Logout/revoke does not erase lifetime activation history.
 
-`ActivationReminderService` is disabled by default. Its delivery order is due query, immediate eligibility recheck, FCM send, then conditional sent-marker write. Genuine zero-device results are marked complete; FCM-unavailable, thrown sends, and zero-success results with retryable token failures remain eligible. Disposal stops queued candidates, awaits the current candidate through its marker write, and must complete before MongoDB closes. Later backfill behavior must follow the staged acceptance criteria in the plan.
+`ActivationReminderService` is disabled by default. Its delivery order is due query, immediate eligibility recheck, FCM send, then conditional sent-marker write. Genuine zero-device results are marked complete; FCM-unavailable, thrown sends, and zero-success results with retryable token failures remain eligible. Disposal stops queued candidates and waits up to 15 seconds for the current candidate through its marker write before MongoDB closes; a late FCM result cannot start stale-token cleanup or a marker after that timeout. Later backfill behavior must follow the staged acceptance criteria in the plan.
 
 ## BRIDGE SUBSYSTEM
 
