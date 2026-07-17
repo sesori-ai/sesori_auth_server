@@ -44,6 +44,14 @@ export class DeviceTokenRepository {
     return this.#collection.find({ userId: new ObjectId(userId) }).toArray();
   }
 
+  async hasAnyForUser(userId: string): Promise<boolean> {
+    if (!ObjectId.isValid(userId)) {
+      throw new InternalServerError({ debugMessage: "Invalid device token userId" });
+    }
+
+    return (await this.#collection.findOne({ userId: new ObjectId(userId) }, { projection: { _id: 1 } })) !== null;
+  }
+
   async findEarliestCreatedAt(userId: string): Promise<Date | null> {
     if (!ObjectId.isValid(userId)) {
       return null;

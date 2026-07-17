@@ -14,6 +14,7 @@ import type { BridgeService } from "../services/bridge-service.js";
 import type { BridgeStateTracker } from "../services/bridge-state-tracker.js";
 import type { NotificationService } from "../services/notification-service.js";
 import type { ActivationService } from "../services/activation-service.js";
+import type { AppClientPresenceService } from "../services/app-client-presence-service.js";
 import type { Config } from "../config.js";
 
 // Allow up to 5 minutes of NTP clock skew between the relay and this server
@@ -27,6 +28,7 @@ function isTooFarInFuture(at: Date, now: Date = new Date()): boolean {
 export type NotificationRouteOptions = {
   config: Config;
   deviceTokenRepo: DeviceTokenRepository;
+  appClientPresenceService: AppClientPresenceService;
   notificationService: NotificationService;
   bridgeService: BridgeService;
   bridgeStateTracker: BridgeStateTracker;
@@ -44,6 +46,7 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
   const {
     config,
     deviceTokenRepo,
+    appClientPresenceService,
     notificationService,
     bridgeService,
     bridgeStateTracker,
@@ -62,7 +65,11 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
       }
 
       const userId = getUserId(request);
-      await deviceTokenRepo.upsertToken(userId, bodyResult.data.token, bodyResult.data.platform);
+      await appClientPresenceService.registerToken({
+        userId,
+        token: bodyResult.data.token,
+        platform: bodyResult.data.platform,
+      });
       try {
         await activationService.recordAppSetup(userId);
       } catch (error) {

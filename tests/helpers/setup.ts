@@ -34,6 +34,7 @@ import { InstallScriptService } from "../../src/services/install-script-service.
 import { LegalDocumentService } from "../../src/services/legal-document-service.js";
 import { TokenService } from "../../src/services/token-service.js";
 import { VoiceService } from "../../src/services/voice-service.js";
+import { AppClientPresenceService } from "../../src/services/app-client-presence-service.js";
 import { loadConfig } from "../../src/config.js";
 
 export type TestUser = {
@@ -54,6 +55,7 @@ export type TestContext = {
   dbAccessor: MongoDbAccessor;
   tokenService: TokenService;
   pendingAuthStore: PendingAuthStore;
+  appClientPresenceService: AppClientPresenceService;
   cleanup: () => Promise<void>;
   createUser: (opts?: { provider?: string; providerUserId?: string }) => Promise<TestUser>;
   createExpiredRefreshToken: (userId: string) => string;
@@ -73,6 +75,7 @@ export type TestAppOverrides = {
   installScriptService?: InstallScriptService;
   legalDocumentService?: LegalDocumentService;
   activationService?: ActivationService;
+  appClientPresenceService?: AppClientPresenceService;
 };
 
 export type { OAuthClient };
@@ -176,6 +179,8 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   const activationService =
     overrides?.activationService ??
     new ActivationService({ activationStateRepo, bridgeRepo, dailyUsageRepo, deviceTokenRepo });
+  const appClientPresenceService =
+    overrides?.appClientPresenceService ?? new AppClientPresenceService({ deviceTokenRepo });
   const authService = new AuthService({ tokenService, userRepo, oauthAccountRepo, passwordAccountRepo, bridgeService });
   const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
   const sessionMetadataService =
@@ -194,6 +199,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     installScriptService,
     legalDocumentService,
     deviceTokenRepo,
+    appClientPresenceService,
     notificationService,
     bridgeStateTracker,
     activationService,
@@ -298,6 +304,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     dbAccessor,
     tokenService,
     pendingAuthStore,
+    appClientPresenceService,
     cleanup,
     createUser,
     createExpiredRefreshToken,

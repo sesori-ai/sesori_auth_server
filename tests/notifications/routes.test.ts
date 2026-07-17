@@ -216,6 +216,9 @@ describe("Notification routes", () => {
     const user = await ctx.createUser();
     const token = "token/with:special?chars";
     await deviceTokenRepo.upsertToken(user.userId, token, DevicePlatform.android);
+    const registerMock = mock.method(ctx.appClientPresenceService, "registerToken", async () => {
+      throw new Error("deletion must not delegate through presence service");
+    });
 
     const res = await ctx.app.inject({
       method: "DELETE",
@@ -227,6 +230,7 @@ describe("Notification routes", () => {
 
     assert.equal(res.statusCode, 200);
     assert.deepEqual(res.json(), { ok: true });
+    assert.equal(registerMock.mock.callCount(), 0);
     const tokens = await deviceTokenRepo.findByUserId(user.userId);
     assert.equal(tokens.length, 0);
   });

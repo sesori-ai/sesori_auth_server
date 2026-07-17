@@ -27,6 +27,7 @@
 
 import { FastifyPluginAsync, type FastifyReply, type FastifyRequest } from "fastify";
 import { NotFoundError } from "../../lib/errors.js";
+import { createRequestCloseSignal } from "../../lib/request-close-signal.js";
 import type {
   AuthSessionStatusCompleteReply,
   AuthSessionStatusDeniedReply,
@@ -154,39 +155,6 @@ async function waitForTerminalOrTimeout(params: {
   }
 
   return session;
-}
-
-function createRequestCloseSignal(params: { request: FastifyRequest; reply: FastifyReply }): AbortSignal {
-  const controller = new AbortController();
-
-  // If the connection is already gone, abort immediately without registering
-  // listeners that will never fire.
-  if (params.request.raw.destroyed || params.request.socket.destroyed || params.reply.raw.writableEnded) {
-    controller.abort();
-    return controller.signal;
-  }
-
-  const abortIfUndelivered = () => {
-    if (!params.reply.raw.writableEnded) {
-      controller.abort();
-    }
-  };
-  const removeAbortListener = () => {
-    params.request.socket.off("close", abortIfUndelivered);
-    params.reply.raw.off("close", abortIfUndelivered);
-    params.reply.raw.off("finish", removeAbortListener);
-    params.reply.raw.off("close", removeAbortListener);
-  };
-
-  // Use the underlying socket close and response close events rather than
-  // request.raw 'close', which can also fire when the request stream ends on a
-  // healthy keep-alive connection.
-  params.request.socket.once("close", abortIfUndelivered);
-  params.reply.raw.once("close", abortIfUndelivered);
-  params.reply.raw.once("finish", removeAbortListener);
-  params.reply.raw.once("close", removeAbortListener);
-
-  return controller.signal;
 }
 
 function isClientConnectionOpen(params: { request: FastifyRequest; reply: FastifyReply }): boolean {
