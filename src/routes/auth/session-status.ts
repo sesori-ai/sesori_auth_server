@@ -25,9 +25,9 @@
  * reset their flow.
  */
 
-import { FastifyPluginAsync, type FastifyReply, type FastifyRequest } from "fastify";
+import { FastifyPluginAsync } from "fastify";
 import { NotFoundError } from "../../lib/errors.js";
-import { createRequestCloseSignal } from "../../lib/request-close-signal.js";
+import { createRequestCloseSignal, isClientConnectionOpen } from "../../lib/request-close-signal.js";
 import type {
   AuthSessionStatusCompleteReply,
   AuthSessionStatusDeniedReply,
@@ -155,10 +155,6 @@ async function waitForTerminalOrTimeout(params: {
   }
 
   return session;
-}
-
-function isClientConnectionOpen(params: { request: FastifyRequest; reply: FastifyReply }): boolean {
-  return !params.request.raw.destroyed && !params.request.socket.destroyed && !params.reply.raw.writableEnded;
 }
 
 function createPendingReply(): AuthSessionStatusPendingReply {

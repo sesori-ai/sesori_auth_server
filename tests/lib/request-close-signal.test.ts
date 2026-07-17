@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { EventEmitter, getEventListeners } from "node:events";
 import { describe, it } from "node:test";
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { createRequestCloseSignal } from "../../src/lib/request-close-signal.js";
+import { createRequestCloseSignal, isClientConnectionOpen } from "../../src/lib/request-close-signal.js";
 
 describe("createRequestCloseSignal", () => {
   it("aborts on an undelivered socket close and removes every listener", () => {
@@ -35,17 +35,38 @@ describe("createRequestCloseSignal", () => {
     assert.equal(signal.aborted, true);
     assertNoListeners(fixture);
   });
+
+  it("returns an already-aborted signal when the response was destroyed before listener registration", () => {
+    const fixture = createFixture();
+    fixture.replyRaw.destroyed = true;
+
+    const signal = createRequestCloseSignal(fixture.params);
+
+    assert.equal(signal.aborted, true);
+    assertNoListeners(fixture);
+  });
+
+  it("reports connection liveness consistently for destroyed and completed responses", () => {
+    const fixture = createFixture();
+    assert.equal(isClientConnectionOpen(fixture.params), true);
+
+    fixture.replyRaw.destroyed = true;
+    assert.equal(isClientConnectionOpen(fixture.params), false);
+    fixture.replyRaw.destroyed = false;
+    fixture.replyRaw.writableEnded = true;
+    assert.equal(isClientConnectionOpen(fixture.params), false);
+  });
 });
 
 function createFixture(): {
   params: { request: FastifyRequest; reply: FastifyReply };
   socket: EventEmitter & { destroyed: boolean };
   requestRaw: { destroyed: boolean };
-  replyRaw: EventEmitter & { writableEnded: boolean };
+  replyRaw: EventEmitter & { writableEnded: boolean; destroyed: boolean };
 } {
   const socket = Object.assign(new EventEmitter(), { destroyed: false });
   const requestRaw = { destroyed: false };
-  const replyRaw = Object.assign(new EventEmitter(), { writableEnded: false });
+  const replyRaw = Object.assign(new EventEmitter(), { writableEnded: false, destroyed: false });
   return {
     params: {
       request: { raw: requestRaw, socket } as unknown as FastifyRequest,

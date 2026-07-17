@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { BadRequestError, InternalServerError, UnauthenticatedError } from "../lib/errors.js";
-import { createRequestCloseSignal } from "../lib/request-close-signal.js";
+import { createRequestCloseSignal, isClientConnectionOpen } from "../lib/request-close-signal.js";
 import {
   appClientStatusQuerySchema,
   appClientStatusReplySchema,
@@ -72,8 +72,4 @@ function getUserId(request: FastifyRequest): string {
     throw new UnauthenticatedError();
   }
   return request.user.userId;
-}
-
-function isClientConnectionOpen(params: { request: FastifyRequest; reply: FastifyReply }): boolean {
-  return !params.request.raw.destroyed && !params.request.socket.destroyed && !params.reply.raw.writableEnded;
 }

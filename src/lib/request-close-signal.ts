@@ -3,7 +3,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 export function createRequestCloseSignal(params: { request: FastifyRequest; reply: FastifyReply }): AbortSignal {
   const controller = new AbortController();
 
-  if (params.request.raw.destroyed || params.request.socket.destroyed || params.reply.raw.writableEnded) {
+  if (!isClientConnectionOpen(params)) {
     controller.abort();
     return controller.signal;
   }
@@ -29,4 +29,13 @@ export function createRequestCloseSignal(params: { request: FastifyRequest; repl
   params.reply.raw.once("close", removeListeners);
 
   return controller.signal;
+}
+
+export function isClientConnectionOpen(params: { request: FastifyRequest; reply: FastifyReply }): boolean {
+  return (
+    !params.request.raw.destroyed &&
+    !params.request.socket.destroyed &&
+    !params.reply.raw.destroyed &&
+    !params.reply.raw.writableEnded
+  );
 }
