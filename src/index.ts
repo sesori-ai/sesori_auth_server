@@ -32,6 +32,7 @@ import { PendingAuthStore } from "./services/pending-auth-store.js";
 import { SessionMetadataService } from "./services/session-metadata-service.js";
 import { TokenService } from "./services/token-service.js";
 import { VoiceService } from "./services/voice-service.js";
+import { AppClientPresenceService } from "./services/app-client-presence-service.js";
 
 async function main() {
   const config = loadConfig();
@@ -99,6 +100,7 @@ async function main() {
     dailyUsageRepo,
     deviceTokenRepo,
   });
+  const appClientPresenceService = new AppClientPresenceService({ deviceTokenRepo });
   const activationReminderService = new ActivationReminderService({
     activationStateRepo,
     notificationService,
@@ -159,6 +161,7 @@ async function main() {
     installScriptService,
     legalDocumentService,
     deviceTokenRepo,
+    appClientPresenceService,
     notificationService,
     bridgeStateTracker,
     activationService,

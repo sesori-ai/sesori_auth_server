@@ -169,6 +169,19 @@ describe("DeviceTokenRepository", () => {
     assert.deepEqual(new Set(tokens.map((token) => token.token)), new Set(["token-list-1", "token-list-2"]));
   });
 
+  it("hasAnyForUser uses current tokens across every supported platform", async () => {
+    const emptyUser = await ctx.createUser();
+    assert.equal(await repo.hasAnyForUser(emptyUser.userId), false);
+
+    for (const platform of Object.values(DevicePlatform)) {
+      const user = await ctx.createUser();
+      await repo.upsertToken(user.userId, `presence-${platform}`, platform);
+      assert.equal(await repo.hasAnyForUser(user.userId), true, platform);
+    }
+
+    await assert.rejects(() => repo.hasAnyForUser("invalid-id"), InternalServerError);
+  });
+
   it("findEarliestCreatedAt returns the first app registration on any platform", async () => {
     const user = await ctx.createUser();
     const desktopAt = new Date("2026-07-09T10:00:00.000Z");

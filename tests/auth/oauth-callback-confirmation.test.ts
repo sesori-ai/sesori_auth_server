@@ -121,6 +121,11 @@ function createTestServices(params: {
     installScriptService: {} as AppServices["installScriptService"],
     legalDocumentService: {} as AppServices["legalDocumentService"],
     deviceTokenRepo: {} as AppServices["deviceTokenRepo"],
+    appClientPresenceService: {
+      registerToken: async () => {},
+      hasRegisteredClient: async () => false,
+      waitForRegistration: async () => false,
+    } as AppServices["appClientPresenceService"],
     notificationService: {} as AppServices["notificationService"],
     bridgeStateTracker: {} as AppServices["bridgeStateTracker"],
     activationService: {} as AppServices["activationService"],

@@ -21,6 +21,7 @@ import type { InstallScriptService } from "./services/install-script-service.js"
 import type { LegalDocumentService } from "./services/legal-document-service.js";
 import type { AppleNativeVerifier } from "./services/apple-native-verifier.js";
 import type { PendingAuthStore } from "./services/pending-auth-store.js";
+import type { AppClientPresenceService } from "./services/app-client-presence-service.js";
 import { installRoutes } from "./routes/install.js";
 import { legalRoutes } from "./routes/legal.js";
 import { tokenRoutes } from "./routes/token.js";
@@ -34,6 +35,7 @@ import { notificationRoutes } from "./routes/notifications.js";
 import { bridgeRoutes } from "./routes/bridges.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { sessionStatusRoutes } from "./routes/auth/session-status.js";
+import { appClientRoutes } from "./routes/app-clients.js";
 
 export type AppServices = {
   config: Config;
@@ -45,6 +47,7 @@ export type AppServices = {
   installScriptService: InstallScriptService;
   legalDocumentService: LegalDocumentService;
   deviceTokenRepo: DeviceTokenRepository;
+  appClientPresenceService: AppClientPresenceService;
   notificationService: NotificationService;
   bridgeStateTracker: BridgeStateTracker;
   activationService: ActivationService;
@@ -147,6 +150,10 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
     pendingAuthStore: services.pendingAuthStore,
     statusPollTimeoutMs: services.config.PENDING_AUTH_POLL_TIMEOUT_MS,
   });
+  await app.register(appClientRoutes, {
+    appClientPresenceService: services.appClientPresenceService,
+    requireAuth,
+  });
   await app.register(voiceRoutes, {
     voiceService: services.voiceService,
     requireAuth,
@@ -154,6 +161,7 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
   await app.register(notificationRoutes, {
     config: services.config,
     deviceTokenRepo: services.deviceTokenRepo,
+    appClientPresenceService: services.appClientPresenceService,
     notificationService: services.notificationService,
     bridgeService: services.bridgeService,
     bridgeStateTracker: services.bridgeStateTracker,

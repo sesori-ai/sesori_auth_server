@@ -189,6 +189,20 @@ export const registerTokenBodySchema = z.object({
 });
 export type RegisterTokenBody = z.infer<typeof registerTokenBodySchema>;
 
+export const appClientStatusQuerySchema = z
+  .object({
+    wait: z.literal("true").optional(),
+  })
+  .strict();
+export type AppClientStatusQuery = z.infer<typeof appClientStatusQuerySchema>;
+
+export const appClientStatusReplySchema = z
+  .object({
+    registered: z.boolean(),
+  })
+  .strict();
+export type AppClientStatusReply = z.infer<typeof appClientStatusReplySchema>;
+
 export const notificationDataSchema = z.object({
   category: z.string(),
   eventType: z.string().nullable().optional(),
