@@ -53,6 +53,10 @@ const DATABASE_CONFIG: Record<MongoDbDatabase, DatabaseConfig<string>> = {
         { spec: { bridgeSetupAt: 1, bridgeReminder2SentAt: 1, bridgeReminderBaseAt: 1 } },
         { spec: { firstSessionAt: 1, sessionReminderSentAt: 1, sessionReminderBaseAt: 1 } },
       ],
+      // One settings document per (user, device). The unique compound key both
+      // enforces that invariant and serves the only read path (findByUserAndDevice)
+      // plus the device-cap count (countByUserId uses the userId prefix).
+      [AuthDbCollection.SettingsConfiguration]: [{ spec: { userId: 1, deviceId: 1 }, options: { unique: true } }],
     },
   } satisfies DatabaseConfig<AuthDbCollection>,
 };

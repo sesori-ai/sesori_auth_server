@@ -11,4 +11,5 @@ export enum AuthDbCollection {
   DeviceTokens = "deviceTokens",
   Bridges = "bridges",
   ActivationStates = "activationStates",
+  SettingsConfiguration = "settingsConfiguration",
 }

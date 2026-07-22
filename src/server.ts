@@ -22,6 +22,7 @@ import type { LegalDocumentService } from "./services/legal-document-service.js"
 import type { AppleNativeVerifier } from "./services/apple-native-verifier.js";
 import type { PendingAuthStore } from "./services/pending-auth-store.js";
 import type { AppClientPresenceService } from "./services/app-client-presence-service.js";
+import type { SettingsService } from "./services/settings-service.js";
 import { installRoutes } from "./routes/install.js";
 import { legalRoutes } from "./routes/legal.js";
 import { tokenRoutes } from "./routes/token.js";
@@ -36,6 +37,7 @@ import { bridgeRoutes } from "./routes/bridges.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { sessionStatusRoutes } from "./routes/auth/session-status.js";
 import { appClientRoutes } from "./routes/app-clients.js";
+import { settingsRoutes } from "./routes/settings/settings.js";
 
 export type AppServices = {
   config: Config;
@@ -48,6 +50,7 @@ export type AppServices = {
   legalDocumentService: LegalDocumentService;
   deviceTokenRepo: DeviceTokenRepository;
   appClientPresenceService: AppClientPresenceService;
+  settingsService: SettingsService;
   notificationService: NotificationService;
   bridgeStateTracker: BridgeStateTracker;
   activationService: ActivationService;
@@ -172,6 +175,10 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
   await app.register(bridgeRoutes, {
     bridgeService: services.bridgeService,
     activationService: services.activationService,
+    requireAuth,
+  });
+  await app.register(settingsRoutes, {
+    settingsService: services.settingsService,
     requireAuth,
   });
   await app.register(sessionRoutes, {

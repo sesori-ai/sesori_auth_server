@@ -2,6 +2,7 @@ import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { bridgeIdSchema, bridgePlatformSchema, bridgeStatusSchema } from "./bridge.js";
 import { devicePlatformSchema } from "./device.js";
+import { deviceIdSchema, notificationSettingsPatchSchema } from "./settings.js";
 
 export const userSchema = z.object({
   _id: z.instanceof(ObjectId),
@@ -117,3 +118,17 @@ export const activationStateSchema = z.object({
 });
 
 export type ActivationState = z.infer<typeof activationStateSchema>;
+
+// One document per (userId, deviceId). `notifications` is stored sparse — only
+// the toggles the device has explicitly set — and defaults are applied on read
+// (see resolveNotificationSettings), so records survive registry changes.
+export const settingsConfigurationSchema = z.object({
+  _id: z.instanceof(ObjectId),
+  userId: z.instanceof(ObjectId),
+  deviceId: deviceIdSchema,
+  notifications: notificationSettingsPatchSchema,
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
+export type SettingsConfiguration = z.infer<typeof settingsConfigurationSchema>;

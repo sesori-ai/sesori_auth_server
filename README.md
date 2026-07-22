@@ -100,6 +100,15 @@ Up to **50 non-revoked bridges per user**; registration beyond the cap returns 4
 | `GET`    | `/auth/bridges`            | Bearer | List the user's non-revoked bridges                                                                                                       |
 | `DELETE` | `/auth/bridges/:bridgeId`  | Bearer | Soft-revoke a bridge (404 if unknown, another user's, or already revoked)                                                                 |
 
+### Settings
+
+Per-device application settings (currently notification toggles), keyed by a client-generated `deviceId` (UUIDv4) and always scoped to the authenticated user — a leaked `deviceId` cannot cross accounts. Settings are stored sparse and **resolved against server-side defaults on read**, so a device with no record (or one predating a newly added toggle) reads back a complete, all-enabled set with no migration. Up to **50 devices per user**.
+
+| Method  | Path                       | Auth   | Description                                                                                                                                                     |
+| ------- | -------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`   | `/auth/settings/:deviceId` | Bearer | Get the device's fully-resolved settings (defaults applied; returns 200 with defaults when nothing is stored)                                                  |
+| `PATCH` | `/auth/settings/:deviceId` | Bearer | Merge-update settings. Body `{ notifications?: { aiInteraction?, sessionMessage?, connectionStatus?, systemUpdate? } }` — all toggles optional, at least one required |
+
 ## Environment variables
 
 Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configuration.
