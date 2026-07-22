@@ -31,12 +31,17 @@ export class SettingsConfigurationRepository {
     return this.#collection.find({ userId: new ObjectId(userId) }).toArray();
   }
 
-  async deleteByUserAndDevice(userId: string, deviceId: string): Promise<void> {
+  // Version-scoped: removes only the exact document version this caller's upsert
+  // produced. If a concurrent write to the same (userId, deviceId) has since
+  // bumped updatedAt, the filter matches nothing, so a cap rollback can never
+  // erase a newer legitimate write — the collection may then transiently sit one
+  // over the cap, which the next write reconciles.
+  async deleteByUserAndDevice(userId: string, deviceId: string, expectedUpdatedAt: Date): Promise<void> {
     if (!ObjectId.isValid(userId)) {
       return;
     }
 
-    await this.#collection.deleteOne({ userId: new ObjectId(userId), deviceId });
+    await this.#collection.deleteOne({ userId: new ObjectId(userId), deviceId, updatedAt: expectedUpdatedAt });
   }
 
   // Create-or-merge scoped by (userId, deviceId): only the toggles present in the

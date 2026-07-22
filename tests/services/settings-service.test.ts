@@ -27,7 +27,7 @@ function others(count: number): SettingsConfiguration[] {
 
 type FakeRepo = {
   repo: SettingsConfigurationRepository;
-  calls: { findByUserId: number; upsert: number; delete: { userId: string; deviceId: string }[] };
+  calls: { findByUserId: number; upsert: number; delete: { userId: string; deviceId: string; updatedAt: Date }[] };
 };
 
 function createFakeRepo(config: {
@@ -35,7 +35,7 @@ function createFakeRepo(config: {
   findByUserIdResults: SettingsConfiguration[][];
   upsertResult: SettingsConfiguration;
 }): FakeRepo {
-  const calls = { findByUserId: 0, upsert: 0, delete: [] as { userId: string; deviceId: string }[] };
+  const calls = { findByUserId: 0, upsert: 0, delete: [] as { userId: string; deviceId: string; updatedAt: Date }[] };
   const repo = {
     findByUserAndDevice: async () => config.existing,
     findByUserId: async () => {
@@ -47,8 +47,8 @@ function createFakeRepo(config: {
       calls.upsert += 1;
       return config.upsertResult;
     },
-    deleteByUserAndDevice: async (userId: string, deviceId: string) => {
-      calls.delete.push({ userId, deviceId });
+    deleteByUserAndDevice: async (userId: string, deviceId: string, expectedUpdatedAt: Date) => {
+      calls.delete.push({ userId, deviceId, updatedAt: expectedUpdatedAt });
     },
   };
   return { repo: repo as unknown as SettingsConfigurationRepository, calls };
@@ -101,7 +101,7 @@ describe("SettingsService.updateForDevice cap enforcement", () => {
       (error) => error instanceof BadRequestError,
     );
     assert.equal(calls.upsert, 1);
-    assert.deepEqual(calls.delete, [{ userId: USER_ID, deviceId: DEVICE_ID }]);
+    assert.deepEqual(calls.delete, [{ userId: USER_ID, deviceId: DEVICE_ID, updatedAt: ourDoc.updatedAt }]);
   });
 
   it("keeps a new device that lands within the cap after insert", async () => {

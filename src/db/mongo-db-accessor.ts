@@ -55,7 +55,7 @@ const DATABASE_CONFIG: Record<MongoDbDatabase, DatabaseConfig<string>> = {
       ],
       // One settings document per (user, device). The unique compound key both
       // enforces that invariant and serves the only read path (findByUserAndDevice)
-      // plus the device-cap count (countByUserId uses the userId prefix).
+      // plus the device-cap scan (findByUserId uses the userId prefix).
       [AuthDbCollection.SettingsConfiguration]: [{ spec: { userId: 1, deviceId: 1 }, options: { unique: true } }],
     },
   } satisfies DatabaseConfig<AuthDbCollection>,

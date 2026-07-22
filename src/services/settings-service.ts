@@ -61,7 +61,7 @@ export class SettingsService {
         );
         const overflow = ranked.slice(MAX_DEVICES_PER_USER);
         if (overflow.some((device) => device.deviceId === deviceId)) {
-          await this.#repo.deleteByUserAndDevice(userId, deviceId);
+          await this.#repo.deleteByUserAndDevice(userId, deviceId, document.updatedAt);
           throw new BadRequestError({ debugMessage: "Device settings limit reached for user" });
         }
       }
