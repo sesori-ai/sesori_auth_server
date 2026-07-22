@@ -78,6 +78,7 @@ export type TestAppOverrides = {
   legalDocumentService?: LegalDocumentService;
   activationService?: ActivationService;
   appClientPresenceService?: AppClientPresenceService;
+  settingsService?: SettingsService;
 };
 
 export type { OAuthClient };
@@ -184,7 +185,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     new ActivationService({ activationStateRepo, bridgeRepo, dailyUsageRepo, deviceTokenRepo });
   const appClientPresenceService =
     overrides?.appClientPresenceService ?? new AppClientPresenceService({ deviceTokenRepo });
-  const settingsService = new SettingsService({ settingsRepo });
+  const settingsService = overrides?.settingsService ?? new SettingsService({ settingsRepo });
   const authService = new AuthService({ tokenService, userRepo, oauthAccountRepo, passwordAccountRepo, bridgeService });
   const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
   const sessionMetadataService =

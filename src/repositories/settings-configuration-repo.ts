@@ -23,12 +23,20 @@ export class SettingsConfigurationRepository {
     return this.#collection.findOne({ userId: new ObjectId(userId), deviceId });
   }
 
-  async countByUserId(userId: string): Promise<number> {
+  async findByUserId(userId: string): Promise<SettingsConfiguration[]> {
     if (!ObjectId.isValid(userId)) {
-      return 0;
+      return [];
     }
 
-    return this.#collection.countDocuments({ userId: new ObjectId(userId) });
+    return this.#collection.find({ userId: new ObjectId(userId) }).toArray();
+  }
+
+  async deleteByUserAndDevice(userId: string, deviceId: string): Promise<void> {
+    if (!ObjectId.isValid(userId)) {
+      return;
+    }
+
+    await this.#collection.deleteOne({ userId: new ObjectId(userId), deviceId });
   }
 
   // Create-or-merge scoped by (userId, deviceId): only the toggles present in the
