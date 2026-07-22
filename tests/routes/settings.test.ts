@@ -193,29 +193,4 @@ describe("/auth/settings routes", () => {
     assert.deepEqual(body.notifications, { ...ALL_ENABLED, sessionMessage: false });
     assert.ok(!("retiredToggle" in body.notifications));
   });
-
-  it("caps the number of devices a single user may store settings for", async () => {
-    const user = await ctx.createUser();
-    const now = new Date();
-    const seeded: SeedableSettings[] = Array.from({ length: 50 }, () => ({
-      _id: new ObjectId(),
-      userId: new ObjectId(user.userId),
-      deviceId: randomUUID(),
-      notifications: {},
-      createdAt: now,
-      updatedAt: now,
-    }));
-    await ctx.dbAccessor
-      .getCollection<SeedableSettings>(MongoDbDatabase.Auth, AuthDbCollection.SettingsConfiguration)
-      .insertMany(seeded);
-
-    const overCap = await patchSettings(user.accessToken, randomUUID(), { notifications: { aiInteraction: false } });
-    assert.equal(overCap.statusCode, 400);
-
-    const existingDeviceId = seeded[0]?.deviceId ?? randomUUID();
-    const existingDevice = await patchSettings(user.accessToken, existingDeviceId, {
-      notifications: { aiInteraction: false },
-    });
-    assert.equal(existingDevice.statusCode, 200);
-  });
 });

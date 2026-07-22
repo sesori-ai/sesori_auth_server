@@ -102,7 +102,7 @@ Up to **50 non-revoked bridges per user**; registration beyond the cap returns 4
 
 ### Settings
 
-Per-device application settings (currently notification toggles), keyed by a client-generated `deviceId` (UUIDv4) and always scoped to the authenticated user — a leaked `deviceId` cannot cross accounts. Settings are stored sparse and **resolved against server-side defaults on read**, so a device with no record (or one predating a newly added toggle) reads back a complete, all-enabled set with no migration. Up to **50 devices per user**.
+Per-device application settings (currently notification toggles), keyed by a client-generated `deviceId` (UUIDv4) and always scoped to the authenticated user — a leaked `deviceId` cannot cross accounts. Settings are stored sparse and **resolved against server-side defaults on read**, so a device with no record (or one predating a newly added toggle) reads back a complete, all-enabled set with no migration.
 
 | Method  | Path                       | Auth   | Description                                                                                                                                                     |
 | ------- | -------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |

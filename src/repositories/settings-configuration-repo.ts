@@ -23,27 +23,6 @@ export class SettingsConfigurationRepository {
     return this.#collection.findOne({ userId: new ObjectId(userId), deviceId });
   }
 
-  async findByUserId(userId: string): Promise<SettingsConfiguration[]> {
-    if (!ObjectId.isValid(userId)) {
-      return [];
-    }
-
-    return this.#collection.find({ userId: new ObjectId(userId) }).toArray();
-  }
-
-  // Version-scoped: removes only the exact document version this caller's upsert
-  // produced. If a concurrent write to the same (userId, deviceId) has since
-  // bumped updatedAt, the filter matches nothing, so a cap rollback can never
-  // erase a newer legitimate write — the collection may then transiently sit one
-  // over the cap, which the next write reconciles.
-  async deleteByUserAndDevice(userId: string, deviceId: string, expectedUpdatedAt: Date): Promise<void> {
-    if (!ObjectId.isValid(userId)) {
-      return;
-    }
-
-    await this.#collection.deleteOne({ userId: new ObjectId(userId), deviceId, updatedAt: expectedUpdatedAt });
-  }
-
   // Create-or-merge scoped by (userId, deviceId): only the toggles present in the
   // patch are written, as dotted paths, so a single-toggle change never clobbers
   // the device's other stored toggles. The filter's equality fields seed userId
