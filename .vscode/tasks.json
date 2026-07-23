@@ -1,0 +1,13 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "sops: decrypt local env",
+      "type": "shell",
+      "command": "npm run env:decrypt",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "silent", "panel": "shared", "close": true }
+    }
+  ]
+}
