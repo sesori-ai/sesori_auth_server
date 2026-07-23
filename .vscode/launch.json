@@ -3,28 +3,10 @@
   "configurations": [
     {
       "name": "Debug auth server (SOPS local env)",
-      "type": "node",
+      "type": "node-terminal",
       "request": "launch",
-      "runtimeExecutable": "node",
-      "runtimeArgs": ["--import", "tsx"],
-      "program": "${workspaceFolder}/src/index.ts",
+      "command": "npm run start:local",
       "cwd": "${workspaceFolder}",
-      "envFile": "${workspaceFolder}/.env",
-      "preLaunchTask": "sops: decrypt local env",
-      "console": "integratedTerminal",
-      "sourceMaps": true,
-      "skipFiles": ["<node_internals>/**", "${workspaceFolder}/node_modules/**"]
-    },
-    {
-      "name": "Debug auth server (existing .env)",
-      "type": "node",
-      "request": "launch",
-      "runtimeExecutable": "node",
-      "runtimeArgs": ["--import", "tsx"],
-      "program": "${workspaceFolder}/src/index.ts",
-      "cwd": "${workspaceFolder}",
-      "envFile": "${workspaceFolder}/.env",
-      "console": "integratedTerminal",
       "sourceMaps": true,
       "skipFiles": ["<node_internals>/**", "${workspaceFolder}/node_modules/**"]
     },

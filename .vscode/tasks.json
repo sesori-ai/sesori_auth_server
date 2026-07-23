@@ -2,12 +2,12 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "sops: decrypt local env",
+      "label": "sops: start auth server with local env",
       "type": "shell",
-      "command": "npm run env:decrypt",
+      "command": "npm run start:local",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": [],
-      "presentation": { "reveal": "silent", "panel": "shared", "close": true }
+      "presentation": { "reveal": "always", "panel": "shared" }
     }
   ]
 }
