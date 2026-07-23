@@ -1,9 +1,8 @@
 import { z } from "zod";
 
 // Full notification-settings shape: every known toggle, all required. This is
-// the resolved contract GET returns and the registry every other schema derives
-// from — add a toggle here and the patch schema, defaults, and resolver all pick
-// it up. Keys mirror the client's NotificationCategory enum (aiInteraction, …).
+// the resolved contract GET returns and the source for the strict API patch
+// schema. Keys mirror the client's NotificationCategory enum (aiInteraction, …).
 export const notificationSettingsSchema = z.strictObject({
   aiInteraction: z.boolean(),
   sessionMessage: z.boolean(),
@@ -31,8 +30,14 @@ export const NOTIFICATION_SETTING_KEYS = Object.keys(NOTIFICATION_SETTINGS_DEFAU
 export const notificationSettingsPatchSchema = notificationSettingsSchema.partial();
 export type NotificationSettingsPatch = z.infer<typeof notificationSettingsPatchSchema>;
 
+// Database reads accept retired keys so an old sparse document remains readable
+// after a toggle leaves the public registry. Values stay boolean at the storage
+// boundary; resolveNotificationSettings emits only currently supported keys.
+export const storedNotificationSettingsSchema = z.record(z.string(), z.boolean());
+export type StoredNotificationSettings = z.infer<typeof storedNotificationSettingsSchema>;
+
 // Untrusted, client-generated device identifier. Normalized to lowercase, then
-// pinned to the canonical UUIDv4 shape: 128 bits of entropy make it
+// pinned to the canonical UUIDv4 shape: 122 random bits make it
 // non-enumerable, and settings are always additionally scoped by the caller's
 // userId so a leaked deviceId still cannot cross accounts.
 const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -68,7 +73,7 @@ export type SettingsConfigurationView = {
 // keys fall back to their default and keys no longer in the registry are
 // dropped, so records that predate a schema change resolve without migration.
 export function resolveNotificationSettings(
-  stored: NotificationSettingsPatch | undefined | null,
+  stored: StoredNotificationSettings | undefined | null,
 ): NotificationSettings {
   const resolved = { ...NOTIFICATION_SETTINGS_DEFAULTS };
   if (!stored) {

@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { ObjectId } from "mongodb";
+import { settingsConfigurationSchema } from "../../src/models/documents.js";
 import {
   NOTIFICATION_SETTINGS_DEFAULTS,
   deviceIdSchema,
@@ -8,6 +10,22 @@ import {
   resolveNotificationSettings,
   updateSettingsBodySchema,
 } from "../../src/models/settings.js";
+
+describe("settingsConfigurationSchema", () => {
+  it("accepts retired notification keys in persisted documents", () => {
+    const now = new Date();
+    const result = settingsConfigurationSchema.safeParse({
+      _id: new ObjectId(),
+      userId: new ObjectId(),
+      deviceId: randomUUID(),
+      notifications: { aiInteraction: false, retiredToggle: true },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    assert.equal(result.success, true);
+  });
+});
 
 describe("resolveNotificationSettings", () => {
   it("returns all defaults (enabled) when nothing is stored", () => {
@@ -17,6 +35,15 @@ describe("resolveNotificationSettings", () => {
 
   it("overlays only the stored toggles over the defaults", () => {
     assert.deepEqual(resolveNotificationSettings({ aiInteraction: false }), {
+      aiInteraction: false,
+      sessionMessage: true,
+      connectionStatus: true,
+      systemUpdate: true,
+    });
+  });
+
+  it("drops retired stored toggles from the resolved response", () => {
+    assert.deepEqual(resolveNotificationSettings({ aiInteraction: false, retiredToggle: true }), {
       aiInteraction: false,
       sessionMessage: true,
       connectionStatus: true,

@@ -2,7 +2,7 @@ import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { bridgeIdSchema, bridgePlatformSchema, bridgeStatusSchema } from "./bridge.js";
 import { devicePlatformSchema } from "./device.js";
-import { deviceIdSchema, notificationSettingsPatchSchema } from "./settings.js";
+import { deviceIdSchema, storedNotificationSettingsSchema } from "./settings.js";
 
 export const userSchema = z.object({
   _id: z.instanceof(ObjectId),
@@ -126,7 +126,7 @@ export const settingsConfigurationSchema = z.object({
   _id: z.instanceof(ObjectId),
   userId: z.instanceof(ObjectId),
   deviceId: deviceIdSchema,
-  notifications: notificationSettingsPatchSchema,
+  notifications: storedNotificationSettingsSchema,
   createdAt: z.date(),
   updatedAt: z.date(),
 });
