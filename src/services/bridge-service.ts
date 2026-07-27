@@ -87,11 +87,6 @@ export class BridgeService {
     return bridges.map(toSummary);
   }
 
-  // Only the bridge's own per-instance timer is cancelled here. The legacy
-  // (user-level) timer tracks bridges that never registered — old clients
-  // reporting without a bridgeId — so the count of registered bridges says
-  // nothing about whether it is still needed. Account-level cleanup happens
-  // in revokeAllForUser.
   async revokeForUser(userId: string, bridgeId: string): Promise<boolean> {
     const revoked = await this.#bridgeRepo.revoke(bridgeId, userId, new Date());
     if (revoked) {
@@ -102,9 +97,6 @@ export class BridgeService {
 
   async revokeAllForUser(userId: string): Promise<void> {
     const bridges = await this.#bridgeRepo.revokeAllForUser(userId, new Date());
-    // The user-level cancel only clears the legacy key; per-bridge timers
-    // live under distinct (userId, bridgeId) keys and need individual cancels.
-    this.#bridgeStateTracker.cancelPendingForUser(userId);
     for (const bridge of bridges) {
       this.#bridgeStateTracker.cancelPendingForBridge(userId, bridge.bridgeId);
     }
@@ -126,7 +118,6 @@ export class BridgeService {
       return { found: result.found };
     }
 
-    this.#bridgeStateTracker.cancelPendingForUser(userId);
     if (result.statusChanged) {
       this.#bridgeStateTracker.handleStatusChangeForBridge(userId, bridgeId, status);
     }

@@ -12,7 +12,6 @@ import type { DeviceTokenRepository } from "./repositories/device-token-repo.js"
 import type { ActivationService } from "./services/activation-service.js";
 import type { AuthService } from "./services/auth-service.js";
 import type { BridgeService } from "./services/bridge-service.js";
-import type { BridgeStateTracker } from "./services/bridge-state-tracker.js";
 import type { NotificationService } from "./services/notification-service.js";
 import type { TokenService } from "./services/token-service.js";
 import type { VoiceService } from "./services/voice-service.js";
@@ -49,7 +48,6 @@ export type AppServices = {
   deviceTokenRepo: DeviceTokenRepository;
   appClientPresenceService: AppClientPresenceService;
   notificationService: NotificationService;
-  bridgeStateTracker: BridgeStateTracker;
   activationService: ActivationService;
   stateStore: StateStore;
   githubClient: OAuthClient;
@@ -159,12 +157,10 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
     requireAuth,
   });
   await app.register(notificationRoutes, {
-    config: services.config,
     deviceTokenRepo: services.deviceTokenRepo,
     appClientPresenceService: services.appClientPresenceService,
     notificationService: services.notificationService,
     bridgeService: services.bridgeService,
-    bridgeStateTracker: services.bridgeStateTracker,
     activationService: services.activationService,
     requireAuth,
     requireRelayAuth,

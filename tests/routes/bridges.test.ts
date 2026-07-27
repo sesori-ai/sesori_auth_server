@@ -17,15 +17,10 @@ type BridgeSummaryBody = {
 describe("/auth/bridges routes", () => {
   let ctx: TestContext;
   let activationStateRepo: ActivationStateRepository;
-  const cancelledLegacyUsers: string[] = [];
   const cancelledBridgeKeys: { userId: string; bridgeId: string }[] = [];
 
   const bridgeStateTrackerMock = {
-    handleStatusChange: () => {},
     handleStatusChangeForBridge: () => {},
-    cancelPendingForUser: (userId: string) => {
-      cancelledLegacyUsers.push(userId);
-    },
     cancelPendingForBridge: (userId: string, bridgeId: string) => {
       cancelledBridgeKeys.push({ userId, bridgeId });
     },
@@ -42,7 +37,6 @@ describe("/auth/bridges routes", () => {
   });
 
   beforeEach(() => {
-    cancelledLegacyUsers.length = 0;
     cancelledBridgeKeys.length = 0;
   });
 
@@ -276,9 +270,6 @@ describe("/auth/bridges routes", () => {
     const body = listRes.json<{ bridges: unknown[] }>();
     assert.deepEqual(body.bridges, []);
     assert.deepEqual(cancelledBridgeKeys, [{ userId: user.userId, bridgeId: created.id }]);
-    // The legacy (user-level) timer tracks unregistered legacy bridges and is
-    // deliberately untouched by per-bridge revocation.
-    assert.deepEqual(cancelledLegacyUsers, []);
   });
 
   it("DELETE /auth/bridges/:bridgeId returns 404 for non-owner", async () => {

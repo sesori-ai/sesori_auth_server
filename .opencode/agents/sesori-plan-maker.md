@@ -463,11 +463,11 @@ restart loss, duplicate notifications, cancellation, timers, capacity, and
 long-poll lifecycle.
 
 Preserve per-bridge ownership, non-enumeration, registration, and revocation
-semantics. Bridges use the user access token, not bridge-scoped JWTs. Coordinate
-`AUTH_REQUIRE_BRIDGE_ID_IN_STATUS` with relay `RELAY_REQUIRE_BRIDGE_ID` and the
-bridge/client rollout. JWT claims, OAuth flows, `/auth/me`, bridge APIs, relay
-status/authentication, notifications, public-key delivery, and install APIs
-require explicit cross-repository compatibility and rollout verification.
+semantics. Bridge status requires a valid server-owned bridge ID and debounces
+per bridge. Bridges use the user access token, not bridge-scoped JWTs. JWT
+claims, OAuth flows, `/auth/me`, bridge APIs, relay status/authentication,
+notifications, public-key delivery, and install APIs require explicit
+cross-repository compatibility and rollout verification.
 
 Password login has no self-service registration endpoint. Do not plan production
 registration or assume accounts can be created through the public API without
