@@ -333,9 +333,8 @@ Unless explicitly redesigned across repositories, changed code must preserve:
 - bridge IDs are server-owned and another user's ID is not disclosed;
 - unknown/revoked bridge status produces the relay re-registration signal,
   while stale events for a known bridge are non-fatal;
-- status ordering and notification debounce remain per bridge during rollout;
-- `AUTH_REQUIRE_BRIDGE_ID_IN_STATUS` coordinates with
-  `RELAY_REQUIRE_BRIDGE_ID` after fleet rollout;
+- bridge status requires a syntactically valid bridge ID, and status ordering
+  and notification debounce remain per bridge;
 - `/auth/me`, bridge summaries, enum values, and bridge ID syntax remain
   compatible with apps, bridge, and relay consumers.
 
@@ -411,7 +410,6 @@ verification.
 Do not flag these untouched intentional patterns:
 
 - legacy and pending-confirmation OAuth stores coexist;
-- legacy user-level bridge status keying remains during rollout;
 - bridge registration treats another user's supplied ID as unknown to prevent
   enumeration;
 - Apple may omit profile fields on later logins, so repository updates are

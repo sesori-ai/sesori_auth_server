@@ -55,8 +55,7 @@ defense for compounding a violation, but do not demand unrelated cleanup.
 Some behavior is intentionally transitional or compatibility-sensitive:
 
 - both legacy OAuth state and pending-confirmation sessions exist;
-- bridge status supports per-bridge and legacy per-user keying during rollout;
-- `AUTH_REQUIRE_BRIDGE_ID_IN_STATUS` is coordinated with the relay;
+- bridge status requires a valid bridge ID and uses per-bridge keying;
 - password accounts are provisioned out of band and have no registration route;
 - bridges authenticate with the user access token, not a bridge-scoped token;
 - `PendingAuthStore` and `BridgeStateTracker` are process-local by design.
@@ -334,9 +333,8 @@ Preserve these unless an explicit coordinated redesign is approved:
   user's bridge;
 - unknown/revoked bridge status returns the signal the relay uses to force
   re-registration, while stale known events remain non-fatal;
-- status ordering and notification debounce are per bridge during rollout;
-- `AUTH_REQUIRE_BRIDGE_ID_IN_STATUS` flips with relay
-  `RELAY_REQUIRE_BRIDGE_ID` after the bridge fleet is ready;
+- bridge status requires a syntactically valid bridge ID, and status ordering
+  and notification debounce are per bridge;
 - `/auth/me`, bridge summaries, platform/status enums, and bridge ID syntax are
   cross-repository wire contracts.
 

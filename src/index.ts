@@ -163,7 +163,6 @@ async function main() {
     deviceTokenRepo,
     appClientPresenceService,
     notificationService,
-    bridgeStateTracker,
     activationService,
     stateStore,
     githubClient,

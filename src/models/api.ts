@@ -221,7 +221,7 @@ export type SendNotificationBody = z.infer<typeof sendNotificationBodySchema>;
 
 export const bridgeStatusBodySchema = z.object({
   userId: z.string().min(1),
-  bridgeId: bridgeIdSchema.optional(),
+  bridgeId: bridgeIdSchema,
   status: z.enum(["connected", "disconnected"]),
   timestamp: z.string(),
 });

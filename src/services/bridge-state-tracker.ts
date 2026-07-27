@@ -3,14 +3,8 @@ import type { NotificationPayload, NotificationService } from "./notification-se
 
 /**
  * Debounces bridge online/offline push notifications so transient relay
- * reconnects don't spam the user. Two keying modes coexist during the
- * per-bridge rollout:
- *   - instanceKey(userId, bridgeId): used when the relay reports a bridgeId
- *     (updated bridge clients)
- *   - legacyKey(userId): user-level, used when the relay omits the bridgeId
- *     (bridge clients that have not updated yet)
- * The legacy mode can be removed once AUTH_REQUIRE_BRIDGE_ID_IN_STATUS=true
- * is rolled out everywhere (auth-server + relay + bridge fleet).
+ * reconnects don't spam the user. State is keyed by (userId, bridgeId) so
+ * each registered bridge is debounced independently.
  *
  * State is in-process and unbounded: entries accrue per (userId, bridgeId)
  * for the process lifetime (the last-notified status is kept for dedupe).
@@ -29,14 +23,8 @@ type BridgeStateEntry = {
   generation: number;
 };
 
-const LEGACY_KEY_SUFFIX = "::legacy";
-
 function instanceKey(userId: string, bridgeId: string): string {
   return `${userId}::${bridgeId}`;
-}
-
-function legacyKey(userId: string): string {
-  return `${userId}${LEGACY_KEY_SUFFIX}`;
 }
 
 export class BridgeStateTracker {
@@ -49,10 +37,6 @@ export class BridgeStateTracker {
     this.#debounceMs = debounceMs;
   }
 
-  handleStatusChange(userId: string, status: BridgeStatus): void {
-    this.#dispatch(userId, legacyKey(userId), status);
-  }
-
   handleStatusChangeForBridge(userId: string, bridgeId: string, status: BridgeStatus): void {
     this.#dispatch(userId, instanceKey(userId, bridgeId), status);
   }
@@ -60,10 +44,6 @@ export class BridgeStateTracker {
   cancelPendingForBridge(userId: string, bridgeId: string): void {
     const key = instanceKey(userId, bridgeId);
     this.#cancelPendingForKey(key);
-  }
-
-  cancelPendingForUser(userId: string): void {
-    this.#cancelPendingForKey(legacyKey(userId));
   }
 
   // Deliberate "forget everything" semantics: deleting the entry also drops
