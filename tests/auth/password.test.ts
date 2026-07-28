@@ -5,6 +5,7 @@ import argon2 from "argon2";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
 import { MongoDbDatabase, AuthDbCollection } from "../../src/types/mongo.js";
 import type { User, PasswordAccount } from "../../src/models/documents.js";
+import { ProductAnalyticsPreference } from "../../src/types/product-analytics.js";
 
 describe("Password authentication", () => {
   let ctx: TestContext;
@@ -31,6 +32,10 @@ describe("Password authentication", () => {
       tokenVersion: 0,
       createdAt: now,
       updatedAt: now,
+      productAnalyticsPreference: ProductAnalyticsPreference.Enabled,
+      productAnalyticsPreferenceUpdatedAt: now,
+      productAnalyticsPreferenceRevision: 1,
+      productAnalyticsPreferenceLastOperationId: null,
     });
 
     const hash = await argon2.hash(password, { type: argon2.argon2id });
@@ -65,6 +70,8 @@ describe("Password authentication", () => {
       assert.ok(body.refreshToken, "Should return refresh token");
       assert.ok(body.user.id, "Should return user id");
       assert.equal(body.user.provider, "email");
+      assert.deepEqual(Object.keys(body).sort(), ["accessToken", "refreshToken", "user"]);
+      assert.deepEqual(Object.keys(body.user).sort(), ["id", "provider", "providerUserId", "providerUsername"]);
     });
 
     it("returns 401 for wrong password", async () => {

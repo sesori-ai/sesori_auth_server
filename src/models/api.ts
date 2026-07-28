@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { BridgePlatform, bridgeIdSchema, bridgePlatformSchema } from "./bridge.js";
 import { devicePlatformSchema } from "./device.js";
+import {
+  productAnalyticsOperationIdSchema,
+  productAnalyticsPreferenceRevisionSchema,
+  productAnalyticsPreferenceSchema,
+} from "../types/product-analytics.js";
 
 export { BridgePlatform, bridgeIdSchema, bridgePlatformSchema };
 
@@ -153,6 +158,30 @@ export type MeReply = {
 export type SuccessReply = {
   success: true;
 };
+
+export const productAnalyticsPreferenceReplySchema = z
+  .object({
+    preference: productAnalyticsPreferenceSchema,
+    revision: productAnalyticsPreferenceRevisionSchema,
+  })
+  .strict();
+export type ProductAnalyticsPreferenceReply = z.infer<typeof productAnalyticsPreferenceReplySchema>;
+
+export const updateProductAnalyticsPreferenceBodySchema = z
+  .object({
+    preference: productAnalyticsPreferenceSchema,
+    expectedRevision: productAnalyticsPreferenceRevisionSchema,
+    operationId: productAnalyticsOperationIdSchema,
+  })
+  .strict();
+export type UpdateProductAnalyticsPreferenceBody = z.infer<typeof updateProductAnalyticsPreferenceBodySchema>;
+
+export const productAnalyticsPreferenceConflictReplySchema = productAnalyticsPreferenceReplySchema
+  .extend({
+    error: z.literal("conflict"),
+  })
+  .strict();
+export type ProductAnalyticsPreferenceConflictReply = z.infer<typeof productAnalyticsPreferenceConflictReplySchema>;
 
 export type HealthReply = {
   status: "ok";

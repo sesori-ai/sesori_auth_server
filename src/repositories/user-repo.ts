@@ -3,6 +3,51 @@ import { MongoDbAccessor } from "../db/mongo-db-accessor.js";
 import { InternalServerError } from "../lib/errors.js";
 import type { User } from "../models/documents.js";
 import { MongoDbDatabase, AuthDbCollection } from "../types/mongo.js";
+import {
+  ProductAnalyticsPreference,
+  ProductAnalyticsPreferenceUpdateOutcome,
+  productAnalyticsOperationIdSchema,
+  productAnalyticsPreferenceRevisionSchema,
+  productAnalyticsPreferenceSchema,
+  type ProductAnalyticsPreferenceRecord,
+  type ProductAnalyticsPreferenceUpdateResult,
+} from "../types/product-analytics.js";
+
+export type ProductAnalyticsPreferenceBackfillResult = {
+  matchedCount: number;
+  modifiedCount: number;
+};
+
+const missingProductAnalyticsPreferenceFilter: Filter<User> = {
+  $or: [
+    { productAnalyticsPreference: { $exists: false } },
+    { productAnalyticsPreferenceUpdatedAt: { $exists: false } },
+    { productAnalyticsPreferenceRevision: { $exists: false } },
+  ],
+};
+
+function productAnalyticsPreferenceRecordFrom(input: { user: User }): ProductAnalyticsPreferenceRecord {
+  const { user } = input;
+  const preferenceResult = productAnalyticsPreferenceSchema.safeParse(
+    user.productAnalyticsExportSuppressedAt
+      ? ProductAnalyticsPreference.Disabled
+      : (user.productAnalyticsPreference ?? ProductAnalyticsPreference.Enabled),
+  );
+  const revisionResult = productAnalyticsPreferenceRevisionSchema.safeParse(
+    user.productAnalyticsPreferenceRevision ?? 1,
+  );
+  const updatedAt = user.productAnalyticsPreferenceUpdatedAt ?? user.createdAt;
+
+  if (!preferenceResult.success || !revisionResult.success || Number.isNaN(updatedAt.getTime())) {
+    throw new InternalServerError({ debugMessage: "Invalid stored product analytics preference" });
+  }
+
+  return {
+    preference: preferenceResult.data,
+    updatedAt,
+    revision: revisionResult.data,
+  };
+}
 
 export class UserRepository {
   readonly #collection: Collection<User>;
@@ -22,10 +67,130 @@ export class UserRepository {
       tokenVersion: 0,
       createdAt: now,
       updatedAt: now,
+      productAnalyticsPreference: ProductAnalyticsPreference.Enabled,
+      productAnalyticsPreferenceUpdatedAt: now,
+      productAnalyticsPreferenceRevision: 1,
+      productAnalyticsPreferenceLastOperationId: null,
     };
 
     await this.#collection.insertOne(user);
     return user;
+  }
+
+  async findProductAnalyticsPreference(input: { userId: string }): Promise<ProductAnalyticsPreferenceRecord | null> {
+    if (!ObjectId.isValid(input.userId)) {
+      return null;
+    }
+
+    const user = await this.#collection.findOne({ _id: new ObjectId(input.userId) });
+    return user ? productAnalyticsPreferenceRecordFrom({ user }) : null;
+  }
+
+  async updateProductAnalyticsPreference(input: {
+    userId: string;
+    preference: ProductAnalyticsPreference;
+    expectedRevision: number;
+    operationId: string;
+  }): Promise<ProductAnalyticsPreferenceUpdateResult | null> {
+    if (!ObjectId.isValid(input.userId)) {
+      return null;
+    }
+
+    const revisionResult = productAnalyticsPreferenceRevisionSchema.safeParse(input.expectedRevision);
+    const preferenceResult = productAnalyticsPreferenceSchema.safeParse(input.preference);
+    const operationIdResult = productAnalyticsOperationIdSchema.safeParse(input.operationId);
+    const updatedAt = new Date();
+    if (
+      !revisionResult.success ||
+      !preferenceResult.success ||
+      !operationIdResult.success ||
+      Number.isNaN(updatedAt.getTime())
+    ) {
+      throw new InternalServerError({ debugMessage: "Invalid product analytics preference update" });
+    }
+
+    const currentRevision = { $ifNull: ["$productAnalyticsPreferenceRevision", 1] };
+    const currentOperationId = { $ifNull: ["$productAnalyticsPreferenceLastOperationId", null] };
+    const isDuplicateOperation = { $eq: [currentOperationId, input.operationId] };
+    const filter: Filter<User> = {
+      _id: new ObjectId(input.userId),
+      ...(input.preference === ProductAnalyticsPreference.Enabled ? { productAnalyticsExportSuppressedAt: null } : {}),
+      $expr: {
+        $or: [isDuplicateOperation, { $eq: [currentRevision, input.expectedRevision] }],
+      },
+    };
+
+    const updated = await this.#collection.findOneAndUpdate(
+      filter,
+      [
+        {
+          $set: {
+            productAnalyticsPreference: {
+              $cond: [
+                isDuplicateOperation,
+                { $ifNull: ["$productAnalyticsPreference", ProductAnalyticsPreference.Enabled] },
+                input.preference,
+              ],
+            },
+            productAnalyticsPreferenceUpdatedAt: {
+              $cond: [
+                isDuplicateOperation,
+                { $ifNull: ["$productAnalyticsPreferenceUpdatedAt", "$createdAt"] },
+                updatedAt,
+              ],
+            },
+            productAnalyticsPreferenceRevision: {
+              $cond: [isDuplicateOperation, currentRevision, { $add: [currentRevision, 1] }],
+            },
+            productAnalyticsPreferenceLastOperationId: {
+              $cond: [isDuplicateOperation, currentOperationId, input.operationId],
+            },
+            updatedAt: { $cond: [isDuplicateOperation, "$updatedAt", updatedAt] },
+          },
+        },
+      ],
+      { returnDocument: "after" },
+    );
+
+    if (updated) {
+      return {
+        outcome: ProductAnalyticsPreferenceUpdateOutcome.Updated,
+        record: productAnalyticsPreferenceRecordFrom({ user: updated }),
+      };
+    }
+
+    const current = await this.#collection.findOne({ _id: new ObjectId(input.userId) });
+    if (!current) {
+      return null;
+    }
+
+    return {
+      outcome: ProductAnalyticsPreferenceUpdateOutcome.Conflict,
+      record: productAnalyticsPreferenceRecordFrom({ user: current }),
+    };
+  }
+
+  async countUsersMissingProductAnalyticsPreference(): Promise<number> {
+    return this.#collection.countDocuments(missingProductAnalyticsPreferenceFilter);
+  }
+
+  async backfillProductAnalyticsPreference(): Promise<ProductAnalyticsPreferenceBackfillResult> {
+    const result = await this.#collection.updateMany(missingProductAnalyticsPreferenceFilter, [
+      {
+        $set: {
+          productAnalyticsPreference: {
+            $ifNull: ["$productAnalyticsPreference", ProductAnalyticsPreference.Enabled],
+          },
+          productAnalyticsPreferenceUpdatedAt: {
+            $ifNull: ["$productAnalyticsPreferenceUpdatedAt", "$createdAt"],
+          },
+          productAnalyticsPreferenceRevision: {
+            $ifNull: ["$productAnalyticsPreferenceRevision", 1],
+          },
+        },
+      },
+    ]);
+    return { matchedCount: result.matchedCount, modifiedCount: result.modifiedCount };
   }
 
   async findIdBatch(afterUserId: string | null, batchLimit: number, createdAtOrBefore: Date): Promise<string[]> {

@@ -21,6 +21,7 @@ import type { LegalDocumentService } from "./services/legal-document-service.js"
 import type { AppleNativeVerifier } from "./services/apple-native-verifier.js";
 import type { PendingAuthStore } from "./services/pending-auth-store.js";
 import type { AppClientPresenceService } from "./services/app-client-presence-service.js";
+import type { ProductAnalyticsPreferenceService } from "./services/product-analytics-preference-service.js";
 import { installRoutes } from "./routes/install.js";
 import { legalRoutes } from "./routes/legal.js";
 import { tokenRoutes } from "./routes/token.js";
@@ -35,6 +36,7 @@ import { bridgeRoutes } from "./routes/bridges.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { sessionStatusRoutes } from "./routes/auth/session-status.js";
 import { appClientRoutes } from "./routes/app-clients.js";
+import { productAnalyticsRoutes } from "./routes/product-analytics.js";
 
 export type AppServices = {
   config: Config;
@@ -55,6 +57,7 @@ export type AppServices = {
   appleClient: OAuthClient;
   appleNativeVerifier: AppleNativeVerifier;
   pendingAuthStore: PendingAuthStore;
+  productAnalyticsPreferenceService: ProductAnalyticsPreferenceService;
 };
 
 export async function buildApp(services: AppServices): Promise<FastifyInstance> {
@@ -150,6 +153,10 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
   });
   await app.register(appClientRoutes, {
     appClientPresenceService: services.appClientPresenceService,
+    requireAuth,
+  });
+  await app.register(productAnalyticsRoutes, {
+    productAnalyticsPreferenceService: services.productAnalyticsPreferenceService,
     requireAuth,
   });
   await app.register(voiceRoutes, {

@@ -133,6 +133,7 @@ function createTestServices(params: {
     googleClient: googleClient as unknown as AppServices["googleClient"],
     appleClient: githubClient as unknown as AppServices["appleClient"],
     appleNativeVerifier: {} as AppServices["appleNativeVerifier"],
+    productAnalyticsPreferenceService: {} as AppServices["productAnalyticsPreferenceService"],
   };
 }
 
