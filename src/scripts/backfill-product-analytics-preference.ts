@@ -66,7 +66,9 @@ export function printProductAnalyticsPreferenceBackfillUsage(): void {
   console.log();
   console.log("Options:");
   console.log("  --apply      Backfill missing required fields (default: count and validate only)");
-  console.log("  --batch-limit <n>  Users processed per batch (default: 500; maximum: 1000)");
+  console.log(
+    `  --batch-limit <n>  Users processed per batch (default: 500; maximum: ${productAnalyticsPreferenceBackfillMaxBatchLimit})`,
+  );
   console.log("  --help, -h   Show this help");
   console.log();
   console.log("Requires MONGODB_URI. Example with SOPS env:");

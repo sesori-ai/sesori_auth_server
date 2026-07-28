@@ -185,6 +185,7 @@ describe("UserRepository", () => {
     const secondId = new ObjectId();
     const lastOperationMissingId = new ObjectId();
     const suppressedId = new ObjectId();
+    const inconsistentSuppressedId = new ObjectId();
     const suppressedAt = new Date("2026-06-01T10:00:00.000Z");
     await users.insertMany([
       {
@@ -216,6 +217,17 @@ describe("UserRepository", () => {
         updatedAt: secondCreatedAt,
         productAnalyticsExportSuppressedAt: suppressedAt,
       },
+      {
+        _id: inconsistentSuppressedId,
+        tokenVersion: 0,
+        createdAt: secondCreatedAt,
+        updatedAt: secondCreatedAt,
+        productAnalyticsPreference: ProductAnalyticsPreference.Enabled,
+        productAnalyticsPreferenceUpdatedAt: secondCreatedAt,
+        productAnalyticsPreferenceRevision: 1,
+        productAnalyticsPreferenceLastOperationId: null,
+        productAnalyticsExportSuppressedAt: suppressedAt,
+      },
     ]);
 
     const firstBatch = await repo.findProductAnalyticsPreferenceBackfillBatch({
@@ -226,8 +238,13 @@ describe("UserRepository", () => {
       afterUserId: firstBatch[1],
       batchLimit: 2,
     });
+    const thirdBatch = await repo.findProductAnalyticsPreferenceBackfillBatch({
+      afterUserId: secondBatch[1],
+      batchLimit: 2,
+    });
     assert.equal(firstBatch.length, 2);
     assert.equal(secondBatch.length, 2);
+    assert.equal(thirdBatch.length, 1);
     assert.deepEqual(await repo.backfillProductAnalyticsPreferenceBatch({ userIds: firstBatch }), {
       matchedCount: 2,
       modifiedCount: 2,
@@ -235,6 +252,10 @@ describe("UserRepository", () => {
     assert.deepEqual(await repo.backfillProductAnalyticsPreferenceBatch({ userIds: secondBatch }), {
       matchedCount: 2,
       modifiedCount: 2,
+    });
+    assert.deepEqual(await repo.backfillProductAnalyticsPreferenceBatch({ userIds: thirdBatch }), {
+      matchedCount: 1,
+      modifiedCount: 1,
     });
     assert.deepEqual(await repo.findProductAnalyticsPreferenceBackfillBatch({ afterUserId: null, batchLimit: 2 }), []);
     assert.deepEqual(await repo.findProductAnalyticsPreference({ userId: firstId.toHexString() }), {
@@ -254,6 +275,10 @@ describe("UserRepository", () => {
     const suppressed = await repo.findById(suppressedId.toHexString());
     assert.equal(suppressed?.productAnalyticsPreference, ProductAnalyticsPreference.Disabled);
     assert.equal(suppressed?.productAnalyticsExportSuppressedAt?.toISOString(), suppressedAt.toISOString());
+    assert.equal(
+      (await repo.findById(inconsistentSuppressedId.toHexString()))?.productAnalyticsPreference,
+      ProductAnalyticsPreference.Disabled,
+    );
   });
 
   it("rejects unsafe product analytics preference backfill batch inputs", async () => {

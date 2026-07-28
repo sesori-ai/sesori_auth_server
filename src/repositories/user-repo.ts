@@ -21,12 +21,16 @@ export type ProductAnalyticsPreferenceBackfillResult = {
 
 export const productAnalyticsPreferenceBackfillMaxBatchLimit = 1_000;
 
-const missingProductAnalyticsPreferenceFilter: Filter<User> = {
+const productAnalyticsPreferenceBackfillCandidateFilter: Filter<User> = {
   $or: [
     { productAnalyticsPreference: { $exists: false } },
     { productAnalyticsPreferenceUpdatedAt: { $exists: false } },
     { productAnalyticsPreferenceRevision: { $exists: false } },
     { productAnalyticsPreferenceLastOperationId: { $exists: false } },
+    {
+      productAnalyticsExportSuppressedAt: { $exists: true, $ne: null },
+      productAnalyticsPreference: { $ne: ProductAnalyticsPreference.Disabled },
+    },
   ],
 };
 
@@ -201,7 +205,7 @@ export class UserRepository {
     const users = await this.#collection
       .find(
         {
-          ...missingProductAnalyticsPreferenceFilter,
+          ...productAnalyticsPreferenceBackfillCandidateFilter,
           ...(input.afterUserId === null ? {} : { _id: { $gt: new ObjectId(input.afterUserId) } }),
         },
         { projection: { _id: 1 } },
@@ -224,7 +228,7 @@ export class UserRepository {
 
     const result = await this.#collection.updateMany(
       {
-        ...missingProductAnalyticsPreferenceFilter,
+        ...productAnalyticsPreferenceBackfillCandidateFilter,
         _id: { $in: input.userIds.map((userId) => new ObjectId(userId)) },
       },
       [
