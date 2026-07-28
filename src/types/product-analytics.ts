@@ -9,6 +9,12 @@ export const productAnalyticsPreferenceSchema = z.enum(ProductAnalyticsPreferenc
 
 export const productAnalyticsPreferenceRevisionSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 
+export const productAnalyticsExpectedRevisionSchema = z
+  .number()
+  .int()
+  .positive()
+  .max(Number.MAX_SAFE_INTEGER - 1);
+
 export const productAnalyticsOperationIdSchema = z.string().uuid();
 
 export type ProductAnalyticsPreferenceRecord = {

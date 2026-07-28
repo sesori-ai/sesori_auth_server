@@ -102,6 +102,16 @@ describe("Product analytics preference routes", () => {
         operationId: "33333333-3333-4333-8333-333333333333",
       }),
     });
+    const mismatchedReplay = await ctx.app.inject({
+      method: "PUT",
+      url: "/product-analytics/preference",
+      headers: { authorization: `Bearer ${user.accessToken}`, "content-type": "application/json" },
+      payload: JSON.stringify({
+        preference: ProductAnalyticsPreference.Enabled,
+        expectedRevision: 1,
+        operationId,
+      }),
+    });
 
     assert.equal(first.statusCode, 200);
     assert.deepEqual(first.json(), { preference: ProductAnalyticsPreference.Disabled, revision: 2 });
@@ -113,6 +123,34 @@ describe("Product analytics preference routes", () => {
       preference: ProductAnalyticsPreference.Disabled,
       revision: 2,
     });
+    assert.equal(mismatchedReplay.statusCode, 409);
+    assert.deepEqual(mismatchedReplay.json(), stale.json());
+  });
+
+  it("rejects an update that would exceed the maximum safe revision", async () => {
+    const user = await ctx.createUser();
+    const users = ctx.dbAccessor.getCollection<User>(MongoDbDatabase.Auth, AuthDbCollection.Users);
+    await users.updateOne(
+      { _id: new ObjectId(user.userId) },
+      { $set: { productAnalyticsPreferenceRevision: Number.MAX_SAFE_INTEGER } },
+    );
+
+    const response = await ctx.app.inject({
+      method: "PUT",
+      url: "/product-analytics/preference",
+      headers: { authorization: `Bearer ${user.accessToken}`, "content-type": "application/json" },
+      payload: JSON.stringify({
+        preference: ProductAnalyticsPreference.Disabled,
+        expectedRevision: Number.MAX_SAFE_INTEGER,
+        operationId: "77777777-7777-4777-8777-777777777777",
+      }),
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.equal(
+      (await users.findOne({ _id: new ObjectId(user.userId) }))?.productAnalyticsPreferenceRevision,
+      Number.MAX_SAFE_INTEGER,
+    );
   });
 
   it("rejects malformed or extensible update bodies", async () => {

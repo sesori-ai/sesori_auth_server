@@ -2,6 +2,7 @@ import { z } from "zod";
 import { BridgePlatform, bridgeIdSchema, bridgePlatformSchema } from "./bridge.js";
 import { devicePlatformSchema } from "./device.js";
 import {
+  productAnalyticsExpectedRevisionSchema,
   productAnalyticsOperationIdSchema,
   productAnalyticsPreferenceRevisionSchema,
   productAnalyticsPreferenceSchema,
@@ -170,7 +171,7 @@ export type ProductAnalyticsPreferenceReply = z.infer<typeof productAnalyticsPre
 export const updateProductAnalyticsPreferenceBodySchema = z
   .object({
     preference: productAnalyticsPreferenceSchema,
-    expectedRevision: productAnalyticsPreferenceRevisionSchema,
+    expectedRevision: productAnalyticsExpectedRevisionSchema,
     operationId: productAnalyticsOperationIdSchema,
   })
   .strict();

@@ -6,6 +6,7 @@ import { MongoDbDatabase, AuthDbCollection } from "../types/mongo.js";
 import {
   ProductAnalyticsPreference,
   ProductAnalyticsPreferenceUpdateOutcome,
+  productAnalyticsExpectedRevisionSchema,
   productAnalyticsOperationIdSchema,
   productAnalyticsPreferenceRevisionSchema,
   productAnalyticsPreferenceSchema,
@@ -23,6 +24,7 @@ const missingProductAnalyticsPreferenceFilter: Filter<User> = {
     { productAnalyticsPreference: { $exists: false } },
     { productAnalyticsPreferenceUpdatedAt: { $exists: false } },
     { productAnalyticsPreferenceRevision: { $exists: false } },
+    { productAnalyticsPreferenceLastOperationId: { $exists: false } },
   ],
 };
 
@@ -96,7 +98,7 @@ export class UserRepository {
       return null;
     }
 
-    const revisionResult = productAnalyticsPreferenceRevisionSchema.safeParse(input.expectedRevision);
+    const revisionResult = productAnalyticsExpectedRevisionSchema.safeParse(input.expectedRevision);
     const preferenceResult = productAnalyticsPreferenceSchema.safeParse(input.preference);
     const operationIdResult = productAnalyticsOperationIdSchema.safeParse(input.operationId);
     const updatedAt = new Date();
@@ -110,13 +112,26 @@ export class UserRepository {
     }
 
     const currentRevision = { $ifNull: ["$productAnalyticsPreferenceRevision", 1] };
+    const currentPreference = {
+      $ifNull: ["$productAnalyticsPreference", ProductAnalyticsPreference.Enabled],
+    };
     const currentOperationId = { $ifNull: ["$productAnalyticsPreferenceLastOperationId", null] };
-    const isDuplicateOperation = { $eq: [currentOperationId, input.operationId] };
+    const isSameOperationId = { $eq: [currentOperationId, input.operationId] };
+    const isMatchingDuplicateOperation = {
+      $and: [
+        isSameOperationId,
+        { $eq: [currentPreference, input.preference] },
+        { $eq: [currentRevision, { $add: [input.expectedRevision, 1] }] },
+      ],
+    };
+    const isNewOperationAtExpectedRevision = {
+      $and: [{ $ne: [currentOperationId, input.operationId] }, { $eq: [currentRevision, input.expectedRevision] }],
+    };
     const filter: Filter<User> = {
       _id: new ObjectId(input.userId),
       ...(input.preference === ProductAnalyticsPreference.Enabled ? { productAnalyticsExportSuppressedAt: null } : {}),
       $expr: {
-        $or: [isDuplicateOperation, { $eq: [currentRevision, input.expectedRevision] }],
+        $or: [isMatchingDuplicateOperation, isNewOperationAtExpectedRevision],
       },
     };
 
@@ -126,26 +141,22 @@ export class UserRepository {
         {
           $set: {
             productAnalyticsPreference: {
-              $cond: [
-                isDuplicateOperation,
-                { $ifNull: ["$productAnalyticsPreference", ProductAnalyticsPreference.Enabled] },
-                input.preference,
-              ],
+              $cond: [isMatchingDuplicateOperation, currentPreference, input.preference],
             },
             productAnalyticsPreferenceUpdatedAt: {
               $cond: [
-                isDuplicateOperation,
+                isMatchingDuplicateOperation,
                 { $ifNull: ["$productAnalyticsPreferenceUpdatedAt", "$createdAt"] },
                 updatedAt,
               ],
             },
             productAnalyticsPreferenceRevision: {
-              $cond: [isDuplicateOperation, currentRevision, { $add: [currentRevision, 1] }],
+              $cond: [isMatchingDuplicateOperation, currentRevision, { $add: [currentRevision, 1] }],
             },
             productAnalyticsPreferenceLastOperationId: {
-              $cond: [isDuplicateOperation, currentOperationId, input.operationId],
+              $cond: [isMatchingDuplicateOperation, currentOperationId, input.operationId],
             },
-            updatedAt: { $cond: [isDuplicateOperation, "$updatedAt", updatedAt] },
+            updatedAt: { $cond: [isMatchingDuplicateOperation, "$updatedAt", updatedAt] },
           },
         },
       ],
@@ -186,6 +197,9 @@ export class UserRepository {
           },
           productAnalyticsPreferenceRevision: {
             $ifNull: ["$productAnalyticsPreferenceRevision", 1],
+          },
+          productAnalyticsPreferenceLastOperationId: {
+            $ifNull: ["$productAnalyticsPreferenceLastOperationId", null],
           },
         },
       },

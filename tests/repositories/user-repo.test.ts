@@ -74,12 +74,28 @@ describe("UserRepository", () => {
       expectedRevision: 1,
       operationId,
     });
+    const mismatchedPreference = await repo.updateProductAnalyticsPreference({
+      userId,
+      preference: ProductAnalyticsPreference.Enabled,
+      expectedRevision: 1,
+      operationId,
+    });
+    const mismatchedRevision = await repo.updateProductAnalyticsPreference({
+      userId,
+      preference: ProductAnalyticsPreference.Disabled,
+      expectedRevision: 2,
+      operationId,
+    });
 
     assert.equal(first?.outcome, ProductAnalyticsPreferenceUpdateOutcome.Updated);
     assert.equal(first?.record.preference, ProductAnalyticsPreference.Disabled);
     assert.equal(first?.record.revision, 2);
     assert.ok(first?.record.updatedAt);
     assert.deepEqual(duplicate, first);
+    assert.equal(mismatchedPreference?.outcome, ProductAnalyticsPreferenceUpdateOutcome.Conflict);
+    assert.deepEqual(mismatchedPreference?.record, first?.record);
+    assert.equal(mismatchedRevision?.outcome, ProductAnalyticsPreferenceUpdateOutcome.Conflict);
+    assert.deepEqual(mismatchedRevision?.record, first?.record);
     const stored = await repo.findById(userId);
     assert.equal(stored?.productAnalyticsPreferenceLastOperationId, operationId);
     assert.equal(stored?.updatedAt.toISOString(), first?.record.updatedAt.toISOString());
@@ -167,6 +183,7 @@ describe("UserRepository", () => {
     const secondCreatedAt = new Date("2026-05-02T10:00:00.000Z");
     const firstId = new ObjectId();
     const secondId = new ObjectId();
+    const lastOperationMissingId = new ObjectId();
     await users.insertMany([
       {
         _id: firstId,
@@ -181,10 +198,19 @@ describe("UserRepository", () => {
         updatedAt: secondCreatedAt,
         productAnalyticsPreference: ProductAnalyticsPreference.Disabled,
       },
+      {
+        _id: lastOperationMissingId,
+        tokenVersion: 0,
+        createdAt: secondCreatedAt,
+        updatedAt: secondCreatedAt,
+        productAnalyticsPreference: ProductAnalyticsPreference.Enabled,
+        productAnalyticsPreferenceUpdatedAt: secondCreatedAt,
+        productAnalyticsPreferenceRevision: 1,
+      },
     ]);
 
-    assert.equal(await repo.countUsersMissingProductAnalyticsPreference(), 2);
-    assert.deepEqual(await repo.backfillProductAnalyticsPreference(), { matchedCount: 2, modifiedCount: 2 });
+    assert.equal(await repo.countUsersMissingProductAnalyticsPreference(), 3);
+    assert.deepEqual(await repo.backfillProductAnalyticsPreference(), { matchedCount: 3, modifiedCount: 3 });
     assert.equal(await repo.countUsersMissingProductAnalyticsPreference(), 0);
     assert.deepEqual(await repo.findProductAnalyticsPreference({ userId: firstId.toHexString() }), {
       preference: ProductAnalyticsPreference.Enabled,
@@ -196,6 +222,10 @@ describe("UserRepository", () => {
       updatedAt: secondCreatedAt,
       revision: 1,
     });
+    assert.equal(
+      (await repo.findById(lastOperationMissingId.toHexString()))?.productAnalyticsPreferenceLastOperationId,
+      null,
+    );
     assert.deepEqual(await repo.backfillProductAnalyticsPreference(), { matchedCount: 0, modifiedCount: 0 });
   });
 

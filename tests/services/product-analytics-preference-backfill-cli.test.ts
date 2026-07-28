@@ -75,6 +75,7 @@ describe("product analytics preference backfill CLI", () => {
     assert.equal(backfilled?.productAnalyticsPreference, ProductAnalyticsPreference.Enabled);
     assert.equal(backfilled?.productAnalyticsPreferenceUpdatedAt?.toISOString(), createdAt.toISOString());
     assert.equal(backfilled?.productAnalyticsPreferenceRevision, 1);
+    assert.equal(backfilled?.productAnalyticsPreferenceLastOperationId, null);
 
     assert.equal(
       await runProductAnalyticsPreferenceBackfillCli({ argv: ["--apply"], env: { MONGODB_URI: mongodbUri } }),
