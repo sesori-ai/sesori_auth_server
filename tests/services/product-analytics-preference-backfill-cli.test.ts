@@ -12,6 +12,7 @@ import { createTestApp, type TestContext } from "../helpers/setup.js";
 
 describe("product analytics preference backfill CLI", () => {
   let ctx: TestContext;
+  let logCalls: unknown[][];
 
   before(async () => {
     ctx = await createTestApp();
@@ -22,7 +23,10 @@ describe("product analytics preference backfill CLI", () => {
   });
 
   beforeEach(() => {
-    mock.method(console, "log", () => {});
+    logCalls = [];
+    mock.method(console, "log", (...args: unknown[]) => {
+      logCalls.push(args);
+    });
     mock.method(console, "error", () => {});
   });
 
@@ -34,15 +38,20 @@ describe("product analytics preference backfill CLI", () => {
     assert.deepEqual(parseProductAnalyticsPreferenceBackfillArgs({ argv: [] }), {
       apply: false,
       help: false,
+      batchLimit: 500,
     });
-    assert.deepEqual(parseProductAnalyticsPreferenceBackfillArgs({ argv: ["--apply"] }), {
+    assert.deepEqual(parseProductAnalyticsPreferenceBackfillArgs({ argv: ["--apply", "--batch-limit=25"] }), {
       apply: true,
       help: false,
+      batchLimit: 25,
     });
     assert.deepEqual(parseProductAnalyticsPreferenceBackfillArgs({ argv: ["--help"] }), {
       apply: false,
       help: true,
+      batchLimit: 500,
     });
+    assert.throws(() => parseProductAnalyticsPreferenceBackfillArgs({ argv: ["--batch-limit=0"] }), /batch-limit/);
+    assert.throws(() => parseProductAnalyticsPreferenceBackfillArgs({ argv: ["--batch-limit=1001"] }), /batch-limit/);
     assert.throws(() => parseProductAnalyticsPreferenceBackfillArgs({ argv: ["--unknown"] }), /Unknown argument/);
   });
 
@@ -52,34 +61,53 @@ describe("product analytics preference backfill CLI", () => {
   });
 
   it("counts without writing, applies idempotently, and validates zero missing", async () => {
-    const userId = new ObjectId();
+    const userIds = [new ObjectId(), new ObjectId(), new ObjectId()];
     const createdAt = new Date("2026-05-20T10:00:00.000Z");
     const users = ctx.dbAccessor.getCollection<User>(MongoDbDatabase.Auth, AuthDbCollection.Users);
-    await users.insertOne({
-      _id: userId,
-      tokenVersion: 0,
-      createdAt,
-      updatedAt: createdAt,
-    });
+    await users.insertMany(
+      userIds.map((_id) => ({
+        _id,
+        tokenVersion: 0,
+        createdAt,
+        updatedAt: createdAt,
+      })),
+    );
     const mongodbUri = process.env.MONGODB_URI;
     assert.ok(mongodbUri);
 
     assert.equal(await runProductAnalyticsPreferenceBackfillCli({ argv: [], env: { MONGODB_URI: mongodbUri } }), 1);
-    assert.equal((await users.findOne({ _id: userId }))?.productAnalyticsPreference, undefined);
+    assert.equal((await users.findOne({ _id: userIds[0] }))?.productAnalyticsPreference, undefined);
 
     assert.equal(
-      await runProductAnalyticsPreferenceBackfillCli({ argv: ["--apply"], env: { MONGODB_URI: mongodbUri } }),
+      await runProductAnalyticsPreferenceBackfillCli({
+        argv: ["--apply", "--batch-limit=1"],
+        env: { MONGODB_URI: mongodbUri },
+      }),
       0,
     );
-    const backfilled = await users.findOne({ _id: userId });
+    const backfilled = await users.findOne({ _id: userIds[0] });
     assert.equal(backfilled?.productAnalyticsPreference, ProductAnalyticsPreference.Enabled);
     assert.equal(backfilled?.productAnalyticsPreferenceUpdatedAt?.toISOString(), createdAt.toISOString());
     assert.equal(backfilled?.productAnalyticsPreferenceRevision, 1);
     assert.equal(backfilled?.productAnalyticsPreferenceLastOperationId, null);
+    const batchProgress = logCalls.filter(
+      (call) =>
+        call[0] === "[ProductAnalyticsPreferenceBackfill] Batch completed" &&
+        (call[1] as { mode?: string } | undefined)?.mode === "apply",
+    );
+    assert.equal(batchProgress.length, 3);
+    assert.deepEqual(batchProgress[2]?.[1], {
+      mode: "apply",
+      batchesCompleted: 3,
+      usersFound: 3,
+      matchedCount: 3,
+      modifiedCount: 3,
+    });
 
     assert.equal(
       await runProductAnalyticsPreferenceBackfillCli({ argv: ["--apply"], env: { MONGODB_URI: mongodbUri } }),
       0,
     );
+    assert.equal(await users.countDocuments({ productAnalyticsPreference: ProductAnalyticsPreference.Enabled }), 3);
   });
 });

@@ -19,6 +19,8 @@ export type ProductAnalyticsPreferenceBackfillResult = {
   modifiedCount: number;
 };
 
+export const productAnalyticsPreferenceBackfillMaxBatchLimit = 1_000;
+
 const missingProductAnalyticsPreferenceFilter: Filter<User> = {
   $or: [
     { productAnalyticsPreference: { $exists: false } },
@@ -181,29 +183,73 @@ export class UserRepository {
     };
   }
 
-  async countUsersMissingProductAnalyticsPreference(): Promise<number> {
-    return this.#collection.countDocuments(missingProductAnalyticsPreferenceFilter);
+  async findProductAnalyticsPreferenceBackfillBatch(input: {
+    afterUserId: string | null;
+    batchLimit: number;
+  }): Promise<string[]> {
+    if (
+      !Number.isSafeInteger(input.batchLimit) ||
+      input.batchLimit < 1 ||
+      input.batchLimit > productAnalyticsPreferenceBackfillMaxBatchLimit
+    ) {
+      throw new InternalServerError({ debugMessage: "Invalid preference backfill batch limit" });
+    }
+    if (input.afterUserId !== null && !ObjectId.isValid(input.afterUserId)) {
+      throw new InternalServerError({ debugMessage: "Invalid preference backfill cursor" });
+    }
+
+    const users = await this.#collection
+      .find(
+        {
+          ...missingProductAnalyticsPreferenceFilter,
+          ...(input.afterUserId === null ? {} : { _id: { $gt: new ObjectId(input.afterUserId) } }),
+        },
+        { projection: { _id: 1 } },
+      )
+      .sort({ _id: 1 })
+      .limit(input.batchLimit)
+      .toArray();
+    return users.map((user) => user._id.toHexString());
   }
 
-  async backfillProductAnalyticsPreference(): Promise<ProductAnalyticsPreferenceBackfillResult> {
-    const result = await this.#collection.updateMany(missingProductAnalyticsPreferenceFilter, [
+  async backfillProductAnalyticsPreferenceBatch(input: {
+    userIds: string[];
+  }): Promise<ProductAnalyticsPreferenceBackfillResult> {
+    if (input.userIds.length < 1 || input.userIds.length > productAnalyticsPreferenceBackfillMaxBatchLimit) {
+      throw new InternalServerError({ debugMessage: "Invalid preference backfill batch size" });
+    }
+    if (input.userIds.some((userId) => !ObjectId.isValid(userId))) {
+      throw new InternalServerError({ debugMessage: "Invalid preference backfill user ID" });
+    }
+
+    const result = await this.#collection.updateMany(
       {
-        $set: {
-          productAnalyticsPreference: {
-            $ifNull: ["$productAnalyticsPreference", ProductAnalyticsPreference.Enabled],
-          },
-          productAnalyticsPreferenceUpdatedAt: {
-            $ifNull: ["$productAnalyticsPreferenceUpdatedAt", "$createdAt"],
-          },
-          productAnalyticsPreferenceRevision: {
-            $ifNull: ["$productAnalyticsPreferenceRevision", 1],
-          },
-          productAnalyticsPreferenceLastOperationId: {
-            $ifNull: ["$productAnalyticsPreferenceLastOperationId", null],
+        ...missingProductAnalyticsPreferenceFilter,
+        _id: { $in: input.userIds.map((userId) => new ObjectId(userId)) },
+      },
+      [
+        {
+          $set: {
+            productAnalyticsPreference: {
+              $cond: [
+                { $ne: [{ $ifNull: ["$productAnalyticsExportSuppressedAt", null] }, null] },
+                ProductAnalyticsPreference.Disabled,
+                { $ifNull: ["$productAnalyticsPreference", ProductAnalyticsPreference.Enabled] },
+              ],
+            },
+            productAnalyticsPreferenceUpdatedAt: {
+              $ifNull: ["$productAnalyticsPreferenceUpdatedAt", "$createdAt"],
+            },
+            productAnalyticsPreferenceRevision: {
+              $ifNull: ["$productAnalyticsPreferenceRevision", 1],
+            },
+            productAnalyticsPreferenceLastOperationId: {
+              $ifNull: ["$productAnalyticsPreferenceLastOperationId", null],
+            },
           },
         },
-      },
-    ]);
+      ],
+    );
     return { matchedCount: result.matchedCount, modifiedCount: result.modifiedCount };
   }
 

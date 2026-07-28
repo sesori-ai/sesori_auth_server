@@ -184,6 +184,8 @@ describe("UserRepository", () => {
     const firstId = new ObjectId();
     const secondId = new ObjectId();
     const lastOperationMissingId = new ObjectId();
+    const suppressedId = new ObjectId();
+    const suppressedAt = new Date("2026-06-01T10:00:00.000Z");
     await users.insertMany([
       {
         _id: firstId,
@@ -207,11 +209,34 @@ describe("UserRepository", () => {
         productAnalyticsPreferenceUpdatedAt: secondCreatedAt,
         productAnalyticsPreferenceRevision: 1,
       },
+      {
+        _id: suppressedId,
+        tokenVersion: 0,
+        createdAt: secondCreatedAt,
+        updatedAt: secondCreatedAt,
+        productAnalyticsExportSuppressedAt: suppressedAt,
+      },
     ]);
 
-    assert.equal(await repo.countUsersMissingProductAnalyticsPreference(), 3);
-    assert.deepEqual(await repo.backfillProductAnalyticsPreference(), { matchedCount: 3, modifiedCount: 3 });
-    assert.equal(await repo.countUsersMissingProductAnalyticsPreference(), 0);
+    const firstBatch = await repo.findProductAnalyticsPreferenceBackfillBatch({
+      afterUserId: null,
+      batchLimit: 2,
+    });
+    const secondBatch = await repo.findProductAnalyticsPreferenceBackfillBatch({
+      afterUserId: firstBatch[1],
+      batchLimit: 2,
+    });
+    assert.equal(firstBatch.length, 2);
+    assert.equal(secondBatch.length, 2);
+    assert.deepEqual(await repo.backfillProductAnalyticsPreferenceBatch({ userIds: firstBatch }), {
+      matchedCount: 2,
+      modifiedCount: 2,
+    });
+    assert.deepEqual(await repo.backfillProductAnalyticsPreferenceBatch({ userIds: secondBatch }), {
+      matchedCount: 2,
+      modifiedCount: 2,
+    });
+    assert.deepEqual(await repo.findProductAnalyticsPreferenceBackfillBatch({ afterUserId: null, batchLimit: 2 }), []);
     assert.deepEqual(await repo.findProductAnalyticsPreference({ userId: firstId.toHexString() }), {
       preference: ProductAnalyticsPreference.Enabled,
       updatedAt: firstCreatedAt,
@@ -226,7 +251,27 @@ describe("UserRepository", () => {
       (await repo.findById(lastOperationMissingId.toHexString()))?.productAnalyticsPreferenceLastOperationId,
       null,
     );
-    assert.deepEqual(await repo.backfillProductAnalyticsPreference(), { matchedCount: 0, modifiedCount: 0 });
+    const suppressed = await repo.findById(suppressedId.toHexString());
+    assert.equal(suppressed?.productAnalyticsPreference, ProductAnalyticsPreference.Disabled);
+    assert.equal(suppressed?.productAnalyticsExportSuppressedAt?.toISOString(), suppressedAt.toISOString());
+  });
+
+  it("rejects unsafe product analytics preference backfill batch inputs", async () => {
+    await assert.rejects(
+      () => repo.findProductAnalyticsPreferenceBackfillBatch({ afterUserId: null, batchLimit: 0 }),
+      (error: unknown) =>
+        error instanceof InternalServerError && error.debugMessage === "Invalid preference backfill batch limit",
+    );
+    await assert.rejects(
+      () => repo.findProductAnalyticsPreferenceBackfillBatch({ afterUserId: "invalid", batchLimit: 1 }),
+      (error: unknown) =>
+        error instanceof InternalServerError && error.debugMessage === "Invalid preference backfill cursor",
+    );
+    await assert.rejects(
+      () => repo.backfillProductAnalyticsPreferenceBatch({ userIds: ["invalid"] }),
+      (error: unknown) =>
+        error instanceof InternalServerError && error.debugMessage === "Invalid preference backfill user ID",
+    );
   });
 
   it("iterates user ids in stable bounded batches", async () => {

@@ -88,6 +88,35 @@ The newer flow keeps the client in control of when tokens are issued. The client
 | `POST` | `/auth/revoke`     | Bearer | Revoke refresh tokens (token version) and soft-revoke all registered bridges |
 | `GET`  | `/auth/public-key` | No     | Get RS256 public key (PEM) — used by relay for JWT verification |
 
+### Product analytics preference
+
+These dedicated endpoints keep product state out of auth profiles, tokens, and
+login/refresh responses. New accounts start at `enabled`, revision `1`.
+
+| Method | Path                            | Auth   | Description |
+| ------ | ------------------------------- | ------ | ----------- |
+| `GET`  | `/product-analytics/preference` | Bearer | Returns `{ "preference": "enabled" | "disabled", "revision": number }`. |
+| `PUT`  | `/product-analytics/preference` | Bearer | Compare-and-set update with `{ "preference": "enabled" | "disabled", "expectedRevision": number, "operationId": uuid }`. |
+
+A successful PUT returns the same shape as GET with the incremented revision.
+Repeating the same operation ID with the same preference and original expected
+revision returns the committed result without another increment. A stale
+revision, mismatched operation-ID reuse, or attempted re-enable after permanent
+export suppression returns HTTP `409` with the current state:
+
+```json
+{
+  "error": "conflict",
+  "preference": "disabled",
+  "revision": 2
+}
+```
+
+`productAnalyticsExportSuppressedAt` is a permanent privacy-deletion tombstone,
+not an ordinary opt-out. Reads are forced to `disabled`, re-enable requests
+conflict, and the migration backfill persists `disabled` when that tombstone is
+present. There is no public endpoint that creates or clears the tombstone.
+
 ### Bridges
 
 Bridges authenticate with the user's access token everywhere (relay included) — there are no bridge-specific tokens. The API returns `BridgeSummary` objects (`id`, `name`, `platform`, `addedAt`, `lastSeenAt`); per-bridge connection status is tracked internally for push notifications but never exposed.
@@ -155,6 +184,38 @@ The command fixes its cohort at startup, so accounts created while it runs conti
 
 The backfill itself sends no notifications. Delivery still requires the default-off activation reminder scheduler to be enabled on exactly one server instance; monitor `[ActivationBackfill]` and `[ActivationReminderService]` logs during rollout.
 
+## Product analytics preference rollout
+
+This is a write-first migration. Deploy the version that writes all preference
+fields on every new account to every serving instance before applying the
+backfill. The command pages candidates in `_id` order, limits each read/write
+batch, logs cumulative progress, and writes only when `--apply` is present.
+The default batch limit is 500 and the maximum is 1000.
+
+```bash
+# Validate only. This exits nonzero while any legacy account is incomplete.
+sops exec-env env/app/prod.env \
+  'npm run backfill-product-analytics-preference -- --batch-limit 500'
+
+# Apply bounded, idempotent batches.
+sops exec-env env/app/prod.env \
+  'npm run backfill-product-analytics-preference -- --apply --batch-limit 500'
+
+# Validate again after apply; repeat this check before enforcing the schema.
+sops exec-env env/app/prod.env \
+  'npm run backfill-product-analytics-preference -- --batch-limit 500'
+```
+
+Before Step 2 enforcement, verify newly created users contain
+`productAnalyticsPreference`, `productAnalyticsPreferenceUpdatedAt`,
+`productAnalyticsPreferenceRevision: 1`, and
+`productAnalyticsPreferenceLastOperationId: null`. Then require
+the validation report to show `usersFound: 0` and `missingAfter: 0` on repeated
+runs. Do not enforce the required schema based only on a successful apply exit.
+Apply mode is safe to rerun after interruption: it preserves existing values,
+fills only missing migration fields, and keeps permanently suppressed accounts
+disabled.
+
 ## npm scripts
 
 | Script                    | Description                                               |
@@ -170,6 +231,7 @@ The backfill itself sends no notifications. Delivery still requires the default-
 | `npm run env:edit`        | Edit encrypted env in `$EDITOR`                           |
 | `npm run env:update-keys` | Re-encrypt all env files after adding a team member's key |
 | `npm run backfill-activation` | Preview activation backfill; pass `-- --apply` to persist |
+| `npm run backfill-product-analytics-preference` | Validate preference migration; pass `-- --apply` to persist bounded batches |
 
 ## Project structure
 

@@ -71,6 +71,45 @@ describe("Product analytics preference routes", () => {
     assert.deepEqual(response.json(), { preference: ProductAnalyticsPreference.Enabled, revision: 1 });
   });
 
+  it("keeps a permanently export-suppressed account disabled", async () => {
+    const user = await ctx.createUser();
+    const users = ctx.dbAccessor.getCollection<User>(MongoDbDatabase.Auth, AuthDbCollection.Users);
+    await users.updateOne(
+      { _id: new ObjectId(user.userId) },
+      {
+        $set: {
+          productAnalyticsPreference: ProductAnalyticsPreference.Disabled,
+          productAnalyticsExportSuppressedAt: new Date("2026-07-28T10:00:00.000Z"),
+        },
+      },
+    );
+
+    const getResponse = await ctx.app.inject({
+      method: "GET",
+      url: "/product-analytics/preference",
+      headers: { authorization: `Bearer ${user.accessToken}` },
+    });
+    const putResponse = await ctx.app.inject({
+      method: "PUT",
+      url: "/product-analytics/preference",
+      headers: { authorization: `Bearer ${user.accessToken}`, "content-type": "application/json" },
+      payload: JSON.stringify({
+        preference: ProductAnalyticsPreference.Enabled,
+        expectedRevision: 1,
+        operationId: "88888888-8888-4888-8888-888888888888",
+      }),
+    });
+
+    assert.equal(getResponse.statusCode, 200);
+    assert.deepEqual(getResponse.json(), { preference: ProductAnalyticsPreference.Disabled, revision: 1 });
+    assert.equal(putResponse.statusCode, 409);
+    assert.deepEqual(putResponse.json(), {
+      error: "conflict",
+      preference: ProductAnalyticsPreference.Disabled,
+      revision: 1,
+    });
+  });
+
   it("updates by revision, replays a duplicate operation, and returns stale conflicts", async () => {
     const user = await ctx.createUser();
     const operationId = "22222222-2222-4222-8222-222222222222";
@@ -192,20 +231,32 @@ describe("Product analytics preference routes", () => {
     }
   });
 
-  it("returns not found when the authenticated account no longer exists", async () => {
+  it("returns not found for preference reads and updates when the authenticated account no longer exists", async () => {
     const accessToken = ctx.tokenService.signAccessToken({
       userId: new ObjectId().toHexString(),
       provider: "github",
       providerUserId: "deleted-provider-user",
     });
 
-    const response = await ctx.app.inject({
+    const getResponse = await ctx.app.inject({
       method: "GET",
       url: "/product-analytics/preference",
       headers: { authorization: `Bearer ${accessToken}` },
     });
+    const putResponse = await ctx.app.inject({
+      method: "PUT",
+      url: "/product-analytics/preference",
+      headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+      payload: JSON.stringify({
+        preference: ProductAnalyticsPreference.Disabled,
+        expectedRevision: 1,
+        operationId: "99999999-9999-4999-8999-999999999999",
+      }),
+    });
 
-    assert.equal(response.statusCode, 404);
-    assert.deepEqual(response.json(), { error: "not_found" });
+    assert.equal(getResponse.statusCode, 404);
+    assert.deepEqual(getResponse.json(), { error: "not_found" });
+    assert.equal(putResponse.statusCode, 404);
+    assert.deepEqual(putResponse.json(), { error: "not_found" });
   });
 });
