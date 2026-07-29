@@ -1,0 +1,73 @@
+import { InternalServerError } from "../lib/errors.js";
+import {
+  ProductAnalyticsDeletionTargetStatus,
+  type ProductAnalyticsDeletionTarget,
+} from "../models/product-analytics-export.js";
+import { productAnalyticsDeletionRequestIdSchema, productAnalyticsUserKeySchema } from "../types/product-analytics.js";
+
+type ProductAnalyticsDeletionTargetDataApi = {
+  findByRequestId(input: { requestId: string }): Promise<ProductAnalyticsDeletionTarget | null>;
+  upsert(input: { target: ProductAnalyticsDeletionTarget }): Promise<void>;
+};
+
+export class ProductAnalyticsDeletionTargetRepository {
+  readonly #api: ProductAnalyticsDeletionTargetDataApi;
+
+  constructor(deps: { api: ProductAnalyticsDeletionTargetDataApi }) {
+    this.#api = deps.api;
+  }
+
+  async handoff(input: {
+    requestId: string;
+    userKey: string;
+    legacyFirebaseUserId: string;
+    suppressedAt: Date;
+  }): Promise<ProductAnalyticsDeletionTarget> {
+    if (
+      !productAnalyticsDeletionRequestIdSchema.safeParse(input.requestId).success ||
+      !productAnalyticsUserKeySchema.safeParse(input.userKey).success ||
+      !productAnalyticsUserKeySchema.safeParse(input.legacyFirebaseUserId).success ||
+      Number.isNaN(input.suppressedAt.getTime())
+    ) {
+      throw new InternalServerError({ debugMessage: "Invalid product analytics deletion target" });
+    }
+
+    const existing = await this.#api.findByRequestId({ requestId: input.requestId });
+    if (existing) {
+      if (
+        existing.userKey !== input.userKey ||
+        existing.legacyFirebaseUserId !== input.legacyFirebaseUserId ||
+        existing.suppressedAt.getTime() !== input.suppressedAt.getTime()
+      ) {
+        throw new InternalServerError({ debugMessage: "Product analytics deletion request ID collision" });
+      }
+      return existing;
+    }
+
+    const target: ProductAnalyticsDeletionTarget = {
+      requestId: input.requestId,
+      userKey: input.userKey,
+      legacyFirebaseUserId: input.legacyFirebaseUserId,
+      suppressedAt: input.suppressedAt,
+      status: ProductAnalyticsDeletionTargetStatus.Pending,
+    };
+    await this.#api.upsert({ target });
+    const committed = await this.#api.findByRequestId({ requestId: input.requestId });
+    if (
+      !committed ||
+      committed.userKey !== input.userKey ||
+      committed.legacyFirebaseUserId !== input.legacyFirebaseUserId ||
+      committed.suppressedAt.getTime() !== input.suppressedAt.getTime()
+    ) {
+      throw new InternalServerError({ debugMessage: "Product analytics deletion target handoff failed" });
+    }
+    return committed;
+  }
+
+  async findStatus(input: { requestId: string }): Promise<ProductAnalyticsDeletionTargetStatus | null> {
+    if (!productAnalyticsDeletionRequestIdSchema.safeParse(input.requestId).success) {
+      throw new InternalServerError({ debugMessage: "Invalid product analytics deletion request ID" });
+    }
+    return (await this.#api.findByRequestId(input))?.status ?? null;
+  }
+}

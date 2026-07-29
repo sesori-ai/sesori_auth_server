@@ -69,8 +69,11 @@ jobs:
           JWT_PUBLIC_KEY=$(awk 'NR>1{printf "\\n"}{printf "%s",$0}' /tmp/public.pem)
           echo "::add-mask::$JWT_PRIVATE_KEY"
           echo "::add-mask::$JWT_PUBLIC_KEY"
+          PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY=$(openssl rand -base64 32)
+          echo "::add-mask::$PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY"
           echo "JWT_PRIVATE_KEY=$JWT_PRIVATE_KEY" >> "$GITHUB_ENV"
           echo "JWT_PUBLIC_KEY=$JWT_PUBLIC_KEY" >> "$GITHUB_ENV"
+          echo "PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY=$PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY" >> "$GITHUB_ENV"
           rm /tmp/private.pem /tmp/public.pem
 
       - name: Generate fake FCM credentials
@@ -93,6 +96,7 @@ jobs:
             -e GOOGLE_CLIENT_SECRET=ci-test \
             -e ALLOWED_REDIRECT_URIS=http://localhost:3000/callback \
             -e RELAY_URL=ws://localhost:8080 \
+            -e "PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY=$PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY" \
             -e OPENAI_API_KEY=ci-test \
             -e "FCM_SA_JSON=$FCM_SA_JSON" \
             -e APPLE_CLIENT_ID=ci-test \

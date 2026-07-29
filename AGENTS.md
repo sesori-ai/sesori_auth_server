@@ -15,6 +15,7 @@ src/
 │   │   ├── github-client.ts  # GithubClient extends OAuthClient
 │   │   └── google-client.ts  # GoogleClient extends OAuthClient (JWKS verification)
 │   └── openai-client.ts      # OpenAI transcription client
+├── api/               # Typed adapters translating external SDK values/errors into local models
 ├── db/
 │   ├── mongo-db-connector.ts  # MongoDbConnector — connection lifecycle, health check
 │   └── mongo-db-accessor.ts   # MongoDbAccessor — generic DB access + config-driven ensureIndexes
@@ -48,7 +49,7 @@ src/
 | Add DB collection          | `src/types/mongo.ts` + `src/db/mongo-db-accessor.ts`                                                                                    | Add to AuthDbCollection enum + DATABASE_CONFIG                                              |
 | Auth middleware            | `src/middleware/auth.ts`                                                                                                                | `createAuthMiddleware(tokenService)` factory                                                |
 | Manage bridges             | `src/routes/bridges.ts` + `src/services/bridge-service.ts` + `src/repositories/bridge-repo.ts` + `src/services/bridge-state-tracker.ts` | Per-bridge registry behind `/auth/me bridges[]`; see BRIDGE SUBSYSTEM below                 |
-| Product analytics preference | `src/types/product-analytics.ts`, `src/models/{documents,api}.ts`, `src/repositories/user-repo.ts`, `src/services/product-analytics-preference-service.ts`, `src/routes/product-analytics.ts`, `src/scripts/backfill-product-analytics-preference.ts` | Dedicated versioned GET/PUT state and write-first migration; see README rollout procedure |
+| Product analytics preference/export/deletion | `src/types/product-analytics.ts`, `src/models/{documents,api,product-analytics-export}.ts`, `src/clients/bigquery-product-analytics-*.ts`, `src/api/product-analytics-*.ts`, `src/repositories/{user-repo,product-analytics-*}.ts`, `src/services/product-analytics-*.ts`, `src/routes/product-analytics.ts`, `src/scripts/{backfill-product-analytics-preference,export-product-analytics,suppress-product-analytics-export}.ts` | Required revisioned preference, isolated auth-private export, and separately permissioned privacy-target handoff; see README rollout and IAM boundaries |
 | Activation reminders       | `.plans/activation-reminders/` + `src/services/activation-reminder-service.ts` + `src/repositories/activation-state-repo.ts`            | Read `PLAN.md` and `CONSIDERATIONS.md` before continuing the staged implementation          |
 | Wire dependencies          | `src/index.ts`                                                                                                                          | Composition root — all instantiation happens here                                           |
 
@@ -92,7 +93,7 @@ Push notifications debounce through `BridgeStateTracker` (120s), keyed per bridg
 - **No Mongoose / ODM** — raw MongoDB driver only
 - **No `as any`** — TypeScript strict mode, `@typescript-eslint/no-explicit-any: warn`
 - **No unvalidated input** — every request body/param goes through Zod
-- **No plaintext secrets** — use `npm run env:edit` to modify encrypted env, `npm run start:local` to run with SOPS
+- **No plaintext secrets** — `env/app/prod.env` is the SOPS-encrypted production environment. Use `npm run env:edit` to modify it and `npm run start:prod` only when production-backed local execution is explicitly intended.
 - **No ObjectId in services/routes** — string IDs above repository layer, repos convert at boundary
 - **Never amend commits** — always create new follow-up commits. Amending erases audit trail and makes PR reviews impossible. Force-push is only acceptable for fixing sensitive data leaks.
 
@@ -117,7 +118,7 @@ See `src/repositories/password-account-repo.ts` for the schema. Do not enable th
 
 ```bash
 npm install                    # Install deps
-npm run start:local            # Start with SOPS-decrypted local env
+npm run start:prod             # Start locally with SOPS-decrypted production env
 npm run dev                    # Start with file watching
 npm test                       # Run tests (needs MongoDB)
 npm run build                  # TypeScript compile to dist/
@@ -125,6 +126,6 @@ npm run lint                   # ESLint
 npm run format:check           # Prettier check
 npm run circular-dependencies  # Check for circular imports (madge)
 npm run env:init               # First-time SOPS/age setup
-npm run env:edit               # Edit encrypted env in $EDITOR
+npm run env:edit               # Edit encrypted production env in $EDITOR
 npm run env:update-keys        # Re-encrypt after adding team member
 ```

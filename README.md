@@ -20,27 +20,27 @@ Authentication service for [Sesori Mobile App](https://github.com/sesori-ai/seso
 | JWT        | RS256 asymmetric (jsonwebtoken)   |
 | Secrets    | SOPS + age encrypted env files    |
 
-## Quick start
+## Production environment setup
+
+> **Warning:** The tracked SOPS file is `env/app/prod.env` and contains
+> production credentials. Commands that load it can affect deployed production
+> data and services. Do not treat this as an isolated local-development
+> environment.
 
 ```bash
-# Prerequisites: Node.js 22+, MongoDB running on localhost:27017
+# Prerequisites: Node.js 22+ and authorized SOPS/age access
 
 # Install dependencies
 npm install
 
-# Generate RSA keys for JWT signing
-mkdir -p keys
-openssl genrsa -out keys/private.pem 2048
-openssl rsa -in keys/private.pem -pubout -out keys/public.pem
-
 # Set up encrypted environment (first time only)
 npm run env:init
 
-# Edit secrets (opens encrypted file in $EDITOR)
+# Edit production secrets (opens env/app/prod.env in $EDITOR)
 npm run env:edit
 
-# Start the server (decrypts env inline via sops)
-npm run start:local
+# Start locally with production configuration; this can mutate production data
+npm run start:prod
 ```
 
 ## API endpoints
@@ -95,7 +95,7 @@ login/refresh responses. New accounts start at `enabled`, revision `1`.
 
 | Method | Path                            | Auth   | Description |
 | ------ | ------------------------------- | ------ | ----------- |
-| `GET`  | `/product-analytics/preference` | Bearer | Returns `{ "preference": "enabled" | "disabled", "revision": number }`. |
+| `GET`  | `/product-analytics/preference` | Bearer | Returns `{ "preference": "enabled" | "disabled", "revision": number, "userKey": string }`; `userKey` is the server-derived pseudonymous identity for enabled client events. |
 | `PUT`  | `/product-analytics/preference` | Bearer | Compare-and-set update with `{ "preference": "enabled" | "disabled", "expectedRevision": number, "operationId": uuid }`. |
 
 A successful PUT returns the same shape as GET with the incremented revision.
@@ -108,7 +108,8 @@ export suppression returns HTTP `409` with the current state:
 {
   "error": "conflict",
   "preference": "disabled",
-  "revision": 2
+  "revision": 2,
+  "userKey": "<64-character lowercase HMAC>"
 }
 ```
 
@@ -153,6 +154,7 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 | `PENDING_AUTH_MAX_SESSIONS`    | Max concurrent pending OAuth sessions in-memory. Default `10000` (~10 MB).                                                                                                                  |
 | `PENDING_AUTH_POLL_TIMEOUT_MS` | Max long-poll duration on `/auth/session/status`. Default `30000`.                                                                                                                          |
 | `RELAY_WEBHOOK_SECRET`         | Shared secret authenticating the relay on `/internal/*` endpoints.                                                                                                                          |
+| `PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY` | Canonical base64 for at least 32 random bytes. The web/export/suppression runtimes must use the same long-lived key to derive stable HMAC user keys. |
 | `ACTIVATION_REMINDERS_ENABLED` | Master switch for activation reminder polling. Default `false`. Enable on only one server instance until distributed leasing exists.                                                         |
 | `ACTIVATION_SWEEP_INTERVAL_MS` | Reminder polling interval in milliseconds. Default `900000` (15 minutes).                                                                                                                    |
 | `ACTIVATION_BRIDGE_REMINDER_1_DELAY_MS` | Delay from the bridge reminder baseline to the first bridge reminder. Default `7200000` (2 hours).                                                                                           |
@@ -216,22 +218,130 @@ Apply mode is safe to rerun after interruption: it preserves existing values,
 fills only missing migration fields, and keeps permanently suppressed accounts
 disabled.
 
+The enforcing server now fails startup if any required preference field is
+missing or a permanently suppressed account is still stored as enabled. Deploy
+it only after the write-first version is live everywhere and repeated validation
+reports zero candidates. Roll back to the write-first release—not an older
+schema—if enforcement must be reverted.
+
+This version also requires `PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY` at web
+startup because the authenticated preference API returns the server-derived
+HMAC user key. Configure the shared secret before merge/auto-deploy; do not let
+the web, export, and suppression runtimes receive different values.
+
+## Product analytics auth export
+
+The one-shot auth export is isolated from the web process and is intended for a
+least-privileged daily Cloud Run Job. The web server never constructs BigQuery
+clients. The job uses Application Default Credentials and accepts only its
+auth-private dataset plus one fully qualified, read-only internal-exclusion
+view:
+
+- `PRODUCT_ANALYTICS_GCP_PROJECT_ID`
+- `PRODUCT_ANALYTICS_AUTH_DATASET_ID`
+- `PRODUCT_ANALYTICS_INTERNAL_EXCLUSION_VIEW`
+- `PRODUCT_ANALYTICS_BIGQUERY_LOCATION`
+- `PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY`
+- optional `PRODUCT_ANALYTICS_EXPORT_BATCH_LIMIT` (default 500, maximum 1000)
+- optional `PRODUCT_ANALYTICS_INTERNAL_EXCLUSION_MAX_KEYS` (default 10000, maximum 100000)
+- optional `PRODUCT_ANALYTICS_INTERNAL_EXCLUSION_MAX_AGE_MS` (default 48 hours)
+- `MONGODB_URI`
+
+Generate the pseudonymization key once with `openssl rand -base64 32`, store it
+as a secret, and provide the exact same value to the web, export, and suppression
+runtimes. It is an HMAC key, not a public salt. Do not rotate it without a
+coordinated re-key migration for client events, auth snapshots, and deletion
+targets; a mismatched key breaks privacy joins.
+
+The control view must return `user_key`, `is_active`, and a common
+`control_updated_at`. It must include one row with a nullable `user_key` as a
+freshness sentinel even when there are no active exclusions. Missing, stale,
+malformed, duplicate, or oversized controls abort publication. The job stages
+only pseudonymous/aggregate rows in tables expiring within 24 hours, reconciles
+late preference changes, validates both products, and transactionally replaces
+`auth_user_milestones` and `auth_weekly_setup_cohorts`. Failed runs leave the
+previous publication intact. The same transaction appends aggregate source,
+exclusion, reconciliation, cutoff, and freshness metadata to
+`product_analytics_export_runs`; it contains no source account identifiers.
+
+The deployment identity—not the export job—must provision and own the permanent
+schemas for `auth_user_milestones`, `auth_weekly_setup_cohorts`,
+`product_analytics_export_runs`, and the singleton
+`product_analytics_export_state`. At startup the job requires exact schemas,
+then acquires a distributed lease in the state table. Promotion verifies lease
+ownership and a strictly newer `run_cutoff` in the same transaction, preventing
+an older or overlapping run from republishing stale privacy state. The runtime
+creates only expiring staging tables.
+
+The final preference pass records its start as `preference_scan_cutoff` and
+conservatively scans every current preference timestamp after `run_cutoff`
+without an upper bound. This is deliberate: a later write cannot hide an
+earlier in-window change when Mongo stores only the latest timestamp. A change
+after scan start may be excluded early when observed; otherwise it belongs to
+the next successful run. An observed source-suppression change aborts. The job
+also reloads the internal control immediately before cohort write/promotion and
+aborts when that snapshot differs; a control update after this final snapshot is
+applied by the next run rather than coordinated through a cross-dataset lock.
+
+Build the production image normally and override its command with:
+
+```bash
+node dist/scripts/export-product-analytics.js
+```
+
+The equivalent source command is `npm run export-product-analytics`. Keep the
+job disabled until the same-location private dataset, authorized exclusion
+view, and split IAM described by the analytics rollout exist. Do not give the
+web identity any BigQuery role or provide service-account JSON keys.
+
+## Permanent product analytics suppression
+
+`npm run suppress-product-analytics-export` is a protected operator command,
+not an HTTP route. Its separate identity needs source suppression access plus
+append/read-status access only to
+`privacy_private.product_analytics_deletion_targets`; it must not receive auth
+export, control, raw-event, curated, or reporting access. Supply a verified
+request as bounded JSON on protected stdin—never argv or shell history:
+
+- `MONGODB_URI`
+- `PRODUCT_ANALYTICS_GCP_PROJECT_ID`
+- `PRODUCT_ANALYTICS_PRIVACY_DATASET_ID`
+- `PRODUCT_ANALYTICS_BIGQUERY_LOCATION`
+- `PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY` (the same long-lived key used by the web and export job)
+
+```json
+{"userId":"<verified Mongo account id>","requestId":"<external privacy request id>"}
+```
+
+The command first atomically disables and permanently tombstones the source
+account, then derives the new HMAC pseudonym plus the deletion-only legacy
+SHA-256 Firebase user ID and hands only those values, the external request ID,
+tombstone time, and pending status to the restricted target table. The legacy
+value exists only so the downstream processor can delete data created before
+the HMAC migration; it must never enter new analytics exports. Output contains
+only request ID and status. If target
+handoff fails, the source tombstone remains and rerunning the same request is
+idempotent. In a production image invoke
+`node dist/scripts/suppress-product-analytics-export.js`. Do not run it before
+the restricted target dataset/table and deletion identity exist.
+
 ## npm scripts
 
 | Script                    | Description                                               |
 | ------------------------- | --------------------------------------------------------- |
-| `npm start`               | Start server (requires `.env` file)                       |
-| `npm run start:local`     | Start with sops-decrypted local env                       |
-| `npm run start:prod`      | Start with sops-decrypted prod env                        |
+| `npm start`               | Start server using the current process environment        |
+| `npm run start:prod`      | Start with SOPS-decrypted production configuration        |
 | `npm run dev`             | Start with file watching                                  |
 | `npm test`                | Run all tests (requires MongoDB)                          |
 | `npm run build`           | TypeScript compile                                        |
 | `npm run env:init`        | First-time sops/age setup                                 |
-| `npm run env:decrypt`     | Decrypt `env/app/local.env` → `.env`                      |
-| `npm run env:edit`        | Edit encrypted env in `$EDITOR`                           |
+| `npm run env:decrypt`     | Decrypt `env/app/prod.env` → plaintext `.env`             |
+| `npm run env:edit`        | Edit encrypted production env in `$EDITOR`                |
 | `npm run env:update-keys` | Re-encrypt all env files after adding a team member's key |
 | `npm run backfill-activation` | Preview activation backfill; pass `-- --apply` to persist |
 | `npm run backfill-product-analytics-preference` | Validate preference migration; pass `-- --apply` to persist bounded batches |
+| `npm run export-product-analytics` | Run one isolated auth-private export using ADC (unscheduled until analytics IAM exists) |
+| `npm run suppress-product-analytics-export` | Read one protected suppression request from stdin and hand off a restricted deletion target |
 
 ## Project structure
 

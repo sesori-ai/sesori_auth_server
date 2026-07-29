@@ -2,6 +2,7 @@ import { Collection, MongoServerError, ObjectId, type Filter, type Sort } from "
 import { MongoDbAccessor } from "../db/mongo-db-accessor.js";
 import { InternalServerError } from "../lib/errors.js";
 import type { ActivationState } from "../models/documents.js";
+import type { ProductAnalyticsActivationMilestones } from "../models/product-analytics-export.js";
 import { AuthDbCollection, MongoDbDatabase } from "../types/mongo.js";
 
 export type ActivationMilestoneUpdate = {
@@ -77,6 +78,42 @@ export class ActivationStateRepository {
       return null;
     }
     return this.#collection.findOne({ userId: new ObjectId(userId) });
+  }
+
+  async findProductAnalyticsMilestonesByUserIds(input: {
+    userIds: string[];
+    runCutoff: Date;
+  }): Promise<Map<string, ProductAnalyticsActivationMilestones>> {
+    if (
+      input.userIds.length < 1 ||
+      input.userIds.length > 1_000 ||
+      input.userIds.some((userId) => !ObjectId.isValid(userId))
+    ) {
+      throw new InternalServerError({ debugMessage: "Invalid product analytics milestone user IDs" });
+    }
+    if (Number.isNaN(input.runCutoff.getTime())) {
+      throw new InternalServerError({ debugMessage: "Invalid product analytics milestone cutoff" });
+    }
+
+    const states = await this.#collection
+      .find(
+        { userId: { $in: input.userIds.map((userId) => new ObjectId(userId)) } },
+        { projection: { userId: 1, mobileSetupAt: 1, bridgeSetupAt: 1, firstSessionAt: 1 } },
+      )
+      .toArray();
+    return new Map(
+      states.map((state) => [
+        state.userId.toHexString(),
+        {
+          notificationRegisteredAt:
+            state.mobileSetupAt && state.mobileSetupAt <= input.runCutoff ? state.mobileSetupAt : null,
+          bridgeRegisteredAt:
+            state.bridgeSetupAt && state.bridgeSetupAt <= input.runCutoff ? state.bridgeSetupAt : null,
+          legacyFirstMetadataRequestAt:
+            state.firstSessionAt && state.firstSessionAt <= input.runCutoff ? state.firstSessionAt : null,
+        },
+      ]),
+    );
   }
 
   async createIfAbsent(userId: string, at = new Date()): Promise<ActivationState> {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { productAnalyticsPseudonymizationKeySchema } from "./types/product-analytics.js";
 
 const appleConfigSchema = z.object({
   APPLE_CLIENT_ID: z.string().min(1, "APPLE_CLIENT_ID is required"),
@@ -38,6 +39,7 @@ const configSchema = z.object({
     .pipe(z.array(z.string().min(1)).min(1)),
   RELAY_URL: z.string().min(1, "RELAY_URL is required"),
   RELAY_WEBHOOK_SECRET: z.string().optional(),
+  PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY: productAnalyticsPseudonymizationKeySchema,
   ACTIVATION_REMINDERS_ENABLED: z
     .union([z.literal("true"), z.literal("false"), z.literal("1"), z.literal("0")])
     .optional()

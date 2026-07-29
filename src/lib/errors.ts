@@ -49,3 +49,7 @@ export class BadGatewayError extends ApiError {
     super("bad_gateway", 502, opts?.debugMessage, opts?.nestedError);
   }
 }
+
+export function safeErrorType(input: { error: unknown }): string {
+  return input.error instanceof Error ? input.error.name : "UnknownError";
+}
