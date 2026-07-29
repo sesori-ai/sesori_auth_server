@@ -36,8 +36,10 @@ import { LegalDocumentService } from "../../src/services/legal-document-service.
 import { TokenService } from "../../src/services/token-service.js";
 import { VoiceService } from "../../src/services/voice-service.js";
 import { AppClientPresenceService } from "../../src/services/app-client-presence-service.js";
+import { ProductAnalyticsPreferenceService } from "../../src/services/product-analytics-preference-service.js";
 import { SettingsService } from "../../src/services/settings-service.js";
 import { loadConfig } from "../../src/config.js";
+import { ProductAnalyticsPreference } from "../../src/types/product-analytics.js";
 
 export type TestUser = {
   userId: string;
@@ -65,7 +67,6 @@ export type TestContext = {
 };
 
 export type TestAppOverrides = {
-  configOverrides?: Partial<import("../../src/config.js").Config>;
   githubClient?: OAuthClient;
   googleClient?: OAuthClient;
   appleClient?: OAuthClient;
@@ -136,9 +137,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     }),
   ).toString("base64");
 
-  // loadConfig() caches a process-wide singleton, so per-test env mutation
-  // does not work; use configOverrides to vary flags between test apps.
-  const config = { ...loadConfig(), ...overrides?.configOverrides };
+  const config = loadConfig();
 
   const dbConnector = new MongoDbConnector({ connectionString: mongoUri });
   const dbAccessor = new MongoDbAccessor(dbConnector);
@@ -185,6 +184,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     new ActivationService({ activationStateRepo, bridgeRepo, dailyUsageRepo, deviceTokenRepo });
   const appClientPresenceService =
     overrides?.appClientPresenceService ?? new AppClientPresenceService({ deviceTokenRepo });
+  const productAnalyticsPreferenceService = new ProductAnalyticsPreferenceService({ userRepo });
   const settingsService = overrides?.settingsService ?? new SettingsService({ settingsRepo });
   const authService = new AuthService({ tokenService, userRepo, oauthAccountRepo, passwordAccountRepo, bridgeService });
   const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
@@ -207,7 +207,6 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     appClientPresenceService,
     settingsService,
     notificationService,
-    bridgeStateTracker,
     activationService,
     stateStore,
     githubClient,
@@ -215,6 +214,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     appleClient,
     appleNativeVerifier,
     pendingAuthStore,
+    productAnalyticsPreferenceService,
   });
   await app.ready();
 
@@ -229,6 +229,10 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
       tokenVersion: 0,
       createdAt: now,
       updatedAt: now,
+      productAnalyticsPreference: ProductAnalyticsPreference.Enabled,
+      productAnalyticsPreferenceUpdatedAt: now,
+      productAnalyticsPreferenceRevision: 1,
+      productAnalyticsPreferenceLastOperationId: null,
     });
     await dbAccessor.getCollection<OAuthAccount>(MongoDbDatabase.Auth, AuthDbCollection.OAuthAccounts).insertOne({
       _id: new ObjectId(),

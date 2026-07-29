@@ -246,7 +246,7 @@ Partially addressed:
 ```
 [Sesori reply] Partially addressed (in commit a1b2c3d)
 
-Renamed the function as requested. Kept the legacy bridge-status branch because the documented relay rollout flag has not been enabled yet.
+Renamed the function as requested. Kept the existing error mapping because API consumers still rely on that response contract.
 ```
 
 Question:

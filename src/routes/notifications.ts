@@ -11,11 +11,9 @@ import {
 import { bridgeStatusFromWire } from "../models/bridge.js";
 import type { DeviceTokenRepository } from "../repositories/device-token-repo.js";
 import type { BridgeService } from "../services/bridge-service.js";
-import type { BridgeStateTracker } from "../services/bridge-state-tracker.js";
 import type { NotificationService } from "../services/notification-service.js";
 import type { ActivationService } from "../services/activation-service.js";
 import type { AppClientPresenceService } from "../services/app-client-presence-service.js";
-import type { Config } from "../config.js";
 
 // Allow up to 5 minutes of NTP clock skew between the relay and this server
 // before rejecting a status timestamp as "from the future".
@@ -26,12 +24,10 @@ function isTooFarInFuture(at: Date, now: Date = new Date()): boolean {
 }
 
 export type NotificationRouteOptions = {
-  config: Config;
   deviceTokenRepo: DeviceTokenRepository;
   appClientPresenceService: AppClientPresenceService;
   notificationService: NotificationService;
   bridgeService: BridgeService;
-  bridgeStateTracker: BridgeStateTracker;
   activationService: ActivationService;
   requireAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   requireRelayAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
@@ -44,12 +40,10 @@ function getUserId(request: FastifyRequest): string {
 
 export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = async (fastify, opts) => {
   const {
-    config,
     deviceTokenRepo,
     appClientPresenceService,
     notificationService,
     bridgeService,
-    bridgeStateTracker,
     activationService,
     requireAuth,
     requireRelayAuth,
@@ -126,26 +120,17 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
         throw new BadRequestError({ debugMessage: "Timestamp is too far in the future" });
       }
 
-      if (bodyResult.data.bridgeId) {
-        const { found } = await bridgeService.recordStatusChange(
-          bodyResult.data.bridgeId,
-          bodyResult.data.userId,
-          internalStatus,
-          at,
-        );
-        if (!found) {
-          // Contract with the relay: this 404 becomes WS close 4006, telling
-          // the bridge to re-register. Do not weaken to a 200 — see AGENTS.md
-          // BRIDGE SUBSYSTEM.
-          throw new NotFoundError({ debugMessage: "Unknown bridgeId for user" });
-        }
-      } else {
-        if (config.AUTH_REQUIRE_BRIDGE_ID_IN_STATUS) {
-          throw new BadRequestError({ debugMessage: "bridgeId is required" });
-        }
-        // Legacy bridges (no bridgeId) always take the user-level
-        // notification path during the transition window.
-        bridgeStateTracker.handleStatusChange(bodyResult.data.userId, internalStatus);
+      const { found } = await bridgeService.recordStatusChange(
+        bodyResult.data.bridgeId,
+        bodyResult.data.userId,
+        internalStatus,
+        at,
+      );
+      if (!found) {
+        // Contract with the relay: this 404 becomes WS close 4006, telling
+        // the bridge to re-register. Do not weaken to a 200 — see AGENTS.md
+        // BRIDGE SUBSYSTEM.
+        throw new NotFoundError({ debugMessage: "Unknown bridgeId for user" });
       }
 
       return { ok: true };

@@ -25,6 +25,7 @@
     "env:update-keys": "sh -c 'for f in env/app/*.env; do [ -f \"$f\" ] && sops updatekeys -y \"$f\"; done'",
     "create-password-account": "tsx scripts/create-password-account.ts",
     "backfill-activation": "tsx src/scripts/backfill-activation.ts",
+    "backfill-product-analytics-preference": "tsx src/scripts/backfill-product-analytics-preference.ts",
     "circular-dependencies": "madge --circular --ts-config ./tsconfig.json ./src/index.ts"
   },
   "dependencies": {

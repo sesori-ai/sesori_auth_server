@@ -16,6 +16,7 @@ type Deferred<T> = {
 
 const DEBOUNCE_MS = 120_000;
 const HALF_DEBOUNCE_MS = DEBOUNCE_MS / 2;
+const BRIDGE_ID = "br_bridge0001";
 
 function flushMicrotasks(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
@@ -69,7 +70,7 @@ describe("BridgeStateTracker", () => {
     } as unknown as NotificationService;
     const tracker = new BridgeStateTracker(notificationServiceMock);
 
-    tracker.handleStatusChange("user-1", "active");
+    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, "active");
 
     mock.timers.tick(HALF_DEBOUNCE_MS);
     await flushMicrotasks();
@@ -92,7 +93,7 @@ describe("BridgeStateTracker", () => {
     } as unknown as NotificationService;
     const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
 
-    tracker.handleStatusChange("user-1", "active");
+    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, "active");
 
     mock.timers.tick(HALF_DEBOUNCE_MS);
     await flushMicrotasks();
@@ -115,7 +116,7 @@ describe("BridgeStateTracker", () => {
     } as unknown as NotificationService;
     const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
 
-    tracker.handleStatusChange("user-1", "inactive");
+    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, "inactive");
 
     mock.timers.tick(HALF_DEBOUNCE_MS);
     await flushMicrotasks();
@@ -138,11 +139,11 @@ describe("BridgeStateTracker", () => {
     } as unknown as NotificationService;
     const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
 
-    tracker.handleStatusChange("user-1", "active");
+    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, "active");
     mock.timers.tick(HALF_DEBOUNCE_MS);
-    tracker.handleStatusChange("user-1", "inactive");
+    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, "inactive");
     mock.timers.tick(HALF_DEBOUNCE_MS);
-    tracker.handleStatusChange("user-1", "active");
+    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, "active");
 
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();
@@ -161,13 +162,13 @@ describe("BridgeStateTracker", () => {
     } as unknown as NotificationService;
     const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
 
-    tracker.handleStatusChange("user-1", "active");
+    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, "active");
     mock.timers.tick(5_000);
-    tracker.handleStatusChange("user-1", "inactive");
+    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, "inactive");
     mock.timers.tick(5_000);
-    tracker.handleStatusChange("user-1", "active");
+    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, "active");
     mock.timers.tick(5_000);
-    tracker.handleStatusChange("user-1", "inactive");
+    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, "inactive");
 
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();
@@ -185,9 +186,9 @@ describe("BridgeStateTracker", () => {
     } as unknown as NotificationService;
     const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
 
-    tracker.handleStatusChange("user-1", "active");
+    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, "active");
     mock.timers.tick(HALF_DEBOUNCE_MS);
-    tracker.handleStatusChange("user-1", "active");
+    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, "active");
     mock.timers.tick(HALF_DEBOUNCE_MS);
     await flushMicrotasks();
 
@@ -204,11 +205,11 @@ describe("BridgeStateTracker", () => {
     } as unknown as NotificationService;
     const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
 
-    tracker.handleStatusChange("user-1", "active");
+    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, "active");
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();
 
-    tracker.handleStatusChange("user-1", "active");
+    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, "active");
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();
 
@@ -225,8 +226,8 @@ describe("BridgeStateTracker", () => {
     } as unknown as NotificationService;
     const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
 
-    tracker.handleStatusChange("user-a", "active");
-    tracker.handleStatusChange("user-b", "inactive");
+    tracker.handleStatusChangeForBridge("user-a", BRIDGE_ID, "active");
+    tracker.handleStatusChangeForBridge("user-b", BRIDGE_ID, "inactive");
 
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();
@@ -247,13 +248,13 @@ describe("BridgeStateTracker", () => {
     } as unknown as NotificationService;
     const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
 
-    tracker.handleStatusChange("user-1", "active");
+    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, "active");
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();
 
-    tracker.handleStatusChange("user-1", "inactive");
+    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, "inactive");
     mock.timers.tick(HALF_DEBOUNCE_MS);
-    tracker.handleStatusChange("user-1", "active");
+    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, "active");
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();
 
@@ -270,9 +271,9 @@ describe("BridgeStateTracker", () => {
     } as unknown as NotificationService;
     const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
 
-    tracker.handleStatusChange("user-1", "active");
-    tracker.handleStatusChange("user-2", "inactive");
-    tracker.handleStatusChange("user-3", "active");
+    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, "active");
+    tracker.handleStatusChangeForBridge("user-2", BRIDGE_ID, "inactive");
+    tracker.handleStatusChangeForBridge("user-3", BRIDGE_ID, "active");
     tracker.dispose();
 
     mock.timers.tick(DEBOUNCE_MS);
@@ -301,30 +302,6 @@ describe("BridgeStateTracker", () => {
     assert.deepEqual(sendCalls, [{ userId: "user-1", payload: connectedPayload() }]);
   });
 
-  it("cancelPendingForUser clears only the legacy user-level timer", async () => {
-    const sendCalls: SendCall[] = [];
-    const notificationServiceMock = {
-      sendToUser: async (userId: string, payload: NotificationPayload) => {
-        sendCalls.push({ userId, payload });
-        return { devicesNotified: 1 };
-      },
-    } as unknown as NotificationService;
-    const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
-
-    tracker.handleStatusChange("user-1", "inactive");
-    tracker.handleStatusChangeForBridge("user-1", "br_target0001", "active");
-    tracker.handleStatusChange("user-2", "inactive");
-    tracker.cancelPendingForUser("user-1");
-
-    mock.timers.tick(DEBOUNCE_MS);
-    await flushMicrotasks();
-
-    assert.deepEqual(sendCalls, [
-      { userId: "user-1", payload: connectedPayload() },
-      { userId: "user-2", payload: disconnectedPayload() },
-    ]);
-  });
-
   it("notification payload correctness", async () => {
     const sendCalls: SendCall[] = [];
     const notificationServiceMock = {
@@ -335,8 +312,8 @@ describe("BridgeStateTracker", () => {
     } as unknown as NotificationService;
     const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
 
-    tracker.handleStatusChange("user-1", "active");
-    tracker.handleStatusChange("user-2", "inactive");
+    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, "active");
+    tracker.handleStatusChangeForBridge("user-2", BRIDGE_ID, "inactive");
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();
 
@@ -361,12 +338,12 @@ describe("BridgeStateTracker", () => {
     } as unknown as NotificationService;
     const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
 
-    tracker.handleStatusChange("user-1", "active");
+    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, "active");
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();
 
     shouldReject = false;
-    tracker.handleStatusChange("user-1", "inactive");
+    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, "inactive");
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();
 
@@ -394,10 +371,10 @@ describe("BridgeStateTracker", () => {
     } as unknown as NotificationService;
     const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
 
-    tracker.handleStatusChange("user-1", "active");
+    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, "active");
     mock.timers.tick(DEBOUNCE_MS);
 
-    tracker.handleStatusChange("user-1", "inactive");
+    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, "inactive");
     firstSend.resolve({ devicesNotified: 1 });
     await flushMicrotasks();
 

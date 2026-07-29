@@ -34,6 +34,7 @@ import { SessionMetadataService } from "./services/session-metadata-service.js";
 import { TokenService } from "./services/token-service.js";
 import { VoiceService } from "./services/voice-service.js";
 import { AppClientPresenceService } from "./services/app-client-presence-service.js";
+import { ProductAnalyticsPreferenceService } from "./services/product-analytics-preference-service.js";
 import { SettingsService } from "./services/settings-service.js";
 
 async function main() {
@@ -104,6 +105,7 @@ async function main() {
     deviceTokenRepo,
   });
   const appClientPresenceService = new AppClientPresenceService({ deviceTokenRepo });
+  const productAnalyticsPreferenceService = new ProductAnalyticsPreferenceService({ userRepo });
   const settingsService = new SettingsService({ settingsRepo });
   const activationReminderService = new ActivationReminderService({
     activationStateRepo,
@@ -168,7 +170,6 @@ async function main() {
     appClientPresenceService,
     settingsService,
     notificationService,
-    bridgeStateTracker,
     activationService,
     stateStore,
     githubClient,
@@ -176,6 +177,7 @@ async function main() {
     appleClient,
     appleNativeVerifier,
     pendingAuthStore,
+    productAnalyticsPreferenceService,
   });
 
   const address = await app.listen({ port: config.PORT, host: "0.0.0.0" });

@@ -12,7 +12,6 @@ import type { DeviceTokenRepository } from "./repositories/device-token-repo.js"
 import type { ActivationService } from "./services/activation-service.js";
 import type { AuthService } from "./services/auth-service.js";
 import type { BridgeService } from "./services/bridge-service.js";
-import type { BridgeStateTracker } from "./services/bridge-state-tracker.js";
 import type { NotificationService } from "./services/notification-service.js";
 import type { TokenService } from "./services/token-service.js";
 import type { VoiceService } from "./services/voice-service.js";
@@ -22,6 +21,7 @@ import type { LegalDocumentService } from "./services/legal-document-service.js"
 import type { AppleNativeVerifier } from "./services/apple-native-verifier.js";
 import type { PendingAuthStore } from "./services/pending-auth-store.js";
 import type { AppClientPresenceService } from "./services/app-client-presence-service.js";
+import type { ProductAnalyticsPreferenceService } from "./services/product-analytics-preference-service.js";
 import type { SettingsService } from "./services/settings-service.js";
 import { installRoutes } from "./routes/install.js";
 import { legalRoutes } from "./routes/legal.js";
@@ -37,6 +37,7 @@ import { bridgeRoutes } from "./routes/bridges.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { sessionStatusRoutes } from "./routes/auth/session-status.js";
 import { appClientRoutes } from "./routes/app-clients.js";
+import { productAnalyticsRoutes } from "./routes/product-analytics.js";
 import { settingsRoutes } from "./routes/settings/settings.js";
 
 export type AppServices = {
@@ -52,7 +53,6 @@ export type AppServices = {
   appClientPresenceService: AppClientPresenceService;
   settingsService: SettingsService;
   notificationService: NotificationService;
-  bridgeStateTracker: BridgeStateTracker;
   activationService: ActivationService;
   stateStore: StateStore;
   githubClient: OAuthClient;
@@ -60,6 +60,7 @@ export type AppServices = {
   appleClient: OAuthClient;
   appleNativeVerifier: AppleNativeVerifier;
   pendingAuthStore: PendingAuthStore;
+  productAnalyticsPreferenceService: ProductAnalyticsPreferenceService;
 };
 
 export async function buildApp(services: AppServices): Promise<FastifyInstance> {
@@ -157,17 +158,19 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
     appClientPresenceService: services.appClientPresenceService,
     requireAuth,
   });
+  await app.register(productAnalyticsRoutes, {
+    productAnalyticsPreferenceService: services.productAnalyticsPreferenceService,
+    requireAuth,
+  });
   await app.register(voiceRoutes, {
     voiceService: services.voiceService,
     requireAuth,
   });
   await app.register(notificationRoutes, {
-    config: services.config,
     deviceTokenRepo: services.deviceTokenRepo,
     appClientPresenceService: services.appClientPresenceService,
     notificationService: services.notificationService,
     bridgeService: services.bridgeService,
-    bridgeStateTracker: services.bridgeStateTracker,
     activationService: services.activationService,
     requireAuth,
     requireRelayAuth,

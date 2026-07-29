@@ -55,7 +55,6 @@ function createTestConfig(): Config {
     ALLOWED_REDIRECT_URIS: ["myapp://oauth/callback", "https://app.example.com/oauth/callback"],
     RELAY_URL: "ws://localhost:8080",
     RELAY_WEBHOOK_SECRET: "test-relay-secret",
-    AUTH_REQUIRE_BRIDGE_ID_IN_STATUS: false,
     ACTIVATION_REMINDERS_ENABLED: false,
     ACTIVATION_SWEEP_INTERVAL_MS: 900_000,
     ACTIVATION_BRIDGE_REMINDER_1_DELAY_MS: 7_200_000,
@@ -128,7 +127,6 @@ function createTestServices(params: {
     } as AppServices["appClientPresenceService"],
     settingsService: {} as AppServices["settingsService"],
     notificationService: {} as AppServices["notificationService"],
-    bridgeStateTracker: {} as AppServices["bridgeStateTracker"],
     activationService: {} as AppServices["activationService"],
     stateStore: new StateStore(),
     pendingAuthStore: params.pendingAuthStore,
@@ -136,6 +134,7 @@ function createTestServices(params: {
     googleClient: googleClient as unknown as AppServices["googleClient"],
     appleClient: githubClient as unknown as AppServices["appleClient"],
     appleNativeVerifier: {} as AppServices["appleNativeVerifier"],
+    productAnalyticsPreferenceService: {} as AppServices["productAnalyticsPreferenceService"],
   };
 }
 

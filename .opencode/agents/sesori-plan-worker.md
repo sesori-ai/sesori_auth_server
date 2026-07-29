@@ -311,9 +311,8 @@ account for timeout, cancellation, timers, restart loss, capacity, notification
 debounce, and long-poll behavior.
 
 Preserve per-bridge ownership, non-enumeration, registration, and revocation
-semantics. Bridges use the user access token, not bridge-scoped JWTs. Coordinate
-`AUTH_REQUIRE_BRIDGE_ID_IN_STATUS` with relay `RELAY_REQUIRE_BRIDGE_ID` and the
-bridge/client fleet.
+semantics. Bridge status requires a valid server-owned bridge ID and debounces
+per bridge. Bridges use the user access token, not bridge-scoped JWTs.
 
 For externally consumed contracts, inspect `sesori-apps-monorepo` and
 `sesori-relay`. Audit each repository's own default branch independently: auth

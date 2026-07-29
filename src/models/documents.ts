@@ -3,12 +3,27 @@ import { z } from "zod";
 import { bridgeIdSchema, bridgePlatformSchema, bridgeStatusSchema } from "./bridge.js";
 import { devicePlatformSchema } from "./device.js";
 import { deviceIdSchema, storedNotificationSettingsSchema } from "./settings.js";
+import {
+  productAnalyticsOperationIdSchema,
+  productAnalyticsPreferenceRevisionSchema,
+  productAnalyticsPreferenceSchema,
+} from "../types/product-analytics.js";
 
 export const userSchema = z.object({
   _id: z.instanceof(ObjectId),
   tokenVersion: z.number(),
   createdAt: z.date(),
   updatedAt: z.date(),
+  // COMPATIBILITY 2026-07-28 (v0.1.0): These fields remain optional while the
+  // write-first migration backfills existing users. Remove the optional shape
+  // after repeated production validation reports zero missing required fields.
+  productAnalyticsPreference: productAnalyticsPreferenceSchema.optional(),
+  productAnalyticsPreferenceUpdatedAt: z.date().optional(),
+  productAnalyticsPreferenceRevision: productAnalyticsPreferenceRevisionSchema.optional(),
+  productAnalyticsPreferenceLastOperationId: productAnalyticsOperationIdSchema.nullable().optional(),
+  // Absence is meaningful: only the privacy-deletion flow creates this
+  // permanent export-suppression tombstone, so it has no migration default.
+  productAnalyticsExportSuppressedAt: z.date().nullable().optional(),
 });
 
 export type User = z.infer<typeof userSchema>;
