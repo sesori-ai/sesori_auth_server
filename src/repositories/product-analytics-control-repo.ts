@@ -50,7 +50,10 @@ export class ProductAnalyticsControlRepository {
     }
     const controlUpdatedAt = input.rows[0].controlUpdatedAt;
     const userKeys = input.rows.flatMap((row) => (row.userKey === null ? [] : [row.userKey]));
+    const sentinelCount = input.rows.filter((row) => row.userKey === null).length;
     if (
+      sentinelCount !== 1 ||
+      input.rows.length > this.#maxUserKeys + 1 ||
       userKeys.length > this.#maxUserKeys ||
       userKeys.some((userKey) => !userKeyPattern.test(userKey)) ||
       new Set(userKeys).size !== userKeys.length ||

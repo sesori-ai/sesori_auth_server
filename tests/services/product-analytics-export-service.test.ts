@@ -48,14 +48,11 @@ class FakeUserRepository {
     afterUserId: string | null;
     batchLimit: number;
     changedAfter: Date;
-    changedAtOrBefore: Date;
   }): Promise<ProductAnalyticsPreferenceChange[]> {
     return this.changes
       .filter(
         (change) =>
-          change.changedAt > input.changedAfter &&
-          change.changedAt <= input.changedAtOrBefore &&
-          (input.afterUserId === null || change.userId > input.afterUserId),
+          change.changedAt > input.changedAfter && (input.afterUserId === null || change.userId > input.afterUserId),
       )
       .slice(0, input.batchLimit);
   }

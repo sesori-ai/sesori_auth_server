@@ -250,6 +250,23 @@ previous publication intact. The same transaction appends aggregate source,
 exclusion, reconciliation, cutoff, and freshness metadata to
 `product_analytics_export_runs`; it contains no source account identifiers.
 
+The deployment identity—not the export job—must provision and own the permanent
+schemas for `auth_user_milestones`, `auth_weekly_setup_cohorts`,
+`product_analytics_export_runs`, and the singleton
+`product_analytics_export_state`. At startup the job requires exact schemas,
+then acquires a distributed lease in the state table. Promotion verifies lease
+ownership and a strictly newer `run_cutoff` in the same transaction, preventing
+an older or overlapping run from republishing stale privacy state. The runtime
+creates only expiring staging tables.
+
+The final preference pass records its start as `preference_scan_cutoff` and
+conservatively scans every current preference timestamp after `run_cutoff`
+without an upper bound. This is deliberate: a later write cannot hide an
+earlier in-window change when Mongo stores only the latest timestamp. A change
+after scan start may be excluded early when observed; otherwise it belongs to
+the next successful run. A source-suppression or internal-control change during
+the run aborts publication rather than risking inconsistent aggregates.
+
 Build the production image normally and override its command with:
 
 ```bash

@@ -26,7 +26,6 @@ type ProductAnalyticsExportUserRepository = {
     afterUserId: string | null;
     batchLimit: number;
     changedAfter: Date;
-    changedAtOrBefore: Date;
   }): Promise<ProductAnalyticsPreferenceChange[]>;
 };
 
@@ -42,7 +41,7 @@ type ProductAnalyticsExportControlRepository = {
 };
 
 type ProductAnalyticsExportStagingRepository = {
-  beginRun(input: { runId: string; expiresAt: Date }): Promise<ProductAnalyticsExportRun>;
+  beginRun(input: { runId: string; runCutoff: Date; expiresAt: Date }): Promise<ProductAnalyticsExportRun>;
   appendMilestones(input: { run: ProductAnalyticsExportRun; rows: ProductAnalyticsExportRow[] }): Promise<void>;
   writeCohorts(input: { run: ProductAnalyticsExportRun; rows: ProductAnalyticsSetupCohortRow[] }): Promise<void>;
   removeUserKeys(input: { run: ProductAnalyticsExportRun; userKeys: string[] }): Promise<Map<string, number>>;
@@ -233,6 +232,7 @@ export class ProductAnalyticsExportService {
     try {
       run = await this.#exportRepo.beginRun({
         runId: this.#createRunId(),
+        runCutoff: input.runCutoff,
         expiresAt: new Date(startedAt.getTime() + stagingLifetimeMs),
       });
       const cohorts = new Map<string, MutableSetupCohort>();
@@ -315,11 +315,14 @@ export class ProductAnalyticsExportService {
       let latePreferenceRowsRemoved = 0;
       let afterPreferenceUserId: string | null = null;
       while (true) {
+        // Intentionally omit an upper timestamp bound. The document stores only
+        // its latest preference timestamp, so a later write must not hide an
+        // earlier change inside (runCutoff, preferenceScanCutoff]. Changes after
+        // the scan starts are therefore excluded conservatively when observed.
         const changes = await this.#userRepo.findProductAnalyticsPreferenceChangeBatch({
           afterUserId: afterPreferenceUserId,
           batchLimit: this.#batchLimit,
           changedAfter: input.runCutoff,
-          changedAtOrBefore: preferenceScanCutoff,
         });
         if (changes.length === 0) {
           break;

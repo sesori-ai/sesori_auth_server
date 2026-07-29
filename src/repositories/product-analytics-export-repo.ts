@@ -53,6 +53,22 @@ const runMetadataSchema: TableField[] = [
   { name: "published_at", type: "TIMESTAMP", mode: "REQUIRED" },
 ];
 
+const exportStateSchema: TableField[] = [
+  { name: "state_key", type: "STRING", mode: "REQUIRED" },
+  { name: "active_run_id", type: "STRING", mode: "NULLABLE" },
+  { name: "lease_expires_at", type: "TIMESTAMP", mode: "NULLABLE" },
+  { name: "last_published_run_id", type: "STRING", mode: "NULLABLE" },
+  { name: "last_published_cutoff", type: "TIMESTAMP", mode: "NULLABLE" },
+  { name: "updated_at", type: "TIMESTAMP", mode: "REQUIRED" },
+];
+
+export const productAnalyticsPermanentTableSchemas = new Map<string, TableField[]>([
+  ["auth_user_milestones", milestoneSchema],
+  ["auth_weekly_setup_cohorts", cohortSchema],
+  ["product_analytics_export_runs", runMetadataSchema],
+  ["product_analytics_export_state", exportStateSchema],
+]);
+
 export type ProductAnalyticsExportRun = {
   runId: string;
   milestoneStagingTableId: string;
@@ -67,6 +83,7 @@ type ProductAnalyticsExportDataApi = {
     expiresAt: Date | null;
     ifNotExists: boolean;
   }): Promise<void>;
+  getTableSchema(input: { tableId: string }): Promise<TableField[]>;
   query(input: { sql: string; params?: Record<string, unknown> }): Promise<ProductAnalyticsExternalQueryRow[]>;
   deleteTable(input: { tableId: string }): Promise<void>;
 };
@@ -84,6 +101,14 @@ function stringFromBigQuery(input: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
+function normalizedSchema(fields: TableField[]): Array<{ name: string; type: string; mode: string }> {
+  return fields.map((field) => ({
+    name: field.name ?? "",
+    type: (field.type ?? "").toUpperCase(),
+    mode: (field.mode ?? "NULLABLE").toUpperCase(),
+  }));
+}
+
 export class ProductAnalyticsExportRepository {
   readonly #api: ProductAnalyticsExportDataApi;
 
@@ -91,8 +116,13 @@ export class ProductAnalyticsExportRepository {
     this.#api = deps.api;
   }
 
-  async beginRun(input: { runId: string; expiresAt: Date }): Promise<ProductAnalyticsExportRun> {
-    if (!runIdPattern.test(input.runId) || Number.isNaN(input.expiresAt.getTime())) {
+  async beginRun(input: { runId: string; runCutoff: Date; expiresAt: Date }): Promise<ProductAnalyticsExportRun> {
+    if (
+      !runIdPattern.test(input.runId) ||
+      Number.isNaN(input.runCutoff.getTime()) ||
+      Number.isNaN(input.expiresAt.getTime()) ||
+      input.runCutoff >= input.expiresAt
+    ) {
       throw new InternalServerError({ debugMessage: "Invalid product analytics export run" });
     }
     const run = {
@@ -100,37 +130,34 @@ export class ProductAnalyticsExportRepository {
       milestoneStagingTableId: `auth_user_milestones_staging_${input.runId}`,
       cohortStagingTableId: `auth_weekly_setup_cohorts_staging_${input.runId}`,
     };
-    await this.#api.createTable({
-      tableId: "auth_user_milestones",
-      schema: milestoneSchema,
-      expiresAt: null,
-      ifNotExists: true,
-    });
-    await this.#api.createTable({
-      tableId: "auth_weekly_setup_cohorts",
-      schema: cohortSchema,
-      expiresAt: null,
-      ifNotExists: true,
-    });
-    await this.#api.createTable({
-      tableId: "product_analytics_export_runs",
-      schema: runMetadataSchema,
-      expiresAt: null,
-      ifNotExists: true,
-    });
-    await this.#api.createTable({
-      tableId: run.milestoneStagingTableId,
-      schema: milestoneSchema,
-      expiresAt: input.expiresAt,
-      ifNotExists: false,
-    });
-    await this.#api.createTable({
-      tableId: run.cohortStagingTableId,
-      schema: cohortSchema,
-      expiresAt: input.expiresAt,
-      ifNotExists: false,
-    });
-    return run;
+    await this.#assertPermanentSchemas();
+    await this.#acquireLease({ run, runCutoff: input.runCutoff, expiresAt: input.expiresAt });
+    try {
+      await this.#api.createTable({
+        tableId: run.milestoneStagingTableId,
+        schema: milestoneSchema,
+        expiresAt: input.expiresAt,
+        ifNotExists: false,
+      });
+      await this.#api.createTable({
+        tableId: run.cohortStagingTableId,
+        schema: cohortSchema,
+        expiresAt: input.expiresAt,
+        ifNotExists: false,
+      });
+      return run;
+    } catch (error) {
+      const cleanupResults = await Promise.allSettled([
+        this.#api.deleteTable({ tableId: run.milestoneStagingTableId }),
+        this.#api.deleteTable({ tableId: run.cohortStagingTableId }),
+        this.#releaseLease({ run }),
+      ]);
+      const cleanupFailureCount = cleanupResults.filter((result) => result.status === "rejected").length;
+      if (cleanupFailureCount > 0) {
+        console.error("[ProductAnalyticsExport] Begin-run cleanup failed", { cleanupFailureCount });
+      }
+      throw error;
+    }
   }
 
   async appendMilestones(input: { run: ProductAnalyticsExportRun; rows: ProductAnalyticsExportRow[] }): Promise<void> {
@@ -352,6 +379,14 @@ export class ProductAnalyticsExportRepository {
     await this.#api.query({
       sql: `
         BEGIN TRANSACTION;
+        ASSERT (
+          SELECT COUNT(*) = 1
+          FROM \`${this.#api.datasetReference}.product_analytics_export_state\`
+          WHERE state_key = 'singleton'
+            AND active_run_id = @run_id
+            AND lease_expires_at > CURRENT_TIMESTAMP()
+            AND (last_published_cutoff IS NULL OR last_published_cutoff < TIMESTAMP(@run_cutoff))
+        ) AS 'Export lease lost or run cutoff is not newer than the published snapshot';
         DELETE FROM \`${this.#api.datasetReference}.auth_user_milestones\` WHERE TRUE;
         INSERT INTO \`${this.#api.datasetReference}.auth_user_milestones\`
         SELECT * FROM \`${this.#api.datasetReference}.${input.run.milestoneStagingTableId}\`;
@@ -391,6 +426,15 @@ export class ProductAnalyticsExportRepository {
           @cohort_rows_published,
           CURRENT_TIMESTAMP()
         );
+        UPDATE \`${this.#api.datasetReference}.product_analytics_export_state\`
+        SET
+          active_run_id = NULL,
+          lease_expires_at = NULL,
+          last_published_run_id = @run_id,
+          last_published_cutoff = TIMESTAMP(@run_cutoff),
+          updated_at = CURRENT_TIMESTAMP()
+        WHERE state_key = 'singleton' AND active_run_id = @run_id;
+        ASSERT @@row_count = 1 AS 'Export state promotion guard failed';
         COMMIT TRANSACTION;
       `,
       params: {
@@ -416,10 +460,60 @@ export class ProductAnalyticsExportRepository {
     const results = await Promise.allSettled([
       this.#api.deleteTable({ tableId: input.run.milestoneStagingTableId }),
       this.#api.deleteTable({ tableId: input.run.cohortStagingTableId }),
+      this.#releaseLease({ run: input.run }),
     ]);
     const failure = results.find((result) => result.status === "rejected");
     if (failure?.status === "rejected") {
       throw failure.reason;
     }
+  }
+
+  async #assertPermanentSchemas(): Promise<void> {
+    for (const [tableId, expectedSchema] of productAnalyticsPermanentTableSchemas) {
+      const actualSchema = await this.#api.getTableSchema({ tableId });
+      if (JSON.stringify(normalizedSchema(actualSchema)) !== JSON.stringify(normalizedSchema(expectedSchema))) {
+        throw new InternalServerError({ debugMessage: `Unexpected product analytics schema for ${tableId}` });
+      }
+    }
+  }
+
+  async #acquireLease(input: { run: ProductAnalyticsExportRun; runCutoff: Date; expiresAt: Date }): Promise<void> {
+    await this.#api.query({
+      sql: `
+        BEGIN TRANSACTION;
+        MERGE \`${this.#api.datasetReference}.product_analytics_export_state\` AS target
+        USING (SELECT 'singleton' AS state_key) AS source
+        ON target.state_key = source.state_key
+        WHEN NOT MATCHED THEN
+          INSERT (state_key, active_run_id, lease_expires_at, last_published_run_id, last_published_cutoff, updated_at)
+          VALUES ('singleton', NULL, NULL, NULL, NULL, CURRENT_TIMESTAMP());
+        UPDATE \`${this.#api.datasetReference}.product_analytics_export_state\`
+        SET
+          active_run_id = @run_id,
+          lease_expires_at = TIMESTAMP(@lease_expires_at),
+          updated_at = CURRENT_TIMESTAMP()
+        WHERE state_key = 'singleton'
+          AND (active_run_id IS NULL OR lease_expires_at <= CURRENT_TIMESTAMP())
+          AND (last_published_cutoff IS NULL OR last_published_cutoff < TIMESTAMP(@run_cutoff));
+        ASSERT @@row_count = 1 AS 'Another export is active or this cutoff is stale';
+        COMMIT TRANSACTION;
+      `,
+      params: {
+        run_id: input.run.runId,
+        run_cutoff: input.runCutoff.toISOString(),
+        lease_expires_at: input.expiresAt.toISOString(),
+      },
+    });
+  }
+
+  async #releaseLease(input: { run: ProductAnalyticsExportRun }): Promise<void> {
+    await this.#api.query({
+      sql: `
+        UPDATE \`${this.#api.datasetReference}.product_analytics_export_state\`
+        SET active_run_id = NULL, lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP()
+        WHERE state_key = 'singleton' AND active_run_id = @run_id
+      `,
+      params: { run_id: input.run.runId },
+    });
   }
 }

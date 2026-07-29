@@ -33,11 +33,18 @@ describe("ProductAnalyticsControlRepository", () => {
       [],
       [{ userKey: key, controlUpdatedAt: new Date("2026-07-28T09:00:00.000Z") }],
       [{ userKey: "invalid", controlUpdatedAt }],
+      [{ userKey: key, controlUpdatedAt }],
       [
+        { userKey: null, controlUpdatedAt },
+        { userKey: null, controlUpdatedAt },
+      ],
+      [
+        { userKey: null, controlUpdatedAt },
         { userKey: key, controlUpdatedAt },
         { userKey: key, controlUpdatedAt },
       ],
       [
+        { userKey: null, controlUpdatedAt },
         { userKey: key, controlUpdatedAt },
         { userKey: "b".repeat(64), controlUpdatedAt },
       ],

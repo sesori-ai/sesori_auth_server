@@ -300,15 +300,12 @@ export class UserRepository {
     afterUserId: string | null;
     batchLimit: number;
     changedAfter: Date;
-    changedAtOrBefore: Date;
   }): Promise<ProductAnalyticsPreferenceChange[]> {
     if (
       !Number.isSafeInteger(input.batchLimit) ||
       input.batchLimit < 1 ||
       input.batchLimit > productAnalyticsPreferenceBackfillMaxBatchLimit ||
-      Number.isNaN(input.changedAfter.getTime()) ||
-      Number.isNaN(input.changedAtOrBefore.getTime()) ||
-      input.changedAfter > input.changedAtOrBefore
+      Number.isNaN(input.changedAfter.getTime())
     ) {
       throw new InternalServerError({ debugMessage: "Invalid product analytics preference change window" });
     }
@@ -322,7 +319,6 @@ export class UserRepository {
           ...(input.afterUserId === null ? {} : { _id: { $gt: new ObjectId(input.afterUserId) } }),
           productAnalyticsPreferenceUpdatedAt: {
             $gt: input.changedAfter,
-            $lte: input.changedAtOrBefore,
           },
         },
         {

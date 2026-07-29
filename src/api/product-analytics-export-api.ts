@@ -39,6 +39,10 @@ export class ProductAnalyticsExportApi {
     await this.#wrap({ operation: "create table", run: () => this.#client.createTable(input) });
   }
 
+  async getTableSchema(input: { tableId: string }): Promise<TableField[]> {
+    return this.#wrap({ operation: "get table schema", run: () => this.#client.getTableSchema(input) });
+  }
+
   async query(input: { sql: string; params?: Record<string, unknown> }): Promise<ProductAnalyticsExternalQueryRow[]> {
     return this.#wrap({ operation: "query", run: () => this.#client.query(input) });
   }

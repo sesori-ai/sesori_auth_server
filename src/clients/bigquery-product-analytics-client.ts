@@ -69,6 +69,15 @@ export class BigQueryProductAnalyticsClient {
     });
   }
 
+  async getTableSchema(input: { tableId: string }): Promise<TableField[]> {
+    this.#assertTableId(input.tableId);
+    const [metadata] = await this.#bigQuery
+      .dataset(this.#datasetId, { projectId: this.#projectId, location: this.#location })
+      .table(input.tableId)
+      .getMetadata();
+    return metadata.schema?.fields ?? [];
+  }
+
   async query(input: { sql: string; params?: Record<string, unknown> }): Promise<ProductAnalyticsBigQueryRow[]> {
     const [rows] = await this.#bigQuery.query({
       query: input.sql,

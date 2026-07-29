@@ -220,7 +220,6 @@ describe("UserRepository", () => {
   it("pages cutoff-safe export rows and preference changes without exposing ObjectIds", async () => {
     const users = ctx.dbAccessor.getCollection<User>(MongoDbDatabase.Auth, AuthDbCollection.Users);
     const runCutoff = new Date("2026-07-28T12:00:00.000Z");
-    const preferenceScanCutoff = new Date("2026-07-28T12:10:00.000Z");
     const first = await repo.create("000000000000000000000001");
     const second = await repo.create("000000000000000000000002");
     const future = await repo.create("000000000000000000000003");
@@ -239,7 +238,9 @@ describe("UserRepository", () => {
         $set: {
           createdAt: new Date("2026-07-21T12:00:00.000Z"),
           productAnalyticsPreference: ProductAnalyticsPreference.Disabled,
-          productAnalyticsPreferenceUpdatedAt: new Date("2026-07-28T12:05:00.000Z"),
+          // This later current state must still prove that the document changed
+          // after runCutoff; an upper-bound query could hide an earlier change.
+          productAnalyticsPreferenceUpdatedAt: new Date("2026-07-28T12:15:00.000Z"),
         },
       },
     );
@@ -259,7 +260,6 @@ describe("UserRepository", () => {
       afterUserId: null,
       batchLimit: 10,
       changedAfter: runCutoff,
-      changedAtOrBefore: preferenceScanCutoff,
     });
 
     assert.equal(firstPage[0].userId, first._id.toHexString());
@@ -269,7 +269,12 @@ describe("UserRepository", () => {
     assert.deepEqual(changes, [
       {
         userId: second._id.toHexString(),
-        changedAt: new Date("2026-07-28T12:05:00.000Z"),
+        changedAt: new Date("2026-07-28T12:15:00.000Z"),
+        exportSuppressedAt: null,
+      },
+      {
+        userId: future._id.toHexString(),
+        changedAt: future.productAnalyticsPreferenceUpdatedAt,
         exportSuppressedAt: null,
       },
     ]);

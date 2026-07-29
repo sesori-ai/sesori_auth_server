@@ -8,7 +8,10 @@ import type {
   ProductAnalyticsExportRunMetadata,
   ProductAnalyticsSetupCohortRow,
 } from "../../src/models/product-analytics-export.js";
-import { ProductAnalyticsExportRepository } from "../../src/repositories/product-analytics-export-repo.js";
+import {
+  ProductAnalyticsExportRepository,
+  productAnalyticsPermanentTableSchemas,
+} from "../../src/repositories/product-analytics-export-repo.js";
 
 class FakeExportApi {
   readonly datasetReference = "valid-project.auth_private";
@@ -20,6 +23,7 @@ class FakeExportApi {
   }> = [];
   readonly queries: Array<{ sql: string; params?: Record<string, unknown> }> = [];
   readonly deleted: string[] = [];
+  invalidSchemaTableId: string | null = null;
   validationRow: ProductAnalyticsExternalQueryRow = {
     milestone_rows: 1,
     duplicate_keys: 0,
@@ -37,6 +41,13 @@ class FakeExportApi {
     ifNotExists: boolean;
   }): Promise<void> {
     this.created.push(input);
+  }
+
+  async getTableSchema(input: { tableId: string }): Promise<TableField[]> {
+    if (input.tableId === this.invalidSchemaTableId) {
+      return [];
+    }
+    return productAnalyticsPermanentTableSchemas.get(input.tableId) ?? [];
   }
 
   async query(input: { sql: string; params?: Record<string, unknown> }): Promise<ProductAnalyticsExternalQueryRow[]> {
@@ -101,25 +112,25 @@ describe("ProductAnalyticsExportRepository", () => {
     const api = new FakeExportApi();
     const repo = new ProductAnalyticsExportRepository({ api });
     const expiresAt = new Date("2026-07-29T12:00:00.000Z");
-    const run = await repo.beginRun({ runId: "testrun01", expiresAt });
+    const run = await repo.beginRun({ runId: "testrun01", runCutoff: exportedAt, expiresAt });
     await repo.appendMilestones({ run, rows: [milestone] });
     await repo.writeCohorts({ run, rows: [cohort] });
 
-    assert.equal(api.created.length, 5);
+    assert.equal(api.created.length, 2);
     assert.deepEqual(
       api.created.map((entry) => [entry.tableId, entry.ifNotExists, entry.expiresAt?.toISOString() ?? null]),
       [
-        ["auth_user_milestones", true, null],
-        ["auth_weekly_setup_cohorts", true, null],
-        ["product_analytics_export_runs", true, null],
         [run.milestoneStagingTableId, false, expiresAt.toISOString()],
         [run.cohortStagingTableId, false, expiresAt.toISOString()],
       ],
     );
-    assert.equal(api.queries.length, 2);
-    assert.match(api.queries[0].sql, /INSERT INTO/);
-    assert.match(api.queries[1].sql, /INSERT INTO/);
-    assert.equal((api.queries[0].params?.rows_json as string).includes(milestone.userKey), true);
+    const inserts = api.queries.filter((query) => query.sql.includes("INSERT INTO"));
+    assert.equal(inserts.length, 2);
+    assert.equal((inserts[0].params?.rows_json as string).includes(milestone.userKey), true);
+    assert.equal(
+      api.queries.some((query) => query.sql.includes("Another export is active")),
+      true,
+    );
   });
 
   it("removes late keys, validates reconciliation, and transactionally promotes both tables", async () => {
@@ -127,6 +138,7 @@ describe("ProductAnalyticsExportRepository", () => {
     const repo = new ProductAnalyticsExportRepository({ api });
     const run = await repo.beginRun({
       runId: "testrun01",
+      runCutoff: exportedAt,
       expiresAt: new Date("2026-07-29T12:00:00.000Z"),
     });
 
@@ -145,11 +157,12 @@ describe("ProductAnalyticsExportRepository", () => {
       api.queries.some((query) => query.sql.includes("DELETE FROM") && query.params?.user_keys),
       true,
     );
-    const promotion = api.queries.find((query) => query.sql.includes("BEGIN TRANSACTION"));
+    const promotion = api.queries.find((query) => query.sql.includes("Export lease lost"));
     assert.ok(promotion);
     assert.match(promotion.sql, /auth_user_milestones/);
     assert.match(promotion.sql, /auth_weekly_setup_cohorts/);
     assert.match(promotion.sql, /product_analytics_export_runs/);
+    assert.match(promotion.sql, /last_published_cutoff/);
     assert.equal(promotion.params?.run_id, "testrun01");
     assert.deepEqual(api.deleted, [run.milestoneStagingTableId, run.cohortStagingTableId]);
   });
@@ -160,6 +173,7 @@ describe("ProductAnalyticsExportRepository", () => {
     const repo = new ProductAnalyticsExportRepository({ api });
     const run = await repo.beginRun({
       runId: "testrun01",
+      runCutoff: exportedAt,
       expiresAt: new Date("2026-07-29T12:00:00.000Z"),
     });
 
@@ -176,8 +190,28 @@ describe("ProductAnalyticsExportRepository", () => {
         error instanceof InternalServerError && error.debugMessage === "Product analytics export validation failed",
     );
     assert.equal(
-      api.queries.some((query) => query.sql.includes("BEGIN TRANSACTION")),
+      api.queries.some((query) => query.sql.includes("Export lease lost")),
       false,
     );
+  });
+
+  it("fails before leasing or staging when deployment-owned schemas drift", async () => {
+    const api = new FakeExportApi();
+    api.invalidSchemaTableId = "product_analytics_export_state";
+    const repo = new ProductAnalyticsExportRepository({ api });
+
+    await assert.rejects(
+      () =>
+        repo.beginRun({
+          runId: "testrun01",
+          runCutoff: exportedAt,
+          expiresAt: new Date("2026-07-29T12:00:00.000Z"),
+        }),
+      (error: unknown) =>
+        error instanceof InternalServerError &&
+        error.debugMessage === "Unexpected product analytics schema for product_analytics_export_state",
+    );
+    assert.equal(api.created.length, 0);
+    assert.equal(api.queries.length, 0);
   });
 });
