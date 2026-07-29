@@ -9,7 +9,6 @@
   },
   "scripts": {
     "start": "tsx src/index.ts",
-    "start:local": "sops exec-env env/app/local.env 'tsx src/index.ts'",
     "start:prod": "sops exec-env env/app/prod.env 'tsx src/index.ts'",
     "build": "tsc",
     "dev": "tsx --watch src/index.ts",
@@ -20,8 +19,8 @@
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\"",
     "generate-keys": "bash ./scripts/generate-keys.sh",
     "env:init": "bash ./scripts/env-init.sh",
-    "env:decrypt": "sh -c 'sops decrypt env/app/${ENV:-local}.env > .env && echo \"Decrypted env/app/${ENV:-local}.env → .env\"'",
-    "env:edit": "sh -c 'sops edit env/app/${ENV:-local}.env'",
+    "env:decrypt": "sh -c 'sops decrypt env/app/${ENV:-prod}.env > .env && echo \"Decrypted env/app/${ENV:-prod}.env → .env\"'",
+    "env:edit": "sh -c 'sops edit env/app/${ENV:-prod}.env'",
     "env:update-keys": "sh -c 'for f in env/app/*.env; do [ -f \"$f\" ] && sops updatekeys -y \"$f\"; done'",
     "create-password-account": "tsx scripts/create-password-account.ts",
     "backfill-activation": "tsx src/scripts/backfill-activation.ts",
