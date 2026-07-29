@@ -40,6 +40,41 @@ describe("product analytics command configuration", () => {
     );
   });
 
+  it("normalizes locations and rejects invalid GCP project IDs with field details", () => {
+    const config = loadProductAnalyticsExportConfig({
+      env: {
+        ...common,
+        PRODUCT_ANALYTICS_BIGQUERY_LOCATION: "  europe-west1  ",
+        PRODUCT_ANALYTICS_AUTH_DATASET_ID: "auth_private",
+        PRODUCT_ANALYTICS_INTERNAL_EXCLUSION_VIEW: "valid-project.controls.active_internal_users",
+      },
+    });
+
+    assert.equal(config.PRODUCT_ANALYTICS_BIGQUERY_LOCATION, "europe-west1");
+    assert.throws(
+      () =>
+        loadProductAnalyticsExportConfig({
+          env: {
+            ...common,
+            PRODUCT_ANALYTICS_GCP_PROJECT_ID: "a".repeat(31),
+            PRODUCT_ANALYTICS_AUTH_DATASET_ID: "auth_private",
+            PRODUCT_ANALYTICS_INTERNAL_EXCLUSION_VIEW: "valid-project.controls.active_internal_users",
+          },
+        }),
+      /PRODUCT_ANALYTICS_GCP_PROJECT_ID/,
+    );
+    assert.throws(
+      () =>
+        loadProductAnalyticsDeletionConfig({
+          env: {
+            ...common,
+            PRODUCT_ANALYTICS_PRIVACY_DATASET_ID: "invalid-dataset",
+          },
+        }),
+      /PRODUCT_ANALYTICS_PRIVACY_DATASET_ID/,
+    );
+  });
+
   it("keeps privacy-target configuration separate from auth-export access", () => {
     const config = loadProductAnalyticsDeletionConfig({
       env: {

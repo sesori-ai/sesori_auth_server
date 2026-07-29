@@ -2,8 +2,7 @@ import { InternalServerError } from "../lib/errors.js";
 import { productAnalyticsUserKeyFor } from "../lib/product-analytics-user-key.js";
 import type { ProductAnalyticsDeletionTargetStatus } from "../models/product-analytics-export.js";
 import type { ProductAnalyticsExportSuppression } from "../repositories/user-repo.js";
-
-const requestIdPattern = /^[A-Za-z0-9_-]{8,128}$/;
+import { productAnalyticsDeletionRequestIdSchema } from "../types/product-analytics.js";
 
 type ProductAnalyticsSuppressionService = {
   suppressExport(input: { userId: string; suppressedAt: Date }): Promise<ProductAnalyticsExportSuppression>;
@@ -41,7 +40,7 @@ export class ProductAnalyticsDeletionService {
     userId: string;
     requestId: string;
   }): Promise<ProductAnalyticsDeletionHandoffResult> {
-    if (!requestIdPattern.test(input.requestId)) {
+    if (!productAnalyticsDeletionRequestIdSchema.safeParse(input.requestId).success) {
       throw new InternalServerError({ debugMessage: "Invalid product analytics deletion handoff input" });
     }
     const requestedAt = this.#clock();

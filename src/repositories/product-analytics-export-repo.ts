@@ -130,6 +130,7 @@ export class ProductAnalyticsExportRepository {
       milestoneStagingTableId: `auth_user_milestones_staging_${input.runId}`,
       cohortStagingTableId: `auth_weekly_setup_cohorts_staging_${input.runId}`,
     };
+    this.#assertRun({ run });
     await this.#assertPermanentSchemas();
     await this.#acquireLease({ run, runCutoff: input.runCutoff, expiresAt: input.expiresAt });
     try {
@@ -161,6 +162,7 @@ export class ProductAnalyticsExportRepository {
   }
 
   async appendMilestones(input: { run: ProductAnalyticsExportRun; rows: ProductAnalyticsExportRow[] }): Promise<void> {
+    this.#assertRun({ run: input.run });
     if (input.rows.length === 0) {
       return;
     }
@@ -196,6 +198,7 @@ export class ProductAnalyticsExportRepository {
   }
 
   async writeCohorts(input: { run: ProductAnalyticsExportRun; rows: ProductAnalyticsSetupCohortRow[] }): Promise<void> {
+    this.#assertRun({ run: input.run });
     if (input.rows.length === 0) {
       return;
     }
@@ -252,6 +255,7 @@ export class ProductAnalyticsExportRepository {
   }
 
   async removeUserKeys(input: { run: ProductAnalyticsExportRun; userKeys: string[] }): Promise<Map<string, number>> {
+    this.#assertRun({ run: input.run });
     if (input.userKeys.some((userKey) => !userKeyPattern.test(userKey))) {
       throw new InternalServerError({ debugMessage: "Invalid product analytics exclusion key" });
     }
@@ -295,6 +299,7 @@ export class ProductAnalyticsExportRepository {
     expectedEnabledAccounts: number;
     metadata: ProductAnalyticsExportRunMetadata;
   }): Promise<void> {
+    this.#assertRun({ run: input.run });
     const metadataCounts = [
       input.metadata.usersScanned,
       input.metadata.sourceSuppressedUsers,
@@ -457,6 +462,7 @@ export class ProductAnalyticsExportRepository {
   }
 
   async cleanup(input: { run: ProductAnalyticsExportRun }): Promise<void> {
+    this.#assertRun({ run: input.run });
     const results = await Promise.allSettled([
       this.#api.deleteTable({ tableId: input.run.milestoneStagingTableId }),
       this.#api.deleteTable({ tableId: input.run.cohortStagingTableId }),
@@ -477,7 +483,20 @@ export class ProductAnalyticsExportRepository {
     }
   }
 
+  #assertRun(input: { run: ProductAnalyticsExportRun }): void {
+    const expectedMilestoneTableId = `auth_user_milestones_staging_${input.run.runId}`;
+    const expectedCohortTableId = `auth_weekly_setup_cohorts_staging_${input.run.runId}`;
+    if (
+      !runIdPattern.test(input.run.runId) ||
+      input.run.milestoneStagingTableId !== expectedMilestoneTableId ||
+      input.run.cohortStagingTableId !== expectedCohortTableId
+    ) {
+      throw new InternalServerError({ debugMessage: "Invalid product analytics export run" });
+    }
+  }
+
   async #acquireLease(input: { run: ProductAnalyticsExportRun; runCutoff: Date; expiresAt: Date }): Promise<void> {
+    this.#assertRun({ run: input.run });
     await this.#api.query({
       sql: `
         BEGIN TRANSACTION;
@@ -507,6 +526,7 @@ export class ProductAnalyticsExportRepository {
   }
 
   async #releaseLease(input: { run: ProductAnalyticsExportRun }): Promise<void> {
+    this.#assertRun({ run: input.run });
     await this.#api.query({
       sql: `
         UPDATE \`${this.#api.datasetReference}.product_analytics_export_state\`

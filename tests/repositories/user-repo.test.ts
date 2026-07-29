@@ -57,6 +57,26 @@ describe("UserRepository", () => {
     );
   });
 
+  it("reports a missing stored preference timestamp as an invariant failure", async () => {
+    const userId = new ObjectId();
+    const createdAt = new Date("2026-06-01T10:00:00.000Z");
+    await ctx.dbAccessor.getCollection<User>(MongoDbDatabase.Auth, AuthDbCollection.Users).insertOne({
+      _id: userId,
+      tokenVersion: 0,
+      createdAt,
+      updatedAt: createdAt,
+      productAnalyticsPreference: ProductAnalyticsPreference.Enabled,
+      productAnalyticsPreferenceRevision: 1,
+      productAnalyticsPreferenceLastOperationId: null,
+    });
+
+    await assert.rejects(
+      () => repo.findProductAnalyticsPreference({ userId: userId.toHexString() }),
+      (error: unknown) =>
+        error instanceof InternalServerError && error.debugMessage === "Invalid stored product analytics preference",
+    );
+  });
+
   it("blocks startup while required preference state is missing", async () => {
     const createdAt = new Date("2026-06-01T10:00:00.000Z");
     await ctx.dbAccessor.getCollection<User>(MongoDbDatabase.Auth, AuthDbCollection.Users).insertOne({
@@ -278,6 +298,29 @@ describe("UserRepository", () => {
         exportSuppressedAt: null,
       },
     ]);
+  });
+
+  it("fails closed when an export projection contains malformed source state", async () => {
+    const user = await repo.create();
+    await ctx.dbAccessor.getCollection<User>(MongoDbDatabase.Auth, AuthDbCollection.Users).updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          productAnalyticsPreferenceUpdatedAt: "not-a-date" as unknown as Date,
+        },
+      },
+    );
+
+    await assert.rejects(
+      () =>
+        repo.findProductAnalyticsExportBatch({
+          afterUserId: null,
+          batchLimit: 10,
+          createdAtOrBefore: new Date("2100-01-01T00:00:00.000Z"),
+        }),
+      (error: unknown) =>
+        error instanceof InternalServerError && error.debugMessage === "Invalid product analytics export source row",
+    );
   });
 
   it("backfills only users missing required preference fields and is repeatable", async () => {

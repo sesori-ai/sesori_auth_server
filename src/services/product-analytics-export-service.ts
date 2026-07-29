@@ -349,7 +349,11 @@ export class ProductAnalyticsExportService {
         afterPreferenceUserId = changes.at(-1)?.userId ?? null;
       }
 
-      const finalControl = await this.#controlRepo.loadActiveInternalUserKeys({ loadedAt: preferenceScanCutoff });
+      const finalControlLoadedAt = this.#clock();
+      if (Number.isNaN(finalControlLoadedAt.getTime()) || finalControlLoadedAt < preferenceScanCutoff) {
+        throw new InternalServerError({ debugMessage: "Invalid product analytics final control load time" });
+      }
+      const finalControl = await this.#controlRepo.loadActiveInternalUserKeys({ loadedAt: finalControlLoadedAt });
       if (
         finalControl.controlUpdatedAt.getTime() !== control.controlUpdatedAt.getTime() ||
         !stringSetsEqual(finalControl.userKeys, control.userKeys)

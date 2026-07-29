@@ -1,10 +1,10 @@
 import { BigQuery, type TableField } from "@google-cloud/bigquery";
 import { InternalServerError } from "../lib/errors.js";
 
-const projectIdPattern = /^[a-z][a-z0-9-]{4,61}[a-z0-9]$/;
+const projectIdPattern = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/;
 const datasetOrTableIdPattern = /^[A-Za-z_][A-Za-z0-9_]{0,1023}$/;
 const qualifiedViewPattern =
-  /^[a-z][a-z0-9-]{4,61}[a-z0-9]\.[A-Za-z_][A-Za-z0-9_]{0,1023}\.[A-Za-z_][A-Za-z0-9_]{0,1023}$/;
+  /^[a-z][a-z0-9-]{4,28}[a-z0-9]\.[A-Za-z_][A-Za-z0-9_]{0,1023}\.[A-Za-z_][A-Za-z0-9_]{0,1023}$/;
 
 export type ProductAnalyticsBigQueryRow = Record<string, unknown>;
 
@@ -34,7 +34,7 @@ export class BigQueryProductAnalyticsClient {
     this.#projectId = deps.projectId;
     this.#datasetId = deps.datasetId;
     this.#internalExclusionView = deps.internalExclusionView;
-    this.#location = deps.location;
+    this.#location = deps.location.trim();
   }
 
   get datasetReference(): string {
@@ -96,14 +96,19 @@ export class BigQueryProductAnalyticsClient {
       .delete({ ignoreNotFound: true });
   }
 
-  async loadActiveInternalUserKeys(): Promise<ProductAnalyticsBigQueryRow[]> {
+  async loadActiveInternalUserKeys(input: { maxRows: number }): Promise<ProductAnalyticsBigQueryRow[]> {
+    if (!Number.isSafeInteger(input.maxRows) || input.maxRows < 1 || input.maxRows > 100_002) {
+      throw new InternalServerError({ debugMessage: "Invalid product analytics internal-exclusion row limit" });
+    }
     const [rows] = await this.#bigQuery.query({
       query: `
         SELECT user_key, control_updated_at
         FROM \`${this.#internalExclusionView}\`
         WHERE is_active = TRUE OR user_key IS NULL
+        LIMIT @max_rows
       `,
       location: this.#location,
+      params: { max_rows: input.maxRows },
       useLegacySql: false,
     });
     return rows as ProductAnalyticsBigQueryRow[];

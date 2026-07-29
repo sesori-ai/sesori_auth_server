@@ -214,4 +214,24 @@ describe("ProductAnalyticsExportRepository", () => {
     assert.equal(api.created.length, 0);
     assert.equal(api.queries.length, 0);
   });
+
+  it("rejects malformed run handles before interpolating staging table IDs", async () => {
+    const api = new FakeExportApi();
+    const repo = new ProductAnalyticsExportRepository({ api });
+
+    await assert.rejects(
+      () =>
+        repo.appendMilestones({
+          run: {
+            runId: "testrun01",
+            milestoneStagingTableId: "another_table",
+            cohortStagingTableId: "auth_weekly_setup_cohorts_staging_testrun01",
+          },
+          rows: [milestone],
+        }),
+      (error: unknown) =>
+        error instanceof InternalServerError && error.debugMessage === "Invalid product analytics export run",
+    );
+    assert.equal(api.queries.length, 0);
+  });
 });

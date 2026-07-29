@@ -1,19 +1,10 @@
 import type { BigQueryProductAnalyticsDeletionTargetClient } from "../clients/bigquery-product-analytics-deletion-target-client.js";
+import { dateFromBigQuery } from "../lib/bigquery-values.js";
 import { InternalServerError } from "../lib/errors.js";
 import {
   ProductAnalyticsDeletionTargetStatus,
   type ProductAnalyticsDeletionTarget,
 } from "../models/product-analytics-export.js";
-
-function dateFromBigQuery(input: unknown): Date | null {
-  const value =
-    typeof input === "object" && input !== null && "value" in input ? (input as { value: unknown }).value : input;
-  if (typeof value !== "string" && typeof value !== "number" && !(value instanceof Date)) {
-    return null;
-  }
-  const date = value instanceof Date ? value : new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
 
 export class ProductAnalyticsDeletionTargetApi {
   readonly #client: BigQueryProductAnalyticsDeletionTargetClient;
@@ -36,7 +27,7 @@ export class ProductAnalyticsDeletionTargetApi {
       return null;
     }
     const row = rows[0];
-    const suppressedAt = dateFromBigQuery(row.suppressed_at);
+    const suppressedAt = dateFromBigQuery({ value: row.suppressed_at });
     const status = Object.values(ProductAnalyticsDeletionTargetStatus).find((value) => value === row.status);
     if (typeof row.request_id !== "string" || typeof row.user_key !== "string" || !suppressedAt || !status) {
       throw new InternalServerError({ debugMessage: "Malformed product analytics deletion target" });

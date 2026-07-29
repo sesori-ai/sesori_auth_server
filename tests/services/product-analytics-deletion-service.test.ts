@@ -117,4 +117,24 @@ describe("ProductAnalyticsDeletionTargetRepository", () => {
         error.debugMessage === "Product analytics deletion request ID collision",
     );
   });
+
+  it("rejects a concurrent handoff committed with a different tombstone timestamp", async () => {
+    let reads = 0;
+    const repo = new ProductAnalyticsDeletionTargetRepository({
+      api: {
+        async findByRequestId() {
+          reads += 1;
+          return reads === 1 ? null : { ...target, suppressedAt: new Date("2026-07-28T13:00:00.000Z") };
+        },
+        async upsert() {},
+      },
+    });
+
+    await assert.rejects(
+      () => repo.handoff(target),
+      (error: unknown) =>
+        error instanceof InternalServerError &&
+        error.debugMessage === "Product analytics deletion target handoff failed",
+    );
+  });
 });

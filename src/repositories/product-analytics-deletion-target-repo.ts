@@ -3,8 +3,8 @@ import {
   ProductAnalyticsDeletionTargetStatus,
   type ProductAnalyticsDeletionTarget,
 } from "../models/product-analytics-export.js";
+import { productAnalyticsDeletionRequestIdSchema } from "../types/product-analytics.js";
 
-const requestIdPattern = /^[A-Za-z0-9_-]{8,128}$/;
 const userKeyPattern = /^[a-f0-9]{64}$/;
 
 type ProductAnalyticsDeletionTargetDataApi = {
@@ -25,7 +25,7 @@ export class ProductAnalyticsDeletionTargetRepository {
     suppressedAt: Date;
   }): Promise<ProductAnalyticsDeletionTarget> {
     if (
-      !requestIdPattern.test(input.requestId) ||
+      !productAnalyticsDeletionRequestIdSchema.safeParse(input.requestId).success ||
       !userKeyPattern.test(input.userKey) ||
       Number.isNaN(input.suppressedAt.getTime())
     ) {
@@ -48,14 +48,18 @@ export class ProductAnalyticsDeletionTargetRepository {
     };
     await this.#api.upsert({ target });
     const committed = await this.#api.findByRequestId({ requestId: input.requestId });
-    if (!committed || committed.userKey !== input.userKey) {
+    if (
+      !committed ||
+      committed.userKey !== input.userKey ||
+      committed.suppressedAt.getTime() !== input.suppressedAt.getTime()
+    ) {
       throw new InternalServerError({ debugMessage: "Product analytics deletion target handoff failed" });
     }
     return committed;
   }
 
   async findStatus(input: { requestId: string }): Promise<ProductAnalyticsDeletionTargetStatus | null> {
-    if (!requestIdPattern.test(input.requestId)) {
+    if (!productAnalyticsDeletionRequestIdSchema.safeParse(input.requestId).success) {
       throw new InternalServerError({ debugMessage: "Invalid product analytics deletion request ID" });
     }
     return (await this.#api.findByRequestId(input))?.status ?? null;

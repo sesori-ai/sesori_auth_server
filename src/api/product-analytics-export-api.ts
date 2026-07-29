@@ -1,5 +1,6 @@
 import type { TableField } from "@google-cloud/bigquery";
 import type { BigQueryProductAnalyticsClient } from "../clients/bigquery-product-analytics-client.js";
+import { dateFromBigQuery } from "../lib/bigquery-values.js";
 import { InternalServerError } from "../lib/errors.js";
 
 export type ProductAnalyticsInternalExclusionRow = {
@@ -8,16 +9,6 @@ export type ProductAnalyticsInternalExclusionRow = {
 };
 
 export type ProductAnalyticsExternalQueryRow = Record<string, unknown>;
-
-function dateFromBigQuery(input: unknown): Date | null {
-  const value =
-    typeof input === "object" && input !== null && "value" in input ? (input as { value: unknown }).value : input;
-  if (typeof value !== "string" && typeof value !== "number" && !(value instanceof Date)) {
-    return null;
-  }
-  const date = value instanceof Date ? value : new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
 
 export class ProductAnalyticsExportApi {
   readonly #client: BigQueryProductAnalyticsClient;
@@ -51,14 +42,14 @@ export class ProductAnalyticsExportApi {
     await this.#wrap({ operation: "delete table", run: () => this.#client.deleteTable(input) });
   }
 
-  async loadActiveInternalUserKeys(): Promise<ProductAnalyticsInternalExclusionRow[]> {
+  async loadActiveInternalUserKeys(input: { maxRows: number }): Promise<ProductAnalyticsInternalExclusionRow[]> {
     const rows = await this.#wrap({
       operation: "load internal exclusions",
-      run: () => this.#client.loadActiveInternalUserKeys(),
+      run: () => this.#client.loadActiveInternalUserKeys(input),
     });
     return rows.map((row) => {
       const userKey = row.user_key;
-      const controlUpdatedAt = dateFromBigQuery(row.control_updated_at);
+      const controlUpdatedAt = dateFromBigQuery({ value: row.control_updated_at });
       if ((userKey !== null && typeof userKey !== "string") || !controlUpdatedAt) {
         throw new InternalServerError({ debugMessage: "Malformed product analytics internal-exclusion row" });
       }

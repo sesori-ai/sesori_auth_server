@@ -10,11 +10,8 @@ import { ProductAnalyticsControlRepository } from "../repositories/product-analy
 import { ProductAnalyticsExportRepository } from "../repositories/product-analytics-export-repo.js";
 import { UserRepository } from "../repositories/user-repo.js";
 import { ProductAnalyticsExportService } from "../services/product-analytics-export-service.js";
+import { safeErrorType } from "./product-analytics-cli-utils.js";
 import { loadProductAnalyticsExportConfig } from "./product-analytics-export-config.js";
-
-function safeErrorType(error: unknown): string {
-  return error instanceof Error ? error.name : "UnknownError";
-}
 
 export async function runProductAnalyticsExport(input: { env?: NodeJS.ProcessEnv; runCutoff?: Date }): Promise<number> {
   let connector: MongoDbConnector | null = null;
@@ -26,6 +23,8 @@ export async function runProductAnalyticsExport(input: { env?: NodeJS.ProcessEnv
       clientOptions: { appName: "sesori-product-analytics-export" },
     });
     const accessor = new MongoDbAccessor(connector);
+    const userRepo = new UserRepository(accessor);
+    await userRepo.assertProductAnalyticsPreferenceBackfillComplete();
     const bigQuery = new BigQuery({ projectId: config.PRODUCT_ANALYTICS_GCP_PROJECT_ID });
     const api = new ProductAnalyticsExportApi({
       client: new BigQueryProductAnalyticsClient({
@@ -37,7 +36,7 @@ export async function runProductAnalyticsExport(input: { env?: NodeJS.ProcessEnv
       }),
     });
     const service = new ProductAnalyticsExportService({
-      userRepo: new UserRepository(accessor),
+      userRepo,
       activationStateRepo: new ActivationStateRepository(accessor),
       controlRepo: new ProductAnalyticsControlRepository({
         api,
@@ -54,7 +53,7 @@ export async function runProductAnalyticsExport(input: { env?: NodeJS.ProcessEnv
     console.log("[ProductAnalyticsExport] Completed", report);
     return 0;
   } catch (error) {
-    console.error("[ProductAnalyticsExport] Failed", { errorType: safeErrorType(error) });
+    console.error("[ProductAnalyticsExport] Failed", { errorType: safeErrorType({ error }) });
     return 1;
   } finally {
     await connector?.close();

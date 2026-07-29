@@ -9,9 +9,11 @@ describe("ProductAnalyticsControlRepository", () => {
   const key = "a".repeat(64);
 
   it("loads a bounded fresh key set with a nullable empty-set sentinel", async () => {
+    let requestedMaxRows: number | null = null;
     const repo = new ProductAnalyticsControlRepository({
       api: {
-        async loadActiveInternalUserKeys() {
+        async loadActiveInternalUserKeys(input) {
+          requestedMaxRows = input.maxRows;
           return [
             { userKey: null, controlUpdatedAt },
             { userKey: key, controlUpdatedAt },
@@ -26,6 +28,7 @@ describe("ProductAnalyticsControlRepository", () => {
 
     assert.deepEqual([...snapshot.userKeys], [key]);
     assert.equal(snapshot.controlUpdatedAt.toISOString(), controlUpdatedAt.toISOString());
+    assert.equal(requestedMaxRows, 12);
   });
 
   it("fails closed for missing, stale, malformed, duplicate, or oversized controls", async () => {

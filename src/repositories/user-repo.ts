@@ -1,4 +1,5 @@
 import { Collection, ObjectId, type Filter } from "mongodb";
+import { z } from "zod";
 import { MongoDbAccessor } from "../db/mongo-db-accessor.js";
 import { InternalServerError } from "../lib/errors.js";
 import type { User } from "../models/documents.js";
@@ -43,6 +44,36 @@ const productAnalyticsPreferenceBackfillCandidateFilter: Filter<User> = {
   ],
 };
 
+const validDateSchema = z.date().refine((date) => !Number.isNaN(date.getTime()));
+const productAnalyticsExportUserSchema = z.object({
+  userId: z.string().regex(/^[a-f0-9]{24}$/),
+  accountCreatedAt: validDateSchema,
+  preference: productAnalyticsPreferenceSchema,
+  preferenceUpdatedAt: validDateSchema,
+  exportSuppressedAt: validDateSchema.nullable(),
+});
+const productAnalyticsPreferenceChangeSchema = z.object({
+  userId: z.string().regex(/^[a-f0-9]{24}$/),
+  changedAt: validDateSchema,
+  exportSuppressedAt: validDateSchema.nullable(),
+});
+
+function productAnalyticsExportUserFrom(input: { value: unknown }): ProductAnalyticsExportUser {
+  const result = productAnalyticsExportUserSchema.safeParse(input.value);
+  if (!result.success) {
+    throw new InternalServerError({ debugMessage: "Invalid product analytics export source row" });
+  }
+  return result.data;
+}
+
+function productAnalyticsPreferenceChangeFrom(input: { value: unknown }): ProductAnalyticsPreferenceChange {
+  const result = productAnalyticsPreferenceChangeSchema.safeParse(input.value);
+  if (!result.success) {
+    throw new InternalServerError({ debugMessage: "Invalid product analytics preference change row" });
+  }
+  return result.data;
+}
+
 function productAnalyticsPreferenceRecordFrom(input: { user: User }): ProductAnalyticsPreferenceRecord {
   const { user } = input;
   const preferenceResult = productAnalyticsPreferenceSchema.safeParse(
@@ -51,7 +82,12 @@ function productAnalyticsPreferenceRecordFrom(input: { user: User }): ProductAna
   const revisionResult = productAnalyticsPreferenceRevisionSchema.safeParse(user.productAnalyticsPreferenceRevision);
   const updatedAt = user.productAnalyticsPreferenceUpdatedAt;
 
-  if (!preferenceResult.success || !revisionResult.success || Number.isNaN(updatedAt.getTime())) {
+  if (
+    !preferenceResult.success ||
+    !revisionResult.success ||
+    !(updatedAt instanceof Date) ||
+    Number.isNaN(updatedAt.getTime())
+  ) {
     throw new InternalServerError({ debugMessage: "Invalid stored product analytics preference" });
   }
 
@@ -287,13 +323,17 @@ export class UserRepository {
       .limit(input.batchLimit)
       .toArray();
 
-    return users.map((user) => ({
-      userId: user._id.toHexString(),
-      accountCreatedAt: user.createdAt,
-      preference: user.productAnalyticsPreference,
-      preferenceUpdatedAt: user.productAnalyticsPreferenceUpdatedAt,
-      exportSuppressedAt: user.productAnalyticsExportSuppressedAt ?? null,
-    }));
+    return users.map((user) =>
+      productAnalyticsExportUserFrom({
+        value: {
+          userId: user._id.toHexString(),
+          accountCreatedAt: user.createdAt,
+          preference: user.productAnalyticsPreference,
+          preferenceUpdatedAt: user.productAnalyticsPreferenceUpdatedAt,
+          exportSuppressedAt: user.productAnalyticsExportSuppressedAt ?? null,
+        },
+      }),
+    );
   }
 
   async findProductAnalyticsPreferenceChangeBatch(input: {
@@ -332,11 +372,15 @@ export class UserRepository {
       .sort({ _id: 1 })
       .limit(input.batchLimit)
       .toArray();
-    return users.map((user) => ({
-      userId: user._id.toHexString(),
-      changedAt: user.productAnalyticsPreferenceUpdatedAt,
-      exportSuppressedAt: user.productAnalyticsExportSuppressedAt ?? null,
-    }));
+    return users.map((user) =>
+      productAnalyticsPreferenceChangeFrom({
+        value: {
+          userId: user._id.toHexString(),
+          changedAt: user.productAnalyticsPreferenceUpdatedAt,
+          exportSuppressedAt: user.productAnalyticsExportSuppressedAt ?? null,
+        },
+      }),
+    );
   }
 
   async findProductAnalyticsPreferenceBackfillBatch(input: {

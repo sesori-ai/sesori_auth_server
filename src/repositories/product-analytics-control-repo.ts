@@ -9,7 +9,7 @@ export type ProductAnalyticsInternalExclusionSnapshot = {
 };
 
 type ProductAnalyticsControlApi = {
-  loadActiveInternalUserKeys(): Promise<ProductAnalyticsInternalExclusionRow[]>;
+  loadActiveInternalUserKeys(input: { maxRows: number }): Promise<ProductAnalyticsInternalExclusionRow[]>;
 };
 
 export class ProductAnalyticsControlRepository {
@@ -35,7 +35,9 @@ export class ProductAnalyticsControlRepository {
     if (Number.isNaN(input.loadedAt.getTime())) {
       throw new InternalServerError({ debugMessage: "Invalid product analytics control load time" });
     }
-    const rows = await this.#api.loadActiveInternalUserKeys();
+    // Include one sentinel and one overflow row so an oversized control cannot
+    // be truncated into an apparently valid result.
+    const rows = await this.#api.loadActiveInternalUserKeys({ maxRows: this.#maxUserKeys + 2 });
     this.#validateRows({ rows, loadedAt: input.loadedAt });
 
     return {
@@ -57,6 +59,7 @@ export class ProductAnalyticsControlRepository {
       userKeys.length > this.#maxUserKeys ||
       userKeys.some((userKey) => !userKeyPattern.test(userKey)) ||
       new Set(userKeys).size !== userKeys.length ||
+      Number.isNaN(controlUpdatedAt.getTime()) ||
       input.rows.some((row) => row.controlUpdatedAt.getTime() !== controlUpdatedAt.getTime()) ||
       controlUpdatedAt > input.loadedAt ||
       input.loadedAt.getTime() - controlUpdatedAt.getTime() > this.#maxAgeMs

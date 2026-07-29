@@ -3,7 +3,7 @@ import { InternalServerError } from "../lib/errors.js";
 
 export type ProductAnalyticsDeletionTargetBigQueryRow = Record<string, unknown>;
 
-const projectIdPattern = /^[a-z][a-z0-9-]{4,61}[a-z0-9]$/;
+const projectIdPattern = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/;
 const datasetIdPattern = /^[A-Za-z_][A-Za-z0-9_]{0,1023}$/;
 
 export class BigQueryProductAnalyticsDeletionTargetClient {
@@ -25,7 +25,7 @@ export class BigQueryProductAnalyticsDeletionTargetClient {
     this.#bigQuery = deps.bigQuery;
     this.#projectId = deps.projectId;
     this.#datasetId = deps.datasetId;
-    this.#location = deps.location;
+    this.#location = deps.location.trim();
   }
 
   async query(input: {

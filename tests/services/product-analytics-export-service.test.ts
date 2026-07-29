@@ -206,12 +206,15 @@ describe("ProductAnalyticsExportService", () => {
       ]),
     );
     const exportRepo = new FakeExportRepository();
-    const clockValues = [startedAt, preferenceScanCutoff];
+    const finalControlLoadedAt = new Date("2026-07-28T12:03:00.000Z");
+    const controlLoadTimes: Date[] = [];
+    const clockValues = [startedAt, preferenceScanCutoff, finalControlLoadedAt];
     const service = new ProductAnalyticsExportService({
       userRepo,
       activationStateRepo: activationRepo,
       controlRepo: {
-        async loadActiveInternalUserKeys() {
+        async loadActiveInternalUserKeys(input) {
+          controlLoadTimes.push(input.loadedAt);
           return {
             userKeys: new Set([productAnalyticsUserKeyFor({ userId: ids[2] })]),
             controlUpdatedAt: new Date("2026-07-28T00:00:00.000Z"),
@@ -240,6 +243,7 @@ describe("ProductAnalyticsExportService", () => {
     assert.equal(exportRepo.validationInput?.expectedMilestoneRows, 1);
     assert.equal(exportRepo.validationInput?.expectedTotalAccounts, 4);
     assert.equal(exportRepo.validationInput?.expectedEnabledAccounts, 1);
+    assert.deepEqual(controlLoadTimes, [startedAt, finalControlLoadedAt]);
     assert.deepEqual((exportRepo.validationInput as unknown as { metadata: Record<string, unknown> }).metadata, {
       runId: "testrun01",
       runCutoff,

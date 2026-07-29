@@ -10,11 +10,13 @@ import { ProductAnalyticsDeletionTargetRepository } from "../repositories/produc
 import { UserRepository } from "../repositories/user-repo.js";
 import { ProductAnalyticsDeletionService } from "../services/product-analytics-deletion-service.js";
 import { ProductAnalyticsPreferenceService } from "../services/product-analytics-preference-service.js";
+import { productAnalyticsDeletionRequestIdSchema } from "../types/product-analytics.js";
+import { safeErrorType } from "./product-analytics-cli-utils.js";
 import { loadProductAnalyticsDeletionConfig } from "./product-analytics-deletion-config.js";
 
 const suppressionInputSchema = z.object({
   userId: z.string().regex(/^[a-fA-F0-9]{24}$/),
-  requestId: z.string().regex(/^[A-Za-z0-9_-]{8,128}$/),
+  requestId: productAnalyticsDeletionRequestIdSchema,
 });
 
 export type ProductAnalyticsSuppressionInput = z.infer<typeof suppressionInputSchema>;
@@ -37,10 +39,6 @@ async function readProtectedStdin(): Promise<string> {
     }
   }
   return value;
-}
-
-function safeErrorType(error: unknown): string {
-  return error instanceof Error ? error.name : "UnknownError";
 }
 
 export async function runProductAnalyticsSuppression(input: {
@@ -73,7 +71,7 @@ export async function runProductAnalyticsSuppression(input: {
     console.log(JSON.stringify(result));
     return 0;
   } catch (error) {
-    console.error("Product analytics suppression failed", { errorType: safeErrorType(error) });
+    console.error("Product analytics suppression failed", { errorType: safeErrorType({ error }) });
     return 1;
   } finally {
     await connector?.close();

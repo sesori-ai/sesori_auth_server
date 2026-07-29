@@ -17,6 +17,8 @@ export const productAnalyticsExpectedRevisionSchema = z
 
 export const productAnalyticsOperationIdSchema = z.string().uuid();
 
+export const productAnalyticsDeletionRequestIdSchema = z.string().regex(/^[A-Za-z0-9_-]{8,128}$/);
+
 export type ProductAnalyticsPreferenceRecord = {
   preference: ProductAnalyticsPreference;
   updatedAt: Date;
