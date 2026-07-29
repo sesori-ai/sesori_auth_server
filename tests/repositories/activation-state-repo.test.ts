@@ -90,6 +90,33 @@ describe("ActivationStateRepository", () => {
     assert.equal(await repo.findByUserId("invalid-id"), null);
   });
 
+  it("batch-loads only milestone timestamps at or before the export cutoff", async () => {
+    const first = await ctx.createUser();
+    const second = await ctx.createUser();
+    const cutoff = new Date("2026-07-12T12:00:00.000Z");
+    await repo.recordMilestones(
+      first.userId,
+      {
+        mobileSetupAt: new Date("2026-07-12T11:00:00.000Z"),
+        bridgeSetupAt: new Date("2026-07-12T13:00:00.000Z"),
+        firstSessionAt: new Date("2026-07-12T10:00:00.000Z"),
+      },
+      cutoff,
+    );
+
+    const milestones = await repo.findProductAnalyticsMilestonesByUserIds({
+      userIds: [first.userId, second.userId],
+      runCutoff: cutoff,
+    });
+
+    assert.deepEqual(milestones.get(first.userId), {
+      notificationRegisteredAt: new Date("2026-07-12T11:00:00.000Z"),
+      bridgeRegisteredAt: null,
+      legacyFirstMetadataRequestAt: new Date("2026-07-12T10:00:00.000Z"),
+    });
+    assert.equal(milestones.has(second.userId), false);
+  });
+
   it("derives reminder baselines when mobile setup is recorded before bridge setup", async () => {
     const user = await ctx.createUser();
     const mobileAt = new Date("2026-07-12T10:00:00.000Z");

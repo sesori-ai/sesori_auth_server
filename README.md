@@ -216,6 +216,73 @@ Apply mode is safe to rerun after interruption: it preserves existing values,
 fills only missing migration fields, and keeps permanently suppressed accounts
 disabled.
 
+The enforcing server now fails startup if any required preference field is
+missing or a permanently suppressed account is still stored as enabled. Deploy
+it only after the write-first version is live everywhere and repeated validation
+reports zero candidates. Roll back to the write-first release—not an older
+schema—if enforcement must be reverted.
+
+## Product analytics auth export
+
+The one-shot auth export is isolated from the web process and is intended for a
+least-privileged daily Cloud Run Job. The web server never constructs BigQuery
+clients. The job uses Application Default Credentials and accepts only its
+auth-private dataset plus one fully qualified, read-only internal-exclusion
+view:
+
+- `PRODUCT_ANALYTICS_GCP_PROJECT_ID`
+- `PRODUCT_ANALYTICS_AUTH_DATASET_ID`
+- `PRODUCT_ANALYTICS_INTERNAL_EXCLUSION_VIEW`
+- `PRODUCT_ANALYTICS_BIGQUERY_LOCATION`
+- optional `PRODUCT_ANALYTICS_EXPORT_BATCH_LIMIT` (default 500, maximum 1000)
+- optional `PRODUCT_ANALYTICS_INTERNAL_EXCLUSION_MAX_KEYS` (default 10000)
+- optional `PRODUCT_ANALYTICS_INTERNAL_EXCLUSION_MAX_AGE_MS` (default 48 hours)
+- `MONGODB_URI`
+
+The control view must return `user_key`, `is_active`, and a common
+`control_updated_at`. It must include one row with a nullable `user_key` as a
+freshness sentinel even when there are no active exclusions. Missing, stale,
+malformed, duplicate, or oversized controls abort publication. The job stages
+only pseudonymous/aggregate rows in tables expiring within 24 hours, reconciles
+late preference changes, validates both products, and transactionally replaces
+`auth_user_milestones` and `auth_weekly_setup_cohorts`. Failed runs leave the
+previous publication intact. The same transaction appends aggregate source,
+exclusion, reconciliation, cutoff, and freshness metadata to
+`product_analytics_export_runs`; it contains no source account identifiers.
+
+Build the production image normally and override its command with:
+
+```bash
+node dist/scripts/export-product-analytics.js
+```
+
+The equivalent source command is `npm run export-product-analytics`. Keep the
+job disabled until the same-location private dataset, authorized exclusion
+view, and split IAM described by the analytics rollout exist. Do not give the
+web identity any BigQuery role or provide service-account JSON keys.
+
+## Permanent product analytics suppression
+
+`npm run suppress-product-analytics-export` is a protected operator command,
+not an HTTP route. Its separate identity needs source suppression access plus
+append/read-status access only to
+`privacy_private.product_analytics_deletion_targets`; it must not receive auth
+export, control, raw-event, curated, or reporting access. Supply a verified
+request as bounded JSON on protected stdin—never argv or shell history:
+
+```json
+{"userId":"<verified Mongo account id>","requestId":"<external privacy request id>"}
+```
+
+The command first atomically disables and permanently tombstones the source
+account, then hashes the canonical account ID and hands only the external
+request ID, pseudonymous key, tombstone time, and pending status to the
+restricted target table. Output contains only request ID and status. If target
+handoff fails, the source tombstone remains and rerunning the same request is
+idempotent. In a production image invoke
+`node dist/scripts/suppress-product-analytics-export.js`. Do not run it before
+the restricted target dataset/table and deletion identity exist.
+
 ## npm scripts
 
 | Script                    | Description                                               |
@@ -232,6 +299,8 @@ disabled.
 | `npm run env:update-keys` | Re-encrypt all env files after adding a team member's key |
 | `npm run backfill-activation` | Preview activation backfill; pass `-- --apply` to persist |
 | `npm run backfill-product-analytics-preference` | Validate preference migration; pass `-- --apply` to persist bounded batches |
+| `npm run export-product-analytics` | Run one isolated auth-private export using ADC (unscheduled until analytics IAM exists) |
+| `npm run suppress-product-analytics-export` | Read one protected suppression request from stdin and hand off a restricted deletion target |
 
 ## Project structure
 

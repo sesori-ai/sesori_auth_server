@@ -1,5 +1,6 @@
 import { NotFoundError } from "../lib/errors.js";
 import type { UserRepository } from "../repositories/user-repo.js";
+import type { ProductAnalyticsExportSuppression } from "../repositories/user-repo.js";
 import type {
   ProductAnalyticsPreference,
   ProductAnalyticsPreferenceRecord,
@@ -32,5 +33,13 @@ export class ProductAnalyticsPreferenceService {
       throw new NotFoundError({ debugMessage: "Product analytics preference user not found" });
     }
     return result;
+  }
+
+  async suppressExport(input: { userId: string; suppressedAt: Date }): Promise<ProductAnalyticsExportSuppression> {
+    const suppression = await this.#userRepo.suppressProductAnalyticsExport(input);
+    if (!suppression) {
+      throw new NotFoundError({ debugMessage: "Product analytics preference user not found" });
+    }
+    return suppression;
   }
 }

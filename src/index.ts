@@ -59,6 +59,7 @@ async function main() {
   console.log("Indexes ready");
 
   const userRepo = new UserRepository(dbAccessor);
+  await userRepo.assertProductAnalyticsPreferenceBackfillComplete();
   const oauthAccountRepo = new OAuthAccountRepository(dbAccessor);
   const passwordAccountRepo = new PasswordAccountRepository(dbAccessor);
   const glossaryRepo = new GlossaryEntryRepository(dbAccessor);

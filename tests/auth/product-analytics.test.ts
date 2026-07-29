@@ -46,7 +46,7 @@ describe("Product analytics preference routes", () => {
     assert.deepEqual(response.json(), { preference: ProductAnalyticsPreference.Enabled, revision: 1 });
   });
 
-  it("uses honest migration defaults for a legacy user", async () => {
+  it("fails closed if a post-start write bypasses required preference fields", async () => {
     const userId = new ObjectId();
     const createdAt = new Date("2026-06-10T10:00:00.000Z");
     await ctx.dbAccessor.getCollection<User>(MongoDbDatabase.Auth, AuthDbCollection.Users).insertOne({
@@ -67,8 +67,8 @@ describe("Product analytics preference routes", () => {
       headers: { authorization: `Bearer ${accessToken}` },
     });
 
-    assert.equal(response.statusCode, 200);
-    assert.deepEqual(response.json(), { preference: ProductAnalyticsPreference.Enabled, revision: 1 });
+    assert.equal(response.statusCode, 500);
+    assert.deepEqual(response.json(), { error: "internal_server_error" });
   });
 
   it("keeps a permanently export-suppressed account disabled", async () => {

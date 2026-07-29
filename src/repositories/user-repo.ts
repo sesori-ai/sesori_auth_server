@@ -2,6 +2,10 @@ import { Collection, ObjectId, type Filter } from "mongodb";
 import { MongoDbAccessor } from "../db/mongo-db-accessor.js";
 import { InternalServerError } from "../lib/errors.js";
 import type { User } from "../models/documents.js";
+import type {
+  ProductAnalyticsExportUser,
+  ProductAnalyticsPreferenceChange,
+} from "../models/product-analytics-export.js";
 import { MongoDbDatabase, AuthDbCollection } from "../types/mongo.js";
 import {
   ProductAnalyticsPreference,
@@ -17,6 +21,11 @@ import {
 export type ProductAnalyticsPreferenceBackfillResult = {
   matchedCount: number;
   modifiedCount: number;
+};
+
+export type ProductAnalyticsExportSuppression = {
+  preference: ProductAnalyticsPreferenceRecord;
+  suppressedAt: Date;
 };
 
 export const productAnalyticsPreferenceBackfillMaxBatchLimit = 1_000;
@@ -37,14 +46,10 @@ const productAnalyticsPreferenceBackfillCandidateFilter: Filter<User> = {
 function productAnalyticsPreferenceRecordFrom(input: { user: User }): ProductAnalyticsPreferenceRecord {
   const { user } = input;
   const preferenceResult = productAnalyticsPreferenceSchema.safeParse(
-    user.productAnalyticsExportSuppressedAt
-      ? ProductAnalyticsPreference.Disabled
-      : (user.productAnalyticsPreference ?? ProductAnalyticsPreference.Enabled),
+    user.productAnalyticsExportSuppressedAt ? ProductAnalyticsPreference.Disabled : user.productAnalyticsPreference,
   );
-  const revisionResult = productAnalyticsPreferenceRevisionSchema.safeParse(
-    user.productAnalyticsPreferenceRevision ?? 1,
-  );
-  const updatedAt = user.productAnalyticsPreferenceUpdatedAt ?? user.createdAt;
+  const revisionResult = productAnalyticsPreferenceRevisionSchema.safeParse(user.productAnalyticsPreferenceRevision);
+  const updatedAt = user.productAnalyticsPreferenceUpdatedAt;
 
   if (!preferenceResult.success || !revisionResult.success || Number.isNaN(updatedAt.getTime())) {
     throw new InternalServerError({ debugMessage: "Invalid stored product analytics preference" });
@@ -62,6 +67,17 @@ export class UserRepository {
 
   constructor(accessor: MongoDbAccessor) {
     this.#collection = accessor.getCollection<User>(MongoDbDatabase.Auth, AuthDbCollection.Users);
+  }
+
+  async assertProductAnalyticsPreferenceBackfillComplete(): Promise<void> {
+    const missingCount = await this.#collection.countDocuments(productAnalyticsPreferenceBackfillCandidateFilter, {
+      limit: 1,
+    });
+    if (missingCount !== 0) {
+      throw new InternalServerError({
+        debugMessage: "Product analytics preference backfill is incomplete",
+      });
+    }
   }
 
   async findById(userId: string): Promise<User | null> {
@@ -117,11 +133,9 @@ export class UserRepository {
       throw new InternalServerError({ debugMessage: "Invalid product analytics preference update" });
     }
 
-    const currentRevision = { $ifNull: ["$productAnalyticsPreferenceRevision", 1] };
-    const currentPreference = {
-      $ifNull: ["$productAnalyticsPreference", ProductAnalyticsPreference.Enabled],
-    };
-    const currentOperationId = { $ifNull: ["$productAnalyticsPreferenceLastOperationId", null] };
+    const currentRevision = "$productAnalyticsPreferenceRevision";
+    const currentPreference = "$productAnalyticsPreference";
+    const currentOperationId = "$productAnalyticsPreferenceLastOperationId";
     const isSameOperationId = { $eq: [currentOperationId, input.operationId] };
     const isMatchingDuplicateOperation = {
       $and: [
@@ -150,11 +164,7 @@ export class UserRepository {
               $cond: [isMatchingDuplicateOperation, currentPreference, input.preference],
             },
             productAnalyticsPreferenceUpdatedAt: {
-              $cond: [
-                isMatchingDuplicateOperation,
-                { $ifNull: ["$productAnalyticsPreferenceUpdatedAt", "$createdAt"] },
-                updatedAt,
-              ],
+              $cond: [isMatchingDuplicateOperation, "$productAnalyticsPreferenceUpdatedAt", updatedAt],
             },
             productAnalyticsPreferenceRevision: {
               $cond: [isMatchingDuplicateOperation, currentRevision, { $add: [currentRevision, 1] }],
@@ -185,6 +195,152 @@ export class UserRepository {
       outcome: ProductAnalyticsPreferenceUpdateOutcome.Conflict,
       record: productAnalyticsPreferenceRecordFrom({ user: current }),
     };
+  }
+
+  async suppressProductAnalyticsExport(input: {
+    userId: string;
+    suppressedAt: Date;
+  }): Promise<ProductAnalyticsExportSuppression | null> {
+    if (!ObjectId.isValid(input.userId) || Number.isNaN(input.suppressedAt.getTime())) {
+      throw new InternalServerError({ debugMessage: "Invalid product analytics export suppression" });
+    }
+
+    const objectUserId = new ObjectId(input.userId);
+    const updated = await this.#collection.findOneAndUpdate(
+      { _id: objectUserId, productAnalyticsExportSuppressedAt: null },
+      [
+        {
+          $set: {
+            productAnalyticsPreference: ProductAnalyticsPreference.Disabled,
+            productAnalyticsPreferenceUpdatedAt: input.suppressedAt,
+            productAnalyticsPreferenceRevision: {
+              $cond: [
+                { $lt: ["$productAnalyticsPreferenceRevision", Number.MAX_SAFE_INTEGER] },
+                { $add: ["$productAnalyticsPreferenceRevision", 1] },
+                "$productAnalyticsPreferenceRevision",
+              ],
+            },
+            productAnalyticsPreferenceLastOperationId: null,
+            productAnalyticsExportSuppressedAt: input.suppressedAt,
+            updatedAt: input.suppressedAt,
+          },
+        },
+      ],
+      { returnDocument: "after" },
+    );
+    if (updated) {
+      return {
+        preference: productAnalyticsPreferenceRecordFrom({ user: updated }),
+        suppressedAt: input.suppressedAt,
+      };
+    }
+
+    const existing = await this.#collection.findOne({ _id: objectUserId });
+    if (!existing) {
+      return null;
+    }
+    if (!existing.productAnalyticsExportSuppressedAt) {
+      throw new InternalServerError({ debugMessage: "Failed to suppress product analytics export" });
+    }
+    return {
+      preference: productAnalyticsPreferenceRecordFrom({ user: existing }),
+      suppressedAt: existing.productAnalyticsExportSuppressedAt,
+    };
+  }
+
+  async findProductAnalyticsExportBatch(input: {
+    afterUserId: string | null;
+    batchLimit: number;
+    createdAtOrBefore: Date;
+  }): Promise<ProductAnalyticsExportUser[]> {
+    if (
+      !Number.isSafeInteger(input.batchLimit) ||
+      input.batchLimit < 1 ||
+      input.batchLimit > productAnalyticsPreferenceBackfillMaxBatchLimit
+    ) {
+      throw new InternalServerError({ debugMessage: "Invalid product analytics export batch limit" });
+    }
+    if (input.afterUserId !== null && !ObjectId.isValid(input.afterUserId)) {
+      throw new InternalServerError({ debugMessage: "Invalid product analytics export cursor" });
+    }
+    if (Number.isNaN(input.createdAtOrBefore.getTime())) {
+      throw new InternalServerError({ debugMessage: "Invalid product analytics export cutoff" });
+    }
+
+    const users = await this.#collection
+      .find(
+        {
+          createdAt: { $lte: input.createdAtOrBefore },
+          ...(input.afterUserId === null ? {} : { _id: { $gt: new ObjectId(input.afterUserId) } }),
+        },
+        {
+          projection: {
+            _id: 1,
+            createdAt: 1,
+            productAnalyticsPreference: 1,
+            productAnalyticsPreferenceUpdatedAt: 1,
+            productAnalyticsExportSuppressedAt: 1,
+          },
+        },
+      )
+      .sort({ _id: 1 })
+      .limit(input.batchLimit)
+      .toArray();
+
+    return users.map((user) => ({
+      userId: user._id.toHexString(),
+      accountCreatedAt: user.createdAt,
+      preference: user.productAnalyticsPreference,
+      preferenceUpdatedAt: user.productAnalyticsPreferenceUpdatedAt,
+      exportSuppressedAt: user.productAnalyticsExportSuppressedAt ?? null,
+    }));
+  }
+
+  async findProductAnalyticsPreferenceChangeBatch(input: {
+    afterUserId: string | null;
+    batchLimit: number;
+    changedAfter: Date;
+    changedAtOrBefore: Date;
+  }): Promise<ProductAnalyticsPreferenceChange[]> {
+    if (
+      !Number.isSafeInteger(input.batchLimit) ||
+      input.batchLimit < 1 ||
+      input.batchLimit > productAnalyticsPreferenceBackfillMaxBatchLimit ||
+      Number.isNaN(input.changedAfter.getTime()) ||
+      Number.isNaN(input.changedAtOrBefore.getTime()) ||
+      input.changedAfter > input.changedAtOrBefore
+    ) {
+      throw new InternalServerError({ debugMessage: "Invalid product analytics preference change window" });
+    }
+    if (input.afterUserId !== null && !ObjectId.isValid(input.afterUserId)) {
+      throw new InternalServerError({ debugMessage: "Invalid product analytics preference change cursor" });
+    }
+
+    const users = await this.#collection
+      .find(
+        {
+          ...(input.afterUserId === null ? {} : { _id: { $gt: new ObjectId(input.afterUserId) } }),
+          productAnalyticsPreferenceUpdatedAt: {
+            $gt: input.changedAfter,
+            $lte: input.changedAtOrBefore,
+          },
+        },
+        {
+          projection: {
+            _id: 1,
+            productAnalyticsPreferenceUpdatedAt: 1,
+            productAnalyticsExportSuppressedAt: 1,
+          },
+        },
+      )
+      .sort({ _id: 1 })
+      .limit(input.batchLimit)
+      .toArray();
+    return users.map((user) => ({
+      userId: user._id.toHexString(),
+      changedAt: user.productAnalyticsPreferenceUpdatedAt,
+      exportSuppressedAt: user.productAnalyticsExportSuppressedAt ?? null,
+    }));
   }
 
   async findProductAnalyticsPreferenceBackfillBatch(input: {

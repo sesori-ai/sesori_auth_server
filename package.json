@@ -26,12 +26,15 @@
     "create-password-account": "tsx scripts/create-password-account.ts",
     "backfill-activation": "tsx src/scripts/backfill-activation.ts",
     "backfill-product-analytics-preference": "tsx src/scripts/backfill-product-analytics-preference.ts",
+    "export-product-analytics": "tsx src/scripts/export-product-analytics.ts",
+    "suppress-product-analytics-export": "tsx src/scripts/suppress-product-analytics-export.ts",
     "circular-dependencies": "madge --circular --ts-config ./tsconfig.json ./src/index.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",
     "@fastify/multipart": "^10.0.0",
     "@fastify/rate-limit": "^10.3.0",
+    "@google-cloud/bigquery": "^8.3.1",
     "argon2": "^0.44.0",
     "fastify": "^5.8.5",
     "firebase-admin": "^13.8.0",
