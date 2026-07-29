@@ -1,5 +1,16 @@
 import type { ProductAnalyticsPreference } from "../types/product-analytics.js";
 
+export type ProductAnalyticsExportTableField = {
+  name: string;
+  type: string;
+  mode?: string;
+};
+
+export type ProductAnalyticsInternalExclusionRow = {
+  userKey: string | null;
+  controlUpdatedAt: Date;
+};
+
 export type ProductAnalyticsExportUser = {
   userId: string;
   accountCreatedAt: Date;
@@ -63,15 +74,20 @@ export type ProductAnalyticsExportRunMetadata = {
 };
 
 export enum ProductAnalyticsDeletionTargetStatus {
+  /** Written by auth suppression while awaiting downstream privacy processing. */
   Pending = "pending",
+  /** Set by the downstream privacy processor after it claims the request. */
   Processing = "processing",
+  /** Set downstream after warehouse and upstream deletion checks complete. */
   Completed = "completed",
+  /** Set downstream for retry; rerunning suppression with the same request ID is idempotent and does not reset it. */
   Retryable = "retryable",
 }
 
 export type ProductAnalyticsDeletionTarget = {
   requestId: string;
   userKey: string;
+  legacyFirebaseUserId: string;
   suppressedAt: Date;
   status: ProductAnalyticsDeletionTargetStatus;
 };

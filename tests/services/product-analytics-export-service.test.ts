@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { InternalServerError } from "../../src/lib/errors.js";
 import { productAnalyticsUserKeyFor } from "../../src/lib/product-analytics-user-key.js";
 import type {
   ProductAnalyticsActivationMilestones,
@@ -17,6 +18,14 @@ const run: ProductAnalyticsExportRun = {
   milestoneStagingTableId: "auth_user_milestones_staging_testrun01",
   cohortStagingTableId: "auth_weekly_setup_cohorts_staging_testrun01",
 };
+const pseudonymizationKey = Buffer.from("0123456789abcdef0123456789abcdef", "utf8");
+
+function userKeyFor(input: { userId: string }): string {
+  return productAnalyticsUserKeyFor({
+    userId: input.userId,
+    pseudonymizationKey,
+  });
+}
 
 function weekFor(date: Date): string {
   const copy = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -59,11 +68,15 @@ class FakeUserRepository {
 }
 
 class FakeActivationStateRepository {
+  lastRunCutoff: Date | null = null;
+
   constructor(readonly milestones: Map<string, ProductAnalyticsActivationMilestones>) {}
 
   async findProductAnalyticsMilestonesByUserIds(input: {
     userIds: string[];
+    runCutoff: Date;
   }): Promise<Map<string, ProductAnalyticsActivationMilestones>> {
+    this.lastRunCutoff = input.runCutoff;
     return new Map(
       input.userIds.flatMap((userId) => (this.milestones.has(userId) ? [[userId, this.milestones.get(userId)!]] : [])),
     );
@@ -80,12 +93,16 @@ class FakeExportRepository {
   } | null = null;
   cleanupCalls = 0;
   failAppend = false;
+  beginRunInput: { runId: string; runCutoff: Date; expiresAt: Date } | null = null;
+  readonly appendRuns: ProductAnalyticsExportRun[] = [];
 
-  async beginRun(): Promise<ProductAnalyticsExportRun> {
+  async beginRun(input: { runId: string; runCutoff: Date; expiresAt: Date }): Promise<ProductAnalyticsExportRun> {
+    this.beginRunInput = input;
     return run;
   }
 
-  async appendMilestones(input: { rows: ProductAnalyticsExportRow[] }): Promise<void> {
+  async appendMilestones(input: { run: ProductAnalyticsExportRun; rows: ProductAnalyticsExportRow[] }): Promise<void> {
+    this.appendRuns.push(input.run);
     if (this.failAppend) {
       throw new Error("staging failed");
     }
@@ -124,14 +141,21 @@ class FakeExportRepository {
 }
 
 describe("ProductAnalyticsExportService", () => {
-  it("pins the lowercase canonical account-key hash", () => {
+  it("pins the lowercase canonical account-key HMAC", () => {
     assert.equal(
-      productAnalyticsUserKeyFor({ userId: "000000000000000000000001" }),
-      "dd6eda34d13e0eb25636eb5642192e8d72b05147f23270f982dd136ffe8d9193",
+      userKeyFor({ userId: "000000000000000000000001" }),
+      "1e02442b1a7fe039fd2900710cf727d72adc7d3379c8e1b41ac5bdb32924f4e5",
     );
     assert.equal(
-      productAnalyticsUserKeyFor({ userId: "abcdefabcdefabcdefabcdef" }),
-      productAnalyticsUserKeyFor({ userId: "ABCDEFABCDEFABCDEFABCDEF" }),
+      userKeyFor({ userId: "abcdefabcdefabcdefabcdef" }),
+      userKeyFor({ userId: "ABCDEFABCDEFABCDEFABCDEF" }),
+    );
+    assert.notEqual(
+      userKeyFor({ userId: "000000000000000000000001" }),
+      productAnalyticsUserKeyFor({
+        userId: "000000000000000000000001",
+        pseudonymizationKey: Buffer.alloc(32, 1),
+      }),
     );
   });
 
@@ -216,13 +240,14 @@ describe("ProductAnalyticsExportService", () => {
         async loadActiveInternalUserKeys(input) {
           controlLoadTimes.push(input.loadedAt);
           return {
-            userKeys: new Set([productAnalyticsUserKeyFor({ userId: ids[2] })]),
+            userKeys: new Set([userKeyFor({ userId: ids[2] })]),
             controlUpdatedAt: new Date("2026-07-28T00:00:00.000Z"),
           };
         },
       },
       exportRepo,
       batchLimit: 2,
+      pseudonymizationKey,
       clock: () => clockValues.shift()!,
       createRunId: () => "testrun01",
     });
@@ -244,6 +269,16 @@ describe("ProductAnalyticsExportService", () => {
     assert.equal(exportRepo.validationInput?.expectedTotalAccounts, 4);
     assert.equal(exportRepo.validationInput?.expectedEnabledAccounts, 1);
     assert.deepEqual(controlLoadTimes, [startedAt, finalControlLoadedAt]);
+    assert.equal(activationRepo.lastRunCutoff?.toISOString(), runCutoff.toISOString());
+    assert.equal(exportRepo.beginRunInput?.runCutoff.toISOString(), runCutoff.toISOString());
+    assert.equal(
+      exportRepo.beginRunInput?.expiresAt.toISOString(),
+      new Date(startedAt.getTime() + 24 * 60 * 60 * 1_000).toISOString(),
+    );
+    assert.equal(
+      exportRepo.appendRuns.every((value) => value.milestoneStagingTableId === run.milestoneStagingTableId),
+      true,
+    );
     assert.deepEqual((exportRepo.validationInput as unknown as { metadata: Record<string, unknown> }).metadata, {
       runId: "testrun01",
       runCutoff,
@@ -261,7 +296,7 @@ describe("ProductAnalyticsExportService", () => {
       cohortRowsPublished: 2,
     });
     assert.equal(exportRepo.milestones.length, 1);
-    assert.equal(exportRepo.milestones[0].userKey, productAnalyticsUserKeyFor({ userId: ids[0] }));
+    assert.equal(exportRepo.milestones[0].userKey, userKeyFor({ userId: ids[0] }));
     assert.equal(Object.hasOwn(exportRepo.milestones[0], "userId"), false);
     assert.deepEqual(
       exportRepo.cohorts.map((cohort) => ({
@@ -299,6 +334,7 @@ describe("ProductAnalyticsExportService", () => {
       },
       exportRepo,
       batchLimit: 2,
+      pseudonymizationKey,
       clock: () => new Date("2026-07-28T12:01:00.000Z"),
       createRunId: () => "testrun01",
     });
@@ -337,6 +373,7 @@ describe("ProductAnalyticsExportService", () => {
       },
       exportRepo,
       batchLimit: 2,
+      pseudonymizationKey,
       clock: (() => {
         const values = [new Date("2026-07-28T12:01:00.000Z"), new Date("2026-07-28T12:02:00.000Z")];
         return () => values.shift()!;
@@ -349,6 +386,107 @@ describe("ProductAnalyticsExportService", () => {
       (error: unknown) =>
         error instanceof Error && error.message === "internal_server_error" && exportRepo.validationInput === null,
     );
+    assert.equal(exportRepo.cleanupCalls, 1);
+  });
+
+  it("aborts and cleans staging when the internal-exclusion control changes", async () => {
+    const runCutoff = new Date("2026-07-28T12:00:00.000Z");
+    const user: ProductAnalyticsExportUser = {
+      userId: "000000000000000000000001",
+      accountCreatedAt: new Date("2026-07-20T12:00:00.000Z"),
+      preference: ProductAnalyticsPreference.Enabled,
+      preferenceUpdatedAt: new Date("2026-07-20T12:00:00.000Z"),
+      exportSuppressedAt: null,
+    };
+    const exportRepo = new FakeExportRepository();
+    let controlLoads = 0;
+    const service = new ProductAnalyticsExportService({
+      userRepo: new FakeUserRepository([user], []),
+      activationStateRepo: new FakeActivationStateRepository(new Map()),
+      controlRepo: {
+        async loadActiveInternalUserKeys() {
+          controlLoads += 1;
+          return {
+            userKeys: new Set<string>(),
+            controlUpdatedAt: new Date(controlLoads === 1 ? "2026-07-28T00:00:00.000Z" : "2026-07-28T00:01:00.000Z"),
+          };
+        },
+      },
+      exportRepo,
+      batchLimit: 2,
+      pseudonymizationKey,
+      clock: (() => {
+        const values = [
+          new Date("2026-07-28T12:01:00.000Z"),
+          new Date("2026-07-28T12:02:00.000Z"),
+          new Date("2026-07-28T12:03:00.000Z"),
+        ];
+        return () => values.shift()!;
+      })(),
+      createRunId: () => "testrun01",
+    });
+
+    await assert.rejects(
+      () => service.run({ runCutoff }),
+      (error: unknown) =>
+        error instanceof InternalServerError &&
+        error.debugMessage === "Product analytics internal exclusions changed during export" &&
+        exportRepo.validationInput === null,
+    );
+    assert.equal(exportRepo.cleanupCalls, 1);
+  });
+
+  it("publishes a valid empty snapshot when every account is excluded", async () => {
+    const runCutoff = new Date("2026-07-28T12:00:00.000Z");
+    const suppressedUser: ProductAnalyticsExportUser = {
+      userId: "000000000000000000000001",
+      accountCreatedAt: new Date("2026-07-20T12:00:00.000Z"),
+      preference: ProductAnalyticsPreference.Disabled,
+      preferenceUpdatedAt: new Date("2026-07-20T12:00:00.000Z"),
+      exportSuppressedAt: new Date("2026-07-21T12:00:00.000Z"),
+    };
+    const internalUser: ProductAnalyticsExportUser = {
+      userId: "000000000000000000000002",
+      accountCreatedAt: new Date("2026-07-20T12:00:00.000Z"),
+      preference: ProductAnalyticsPreference.Enabled,
+      preferenceUpdatedAt: new Date("2026-07-20T12:00:00.000Z"),
+      exportSuppressedAt: null,
+    };
+    const exportRepo = new FakeExportRepository();
+    const control = {
+      userKeys: new Set([userKeyFor({ userId: internalUser.userId })]),
+      controlUpdatedAt: new Date("2026-07-28T00:00:00.000Z"),
+    };
+    const service = new ProductAnalyticsExportService({
+      userRepo: new FakeUserRepository([suppressedUser, internalUser], []),
+      activationStateRepo: new FakeActivationStateRepository(new Map()),
+      controlRepo: {
+        async loadActiveInternalUserKeys() {
+          return control;
+        },
+      },
+      exportRepo,
+      batchLimit: 2,
+      pseudonymizationKey,
+      clock: (() => {
+        const values = [
+          new Date("2026-07-28T12:01:00.000Z"),
+          new Date("2026-07-28T12:02:00.000Z"),
+          new Date("2026-07-28T12:03:00.000Z"),
+        ];
+        return () => values.shift()!;
+      })(),
+      createRunId: () => "testrun01",
+    });
+
+    const report = await service.run({ runCutoff });
+
+    assert.equal(report.externalAccounts, 0);
+    assert.equal(report.enabledAccounts, 0);
+    assert.equal(report.cohortRows, 0);
+    assert.equal(exportRepo.validationInput?.expectedMilestoneRows, 0);
+    assert.equal(exportRepo.validationInput?.expectedTotalAccounts, 0);
+    assert.equal(exportRepo.validationInput?.expectedEnabledAccounts, 0);
     assert.equal(exportRepo.cleanupCalls, 1);
   });
 });

@@ -103,7 +103,10 @@ async function main() {
     deviceTokenRepo,
   });
   const appClientPresenceService = new AppClientPresenceService({ deviceTokenRepo });
-  const productAnalyticsPreferenceService = new ProductAnalyticsPreferenceService({ userRepo });
+  const productAnalyticsPreferenceService = new ProductAnalyticsPreferenceService({
+    userRepo,
+    pseudonymizationKey: config.PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY,
+  });
   const activationReminderService = new ActivationReminderService({
     activationStateRepo,
     notificationService,

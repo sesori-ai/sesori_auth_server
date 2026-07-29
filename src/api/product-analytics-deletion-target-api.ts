@@ -5,6 +5,7 @@ import {
   ProductAnalyticsDeletionTargetStatus,
   type ProductAnalyticsDeletionTarget,
 } from "../models/product-analytics-export.js";
+import { productAnalyticsUserKeySchema } from "../types/product-analytics.js";
 
 export class ProductAnalyticsDeletionTargetApi {
   readonly #client: BigQueryProductAnalyticsDeletionTargetClient;
@@ -16,7 +17,7 @@ export class ProductAnalyticsDeletionTargetApi {
   async findByRequestId(input: { requestId: string }): Promise<ProductAnalyticsDeletionTarget | null> {
     const rows = await this.#query({
       sql: `
-        SELECT request_id, user_key, suppressed_at, status
+        SELECT request_id, user_key, legacy_firebase_user_id, suppressed_at, status
         FROM \`${this.#client.targetTableReference}\`
         WHERE request_id = @request_id
         LIMIT 1
@@ -29,12 +30,21 @@ export class ProductAnalyticsDeletionTargetApi {
     const row = rows[0];
     const suppressedAt = dateFromBigQuery({ value: row.suppressed_at });
     const status = Object.values(ProductAnalyticsDeletionTargetStatus).find((value) => value === row.status);
-    if (typeof row.request_id !== "string" || typeof row.user_key !== "string" || !suppressedAt || !status) {
+    const userKeyResult = productAnalyticsUserKeySchema.safeParse(row.user_key);
+    const legacyFirebaseUserIdResult = productAnalyticsUserKeySchema.safeParse(row.legacy_firebase_user_id);
+    if (
+      typeof row.request_id !== "string" ||
+      !userKeyResult.success ||
+      !legacyFirebaseUserIdResult.success ||
+      !suppressedAt ||
+      !status
+    ) {
       throw new InternalServerError({ debugMessage: "Malformed product analytics deletion target" });
     }
     return {
       requestId: row.request_id,
-      userKey: row.user_key,
+      userKey: userKeyResult.data,
+      legacyFirebaseUserId: legacyFirebaseUserIdResult.data,
       suppressedAt,
       status,
     };
@@ -48,17 +58,19 @@ export class ProductAnalyticsDeletionTargetApi {
           SELECT
             @request_id AS request_id,
             @user_key AS user_key,
+            @legacy_firebase_user_id AS legacy_firebase_user_id,
             TIMESTAMP(@suppressed_at) AS suppressed_at,
             @status AS status
         ) AS source
         ON target.request_id = source.request_id
         WHEN NOT MATCHED THEN
-          INSERT (request_id, user_key, suppressed_at, status, created_at, updated_at)
-          VALUES (source.request_id, source.user_key, source.suppressed_at, source.status, CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())
+          INSERT (request_id, user_key, legacy_firebase_user_id, suppressed_at, status, created_at, updated_at)
+          VALUES (source.request_id, source.user_key, source.legacy_firebase_user_id, source.suppressed_at, source.status, CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())
       `,
       params: {
         request_id: input.target.requestId,
         user_key: input.target.userKey,
+        legacy_firebase_user_id: input.target.legacyFirebaseUserId,
         suppressed_at: input.target.suppressedAt.toISOString(),
         status: input.target.status,
       },

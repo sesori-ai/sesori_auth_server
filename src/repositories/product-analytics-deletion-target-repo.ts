@@ -3,9 +3,7 @@ import {
   ProductAnalyticsDeletionTargetStatus,
   type ProductAnalyticsDeletionTarget,
 } from "../models/product-analytics-export.js";
-import { productAnalyticsDeletionRequestIdSchema } from "../types/product-analytics.js";
-
-const userKeyPattern = /^[a-f0-9]{64}$/;
+import { productAnalyticsDeletionRequestIdSchema, productAnalyticsUserKeySchema } from "../types/product-analytics.js";
 
 type ProductAnalyticsDeletionTargetDataApi = {
   findByRequestId(input: { requestId: string }): Promise<ProductAnalyticsDeletionTarget | null>;
@@ -22,11 +20,13 @@ export class ProductAnalyticsDeletionTargetRepository {
   async handoff(input: {
     requestId: string;
     userKey: string;
+    legacyFirebaseUserId: string;
     suppressedAt: Date;
   }): Promise<ProductAnalyticsDeletionTarget> {
     if (
       !productAnalyticsDeletionRequestIdSchema.safeParse(input.requestId).success ||
-      !userKeyPattern.test(input.userKey) ||
+      !productAnalyticsUserKeySchema.safeParse(input.userKey).success ||
+      !productAnalyticsUserKeySchema.safeParse(input.legacyFirebaseUserId).success ||
       Number.isNaN(input.suppressedAt.getTime())
     ) {
       throw new InternalServerError({ debugMessage: "Invalid product analytics deletion target" });
@@ -34,7 +34,11 @@ export class ProductAnalyticsDeletionTargetRepository {
 
     const existing = await this.#api.findByRequestId({ requestId: input.requestId });
     if (existing) {
-      if (existing.userKey !== input.userKey || existing.suppressedAt.getTime() !== input.suppressedAt.getTime()) {
+      if (
+        existing.userKey !== input.userKey ||
+        existing.legacyFirebaseUserId !== input.legacyFirebaseUserId ||
+        existing.suppressedAt.getTime() !== input.suppressedAt.getTime()
+      ) {
         throw new InternalServerError({ debugMessage: "Product analytics deletion request ID collision" });
       }
       return existing;
@@ -43,6 +47,7 @@ export class ProductAnalyticsDeletionTargetRepository {
     const target: ProductAnalyticsDeletionTarget = {
       requestId: input.requestId,
       userKey: input.userKey,
+      legacyFirebaseUserId: input.legacyFirebaseUserId,
       suppressedAt: input.suppressedAt,
       status: ProductAnalyticsDeletionTargetStatus.Pending,
     };
@@ -51,6 +56,7 @@ export class ProductAnalyticsDeletionTargetRepository {
     if (
       !committed ||
       committed.userKey !== input.userKey ||
+      committed.legacyFirebaseUserId !== input.legacyFirebaseUserId ||
       committed.suppressedAt.getTime() !== input.suppressedAt.getTime()
     ) {
       throw new InternalServerError({ debugMessage: "Product analytics deletion target handoff failed" });

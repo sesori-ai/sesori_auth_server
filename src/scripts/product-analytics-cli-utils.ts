@@ -7,7 +7,3 @@ export function productAnalyticsConfigurationError(input: { description: string;
   const details = invalidFields.length === 0 ? "unknown field" : invalidFields.join(", ");
   return new Error(`Invalid ${input.description} configuration: ${details}`);
 }
-
-export function safeErrorType(input: { error: unknown }): string {
-  return input.error instanceof Error ? input.error.name : "UnknownError";
-}

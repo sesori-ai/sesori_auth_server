@@ -95,7 +95,7 @@ login/refresh responses. New accounts start at `enabled`, revision `1`.
 
 | Method | Path                            | Auth   | Description |
 | ------ | ------------------------------- | ------ | ----------- |
-| `GET`  | `/product-analytics/preference` | Bearer | Returns `{ "preference": "enabled" | "disabled", "revision": number }`. |
+| `GET`  | `/product-analytics/preference` | Bearer | Returns `{ "preference": "enabled" | "disabled", "revision": number, "userKey": string }`; `userKey` is the server-derived pseudonymous identity for enabled client events. |
 | `PUT`  | `/product-analytics/preference` | Bearer | Compare-and-set update with `{ "preference": "enabled" | "disabled", "expectedRevision": number, "operationId": uuid }`. |
 
 A successful PUT returns the same shape as GET with the incremented revision.
@@ -108,7 +108,8 @@ export suppression returns HTTP `409` with the current state:
 {
   "error": "conflict",
   "preference": "disabled",
-  "revision": 2
+  "revision": 2,
+  "userKey": "<64-character lowercase HMAC>"
 }
 ```
 
@@ -153,6 +154,7 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 | `PENDING_AUTH_MAX_SESSIONS`    | Max concurrent pending OAuth sessions in-memory. Default `10000` (~10 MB).                                                                                                                  |
 | `PENDING_AUTH_POLL_TIMEOUT_MS` | Max long-poll duration on `/auth/session/status`. Default `30000`.                                                                                                                          |
 | `RELAY_WEBHOOK_SECRET`         | Shared secret authenticating the relay on `/internal/*` endpoints.                                                                                                                          |
+| `PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY` | Canonical base64 for at least 32 random bytes. The web/export/suppression runtimes must use the same long-lived key to derive stable HMAC user keys. |
 | `ACTIVATION_REMINDERS_ENABLED` | Master switch for activation reminder polling. Default `false`. Enable on only one server instance until distributed leasing exists.                                                         |
 | `ACTIVATION_SWEEP_INTERVAL_MS` | Reminder polling interval in milliseconds. Default `900000` (15 minutes).                                                                                                                    |
 | `ACTIVATION_BRIDGE_REMINDER_1_DELAY_MS` | Delay from the bridge reminder baseline to the first bridge reminder. Default `7200000` (2 hours).                                                                                           |
@@ -222,6 +224,11 @@ it only after the write-first version is live everywhere and repeated validation
 reports zero candidates. Roll back to the write-first release—not an older
 schema—if enforcement must be reverted.
 
+This version also requires `PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY` at web
+startup because the authenticated preference API returns the server-derived
+HMAC user key. Configure the shared secret before merge/auto-deploy; do not let
+the web, export, and suppression runtimes receive different values.
+
 ## Product analytics auth export
 
 The one-shot auth export is isolated from the web process and is intended for a
@@ -234,10 +241,17 @@ view:
 - `PRODUCT_ANALYTICS_AUTH_DATASET_ID`
 - `PRODUCT_ANALYTICS_INTERNAL_EXCLUSION_VIEW`
 - `PRODUCT_ANALYTICS_BIGQUERY_LOCATION`
+- `PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY`
 - optional `PRODUCT_ANALYTICS_EXPORT_BATCH_LIMIT` (default 500, maximum 1000)
-- optional `PRODUCT_ANALYTICS_INTERNAL_EXCLUSION_MAX_KEYS` (default 10000)
+- optional `PRODUCT_ANALYTICS_INTERNAL_EXCLUSION_MAX_KEYS` (default 10000, maximum 100000)
 - optional `PRODUCT_ANALYTICS_INTERNAL_EXCLUSION_MAX_AGE_MS` (default 48 hours)
 - `MONGODB_URI`
+
+Generate the pseudonymization key once with `openssl rand -base64 32`, store it
+as a secret, and provide the exact same value to the web, export, and suppression
+runtimes. It is an HMAC key, not a public salt. Do not rotate it without a
+coordinated re-key migration for client events, auth snapshots, and deletion
+targets; a mismatched key breaks privacy joins.
 
 The control view must return `user_key`, `is_active`, and a common
 `control_updated_at`. It must include one row with a nullable `user_key` as a
@@ -287,14 +301,23 @@ append/read-status access only to
 export, control, raw-event, curated, or reporting access. Supply a verified
 request as bounded JSON on protected stdin—never argv or shell history:
 
+- `MONGODB_URI`
+- `PRODUCT_ANALYTICS_GCP_PROJECT_ID`
+- `PRODUCT_ANALYTICS_PRIVACY_DATASET_ID`
+- `PRODUCT_ANALYTICS_BIGQUERY_LOCATION`
+- `PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY` (the same long-lived key used by the web and export job)
+
 ```json
 {"userId":"<verified Mongo account id>","requestId":"<external privacy request id>"}
 ```
 
 The command first atomically disables and permanently tombstones the source
-account, then hashes the canonical account ID and hands only the external
-request ID, pseudonymous key, tombstone time, and pending status to the
-restricted target table. Output contains only request ID and status. If target
+account, then derives the new HMAC pseudonym plus the deletion-only legacy
+SHA-256 Firebase user ID and hands only those values, the external request ID,
+tombstone time, and pending status to the restricted target table. The legacy
+value exists only so the downstream processor can delete data created before
+the HMAC migration; it must never enter new analytics exports. Output contains
+only request ID and status. If target
 handoff fails, the source tombstone remains and rerunning the same request is
 idempotent. In a production image invoke
 `node dist/scripts/suppress-product-analytics-export.js`. Do not run it before

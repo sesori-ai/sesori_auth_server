@@ -6,12 +6,12 @@ import { ProductAnalyticsDeletionTargetApi } from "../api/product-analytics-dele
 import { BigQueryProductAnalyticsDeletionTargetClient } from "../clients/bigquery-product-analytics-deletion-target-client.js";
 import { MongoDbAccessor } from "../db/mongo-db-accessor.js";
 import { MongoDbConnector } from "../db/mongo-db-connector.js";
+import { safeErrorType } from "../lib/errors.js";
 import { ProductAnalyticsDeletionTargetRepository } from "../repositories/product-analytics-deletion-target-repo.js";
 import { UserRepository } from "../repositories/user-repo.js";
 import { ProductAnalyticsDeletionService } from "../services/product-analytics-deletion-service.js";
 import { ProductAnalyticsPreferenceService } from "../services/product-analytics-preference-service.js";
 import { productAnalyticsDeletionRequestIdSchema } from "../types/product-analytics.js";
-import { safeErrorType } from "./product-analytics-cli-utils.js";
 import { loadProductAnalyticsDeletionConfig } from "./product-analytics-deletion-config.js";
 
 const suppressionInputSchema = z.object({
@@ -22,6 +22,9 @@ const suppressionInputSchema = z.object({
 export type ProductAnalyticsSuppressionInput = z.infer<typeof suppressionInputSchema>;
 
 export function parseProductAnalyticsSuppressionInput(input: { value: string }): ProductAnalyticsSuppressionInput {
+  if (input.value.length > 4_096) {
+    throw new Error("Product analytics suppression input is too large");
+  }
   const result = suppressionInputSchema.safeParse(JSON.parse(input.value));
   if (!result.success) {
     throw new Error("Invalid product analytics suppression input");
@@ -64,7 +67,10 @@ export async function runProductAnalyticsSuppression(input: {
       }),
     });
     const service = new ProductAnalyticsDeletionService({
-      preferenceService: new ProductAnalyticsPreferenceService({ userRepo }),
+      preferenceService: new ProductAnalyticsPreferenceService({
+        userRepo,
+        pseudonymizationKey: config.PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY,
+      }),
       deletionTargetRepo: new ProductAnalyticsDeletionTargetRepository({ api: deletionTargetApi }),
     });
     const result = await service.suppressAndHandoff(command);

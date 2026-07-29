@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { productAnalyticsPseudonymizationKeySchema } from "../types/product-analytics.js";
 import { productAnalyticsConfigurationError } from "./product-analytics-cli-utils.js";
 
 const productAnalyticsDeletionConfigSchema = z.object({
@@ -6,6 +7,7 @@ const productAnalyticsDeletionConfigSchema = z.object({
   PRODUCT_ANALYTICS_GCP_PROJECT_ID: z.string().regex(/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/),
   PRODUCT_ANALYTICS_PRIVACY_DATASET_ID: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,1023}$/),
   PRODUCT_ANALYTICS_BIGQUERY_LOCATION: z.string().trim().min(1),
+  PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY: productAnalyticsPseudonymizationKeySchema,
 });
 
 export type ProductAnalyticsDeletionConfig = z.infer<typeof productAnalyticsDeletionConfigSchema>;

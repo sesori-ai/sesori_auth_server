@@ -1,5 +1,5 @@
-import type { ProductAnalyticsInternalExclusionRow } from "../api/product-analytics-export-api.js";
 import { InternalServerError } from "../lib/errors.js";
+import type { ProductAnalyticsInternalExclusionRow } from "../models/product-analytics-export.js";
 
 const userKeyPattern = /^[a-f0-9]{64}$/;
 
@@ -52,6 +52,8 @@ export class ProductAnalyticsControlRepository {
     }
     const controlUpdatedAt = input.rows[0].controlUpdatedAt;
     const userKeys = input.rows.flatMap((row) => (row.userKey === null ? [] : [row.userKey]));
+    // The authorized view must always emit exactly one null-key freshness
+    // sentinel, including when there are no active internal exclusions.
     const sentinelCount = input.rows.filter((row) => row.userKey === null).length;
     if (
       sentinelCount !== 1 ||

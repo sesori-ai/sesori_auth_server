@@ -1,5 +1,6 @@
 import { BigQuery, type TableField } from "@google-cloud/bigquery";
 import { InternalServerError } from "../lib/errors.js";
+import type { ProductAnalyticsExportTableField } from "../models/product-analytics-export.js";
 
 const projectIdPattern = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/;
 const datasetOrTableIdPattern = /^[A-Za-z_][A-Za-z0-9_]{0,1023}$/;
@@ -43,7 +44,7 @@ export class BigQueryProductAnalyticsClient {
 
   async createTable(input: {
     tableId: string;
-    schema: TableField[];
+    schema: ProductAnalyticsExportTableField[];
     expiresAt: Date | null;
     ifNotExists: boolean;
   }): Promise<void> {
@@ -64,18 +65,28 @@ export class BigQueryProductAnalyticsClient {
       }
     }
     await dataset.createTable(input.tableId, {
-      schema: input.schema,
+      schema: input.schema.map(
+        (field): TableField => ({
+          name: field.name,
+          type: field.type,
+          ...(field.mode === undefined ? {} : { mode: field.mode }),
+        }),
+      ),
       ...(input.expiresAt ? { expirationTime: input.expiresAt.getTime().toString() } : {}),
     });
   }
 
-  async getTableSchema(input: { tableId: string }): Promise<TableField[]> {
+  async getTableSchema(input: { tableId: string }): Promise<ProductAnalyticsExportTableField[]> {
     this.#assertTableId(input.tableId);
     const [metadata] = await this.#bigQuery
       .dataset(this.#datasetId, { projectId: this.#projectId, location: this.#location })
       .table(input.tableId)
       .getMetadata();
-    return metadata.schema?.fields ?? [];
+    return (metadata.schema?.fields ?? []).map((field: TableField) => ({
+      name: field.name ?? "",
+      type: field.type ?? "",
+      ...(field.mode === undefined ? {} : { mode: field.mode }),
+    }));
   }
 
   async query(input: { sql: string; params?: Record<string, unknown> }): Promise<ProductAnalyticsBigQueryRow[]> {

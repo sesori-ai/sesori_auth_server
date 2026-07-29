@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { InternalServerError } from "../lib/errors.js";
-import { productAnalyticsUserKeyFor } from "../lib/product-analytics-user-key.js";
+import { InternalServerError, safeErrorType } from "../lib/errors.js";
+import {
+  copyProductAnalyticsPseudonymizationKey,
+  productAnalyticsUserKeyFor,
+} from "../lib/product-analytics-user-key.js";
 import type {
   ProductAnalyticsActivationMilestones,
   ProductAnalyticsExportRow,
@@ -14,6 +17,8 @@ import type { ProductAnalyticsExportRun } from "../repositories/product-analytic
 import { ProductAnalyticsPreference } from "../types/product-analytics.js";
 
 const millisecondsPerDay = 24 * 60 * 60 * 1_000;
+// Staging outlives any reasonable run, expires before the next daily cadence,
+// and caps leaked-run storage cost.
 const stagingLifetimeMs = millisecondsPerDay;
 
 type ProductAnalyticsExportUserRepository = {
@@ -80,6 +85,7 @@ function cohortWeekFor(accountCreatedAt: Date): string {
   const date = new Date(
     Date.UTC(accountCreatedAt.getUTCFullYear(), accountCreatedAt.getUTCMonth(), accountCreatedAt.getUTCDate()),
   );
+  // Monday-based ISO week: getUTCDay() is 0=Sun..6=Sat, so this yields 0=Mon..6=Sun.
   const daysSinceMonday = (date.getUTCDay() + 6) % 7;
   date.setUTCDate(date.getUTCDate() - daysSinceMonday);
   return date.toISOString().slice(0, 10);
@@ -193,6 +199,7 @@ export class ProductAnalyticsExportService {
   readonly #controlRepo: ProductAnalyticsExportControlRepository;
   readonly #exportRepo: ProductAnalyticsExportStagingRepository;
   readonly #batchLimit: number;
+  readonly #pseudonymizationKey: Buffer;
   readonly #clock: () => Date;
   readonly #createRunId: () => string;
 
@@ -202,6 +209,7 @@ export class ProductAnalyticsExportService {
     controlRepo: ProductAnalyticsExportControlRepository;
     exportRepo: ProductAnalyticsExportStagingRepository;
     batchLimit: number;
+    pseudonymizationKey: Uint8Array;
     clock?: () => Date;
     createRunId?: () => string;
   }) {
@@ -213,10 +221,17 @@ export class ProductAnalyticsExportService {
     this.#controlRepo = deps.controlRepo;
     this.#exportRepo = deps.exportRepo;
     this.#batchLimit = deps.batchLimit;
+    this.#pseudonymizationKey = copyProductAnalyticsPseudonymizationKey({ value: deps.pseudonymizationKey });
     this.#clock = deps.clock ?? (() => new Date());
     this.#createRunId = deps.createRunId ?? (() => randomUUID().replaceAll("-", ""));
   }
 
+  /**
+   * Builds one cutoff-pinned auth snapshot in three phases: scan and stage
+   * eligible users, reconcile post-cutoff preference changes, then revalidate
+   * controls and atomically promote. Any failure preserves the last published
+   * snapshot and reaches staging cleanup in `finally`.
+   */
   async run(input: {
     runCutoff: Date;
     onBatchComplete?: (progress: ProductAnalyticsExportProgress) => void;
@@ -235,6 +250,7 @@ export class ProductAnalyticsExportService {
         runCutoff: input.runCutoff,
         expiresAt: new Date(startedAt.getTime() + stagingLifetimeMs),
       });
+      // Phase 1: scan users at runCutoff, filter controls, stage keyed rows, and accumulate cohorts.
       const cohorts = new Map<string, MutableSetupCohort>();
       const progress: ProductAnalyticsExportProgress = {
         usersScanned: 0,
@@ -268,7 +284,10 @@ export class ProductAnalyticsExportService {
             progress.sourceSuppressedUsers += 1;
             continue;
           }
-          const userKey = productAnalyticsUserKeyFor({ userId: user.userId });
+          const userKey = productAnalyticsUserKeyFor({
+            userId: user.userId,
+            pseudonymizationKey: this.#pseudonymizationKey,
+          });
           if (control.userKeys.has(userKey)) {
             progress.internalUsers += 1;
             continue;
@@ -308,6 +327,7 @@ export class ProductAnalyticsExportService {
         input.onBatchComplete?.({ ...progress });
       }
 
+      // Phase 2: reconcile current post-cutoff preferences before publication.
       const preferenceScanCutoff = this.#clock();
       if (Number.isNaN(preferenceScanCutoff.getTime()) || preferenceScanCutoff < input.runCutoff) {
         throw new InternalServerError({ debugMessage: "Invalid product analytics preference scan cutoff" });
@@ -334,7 +354,12 @@ export class ProductAnalyticsExportService {
         }
         const removedByCohort = await this.#exportRepo.removeUserKeys({
           run,
-          userKeys: changes.map((change) => productAnalyticsUserKeyFor({ userId: change.userId })),
+          userKeys: changes.map((change) =>
+            productAnalyticsUserKeyFor({
+              userId: change.userId,
+              pseudonymizationKey: this.#pseudonymizationKey,
+            }),
+          ),
         });
         for (const [cohortWeek, removedCount] of removedByCohort) {
           const cohort = cohorts.get(cohortWeek);
@@ -349,6 +374,7 @@ export class ProductAnalyticsExportService {
         afterPreferenceUserId = changes.at(-1)?.userId ?? null;
       }
 
+      // Phase 3: revalidate controls, write aggregate cohorts, validate, and atomically promote.
       const finalControlLoadedAt = this.#clock();
       if (Number.isNaN(finalControlLoadedAt.getTime()) || finalControlLoadedAt < preferenceScanCutoff) {
         throw new InternalServerError({ debugMessage: "Invalid product analytics final control load time" });
@@ -407,7 +433,8 @@ export class ProductAnalyticsExportService {
         } catch (error) {
           console.error("[ProductAnalyticsExport] Staging cleanup failed", {
             completed,
-            error,
+            errorType: safeErrorType({ error }),
+            failureCount: error instanceof AggregateError ? error.errors.length : 1,
           });
         }
       }

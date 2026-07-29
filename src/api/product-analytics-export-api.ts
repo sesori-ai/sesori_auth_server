@@ -1,12 +1,10 @@
-import type { TableField } from "@google-cloud/bigquery";
 import type { BigQueryProductAnalyticsClient } from "../clients/bigquery-product-analytics-client.js";
 import { dateFromBigQuery } from "../lib/bigquery-values.js";
 import { InternalServerError } from "../lib/errors.js";
-
-export type ProductAnalyticsInternalExclusionRow = {
-  userKey: string | null;
-  controlUpdatedAt: Date;
-};
+import type {
+  ProductAnalyticsExportTableField,
+  ProductAnalyticsInternalExclusionRow,
+} from "../models/product-analytics-export.js";
 
 export type ProductAnalyticsExternalQueryRow = Record<string, unknown>;
 
@@ -23,14 +21,14 @@ export class ProductAnalyticsExportApi {
 
   async createTable(input: {
     tableId: string;
-    schema: TableField[];
+    schema: ProductAnalyticsExportTableField[];
     expiresAt: Date | null;
     ifNotExists: boolean;
   }): Promise<void> {
     await this.#wrap({ operation: "create table", run: () => this.#client.createTable(input) });
   }
 
-  async getTableSchema(input: { tableId: string }): Promise<TableField[]> {
+  async getTableSchema(input: { tableId: string }): Promise<ProductAnalyticsExportTableField[]> {
     return this.#wrap({ operation: "get table schema", run: () => this.#client.getTableSchema(input) });
   }
 

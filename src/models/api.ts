@@ -6,6 +6,7 @@ import {
   productAnalyticsOperationIdSchema,
   productAnalyticsPreferenceRevisionSchema,
   productAnalyticsPreferenceSchema,
+  productAnalyticsUserKeySchema,
 } from "../types/product-analytics.js";
 
 export { BridgePlatform, bridgeIdSchema, bridgePlatformSchema };
@@ -164,6 +165,7 @@ export const productAnalyticsPreferenceReplySchema = z
   .object({
     preference: productAnalyticsPreferenceSchema,
     revision: productAnalyticsPreferenceRevisionSchema,
+    userKey: productAnalyticsUserKeySchema,
   })
   .strict();
 export type ProductAnalyticsPreferenceReply = z.infer<typeof productAnalyticsPreferenceReplySchema>;

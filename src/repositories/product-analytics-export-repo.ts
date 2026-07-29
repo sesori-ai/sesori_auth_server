@@ -1,16 +1,16 @@
-import type { TableField } from "@google-cloud/bigquery";
 import type { ProductAnalyticsExternalQueryRow } from "../api/product-analytics-export-api.js";
 import { InternalServerError } from "../lib/errors.js";
 import type {
   ProductAnalyticsExportRow,
   ProductAnalyticsExportRunMetadata,
+  ProductAnalyticsExportTableField,
   ProductAnalyticsSetupCohortRow,
 } from "../models/product-analytics-export.js";
 
 const runIdPattern = /^[a-z0-9_]{8,80}$/;
 const userKeyPattern = /^[a-f0-9]{64}$/;
 
-const milestoneSchema: TableField[] = [
+const milestoneSchema: ProductAnalyticsExportTableField[] = [
   { name: "user_key", type: "STRING", mode: "REQUIRED" },
   { name: "account_created_at", type: "TIMESTAMP", mode: "REQUIRED" },
   { name: "notification_registered_at", type: "TIMESTAMP", mode: "NULLABLE" },
@@ -19,7 +19,7 @@ const milestoneSchema: TableField[] = [
   { name: "exported_at", type: "TIMESTAMP", mode: "REQUIRED" },
 ];
 
-const cohortSchema: TableField[] = [
+const cohortSchema: ProductAnalyticsExportTableField[] = [
   { name: "cohort_week", type: "DATE", mode: "REQUIRED" },
   { name: "total_accounts", type: "INTEGER", mode: "REQUIRED" },
   { name: "enabled_accounts", type: "INTEGER", mode: "REQUIRED" },
@@ -35,7 +35,7 @@ const cohortSchema: TableField[] = [
   { name: "exported_at", type: "TIMESTAMP", mode: "REQUIRED" },
 ];
 
-const runMetadataSchema: TableField[] = [
+const runMetadataSchema: ProductAnalyticsExportTableField[] = [
   { name: "run_id", type: "STRING", mode: "REQUIRED" },
   { name: "run_cutoff", type: "TIMESTAMP", mode: "REQUIRED" },
   { name: "preference_scan_cutoff", type: "TIMESTAMP", mode: "REQUIRED" },
@@ -53,7 +53,7 @@ const runMetadataSchema: TableField[] = [
   { name: "published_at", type: "TIMESTAMP", mode: "REQUIRED" },
 ];
 
-const exportStateSchema: TableField[] = [
+const exportStateSchema: ProductAnalyticsExportTableField[] = [
   { name: "state_key", type: "STRING", mode: "REQUIRED" },
   { name: "active_run_id", type: "STRING", mode: "NULLABLE" },
   { name: "lease_expires_at", type: "TIMESTAMP", mode: "NULLABLE" },
@@ -62,7 +62,7 @@ const exportStateSchema: TableField[] = [
   { name: "updated_at", type: "TIMESTAMP", mode: "REQUIRED" },
 ];
 
-export const productAnalyticsPermanentTableSchemas = new Map<string, TableField[]>([
+export const productAnalyticsPermanentTableSchemas = new Map<string, ProductAnalyticsExportTableField[]>([
   ["auth_user_milestones", milestoneSchema],
   ["auth_weekly_setup_cohorts", cohortSchema],
   ["product_analytics_export_runs", runMetadataSchema],
@@ -79,11 +79,11 @@ type ProductAnalyticsExportDataApi = {
   readonly datasetReference: string;
   createTable(input: {
     tableId: string;
-    schema: TableField[];
+    schema: ProductAnalyticsExportTableField[];
     expiresAt: Date | null;
     ifNotExists: boolean;
   }): Promise<void>;
-  getTableSchema(input: { tableId: string }): Promise<TableField[]>;
+  getTableSchema(input: { tableId: string }): Promise<ProductAnalyticsExportTableField[]>;
   query(input: { sql: string; params?: Record<string, unknown> }): Promise<ProductAnalyticsExternalQueryRow[]>;
   deleteTable(input: { tableId: string }): Promise<void>;
 };
@@ -101,10 +101,12 @@ function stringFromBigQuery(input: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
-function normalizedSchema(fields: TableField[]): Array<{ name: string; type: string; mode: string }> {
+function normalizedSchema(
+  fields: ProductAnalyticsExportTableField[],
+): Array<{ name: string; type: string; mode: string }> {
   return fields.map((field) => ({
-    name: field.name ?? "",
-    type: (field.type ?? "").toUpperCase(),
+    name: field.name.toLowerCase(),
+    type: field.type.toUpperCase(),
     mode: (field.mode ?? "NULLABLE").toUpperCase(),
   }));
 }
@@ -463,20 +465,30 @@ export class ProductAnalyticsExportRepository {
 
   async cleanup(input: { run: ProductAnalyticsExportRun }): Promise<void> {
     this.#assertRun({ run: input.run });
+    // Lease release is a no-op after successful promotion, but remains a
+    // safety net for every interrupted or rejected run.
     const results = await Promise.allSettled([
       this.#api.deleteTable({ tableId: input.run.milestoneStagingTableId }),
       this.#api.deleteTable({ tableId: input.run.cohortStagingTableId }),
       this.#releaseLease({ run: input.run }),
     ]);
-    const failure = results.find((result) => result.status === "rejected");
-    if (failure?.status === "rejected") {
-      throw failure.reason;
+    const failures = results.flatMap((result) => (result.status === "rejected" ? [result.reason] : []));
+    if (failures.length > 0) {
+      throw new AggregateError(failures, "Product analytics export cleanup failed");
     }
   }
 
   async #assertPermanentSchemas(): Promise<void> {
-    for (const [tableId, expectedSchema] of productAnalyticsPermanentTableSchemas) {
-      const actualSchema = await this.#api.getTableSchema({ tableId });
+    // Permanent schemas belong to the deployment identity; fail before
+    // leasing so this runtime cannot publish through a drifted contract.
+    const schemas = await Promise.all(
+      [...productAnalyticsPermanentTableSchemas].map(async ([tableId, expectedSchema]) => ({
+        tableId,
+        expectedSchema,
+        actualSchema: await this.#api.getTableSchema({ tableId }),
+      })),
+    );
+    for (const { tableId, expectedSchema, actualSchema } of schemas) {
       if (JSON.stringify(normalizedSchema(actualSchema)) !== JSON.stringify(normalizedSchema(expectedSchema))) {
         throw new InternalServerError({ debugMessage: `Unexpected product analytics schema for ${tableId}` });
       }

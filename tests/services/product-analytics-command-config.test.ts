@@ -9,6 +9,7 @@ describe("product analytics command configuration", () => {
     MONGODB_URI: "mongodb://localhost:27017",
     PRODUCT_ANALYTICS_GCP_PROJECT_ID: "valid-project",
     PRODUCT_ANALYTICS_BIGQUERY_LOCATION: "europe-west1",
+    PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY: Buffer.from("0123456789abcdef0123456789abcdef", "utf8").toString("base64"),
   };
 
   it("loads bounded export-only configuration without service-account keys", () => {
@@ -73,6 +74,17 @@ describe("product analytics command configuration", () => {
         }),
       /PRODUCT_ANALYTICS_PRIVACY_DATASET_ID/,
     );
+    assert.throws(
+      () =>
+        loadProductAnalyticsDeletionConfig({
+          env: {
+            ...common,
+            PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY: Buffer.alloc(31).toString("base64"),
+            PRODUCT_ANALYTICS_PRIVACY_DATASET_ID: "privacy_private",
+          },
+        }),
+      /PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY/,
+    );
   });
 
   it("keeps privacy-target configuration separate from auth-export access", () => {
@@ -102,5 +114,16 @@ describe("product analytics command configuration", () => {
       () => parseProductAnalyticsSuppressionInput({ value: JSON.stringify({ userId: "invalid", requestId: "short" }) }),
       /Invalid product analytics suppression input/,
     );
+    assert.throws(
+      () => parseProductAnalyticsSuppressionInput({ value: " ".repeat(4_097) }),
+      /Product analytics suppression input is too large/,
+    );
+    assert.throws(() => parseProductAnalyticsSuppressionInput({ value: "" }), SyntaxError);
+    for (const value of [null, [], 42]) {
+      assert.throws(
+        () => parseProductAnalyticsSuppressionInput({ value: JSON.stringify(value) }),
+        /Invalid product analytics suppression input/,
+      );
+    }
   });
 });

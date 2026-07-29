@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { TableField } from "@google-cloud/bigquery";
 import { InternalServerError } from "../../src/lib/errors.js";
 import type { ProductAnalyticsExternalQueryRow } from "../../src/api/product-analytics-export-api.js";
 import type {
   ProductAnalyticsExportRow,
   ProductAnalyticsExportRunMetadata,
+  ProductAnalyticsExportTableField,
   ProductAnalyticsSetupCohortRow,
 } from "../../src/models/product-analytics-export.js";
 import {
@@ -17,13 +17,15 @@ class FakeExportApi {
   readonly datasetReference = "valid-project.auth_private";
   readonly created: Array<{
     tableId: string;
-    schema: TableField[];
+    schema: ProductAnalyticsExportTableField[];
     expiresAt: Date | null;
     ifNotExists: boolean;
   }> = [];
   readonly queries: Array<{ sql: string; params?: Record<string, unknown> }> = [];
   readonly deleted: string[] = [];
   invalidSchemaTableId: string | null = null;
+  readonly schemaOverrides = new Map<string, ProductAnalyticsExportTableField[]>();
+  readonly deleteFailures = new Set<string>();
   validationRow: ProductAnalyticsExternalQueryRow = {
     milestone_rows: 1,
     duplicate_keys: 0,
@@ -36,16 +38,19 @@ class FakeExportApi {
 
   async createTable(input: {
     tableId: string;
-    schema: TableField[];
+    schema: ProductAnalyticsExportTableField[];
     expiresAt: Date | null;
     ifNotExists: boolean;
   }): Promise<void> {
     this.created.push(input);
   }
 
-  async getTableSchema(input: { tableId: string }): Promise<TableField[]> {
+  async getTableSchema(input: { tableId: string }): Promise<ProductAnalyticsExportTableField[]> {
     if (input.tableId === this.invalidSchemaTableId) {
       return [];
+    }
+    if (this.schemaOverrides.has(input.tableId)) {
+      return this.schemaOverrides.get(input.tableId)!;
     }
     return productAnalyticsPermanentTableSchemas.get(input.tableId) ?? [];
   }
@@ -63,11 +68,19 @@ class FakeExportApi {
 
   async deleteTable(input: { tableId: string }): Promise<void> {
     this.deleted.push(input.tableId);
+    if (this.deleteFailures.has(input.tableId)) {
+      throw new Error(`delete failed: ${input.tableId}`);
+    }
   }
 }
 
 describe("ProductAnalyticsExportRepository", () => {
   const exportedAt = new Date("2026-07-28T12:00:00.000Z");
+  const cleanupRun = {
+    runId: "testrun01",
+    milestoneStagingTableId: "auth_user_milestones_staging_testrun01",
+    cohortStagingTableId: "auth_weekly_setup_cohorts_staging_testrun01",
+  };
   const milestone: ProductAnalyticsExportRow = {
     userKey: "a".repeat(64),
     accountCreatedAt: new Date("2026-07-20T12:00:00.000Z"),
@@ -213,6 +226,38 @@ describe("ProductAnalyticsExportRepository", () => {
     );
     assert.equal(api.created.length, 0);
     assert.equal(api.queries.length, 0);
+  });
+
+  it("accepts case-insensitive BigQuery field names when validating schemas", async () => {
+    const api = new FakeExportApi();
+    api.schemaOverrides.set(
+      "product_analytics_export_state",
+      productAnalyticsPermanentTableSchemas.get("product_analytics_export_state")!.map((field) => ({
+        ...field,
+        name: field.name.toUpperCase(),
+      })),
+    );
+    const repo = new ProductAnalyticsExportRepository({ api });
+
+    await repo.beginRun({
+      runId: "testrun01",
+      runCutoff: exportedAt,
+      expiresAt: new Date("2026-07-29T12:00:00.000Z"),
+    });
+
+    assert.equal(api.created.length, 2);
+  });
+
+  it("reports every staging cleanup failure", async () => {
+    const api = new FakeExportApi();
+    const repo = new ProductAnalyticsExportRepository({ api });
+    api.deleteFailures.add(cleanupRun.milestoneStagingTableId);
+    api.deleteFailures.add(cleanupRun.cohortStagingTableId);
+
+    await assert.rejects(
+      () => repo.cleanup({ run: cleanupRun }),
+      (error: unknown) => error instanceof AggregateError && error.errors.length === 2,
+    );
   });
 
   it("rejects malformed run handles before interpolating staging table IDs", async () => {

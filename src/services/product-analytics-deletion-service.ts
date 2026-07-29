@@ -1,17 +1,17 @@
 import { InternalServerError } from "../lib/errors.js";
-import { productAnalyticsUserKeyFor } from "../lib/product-analytics-user-key.js";
 import type { ProductAnalyticsDeletionTargetStatus } from "../models/product-analytics-export.js";
-import type { ProductAnalyticsExportSuppression } from "../repositories/user-repo.js";
+import type { ProductAnalyticsExportSuppressionWithKeys } from "./product-analytics-preference-service.js";
 import { productAnalyticsDeletionRequestIdSchema } from "../types/product-analytics.js";
 
 type ProductAnalyticsSuppressionService = {
-  suppressExport(input: { userId: string; suppressedAt: Date }): Promise<ProductAnalyticsExportSuppression>;
+  suppressExport(input: { userId: string; suppressedAt: Date }): Promise<ProductAnalyticsExportSuppressionWithKeys>;
 };
 
 type ProductAnalyticsDeletionTargetHandoffRepository = {
   handoff(input: {
     requestId: string;
     userKey: string;
+    legacyFirebaseUserId: string;
     suppressedAt: Date;
   }): Promise<{ requestId: string; status: ProductAnalyticsDeletionTargetStatus }>;
 };
@@ -48,14 +48,17 @@ export class ProductAnalyticsDeletionService {
       throw new InternalServerError({ debugMessage: "Invalid product analytics deletion handoff time" });
     }
 
+    // This order is load-bearing: commit the permanent source tombstone first,
+    // then use its derived key for the idempotent restricted handoff. A handoff
+    // failure leaves suppression observable and safe to retry with requestId.
     const suppression = await this.#preferenceService.suppressExport({
       userId: input.userId,
       suppressedAt: requestedAt,
     });
-    const userKey = productAnalyticsUserKeyFor({ userId: input.userId });
     const target = await this.#deletionTargetRepo.handoff({
       requestId: input.requestId,
-      userKey,
+      userKey: suppression.userKey,
+      legacyFirebaseUserId: suppression.legacyFirebaseUserId,
       suppressedAt: suppression.suppressedAt,
     });
     return { requestId: target.requestId, status: target.status };

@@ -34,6 +34,7 @@ describe("ProductAnalyticsControlRepository", () => {
   it("fails closed for missing, stale, malformed, duplicate, or oversized controls", async () => {
     const invalidRows = [
       [],
+      [{ userKey: null, controlUpdatedAt: new Date(Number.NaN) }],
       [{ userKey: key, controlUpdatedAt: new Date("2026-07-28T09:00:00.000Z") }],
       [{ userKey: "invalid", controlUpdatedAt }],
       [{ userKey: key, controlUpdatedAt }],

@@ -237,6 +237,30 @@ describe("UserRepository", () => {
     assert.equal(stored?.productAnalyticsPreferenceLastOperationId, null);
   });
 
+  it("preserves one tombstone when concurrent suppressions use different timestamps", async () => {
+    const user = await repo.create();
+    const candidates = [new Date("2026-07-28T12:00:00.000Z"), new Date("2026-07-28T13:00:00.000Z")];
+
+    const results = await Promise.all(
+      candidates.map((suppressedAt) =>
+        repo.suppressProductAnalyticsExport({
+          userId: user._id.toHexString(),
+          suppressedAt,
+        }),
+      ),
+    );
+    const stored = await repo.findById(user._id.toHexString());
+
+    assert.ok(results[0]);
+    assert.ok(results[1]);
+    assert.equal(results[0].suppressedAt.getTime(), results[1].suppressedAt.getTime());
+    assert.equal(stored?.productAnalyticsExportSuppressedAt?.getTime(), results[0].suppressedAt.getTime());
+    assert.equal(
+      candidates.some((candidate) => candidate.getTime() === results[0].suppressedAt.getTime()),
+      true,
+    );
+  });
+
   it("pages cutoff-safe export rows and preference changes without exposing ObjectIds", async () => {
     const users = ctx.dbAccessor.getCollection<User>(MongoDbDatabase.Auth, AuthDbCollection.Users);
     const runCutoff = new Date("2026-07-28T12:00:00.000Z");

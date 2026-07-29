@@ -5,12 +5,12 @@ import { ProductAnalyticsExportApi } from "../api/product-analytics-export-api.j
 import { BigQueryProductAnalyticsClient } from "../clients/bigquery-product-analytics-client.js";
 import { MongoDbAccessor } from "../db/mongo-db-accessor.js";
 import { MongoDbConnector } from "../db/mongo-db-connector.js";
+import { safeErrorType } from "../lib/errors.js";
 import { ActivationStateRepository } from "../repositories/activation-state-repo.js";
 import { ProductAnalyticsControlRepository } from "../repositories/product-analytics-control-repo.js";
 import { ProductAnalyticsExportRepository } from "../repositories/product-analytics-export-repo.js";
 import { UserRepository } from "../repositories/user-repo.js";
 import { ProductAnalyticsExportService } from "../services/product-analytics-export-service.js";
-import { safeErrorType } from "./product-analytics-cli-utils.js";
 import { loadProductAnalyticsExportConfig } from "./product-analytics-export-config.js";
 
 export async function runProductAnalyticsExport(input: { env?: NodeJS.ProcessEnv; runCutoff?: Date }): Promise<number> {
@@ -45,6 +45,7 @@ export async function runProductAnalyticsExport(input: { env?: NodeJS.ProcessEnv
       }),
       exportRepo: new ProductAnalyticsExportRepository({ api }),
       batchLimit: config.PRODUCT_ANALYTICS_EXPORT_BATCH_LIMIT,
+      pseudonymizationKey: config.PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY,
     });
     const report = await service.run({
       runCutoff,

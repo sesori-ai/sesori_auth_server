@@ -15,6 +15,7 @@ src/
 │   │   ├── github-client.ts  # GithubClient extends OAuthClient
 │   │   └── google-client.ts  # GoogleClient extends OAuthClient (JWKS verification)
 │   └── openai-client.ts      # OpenAI transcription client
+├── api/               # Typed adapters translating external SDK values/errors into local models
 ├── db/
 │   ├── mongo-db-connector.ts  # MongoDbConnector — connection lifecycle, health check
 │   └── mongo-db-accessor.ts   # MongoDbAccessor — generic DB access + config-driven ensureIndexes
