@@ -278,8 +278,10 @@ conservatively scans every current preference timestamp after `run_cutoff`
 without an upper bound. This is deliberate: a later write cannot hide an
 earlier in-window change when Mongo stores only the latest timestamp. A change
 after scan start may be excluded early when observed; otherwise it belongs to
-the next successful run. A source-suppression or internal-control change during
-the run aborts publication rather than risking inconsistent aggregates.
+the next successful run. An observed source-suppression change aborts. The job
+also reloads the internal control immediately before cohort write/promotion and
+aborts when that snapshot differs; a control update after this final snapshot is
+applied by the next run rather than coordinated through a cross-dataset lock.
 
 Build the production image normally and override its command with:
 
