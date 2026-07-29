@@ -1,4 +1,3 @@
-import { ObjectId } from "mongodb";
 import { InternalServerError } from "../lib/errors.js";
 import { productAnalyticsUserKeyFor } from "../lib/product-analytics-user-key.js";
 import type { ProductAnalyticsDeletionTargetStatus } from "../models/product-analytics-export.js";
@@ -42,7 +41,7 @@ export class ProductAnalyticsDeletionService {
     userId: string;
     requestId: string;
   }): Promise<ProductAnalyticsDeletionHandoffResult> {
-    if (!ObjectId.isValid(input.userId) || !requestIdPattern.test(input.requestId)) {
+    if (!requestIdPattern.test(input.requestId)) {
       throw new InternalServerError({ debugMessage: "Invalid product analytics deletion handoff input" });
     }
     const requestedAt = this.#clock();

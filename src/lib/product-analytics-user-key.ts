@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import { ObjectId } from "mongodb";
 import { InternalServerError } from "./errors.js";
 
+const accountIdPattern = /^[a-fA-F0-9]{24}$/;
+
 export function productAnalyticsUserKeyFor(input: { userId: string }): string {
-  if (!ObjectId.isValid(input.userId)) {
+  if (!accountIdPattern.test(input.userId)) {
     throw new InternalServerError({ debugMessage: "Invalid product analytics user ID for hashing" });
   }
-  const canonicalUserId = new ObjectId(input.userId).toHexString();
+  const canonicalUserId = input.userId.toLowerCase();
   return createHash("sha256").update(canonicalUserId, "utf8").digest("hex");
 }

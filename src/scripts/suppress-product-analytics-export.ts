@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { pathToFileURL } from "node:url";
 import { BigQuery } from "@google-cloud/bigquery";
-import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { ProductAnalyticsDeletionTargetApi } from "../api/product-analytics-deletion-target-api.js";
 import { BigQueryProductAnalyticsDeletionTargetClient } from "../clients/bigquery-product-analytics-deletion-target-client.js";
@@ -14,7 +13,7 @@ import { ProductAnalyticsPreferenceService } from "../services/product-analytics
 import { loadProductAnalyticsDeletionConfig } from "./product-analytics-deletion-config.js";
 
 const suppressionInputSchema = z.object({
-  userId: z.string().refine((value) => ObjectId.isValid(value), "Invalid account ID"),
+  userId: z.string().regex(/^[a-fA-F0-9]{24}$/),
   requestId: z.string().regex(/^[A-Za-z0-9_-]{8,128}$/),
 });
 
