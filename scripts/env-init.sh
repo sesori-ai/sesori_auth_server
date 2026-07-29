@@ -148,7 +148,8 @@ echo ""
 # ── Step 4: Encrypt existing .env files ──────────────────────────
 mkdir -p "$APP_ENV_DIR"
 
-ENVIRONMENTS=(local prod)
+warn "env/app/prod.env contains production credentials; commands that load it can affect production"
+ENVIRONMENTS=(prod)
 ENCRYPTED_COUNT=0
 
 for env_name in "${ENVIRONMENTS[@]}"; do
@@ -188,8 +189,8 @@ echo ""
 echo -e "${GREEN}Setup complete!${NC}"
 echo ""
 echo "Next steps:"
-echo "  1. Verify you can decrypt:   sops decrypt env/app/local.env"
+echo "  1. Verify you can decrypt:   sops decrypt env/app/prod.env"
 echo "  2. Share your public key with the team: $PUBLIC_KEY"
 echo "  3. Commit the encrypted files: git add .sops.yaml env/"
 echo "  4. To edit env vars:          npm run env:edit"
-echo "  5. To decrypt for local dev:  npm run env:decrypt"
+echo "  5. To decrypt production env: npm run env:decrypt"

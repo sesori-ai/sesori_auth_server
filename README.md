@@ -20,27 +20,27 @@ Authentication service for [Sesori Mobile App](https://github.com/sesori-ai/seso
 | JWT        | RS256 asymmetric (jsonwebtoken)   |
 | Secrets    | SOPS + age encrypted env files    |
 
-## Quick start
+## Production environment setup
+
+> **Warning:** The tracked SOPS file is `env/app/prod.env` and contains
+> production credentials. Commands that load it can affect deployed production
+> data and services. Do not treat this as an isolated local-development
+> environment.
 
 ```bash
-# Prerequisites: Node.js 22+, MongoDB running on localhost:27017
+# Prerequisites: Node.js 22+ and authorized SOPS/age access
 
 # Install dependencies
 npm install
 
-# Generate RSA keys for JWT signing
-mkdir -p keys
-openssl genrsa -out keys/private.pem 2048
-openssl rsa -in keys/private.pem -pubout -out keys/public.pem
-
 # Set up encrypted environment (first time only)
 npm run env:init
 
-# Edit secrets (opens encrypted file in $EDITOR)
+# Edit production secrets (opens env/app/prod.env in $EDITOR)
 npm run env:edit
 
-# Start the server (decrypts env inline via sops)
-npm run start:local
+# Start locally with production configuration; this can mutate production data
+npm run start:prod
 ```
 
 ## API endpoints
@@ -329,15 +329,14 @@ the restricted target dataset/table and deletion identity exist.
 
 | Script                    | Description                                               |
 | ------------------------- | --------------------------------------------------------- |
-| `npm start`               | Start server (requires `.env` file)                       |
-| `npm run start:local`     | Start with sops-decrypted local env                       |
-| `npm run start:prod`      | Start with sops-decrypted prod env                        |
+| `npm start`               | Start server using the current process environment        |
+| `npm run start:prod`      | Start with SOPS-decrypted production configuration        |
 | `npm run dev`             | Start with file watching                                  |
 | `npm test`                | Run all tests (requires MongoDB)                          |
 | `npm run build`           | TypeScript compile                                        |
 | `npm run env:init`        | First-time sops/age setup                                 |
-| `npm run env:decrypt`     | Decrypt `env/app/local.env` → `.env`                      |
-| `npm run env:edit`        | Edit encrypted env in `$EDITOR`                           |
+| `npm run env:decrypt`     | Decrypt `env/app/prod.env` → plaintext `.env`             |
+| `npm run env:edit`        | Edit encrypted production env in `$EDITOR`                |
 | `npm run env:update-keys` | Re-encrypt all env files after adding a team member's key |
 | `npm run backfill-activation` | Preview activation backfill; pass `-- --apply` to persist |
 | `npm run backfill-product-analytics-preference` | Validate preference migration; pass `-- --apply` to persist bounded batches |

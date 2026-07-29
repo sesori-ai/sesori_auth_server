@@ -93,7 +93,7 @@ Push notifications debounce through `BridgeStateTracker` (120s), keyed per bridg
 - **No Mongoose / ODM** — raw MongoDB driver only
 - **No `as any`** — TypeScript strict mode, `@typescript-eslint/no-explicit-any: warn`
 - **No unvalidated input** — every request body/param goes through Zod
-- **No plaintext secrets** — use `npm run env:edit` to modify encrypted env, `npm run start:local` to run with SOPS
+- **No plaintext secrets** — `env/app/prod.env` is the SOPS-encrypted production environment. Use `npm run env:edit` to modify it and `npm run start:prod` only when production-backed local execution is explicitly intended.
 - **No ObjectId in services/routes** — string IDs above repository layer, repos convert at boundary
 - **Never amend commits** — always create new follow-up commits. Amending erases audit trail and makes PR reviews impossible. Force-push is only acceptable for fixing sensitive data leaks.
 
@@ -118,7 +118,7 @@ See `src/repositories/password-account-repo.ts` for the schema. Do not enable th
 
 ```bash
 npm install                    # Install deps
-npm run start:local            # Start with SOPS-decrypted local env
+npm run start:prod             # Start locally with SOPS-decrypted production env
 npm run dev                    # Start with file watching
 npm test                       # Run tests (needs MongoDB)
 npm run build                  # TypeScript compile to dist/
@@ -126,6 +126,6 @@ npm run lint                   # ESLint
 npm run format:check           # Prettier check
 npm run circular-dependencies  # Check for circular imports (madge)
 npm run env:init               # First-time SOPS/age setup
-npm run env:edit               # Edit encrypted env in $EDITOR
+npm run env:edit               # Edit encrypted production env in $EDITOR
 npm run env:update-keys        # Re-encrypt after adding team member
 ```
