@@ -237,6 +237,26 @@ describe("UserRepository", () => {
     assert.equal(stored?.productAnalyticsPreferenceLastOperationId, null);
   });
 
+  it("does not commit a tombstone when the stored preference revision is invalid", async () => {
+    const user = await repo.create();
+    await ctx.dbAccessor
+      .getCollection<User>(MongoDbDatabase.Auth, AuthDbCollection.Users)
+      .updateOne({ _id: user._id }, { $unset: { productAnalyticsPreferenceRevision: "" } });
+
+    await assert.rejects(
+      () =>
+        repo.suppressProductAnalyticsExport({
+          userId: user._id.toHexString(),
+          suppressedAt: new Date("2026-07-28T12:00:00.000Z"),
+        }),
+      (error: unknown) =>
+        error instanceof InternalServerError && error.debugMessage === "Invalid stored product analytics preference",
+    );
+
+    const stored = await repo.findById(user._id.toHexString());
+    assert.equal(stored?.productAnalyticsExportSuppressedAt, undefined);
+  });
+
   it("preserves one tombstone when concurrent suppressions use different timestamps", async () => {
     const user = await repo.create();
     const candidates = [new Date("2026-07-28T12:00:00.000Z"), new Date("2026-07-28T13:00:00.000Z")];

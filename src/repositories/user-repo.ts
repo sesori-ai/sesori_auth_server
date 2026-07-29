@@ -241,6 +241,14 @@ export class UserRepository {
       throw new InternalServerError({ debugMessage: "Invalid product analytics export suppression" });
     }
 
+    // Validate the complete preference record before committing the permanent
+    // tombstone. Otherwise malformed legacy state can make every handoff retry
+    // fail after the irreversible write has already landed.
+    const preference = await this.findProductAnalyticsPreference({ userId: input.userId });
+    if (!preference) {
+      return null;
+    }
+
     const objectUserId = new ObjectId(input.userId);
     const updated = await this.#collection.findOneAndUpdate(
       { _id: objectUserId, productAnalyticsExportSuppressedAt: null },
