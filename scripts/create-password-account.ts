@@ -54,9 +54,9 @@ function printUsage(): void {
   console.log("  npx tsx scripts/create-password-account.ts                 # prompts for both");
   console.log();
   console.log("Requires MONGODB_URI environment variable.");
-  console.log("Example with SOPS env:");
+  console.log("Production SOPS example (this creates an account in production):");
   console.log(
-    "  sops exec-env env/app/local.env 'npx tsx scripts/create-password-account.ts reviewer@example.com mypassword'",
+    "  sops exec-env env/app/prod.env 'npx tsx scripts/create-password-account.ts reviewer@example.com mypassword'",
   );
   process.exit(1);
 }
@@ -72,8 +72,8 @@ async function main(): Promise<void> {
   if (!mongodbUri) {
     console.error("Error: MONGODB_URI environment variable is required.");
     console.error();
-    console.error("You can provide it via a .env file or SOPS:");
-    console.error("  sops exec-env env/app/local.env 'npx tsx scripts/create-password-account.ts ...'");
+    console.error("Production SOPS example (this creates an account in production):");
+    console.error("  sops exec-env env/app/prod.env 'npx tsx scripts/create-password-account.ts ...'");
     process.exit(1);
   }
 
