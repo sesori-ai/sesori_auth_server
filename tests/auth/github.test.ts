@@ -6,7 +6,8 @@ import { createTestApp, type TestContext } from "../helpers/setup.js";
 import { FakeOAuthClient } from "../helpers/fake-oauth-client.js";
 import { PendingAuthStore } from "../../src/services/pending-auth-store.js";
 import { MongoDbDatabase, AuthDbCollection } from "../../src/types/mongo.js";
-import type { OAuthAccount } from "../../src/models/documents.js";
+import type { OAuthAccount, User } from "../../src/models/documents.js";
+import { ProductAnalyticsPreference } from "../../src/types/product-analytics.js";
 
 // A valid 43-character PKCE code_challenge (URL-safe base64, no padding)
 const VALID_CODE_CHALLENGE = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
@@ -311,6 +312,16 @@ describe("GitHub OAuth routes", () => {
       assert.equal(body.user.provider, "github");
       assert.equal(body.user.providerUserId, FAKE_IDENTITY.providerUserId);
       assert.equal(body.user.providerUsername, FAKE_IDENTITY.providerUsername);
+      assert.deepEqual(Object.keys(body).sort(), ["accessToken", "refreshToken", "user"]);
+      assert.deepEqual(Object.keys(body.user).sort(), ["id", "provider", "providerUserId", "providerUsername"]);
+
+      const storedUser = await ctx.dbAccessor
+        .getCollection<User>(MongoDbDatabase.Auth, AuthDbCollection.Users)
+        .findOne({ _id: new ObjectId(body.user.id) });
+      assert.equal(storedUser?.productAnalyticsPreference, ProductAnalyticsPreference.Enabled);
+      assert.equal(storedUser?.productAnalyticsPreferenceUpdatedAt?.toISOString(), storedUser?.createdAt.toISOString());
+      assert.equal(storedUser?.productAnalyticsPreferenceRevision, 1);
+      assert.equal(storedUser?.productAnalyticsPreferenceLastOperationId, null);
     });
 
     it("returns same user on repeat login with same provider account", async () => {

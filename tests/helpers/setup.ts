@@ -35,7 +35,9 @@ import { LegalDocumentService } from "../../src/services/legal-document-service.
 import { TokenService } from "../../src/services/token-service.js";
 import { VoiceService } from "../../src/services/voice-service.js";
 import { AppClientPresenceService } from "../../src/services/app-client-presence-service.js";
+import { ProductAnalyticsPreferenceService } from "../../src/services/product-analytics-preference-service.js";
 import { loadConfig } from "../../src/config.js";
+import { ProductAnalyticsPreference } from "../../src/types/product-analytics.js";
 
 export type TestUser = {
   userId: string;
@@ -178,6 +180,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     new ActivationService({ activationStateRepo, bridgeRepo, dailyUsageRepo, deviceTokenRepo });
   const appClientPresenceService =
     overrides?.appClientPresenceService ?? new AppClientPresenceService({ deviceTokenRepo });
+  const productAnalyticsPreferenceService = new ProductAnalyticsPreferenceService({ userRepo });
   const authService = new AuthService({ tokenService, userRepo, oauthAccountRepo, passwordAccountRepo, bridgeService });
   const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
   const sessionMetadataService =
@@ -205,6 +208,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     appleClient,
     appleNativeVerifier,
     pendingAuthStore,
+    productAnalyticsPreferenceService,
   });
   await app.ready();
 
@@ -219,6 +223,10 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
       tokenVersion: 0,
       createdAt: now,
       updatedAt: now,
+      productAnalyticsPreference: ProductAnalyticsPreference.Enabled,
+      productAnalyticsPreferenceUpdatedAt: now,
+      productAnalyticsPreferenceRevision: 1,
+      productAnalyticsPreferenceLastOperationId: null,
     });
     await dbAccessor.getCollection<OAuthAccount>(MongoDbDatabase.Auth, AuthDbCollection.OAuthAccounts).insertOne({
       _id: new ObjectId(),

@@ -4,7 +4,8 @@ import argon2 from "argon2";
 import { MongoDbConnector } from "../src/db/mongo-db-connector.js";
 import { MongoDbAccessor } from "../src/db/mongo-db-accessor.js";
 import { MongoDbDatabase, AuthDbCollection } from "../src/types/mongo.js";
-import type { User, PasswordAccount } from "../src/models/documents.js";
+import type { PasswordAccount } from "../src/models/documents.js";
+import { UserRepository } from "../src/repositories/user-repo.js";
 
 async function prompt(question: string): Promise<string> {
   const { default: readline } = await import("readline");
@@ -54,7 +55,9 @@ function printUsage(): void {
   console.log();
   console.log("Requires MONGODB_URI environment variable.");
   console.log("Example with SOPS env:");
-  console.log("  sops exec-env env/app/local.env 'npx tsx scripts/create-password-account.ts reviewer@example.com mypassword'");
+  console.log(
+    "  sops exec-env env/app/local.env 'npx tsx scripts/create-password-account.ts reviewer@example.com mypassword'",
+  );
   process.exit(1);
 }
 
@@ -113,7 +116,6 @@ async function main(): Promise<void> {
   try {
     await accessor.ensureIndexes();
 
-    const userCollection = accessor.getCollection<User>(MongoDbDatabase.Auth, AuthDbCollection.Users);
     const passwordCollection = accessor.getCollection<PasswordAccount>(
       MongoDbDatabase.Auth,
       AuthDbCollection.PasswordAccounts,
@@ -121,20 +123,16 @@ async function main(): Promise<void> {
 
     const existing = await passwordCollection.findOne({ email: email.toLowerCase() });
     if (existing) {
-      console.error(`Error: An account with email '${email}' already exists (userId: ${existing.userId.toHexString()}).`);
+      console.error(
+        `Error: An account with email '${email}' already exists (userId: ${existing.userId.toHexString()}).`,
+      );
       process.exit(1);
     }
 
     const userId = new ObjectId();
     const now = new Date();
 
-    const user: User = {
-      _id: userId,
-      tokenVersion: 0,
-      createdAt: now,
-      updatedAt: now,
-    };
-    await userCollection.insertOne(user);
+    await new UserRepository(accessor).create(userId.toHexString());
 
     const hash = await argon2.hash(password, { type: argon2.argon2id });
     const passwordAccount: PasswordAccount = {

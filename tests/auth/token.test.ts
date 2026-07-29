@@ -50,6 +50,8 @@ describe("Token routes", () => {
       assert.ok(body.refreshToken, "Should return new refreshToken");
       assert.equal(body.user.id, user.userId);
       assert.equal(body.user.provider, user.provider);
+      assert.deepEqual(Object.keys(body).sort(), ["accessToken", "refreshToken", "user"]);
+      assert.deepEqual(Object.keys(body.user).sort(), ["id", "provider", "providerUserId", "providerUsername"]);
     });
 
     it("returns 401 for an expired refresh token", async () => {
@@ -146,6 +148,8 @@ describe("Token routes", () => {
       assert.equal(body.user.provider, user.provider);
       assert.equal(body.user.providerUserId, user.providerUserId);
       assert.deepEqual(body.bridges, []);
+      assert.deepEqual(Object.keys(body).sort(), ["bridges", "user"]);
+      assert.deepEqual(Object.keys(body.user).sort(), ["id", "provider", "providerUserId", "providerUsername"]);
     });
 
     it("returns the registered bridges in the bridges array", async () => {
