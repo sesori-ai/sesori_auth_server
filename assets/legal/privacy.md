@@ -128,7 +128,7 @@ We use personal data for the following purposes:
 - communicating with you about the Service, including support and operational notices
 - complying with legal obligations, enforcing our terms, and protecting our rights, users, systems, and providers
 
-We use product analytics data solely to understand and improve Sesori. We do not use it for advertising or disclose it to business partners or other third parties for their independent use. The Google services identified in Section 8 process this data as sub-processors only on our behalf and under our instructions. The limited legal, safety, and corporate disclosures described in Section 8.3 may still apply.
+We use product analytics data solely to understand and improve Sesori. We do not use it for advertising or disclose it to business partners or other third parties for their independent use. The Google services identified in Section 8.1 process this data as sub-processors only on our behalf and under our instructions. The limited legal, safety, and corporate disclosures described in Section 8.3 may still apply.
 
 ## 6. When Sesori processes readable content
 
