@@ -1,6 +1,6 @@
 # Sesori Privacy Policy
 
-_Last updated: April 18, 2026_
+_Last updated: July 30, 2026_
 
 This Privacy Policy explains how **Digitalblock Labs LTD** ("**Sesori**," "**Company**," "we," "us," or "our") collects, uses, stores, shares, and otherwise processes personal data when you use Sesori's official apps and services. It applies only to the official Sesori services, including the Sesori mobile app, the official local bridge software, relay services, account and authentication services, push notification services, `sesori.com`, voice input and server-side transcription features, diagnostics, analytics, support channels, and related hosted features we provide (collectively, the "**Service**").
 
@@ -72,10 +72,16 @@ Depending on your device settings, platform behavior, notification routing, and 
 
 ### 3.5 Analytics, crash, and diagnostic data
 
-- product usage events
+- product usage events, including bounded feature outcomes and canonical screen categories
 - performance metrics
 - crash logs and stack traces
 - diagnostic events and troubleshooting data
+
+Supported release builds may associate account-linked product analytics events with a stable, server-derived pseudonymous account key. This key helps us understand product usage across supported installations signed in to the same account. It is pseudonymous personal data, not anonymous data, and is not the raw account identifier.
+
+Sesori-defined account-linked product analytics event payloads cannot contain source code; prompts, responses, transcripts, or reasoning; filenames or paths; repository, project, or session names; coding provider, model, agent, tool, or command names; raw error text; OAuth identity; email address; IP address; or raw or hashed project, session, bridge, device, notification, or account identifiers.
+
+These payload restrictions apply specifically to Sesori-defined account-linked product analytics events. Firebase may separately process automatic installation-level data as described in Section 14, and other operational, support, security, crash, or diagnostic processing described in this Privacy Policy is outside this event contract.
 
 ### 3.6 Support communications
 
@@ -122,6 +128,8 @@ We use personal data for the following purposes:
 - communicating with you about the Service, including support and operational notices
 - complying with legal obligations, enforcing our terms, and protecting our rights, users, systems, and providers
 
+We use product analytics data solely to understand and improve Sesori. We do not use it for advertising or disclose it to business partners or other third parties for their independent use. The Google services identified in Section 8 process this data as sub-processors only on our behalf and under our instructions. The limited legal, safety, and corporate disclosures described in Section 8.3 may still apply.
+
 ## 6. When Sesori processes readable content
 
 Sesori does **not** ordinarily have plaintext access to encrypted relay payloads in transit during ordinary relay routing.
@@ -150,14 +158,14 @@ If GDPR or similar law applies, we generally rely on one or more of the followin
 
 We use a limited number of service providers that may process personal data on our behalf to operate the official Service. Current sub-processors are:
 
-| Provider                           | Role                                                                               | Location of processing                                                                                          |
-| ---------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| DigitalOcean, LLC                  | Hosting, infrastructure, and databases                                             | European Union (Sesori-controlled servers are currently EU-hosted); provider headquartered in the United States |
-| Cloudflare, Inc.                   | Reverse proxy, DNS, and security edge services                                     | Global edge network; provider headquartered in the United States                                                |
-| OpenAI, L.L.C.                     | Voice transcription and short text feature processing (e.g., session title naming) | United States                                                                                                   |
-| Anthropic, PBC                     | Short text feature processing (e.g., session title naming)                         | United States                                                                                                   |
-| Google LLC (Firebase)              | Push notifications via Firebase Cloud Messaging, app analytics, and Crashlytics    | United States and Google global infrastructure                                                                  |
-| Functional Software, Inc. (Sentry) | Error monitoring and crash diagnostics                                             | United States                                                                                                   |
+| Provider                               | Role                                                                                                                                      | Location of processing                                                                                          |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| DigitalOcean, LLC                      | Hosting, infrastructure, and databases                                                                                                    | European Union (Sesori-controlled servers are currently EU-hosted); provider headquartered in the United States |
+| Cloudflare, Inc.                       | Reverse proxy, DNS, and security edge services                                                                                            | Global edge network; provider headquartered in the United States                                                |
+| OpenAI, L.L.C.                         | Voice transcription and short text feature processing (e.g., session title naming)                                                        | United States                                                                                                   |
+| Anthropic, PBC                         | Short text feature processing (e.g., session title naming)                                                                                | United States                                                                                                   |
+| Google LLC (Firebase and Google Cloud) | Push notifications via Firebase Cloud Messaging, app analytics, restricted analytics storage and processing via BigQuery, and Crashlytics | United States and Google global infrastructure                                                                  |
+| Functional Software, Inc. (Sentry)     | Error monitoring and crash diagnostics                                                                                                    | United States                                                                                                   |
 
 We also operate our own Sesori authentication backend on Sesori infrastructure for account and authentication services.
 
@@ -204,7 +212,10 @@ Indicative retention practices:
 - **Voice recordings and generated transcripts**: deleted after processing completes, typically within seconds of the processing flow, except to the limited extent reasonably needed for operations, abuse prevention, security, incident response, or legal compliance
 - **Account and authentication data**: retained while your account exists and thereafter for a reasonable period, typically up to 24 months, for security, fraud prevention, legal compliance, dispute handling, or enforcement
 - **Push notification tokens**: retained while needed for notification delivery and removed or allowed to expire when you log out, rotate tokens, uninstall the app, or when the token becomes stale
-- **Analytics, crash, and diagnostic data**: retained according to vendor defaults and our operational needs, typically up to 14 months for analytics events and up to 90 days for crash and error reports
+- **Google Analytics product analytics data**: upstream event and user data retention is configured to two months
+- **Restricted raw BigQuery analytics export**: raw exported analytics data expires after 90 days
+- **Curated product analytics data**: minimized pseudonymous event facts are retained for up to 14 months; routine product and dashboard viewers cannot access raw analytics datasets or pseudonymous account keys
+- **Crash and diagnostic data**: retained according to vendor settings and our operational needs, typically up to 90 days for crash and error reports
 - **Support communications**: retained for up to 24 months after the issue is resolved, and longer where reasonably needed for follow-up, legal, security, or compliance reasons
 - **Server and security logs**: retained for a limited period typically up to 90 days, subject to extension where needed for security investigation or legal compliance
 
@@ -231,6 +242,27 @@ We do not use your personal data for solely automated decision-making that produ
 ## 14. Analytics, diagnostics, and platform tracking controls
 
 The Service currently uses analytics and diagnostic tools in the apps and hosted features, including Firebase Analytics, Firebase Crashlytics, and Sentry, to understand usage, detect failures, and improve reliability.
+
+### 14.1 Account-linked product analytics control
+
+Supported release builds provide a Settings control for account-linked product analytics. The control becomes interactive only after the app has obtained the authenticated server preference. Account-linked product analytics remains inactive while that preference is unknown.
+
+Turning the control off suppresses account-linked product analytics events immediately on that installation and synchronizes the preference for reporting and other supported clients. A change made on one installation is not necessarily applied immediately on another installation. A remote supported installation applies the server preference when it next establishes authentication or explicitly refreshes the preference.
+
+This control applies only to the account-linked product analytics events described in Section 3.5. It does not stop:
+
+- Firebase automatic installation-level events or Firebase's processing of pseudonymous installation and device information and approximate location
+- the bounded account-less sign-in funnel described below
+- account and bridge records required to operate Sesori
+- analytics behavior from an older app version
+- account-linked events on a remote supported installation before it next establishes authentication or explicitly refreshes its preference
+- separate crash and diagnostic processing through tools such as Firebase Crashlytics or Sentry
+
+Before sign-in, supported release builds may send bounded events indicating that a sign-in attempt started, completed, or failed. These events contain only a pinned sign-in provider and, for failures, a bounded failure category. They contain no account key or attempt identifier. Because these events are account-less, we cannot reliably filter internal or test release traffic from them. We use them only as diagnostic information and do not treat them as an account conversion metric.
+
+The Settings control is therefore not an account-wide, Firebase-wide, or diagnostics-wide collection switch, and it cannot change behavior in older app versions.
+
+### 14.2 Platform tracking controls
 
 On iOS, we respect Apple's App Tracking Transparency framework. We do not track you across apps and websites owned by other companies without your permission through the ATT prompt where ATT applies.
 
@@ -264,6 +296,10 @@ If GDPR or UK GDPR applies to you, you have the right to:
 ### 16.2 How to exercise your rights
 
 To exercise any of these rights, contact us by email at [gdpr@sesori.com](mailto:gdpr@sesori.com) or [contact@sesori.com](mailto:contact@sesori.com). We may ask for information needed to verify your identity before responding.
+
+When we act on a verified account-deletion or analytics-erasure request, we can permanently suppress future account-linked product analytics reporting for that account and target associated keyed analytics data for deletion. Because a supported installation may upload an event after the initial deletion process, our deletion process repeatedly targets later uploads carrying the same pseudonymous account key.
+
+Data from an automatic-only installation that never emitted an account-keyed event cannot be linked back to an account by design. We therefore cannot identify that installation's automatic data in response to an account request. It remains subject to Google Analytics' two-month upstream retention period, and an already-exported row in the restricted raw BigQuery dataset may remain until its 90-day expiration.
 
 We aim to respond to rights requests within 30 days of receipt, with the possibility of an extension of up to two additional months for complex or numerous requests, consistent with GDPR Article 12. We do not currently offer self-serve in-app privacy rights workflows or in-account deletion flows. Rights requests are handled by email.
 
