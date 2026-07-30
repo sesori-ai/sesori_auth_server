@@ -26,6 +26,7 @@ export const productAnalyticsRoutes: FastifyPluginAsync<ProductAnalyticsRouteOpt
       const replyResult = productAnalyticsPreferenceReplySchema.safeParse({
         preference: record.preference,
         revision: record.revision,
+        userKey: record.userKey,
       });
       if (!replyResult.success) {
         throw new InternalServerError({
@@ -56,6 +57,7 @@ export const productAnalyticsRoutes: FastifyPluginAsync<ProductAnalyticsRouteOpt
     const candidateReply = {
       preference: result.record.preference,
       revision: result.record.revision,
+      userKey: result.userKey,
     };
     if (result.outcome === ProductAnalyticsPreferenceUpdateOutcome.Conflict) {
       const conflictResult = productAnalyticsPreferenceConflictReplySchema.safeParse({

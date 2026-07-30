@@ -2,12 +2,19 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { ObjectId } from "mongodb";
 import type { User } from "../../src/models/documents.js";
+import { productAnalyticsUserKeyFor } from "../../src/lib/product-analytics-user-key.js";
 import { AuthDbCollection, MongoDbDatabase } from "../../src/types/mongo.js";
 import { ProductAnalyticsPreference } from "../../src/types/product-analytics.js";
-import { createTestApp, type TestContext } from "../helpers/setup.js";
+import { createTestApp, testProductAnalyticsPseudonymizationKey, type TestContext } from "../helpers/setup.js";
 
 describe("Product analytics preference routes", () => {
   let ctx: TestContext;
+
+  const userKeyFor = (userId: string) =>
+    productAnalyticsUserKeyFor({
+      userId,
+      pseudonymizationKey: testProductAnalyticsPseudonymizationKey,
+    });
 
   before(async () => {
     ctx = await createTestApp();
@@ -43,10 +50,14 @@ describe("Product analytics preference routes", () => {
     });
 
     assert.equal(response.statusCode, 200);
-    assert.deepEqual(response.json(), { preference: ProductAnalyticsPreference.Enabled, revision: 1 });
+    assert.deepEqual(response.json(), {
+      preference: ProductAnalyticsPreference.Enabled,
+      revision: 1,
+      userKey: userKeyFor(user.userId),
+    });
   });
 
-  it("uses honest migration defaults for a legacy user", async () => {
+  it("fails closed if a post-start write bypasses required preference fields", async () => {
     const userId = new ObjectId();
     const createdAt = new Date("2026-06-10T10:00:00.000Z");
     await ctx.dbAccessor.getCollection<User>(MongoDbDatabase.Auth, AuthDbCollection.Users).insertOne({
@@ -67,8 +78,8 @@ describe("Product analytics preference routes", () => {
       headers: { authorization: `Bearer ${accessToken}` },
     });
 
-    assert.equal(response.statusCode, 200);
-    assert.deepEqual(response.json(), { preference: ProductAnalyticsPreference.Enabled, revision: 1 });
+    assert.equal(response.statusCode, 500);
+    assert.deepEqual(response.json(), { error: "internal_server_error" });
   });
 
   it("keeps a permanently export-suppressed account disabled", async () => {
@@ -101,12 +112,17 @@ describe("Product analytics preference routes", () => {
     });
 
     assert.equal(getResponse.statusCode, 200);
-    assert.deepEqual(getResponse.json(), { preference: ProductAnalyticsPreference.Disabled, revision: 1 });
+    assert.deepEqual(getResponse.json(), {
+      preference: ProductAnalyticsPreference.Disabled,
+      revision: 1,
+      userKey: userKeyFor(user.userId),
+    });
     assert.equal(putResponse.statusCode, 409);
     assert.deepEqual(putResponse.json(), {
       error: "conflict",
       preference: ProductAnalyticsPreference.Disabled,
       revision: 1,
+      userKey: userKeyFor(user.userId),
     });
   });
 
@@ -153,7 +169,11 @@ describe("Product analytics preference routes", () => {
     });
 
     assert.equal(first.statusCode, 200);
-    assert.deepEqual(first.json(), { preference: ProductAnalyticsPreference.Disabled, revision: 2 });
+    assert.deepEqual(first.json(), {
+      preference: ProductAnalyticsPreference.Disabled,
+      revision: 2,
+      userKey: userKeyFor(user.userId),
+    });
     assert.equal(duplicate.statusCode, 200);
     assert.deepEqual(duplicate.json(), first.json());
     assert.equal(stale.statusCode, 409);
@@ -161,6 +181,7 @@ describe("Product analytics preference routes", () => {
       error: "conflict",
       preference: ProductAnalyticsPreference.Disabled,
       revision: 2,
+      userKey: userKeyFor(user.userId),
     });
     assert.equal(mismatchedReplay.statusCode, 409);
     assert.deepEqual(mismatchedReplay.json(), stale.json());

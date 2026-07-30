@@ -40,7 +40,7 @@ describe("UserRepository", () => {
     assert.equal(stored.productAnalyticsExportSuppressedAt, undefined);
   });
 
-  it("defaults a legacy user's missing preference at the read boundary", async () => {
+  it("rejects a legacy user whose required preference was not backfilled", async () => {
     const userId = new ObjectId();
     const createdAt = new Date("2026-06-01T10:00:00.000Z");
     await ctx.dbAccessor.getCollection<User>(MongoDbDatabase.Auth, AuthDbCollection.Users).insertOne({
@@ -50,11 +50,48 @@ describe("UserRepository", () => {
       updatedAt: createdAt,
     });
 
-    assert.deepEqual(await repo.findProductAnalyticsPreference({ userId: userId.toHexString() }), {
-      preference: ProductAnalyticsPreference.Enabled,
+    await assert.rejects(
+      () => repo.findProductAnalyticsPreference({ userId: userId.toHexString() }),
+      (error: unknown) =>
+        error instanceof InternalServerError && error.debugMessage === "Invalid stored product analytics preference",
+    );
+  });
+
+  it("reports a missing stored preference timestamp as an invariant failure", async () => {
+    const userId = new ObjectId();
+    const createdAt = new Date("2026-06-01T10:00:00.000Z");
+    await ctx.dbAccessor.getCollection<User>(MongoDbDatabase.Auth, AuthDbCollection.Users).insertOne({
+      _id: userId,
+      tokenVersion: 0,
+      createdAt,
       updatedAt: createdAt,
-      revision: 1,
+      productAnalyticsPreference: ProductAnalyticsPreference.Enabled,
+      productAnalyticsPreferenceRevision: 1,
+      productAnalyticsPreferenceLastOperationId: null,
     });
+
+    await assert.rejects(
+      () => repo.findProductAnalyticsPreference({ userId: userId.toHexString() }),
+      (error: unknown) =>
+        error instanceof InternalServerError && error.debugMessage === "Invalid stored product analytics preference",
+    );
+  });
+
+  it("blocks startup while required preference state is missing", async () => {
+    const createdAt = new Date("2026-06-01T10:00:00.000Z");
+    await ctx.dbAccessor.getCollection<User>(MongoDbDatabase.Auth, AuthDbCollection.Users).insertOne({
+      _id: new ObjectId(),
+      tokenVersion: 0,
+      createdAt,
+      updatedAt: createdAt,
+    });
+
+    await assert.rejects(
+      () => repo.assertProductAnalyticsPreferenceBackfillComplete(),
+      (error: unknown) =>
+        error instanceof InternalServerError &&
+        error.debugMessage === "Product analytics preference backfill is incomplete",
+    );
   });
 
   it("updates once and returns the committed result for a duplicate operation", async () => {
@@ -175,6 +212,159 @@ describe("UserRepository", () => {
     assert.equal(result?.outcome, ProductAnalyticsPreferenceUpdateOutcome.Conflict);
     assert.equal(result?.record.preference, ProductAnalyticsPreference.Disabled);
     assert.equal(result?.record.revision, 1);
+  });
+
+  it("atomically suppresses export and preserves the first tombstone on retry", async () => {
+    const user = await repo.create();
+    const firstSuppressedAt = new Date("2026-07-28T12:00:00.000Z");
+    const laterRetryAt = new Date("2026-07-28T13:00:00.000Z");
+
+    const first = await repo.suppressProductAnalyticsExport({
+      userId: user._id.toHexString(),
+      suppressedAt: firstSuppressedAt,
+    });
+    const retry = await repo.suppressProductAnalyticsExport({
+      userId: user._id.toHexString(),
+      suppressedAt: laterRetryAt,
+    });
+    const stored = await repo.findById(user._id.toHexString());
+
+    assert.equal(first?.preference.preference, ProductAnalyticsPreference.Disabled);
+    assert.equal(first?.preference.revision, 2);
+    assert.equal(first?.suppressedAt.toISOString(), firstSuppressedAt.toISOString());
+    assert.deepEqual(retry, first);
+    assert.equal(stored?.productAnalyticsExportSuppressedAt?.toISOString(), firstSuppressedAt.toISOString());
+    assert.equal(stored?.productAnalyticsPreferenceLastOperationId, null);
+  });
+
+  it("does not commit a tombstone when the stored preference revision is invalid", async () => {
+    const user = await repo.create();
+    await ctx.dbAccessor
+      .getCollection<User>(MongoDbDatabase.Auth, AuthDbCollection.Users)
+      .updateOne({ _id: user._id }, { $unset: { productAnalyticsPreferenceRevision: "" } });
+
+    await assert.rejects(
+      () =>
+        repo.suppressProductAnalyticsExport({
+          userId: user._id.toHexString(),
+          suppressedAt: new Date("2026-07-28T12:00:00.000Z"),
+        }),
+      (error: unknown) =>
+        error instanceof InternalServerError && error.debugMessage === "Invalid stored product analytics preference",
+    );
+
+    const stored = await repo.findById(user._id.toHexString());
+    assert.equal(stored?.productAnalyticsExportSuppressedAt, undefined);
+  });
+
+  it("preserves one tombstone when concurrent suppressions use different timestamps", async () => {
+    const user = await repo.create();
+    const candidates = [new Date("2026-07-28T12:00:00.000Z"), new Date("2026-07-28T13:00:00.000Z")];
+
+    const results = await Promise.all(
+      candidates.map((suppressedAt) =>
+        repo.suppressProductAnalyticsExport({
+          userId: user._id.toHexString(),
+          suppressedAt,
+        }),
+      ),
+    );
+    const stored = await repo.findById(user._id.toHexString());
+
+    assert.ok(results[0]);
+    assert.ok(results[1]);
+    assert.equal(results[0].suppressedAt.getTime(), results[1].suppressedAt.getTime());
+    assert.equal(stored?.productAnalyticsExportSuppressedAt?.getTime(), results[0].suppressedAt.getTime());
+    assert.equal(
+      candidates.some((candidate) => candidate.getTime() === results[0].suppressedAt.getTime()),
+      true,
+    );
+  });
+
+  it("pages cutoff-safe export rows and preference changes without exposing ObjectIds", async () => {
+    const users = ctx.dbAccessor.getCollection<User>(MongoDbDatabase.Auth, AuthDbCollection.Users);
+    const runCutoff = new Date("2026-07-28T12:00:00.000Z");
+    const first = await repo.create("000000000000000000000001");
+    const second = await repo.create("000000000000000000000002");
+    const future = await repo.create("000000000000000000000003");
+    await users.updateOne(
+      { _id: first._id },
+      {
+        $set: {
+          createdAt: new Date("2026-07-20T12:00:00.000Z"),
+          productAnalyticsPreferenceUpdatedAt: new Date("2026-07-20T12:00:00.000Z"),
+        },
+      },
+    );
+    await users.updateOne(
+      { _id: second._id },
+      {
+        $set: {
+          createdAt: new Date("2026-07-21T12:00:00.000Z"),
+          productAnalyticsPreference: ProductAnalyticsPreference.Disabled,
+          // This later current state must still prove that the document changed
+          // after runCutoff; an upper-bound query could hide an earlier change.
+          productAnalyticsPreferenceUpdatedAt: new Date("2026-07-28T12:15:00.000Z"),
+        },
+      },
+    );
+    await users.updateOne({ _id: future._id }, { $set: { createdAt: new Date("2026-07-29T12:00:00.000Z") } });
+
+    const firstPage = await repo.findProductAnalyticsExportBatch({
+      afterUserId: null,
+      batchLimit: 1,
+      createdAtOrBefore: runCutoff,
+    });
+    const secondPage = await repo.findProductAnalyticsExportBatch({
+      afterUserId: firstPage[0].userId,
+      batchLimit: 2,
+      createdAtOrBefore: runCutoff,
+    });
+    const changes = await repo.findProductAnalyticsPreferenceChangeBatch({
+      afterUserId: null,
+      batchLimit: 10,
+      changedAfter: runCutoff,
+    });
+
+    assert.equal(firstPage[0].userId, first._id.toHexString());
+    assert.equal(Object.hasOwn(firstPage[0], "_id"), false);
+    assert.equal(secondPage.length, 1);
+    assert.equal(secondPage[0].userId, second._id.toHexString());
+    assert.deepEqual(changes, [
+      {
+        userId: second._id.toHexString(),
+        changedAt: new Date("2026-07-28T12:15:00.000Z"),
+        exportSuppressedAt: null,
+      },
+      {
+        userId: future._id.toHexString(),
+        changedAt: future.productAnalyticsPreferenceUpdatedAt,
+        exportSuppressedAt: null,
+      },
+    ]);
+  });
+
+  it("fails closed when an export projection contains malformed source state", async () => {
+    const user = await repo.create();
+    await ctx.dbAccessor.getCollection<User>(MongoDbDatabase.Auth, AuthDbCollection.Users).updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          productAnalyticsPreferenceUpdatedAt: "not-a-date" as unknown as Date,
+        },
+      },
+    );
+
+    await assert.rejects(
+      () =>
+        repo.findProductAnalyticsExportBatch({
+          afterUserId: null,
+          batchLimit: 10,
+          createdAtOrBefore: new Date("2100-01-01T00:00:00.000Z"),
+        }),
+      (error: unknown) =>
+        error instanceof InternalServerError && error.debugMessage === "Invalid product analytics export source row",
+    );
   });
 
   it("backfills only users missing required preference fields and is repeatable", async () => {

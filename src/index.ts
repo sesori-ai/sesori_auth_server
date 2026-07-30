@@ -61,6 +61,7 @@ async function main() {
   console.log("Indexes ready");
 
   const userRepo = new UserRepository(dbAccessor);
+  await userRepo.assertProductAnalyticsPreferenceBackfillComplete();
   const oauthAccountRepo = new OAuthAccountRepository(dbAccessor);
   const passwordAccountRepo = new PasswordAccountRepository(dbAccessor);
   const glossaryRepo = new GlossaryEntryRepository(dbAccessor);
@@ -105,7 +106,10 @@ async function main() {
     deviceTokenRepo,
   });
   const appClientPresenceService = new AppClientPresenceService({ deviceTokenRepo });
-  const productAnalyticsPreferenceService = new ProductAnalyticsPreferenceService({ userRepo });
+  const productAnalyticsPreferenceService = new ProductAnalyticsPreferenceService({
+    userRepo,
+    pseudonymizationKey: config.PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY,
+  });
   const settingsService = new SettingsService({ settingsRepo });
   const activationReminderService = new ActivationReminderService({
     activationStateRepo,

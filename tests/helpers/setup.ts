@@ -84,6 +84,8 @@ export type TestAppOverrides = {
 
 export type { OAuthClient };
 
+export const testProductAnalyticsPseudonymizationKey = Buffer.from("0123456789abcdef0123456789abcdef", "utf8");
+
 export async function createTestApp(overrides?: TestAppOverrides): Promise<TestContext> {
   const { privateKey: privPem, publicKey: pubPem } = crypto.generateKeyPairSync("rsa", {
     modulusLength: 2048,
@@ -120,6 +122,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   process.env.RELAY_WEBHOOK_SECRET ??= "test-relay-secret";
   process.env.OPENAI_API_KEY ??= "test-openai-api-key";
   process.env.OPENAI_TRANSCRIPTION_MODEL ??= "gpt-4o-mini-transcribe";
+  process.env.PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY ??= testProductAnalyticsPseudonymizationKey.toString("base64");
   process.env.FCM_SA_JSON ??= Buffer.from(
     JSON.stringify({
       type: "service_account",
@@ -184,7 +187,10 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     new ActivationService({ activationStateRepo, bridgeRepo, dailyUsageRepo, deviceTokenRepo });
   const appClientPresenceService =
     overrides?.appClientPresenceService ?? new AppClientPresenceService({ deviceTokenRepo });
-  const productAnalyticsPreferenceService = new ProductAnalyticsPreferenceService({ userRepo });
+  const productAnalyticsPreferenceService = new ProductAnalyticsPreferenceService({
+    userRepo,
+    pseudonymizationKey: testProductAnalyticsPseudonymizationKey,
+  });
   const settingsService = overrides?.settingsService ?? new SettingsService({ settingsRepo });
   const authService = new AuthService({ tokenService, userRepo, oauthAccountRepo, passwordAccountRepo, bridgeService });
   const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
