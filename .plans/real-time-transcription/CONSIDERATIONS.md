@@ -275,29 +275,89 @@ failure window:
 - a process crash while that retry is pending also loses the debit.
 
 A raw `$inc` retry is unsafe because a majority-committed command can lose its
-reply. The daily aggregate therefore stores the last server-generated operation
-ID and exact seconds in the same conditional update that increments usage. A
-matching retry is a no-op; a same-ID/different-amount result is a collision and
-also makes no change. No newer lease can start while an operation is pending,
-and generation fencing prevents stale timers/callbacks after state release.
-This constant-size marker preserves the selected end-only/write-once shape
-without an unbounded receipt array. Existing rows need no backfill and old code
-ignores the optional markers.
+reply and finish after newer work. The daily aggregate therefore retains every
+committed server-generated operation ID and exact seconds for that UTC day in a
+bounded receipt array. One conditional majority `findOneAndUpdate` both
+increments usage and appends the receipt. A matching retry is a no-op; a
+same-ID/different-amount result is a collision and also makes no change. Because
+newer receipts never overwrite older ones, even an arbitrarily delayed original
+command remains ineligible after its lease is released and newer operations
+complete. Generation fencing separately prevents stale process callbacks from
+mutating released state.
+
+The receipt array is bounded at 10,000 positive debits per user/UTC day and is
+part of daily quota admission before provider work. Reaching that bound has the
+same public outcome as exhausting daily seconds. Zero-audio sessions add no
+receipt. A worst-case BSON test holds 10,000 UUID/number receipts below 4 MiB,
+leaving headroom under MongoDB's 16-MiB document limit. Existing rows need no
+backfill, an absent array means zero receipts, and old code ignores and preserves
+the optional field. These receipts are durable account-linked usage metadata:
+only a random UUID and exact billed seconds are added under the existing
+user/date envelope, with no timestamp, provider, project, audio, or transcript.
+They follow existing `dailyUsage` operational/account-data retention and verified
+erasure. Because this repository has no authoritative account-closure date or
+retention job, the plan deliberately makes no fixed maximum promise. Privacy
+wording must state enforceable purpose-based criteria, and legal/product review
+must approve it before PR6 starts collecting receipts.
+
+Correctness takes precedence over optimizing a bounded integrity read. Admission
+and conflict resolution load and `safeParse` the complete daily document inside
+`DailyUsageRepository`, including every receipt, uniqueness, and the array cap;
+only total/count/outcome DTOs leave the repository. A projection of only the
+matching receipt would fail to detect malformed nonmatching entries and is
+therefore deliberately rejected.
+
+The exact update gives `$inc`, `$push`, `$set`, and `$setOnInsert` disjoint paths;
+`transcriptionSeconds` is not also initialized by `$setOnInsert`. It uses majority
+write concern, a two-second-or-caller-cutoff timeout, and a safe command comment.
+Only the existing `(userId,date)` code-11000 key is a metadata-upsert race, and
+it gets at most one cutoff-bounded rerun after full-document validation. Driver
+errors are classified by MongoDB 7 types/codes/labels, never message text:
+known-not-dispatched transient selection failures retry, transport/write-concern
+uncertainty remains ambiguous, allowlisted deterministic server rejection is
+operator-blocked/not-applied, and malformed post-command results are
+operator-blocked/unknown. The latter two do not enter an infinite scheduler
+loop; they retain a blocked debit and require same-version operator repair/
+restart, with restart loss honestly included in the hard-process residual risk.
 
 Collision is repaired automatically inside `TranscriptionUsageService`: keep a
-random non-PII correlation ID/date/amount, generate a fresh operation UUID, and
-retry the atomic no-op/apply path. PR6 does this inline within its reserved usage
-window and transitions unresolved re-keying to normal pending backoff; PR11
-reuses the same mechanism. There is no unrecoverable process-lifetime failed
-state to hide on restart.
+random content-free correlation ID plus the captured date/amount, generate a
+fresh operation UUID, and retry the atomic no-op/commit path. PR6 does this inline
+within its reserved usage window and transitions unresolved re-keying to normal
+pending backoff; PR11 reuses the same mechanism. Collision itself never creates
+a blocked state; deterministic persistence corruption/rejection can, and is
+reported explicitly.
 
-The PR6 usage service reserves one of 1,000 active/pending slots before async
-body buffering/provider work; PR11 reuses it for realtime. Pending states are
-never evicted during process life. One unref'd scheduler
-retries at bounded concurrency with a 30-second maximum delay; when full, new
-users fail before provider spend. Restart still loses unresolved in-memory state,
-exactly matching the accepted residual risk rather than claiming durable
-reservations.
+The PR6 usage service reserves one of 1,000 active/pending/blocked slots before
+async body buffering/provider work; PR11 reuses it for realtime. Pending and
+blocked states are never evicted during process life. One unref'd scheduler
+retries only pending states at bounded concurrency with a 30-second maximum
+delay; when full, new users fail before provider spend. Restart still loses
+unresolved in-memory state, exactly matching the accepted residual risk rather
+than claiming durable reservations.
+
+The first receipt writer also has a legacy boundary that process-local fencing
+cannot solve. PR5 ships a separately permissioned stopped-auth maintenance CLI
+that finds/kills every current MongoDB transcription increment and requires five
+quiet scans. PR6 cannot start until every legacy process/socket is absent and
+that database drain passes. The same global drain precedes verified receipt
+erasure and user-linked `dailyUsage` deletion, so a late command cannot recreate
+the document or become eligible after its receipt disappears. The runtime app
+never receives current-op/kill-op privilege. `src/config.ts` owns a dedicated
+mode-bound maintenance schema/loader; normal web config neither requires nor
+exposes maintenance values. Drain and erasure use separate MongoDB users and
+tracked SOPS files under `env/app/`: drain has only `inprog`/`killop`, while
+erasure adds only `dailyUsage` find/remove. Exact `sops exec-env` package scripts
+load one file, reject a swapped mode, and `env -u` runtime/maintenance variables
+in the opposite process. `start:prod` loads only `prod.env`, unsets maintenance
+variables, and that file must contain neither key. Dedicated MongoDB 7 failpoint/
+role tests exercise delayed writes, privilege separation, and erasure races.
+
+The auth server has no public account-deletion endpoint or closure-date source,
+so this plan does not pretend erasure or fixed post-closure expiry is an app
+request. Verified receipt erasure is an audited operator procedure; the CLI reads
+the target ObjectId from stdin, never argv/logs, and auth remains globally
+stopped through drain, deletion, and zero-document verification.
 
 Do not claim stronger crash accounting in implementation or documentation. A
 future distributed/multi-instance deployment should replace this mechanism with
@@ -481,6 +541,15 @@ ambiguous hop counts are forbidden. Until the production ingress and CIDRs are
 known, the route stays disabled. In a direct-ingress deployment, the validated
 outcome may deliberately remain `trustProxy: false`.
 
+The existing global `@fastify/rate-limit` hook has a 100/minute counter and a
+loopback allowlist, so leaving it active would contradict the realtime route's
+12/minute/no-allowlist ownership and pre-upgrade precedence. PR13 disables that
+plugin on only the realtime route with typed `config: { rateLimit: false }`.
+`RealtimeConnectionGate` then owns every upgrade rate decision; ordinary HTTP
+routes retain the existing global plugin. Integration tests first exhaust the
+global counter and separately use loopback to prove neither global state nor its
+allowlist preempts/bypasses the peer gate.
+
 The route passes only Fastify's derived `request.ip` string into
 `RealtimeConnectionGate`; the gate has no Fastify dependency. It lazily prunes
 expired one-minute windows. At 4,096 live keys, a previously unseen peer fails
@@ -509,7 +578,8 @@ This feature adds process-local:
 - one 25-MiB async request/user and two globally, held through provider/accounting
   to bound raw/provider-copy memory near 100 MiB;
 - at most 4,096 one-minute peer upgrade windows and 32 pending-auth sockets;
-- up to 1,000 one-active/pending transcription states, with no pending eviction;
+- up to 1,000 one-active/pending/blocked transcription states, with no pending or
+  blocked eviction;
 - up to 10,000 per-user real-time start windows, lazily expired after one minute;
 - 10 active real-time sessions;
 - one 128-KiB/32-frame FIFO per active real-time session;
@@ -517,7 +587,7 @@ This feature adds process-local:
 - one unref'd usage retry scheduler and one unref'd async cleanup interval.
 
 Active socket state is naturally process-bound, but one-user admission and
-pending debit correctness are not shared across instances. Keep auth
+pending/blocked debit correctness are not shared across instances. Keep auth
 single-instance. Before horizontal scaling, use durable/distributed admission
 and usage reservation plus a distributed cleanup lease.
 
@@ -571,16 +641,20 @@ is at least 140 seconds and a boundary test receives the server's 130-second
 outcome. The extra 10 seconds covers authentication, TLS/request setup, and
 response transit. A timeout merely above 60 seconds remains incompatible.
 
-PR5 introduces the idempotent daily marker and PR6 integrates the usage service
-before Soniox is selectable. PR6 reserves fixed stage cutoffs: validated provider result by T+105, cleanup by
-T+115, usage by T+125, response by T+130. Once a transcript/duration is
-validated, cleanup failure or client disconnect cannot suppress the reserved
-usage attempt. Applied/duplicate writes charge once; collision re-keys atomically;
-ambiguous writes retry inside the request's usage window. If still ambiguous at
-T+125, PR6 retains the exact debit in its bounded, user-blocking pending map and
-reports conservative remaining quota when writable. If scheduler delay reaches
-T+125 before dispatch, the owned lease transitions to pending before body-buffer
-release; no unowned late write starts. PR11 reuses this lifecycle for realtime.
+PR5 introduces the bounded durable daily receipts and PR6 integrates the usage
+service before Soniox is selectable. PR6 reserves fixed stage cutoffs: validated
+provider result by T+105, cleanup by T+115, usage by T+125, response by T+130.
+Once a transcript/duration is validated, cleanup failure or client disconnect
+cannot suppress the reserved usage attempt. A new append or matching receipt
+charges once; collision re-keys atomically; ambiguous writes retry inside the
+request's usage window. Known-not-applied availability failures use the same
+bounded retry path. If unresolved at T+125, PR6 retains the exact debit in its
+bounded, user-blocking pending map and reports conservative remaining quota when
+writable. Deterministic/unknown operator-blocked outcomes retain a non-retrying
+blocked debit and return the explicit internal accounting failure. If scheduler
+delay reaches T+125 before dispatch, the owned lease transitions to pending
+before body-buffer release; no unowned late write starts. PR11 reuses this
+lifecycle for realtime.
 
 The real-time route is additive but fail-closed: PR13 ships
 `REALTIME_TRANSCRIPTION_ENABLED=false`, so no route is registered until
@@ -599,17 +673,18 @@ options containing exactly token, connection-gate, and realtime-service
 dependencies.
 
 PR6 changes live async admission/debit ownership, so PR6 and every later slice
-deploy as sequential single-instance replacements, never rolling overlap. Remove
-the old binary from ingress, synchronously stop producer gates, let its declared
-bounded shutdown complete, and confirm it has exited (force-stop and confirm
-absence if necessary) before starting the next slice. A startup failure can
-restore the prior binary only before the new one accepts transcription. After
-that point, rollback requires a stopped/drained shutdown report with zero active
-and pending usage states. Optional aggregate markers themselves are old-reader
-compatible; process-local retry ownership is the incompatibility. PR13 only
-extends the PR2 22-second coordinator with the optional realtime bundle and
-WebSocket pre-close participants; it does not create a second coordinator or
-relax this rule.
+deploy as sequential single-instance replacements, never rolling overlap. For
+the first PR6 deployment, remove/stop/confirm absence of every legacy process and
+socket, then pass PR5's separately permissioned current-op kill/quiet drain
+before PR6 starts; this fences raw increments already dispatched to MongoDB.
+Later replacements synchronously stop producer gates, complete bounded shutdown,
+confirm process absence, and require zero active/pending/blocked usage states.
+Rollback to any old raw writer additionally reruns the database drain after the
+new process stops. Optional aggregate receipts are old-reader compatible, but
+process-local recovery ownership and late database commands are not safe to
+overlap. PR13 only extends the PR2 22-second coordinator with the optional
+realtime bundle and WebSocket pre-close participants; it does not create a
+second coordinator or relax this rule.
 
 Production ingress behavior is unresolved. The implementation cannot be
 considered rollout-ready until the actual platform is shown to pass WebSocket
