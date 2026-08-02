@@ -1,3 +1,19 @@
+/**
+ * GET /auth/app-clients/status — authenticated endpoint reporting whether the
+ * user has at least one registered app-client device token.
+ *
+ * Query:
+ *   wait=true — hold the connection open (up to 30 s) and return as soon as a
+ *   token registration commits. Omitted means an immediate read; any other
+ *   value or unknown key is rejected by the strict query schema.
+ *
+ * Responses:
+ *   200 { registered: boolean }
+ *   400 { error: "bad_request" }           — invalid query
+ *   401 { error: "unauthenticated" }
+ *   500 { error: "internal_server_error" } — the initial read missed the 30 s
+ *       deadline; unconfirmed absence is never reported as `false`
+ */
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { BadRequestError, InternalServerError, UnauthenticatedError } from "../lib/errors.js";
 import { createRequestCloseSignal, isClientConnectionOpen } from "../lib/request-close-signal.js";
@@ -43,12 +59,17 @@ export const appClientRoutes: FastifyPluginAsync<AppClientRouteOptions> = async 
             })
           : await opts.appClientPresenceService.hasRegisteredClient({ userId });
       } catch (error) {
+        // The initial read never confirmed presence or absence — surface 500
+        // rather than letting a false negative reach the app client.
         if (error instanceof AppClientPresenceInitialReadTimeout) {
           throw new InternalServerError({ debugMessage: error.message });
         }
+
         throw error;
       }
 
+      // null means the client disconnected (abort fired before resolution).
+      // Hijack so no late payload is written to a closed socket.
       if (registered === null || !isClientConnectionOpen({ request, reply })) {
         return reply.hijack();
       }
@@ -71,5 +92,6 @@ function getUserId(request: FastifyRequest): string {
   if (!request.user) {
     throw new UnauthenticatedError();
   }
+
   return request.user.userId;
 }

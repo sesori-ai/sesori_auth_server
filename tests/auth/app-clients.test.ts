@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import http from "node:http";
-import { after, afterEach, before, describe, it } from "node:test";
+import { after, afterEach, before, describe, it, mock } from "node:test";
 import Fastify, { type FastifyInstance } from "fastify";
 import { ApiError } from "../../src/lib/errors.js";
+import { DeviceTokenRepository } from "../../src/repositories/device-token-repo.js";
 import { appClientRoutes } from "../../src/routes/app-clients.js";
 import {
   AppClientPresenceInitialReadTimeout,
@@ -51,27 +52,36 @@ describe("GET /auth/app-clients/status", () => {
 
   it("wakes a long poll after the same user durably registers a token", async () => {
     const user = await ctx.createUser();
-    const waiting = keepProcessAlive(
-      ctx.app.inject({
-        method: "GET",
-        url: "/auth/app-clients/status?wait=true",
-        headers: { authorization: `Bearer ${user.accessToken}` },
-      }),
-    );
-    await delay(10);
+    const readSpy = mock.method(DeviceTokenRepository.prototype, "hasAnyForUser");
+    try {
+      const waiting = keepProcessAlive(
+        ctx.app.inject({
+          method: "GET",
+          url: "/auth/app-clients/status?wait=true",
+          headers: { authorization: `Bearer ${user.accessToken}` },
+        }),
+      );
+      // The recheck read starts only after the waiter is stored. Once it has
+      // RESOLVED false, the recheck path can no longer complete the poll, so
+      // the response below can only come from the registration wake.
+      await waitFor(() => readSpy.mock.callCount() >= 2);
+      assert.equal(await readSpy.mock.calls[1]?.result, false);
 
-    const registration = await ctx.app.inject({
-      method: "POST",
-      url: "/notifications/register-token",
-      headers: { authorization: `Bearer ${user.accessToken}`, "content-type": "application/json" },
-      payload: JSON.stringify({ token: `wake-${user.userId}`, platform: "android" }),
-    });
-    const response = await waiting;
+      const registration = await ctx.app.inject({
+        method: "POST",
+        url: "/notifications/register-token",
+        headers: { authorization: `Bearer ${user.accessToken}`, "content-type": "application/json" },
+        payload: JSON.stringify({ token: `wake-${user.userId}`, platform: "android" }),
+      });
+      const response = await waiting;
 
-    assert.equal(registration.statusCode, 200);
-    assert.deepEqual(registration.json(), { ok: true });
-    assert.equal(response.statusCode, 200);
-    assert.deepEqual(response.json(), { registered: true });
+      assert.equal(registration.statusCode, 200);
+      assert.deepEqual(registration.json(), { ok: true });
+      assert.equal(response.statusCode, 200);
+      assert.deepEqual(response.json(), { registered: true });
+    } finally {
+      readSpy.mock.restore();
+    }
   });
 
   it("requires auth and rejects unsupported or unknown query values", async () => {
@@ -120,6 +130,18 @@ describe("app-client status route failure and disconnect mapping", () => {
 
     assert.equal(response.statusCode, 500);
     assert.deepEqual(response.json(), { error: "internal_server_error" });
+  });
+
+  it("returns { registered: false } when the wait times out without a registration", async () => {
+    const app = await buildRouteApp({
+      hasRegisteredClient: async () => false,
+      waitForRegistration: async () => false,
+    });
+
+    const response = await app.inject({ method: "GET", url: "/auth/app-clients/status?wait=true" });
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(response.json(), { registered: false });
   });
 
   it("rejects an invalid service reply through the strict reply schema", async () => {

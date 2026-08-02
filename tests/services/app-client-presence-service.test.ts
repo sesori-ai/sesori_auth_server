@@ -105,6 +105,21 @@ describe("AppClientPresenceService", () => {
     assert.equal(repo.readCount, 0);
   });
 
+  it("bypasses waiter machinery and reads immediately when timeoutMs is not positive", async () => {
+    const repo = new FakeDeviceTokenRepository();
+    repo.reads.push(true);
+    const service = createService(repo);
+
+    const result = await service.waitForRegistration({
+      userId: "user-zero",
+      timeoutMs: 0,
+      abortSignal: new AbortController().signal,
+    });
+
+    assert.equal(result, true);
+    assert.equal(repo.readCount, 1);
+  });
+
   it("aborts an active waiter and removes its listener", async () => {
     const repo = new FakeDeviceTokenRepository();
     repo.reads.push(false, false);
