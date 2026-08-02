@@ -2376,7 +2376,23 @@ openssl rsa -in "$smoke_dir/private.pem" -pubout \
 JWT_PRIVATE_KEY="$(awk 'NR>1{printf "\\n"}{printf "%s",$0}' "$smoke_dir/private.pem")"
 JWT_PUBLIC_KEY="$(awk 'NR>1{printf "\\n"}{printf "%s",$0}' "$smoke_dir/public.pem")"
 PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY="$(openssl rand -base64 32 | tr -d '\n')"
-FCM_SA_JSON="$(printf '%s' '{"type":"service_account","project_id":"ci","private_key_id":"ci","private_key":"-----BEGIN RSA PRIVATE KEY-----\nci\n-----END RSA PRIVATE KEY-----\n","client_email":"ci@ci.iam.gserviceaccount.com","client_id":"1","auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token","auth_provider_x509_cert_url":"https://www.googleapis.com/oauth2/v1/certs","client_x509_cert_url":"https://www.googleapis.com/robot/v1/metadata/x509/ci","universe_domain":"googleapis.com"}' | base64 | tr -d '\n')"
+FCM_SA_JSON="$(node -e '
+const fs = require("node:fs");
+const serviceAccount = {
+  type: "service_account",
+  project_id: "ci",
+  private_key_id: "ci",
+  private_key: fs.readFileSync(process.argv[1], "utf8"),
+  client_email: "ci@ci.iam.gserviceaccount.com",
+  client_id: "1",
+  auth_uri: "https://accounts.google.com/o/oauth2/auth",
+  token_uri: "https://oauth2.googleapis.com/token",
+  auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
+  client_x509_cert_url: "https://www.googleapis.com/robot/v1/metadata/x509/ci",
+  universe_domain: "googleapis.com"
+};
+process.stdout.write(Buffer.from(JSON.stringify(serviceAccount)).toString("base64"));
+' "$smoke_dir/private.pem")"
 
 docker build --tag auth-backend:transcription-smoke .
 docker network create --internal sesori-auth-smoke-net
