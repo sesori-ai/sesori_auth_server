@@ -264,21 +264,29 @@ export async function main(options: MainOptions = {}): Promise<MainHandle> {
   };
   const onSigint = (): void => onSignal("SIGINT");
   const onSigterm = (): void => onSignal("SIGTERM");
-  signalTarget.on("SIGINT", onSigint);
-  signalTarget.on("SIGTERM", onSigterm);
-
-  let removed = false;
+  const signalHandlers: Array<[ShutdownSignal, () => void]> = [];
   const removeSignalHandlers = (): void => {
-    if (removed) {
-      return;
+    for (const [signal, listener] of signalHandlers.splice(0)) {
+      try {
+        signalTarget.off(signal, listener);
+      } catch (error) {
+        console.error("[Startup] Signal handler removal failed", { signal, errorType: safeErrorType({ error }) });
+      }
     }
-
-    removed = true;
-    signalTarget.off("SIGINT", onSigint);
-    signalTarget.off("SIGTERM", onSigterm);
   };
 
-  runtime.activationReminderService.start();
+  try {
+    signalHandlers.push(["SIGINT", onSigint]);
+    signalTarget.on("SIGINT", onSigint);
+    signalHandlers.push(["SIGTERM", onSigterm]);
+    signalTarget.on("SIGTERM", onSigterm);
+    runtime.activationReminderService.start();
+  } catch {
+    removeSignalHandlers();
+    await cleanupPartialStartup(runtime);
+    throw new ProductionStartupError();
+  }
+
   return { shutdownCoordinator, removeSignalHandlers };
 }
 

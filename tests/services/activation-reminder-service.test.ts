@@ -16,6 +16,7 @@ import type {
   NotificationPayload,
   NotificationService,
 } from "../../src/services/notification-service.js";
+import { SHUTDOWN_HARD_DEADLINE_MS, createShutdownCoordinator } from "../../src/shutdown.js";
 
 type SendCall = { userId: string; payload: NotificationPayload; abortSignal?: AbortSignal };
 type MarkCall = { userId: string; kind: ActivationReminderKind; cutoff: Date; sentAt: Date };
@@ -460,8 +461,9 @@ describe("ActivationReminderService", () => {
     assert.equal(result.reminders[ActivationReminderKind.Bridge1].sent, 1);
   });
 
-  it("uses one fence for the exact disposal timeout and a concurrent force", async (t) => {
+  it("makes an equal-deadline activation timeout fail coordinated shutdown without closing MongoDB", async (t) => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
+    mock.method(console, "error", () => {});
     const sendDeferred = createDeferred<NotificationDeliveryResult>();
     const repo = createRepo({
       due: { [ActivationReminderKind.Bridge1]: [candidate("stuck-user"), candidate("queued-user")] },
@@ -481,24 +483,52 @@ describe("ActivationReminderService", () => {
 
     const sweep = service.sweepOnce(NOW);
     await flushMicrotasks();
-    setTimeout(() => {
-      service.forceFence();
-    }, ACTIVATION_REMINDER_DISPOSE_TIMEOUT_MS);
+    const events: string[] = [];
+    const exits: number[] = [];
+    const coordinator = createShutdownCoordinator({
+      app: {
+        close: async () => {
+          events.push("app.close");
+        },
+        closeAllConnections: () => events.push("app.force"),
+      },
+      bridgeStateTracker: {
+        dispose: async () => {
+          events.push("bridge.dispose");
+        },
+        forceFence: () => events.push("bridge.force"),
+      },
+      activationReminderService: service,
+      dbConnector: {
+        close: async () => {
+          events.push("db.close");
+        },
+      },
+      selectExit: (code) => exits.push(code),
+    });
+    const shutdown = coordinator.shutdown("SIGTERM");
     const disposing = service.dispose();
     assert.equal(service.dispose(), disposing);
     t.mock.timers.tick(ACTIVATION_REMINDER_DISPOSE_TIMEOUT_MS);
-    await disposing;
-    service.forceFence();
+    await assert.rejects(disposing, /ActivationReminderDrainFenced/);
+    await flushMicrotasks();
     service.forceFence();
 
     assert.equal(repo.markCalls.length, 0);
     assert.equal(notification.sendCalls[0]?.abortSignal?.aborted, true);
+    assert.equal(events.includes("db.close"), false);
+    assert.deepEqual(exits, []);
     assert.equal(
       warnCalls.filter(
         (args) => args[0] === "[ActivationReminderService] Disposal timed out with reminder delivery still in flight",
       ).length,
       1,
     );
+
+    t.mock.timers.tick(SHUTDOWN_HARD_DEADLINE_MS - ACTIVATION_REMINDER_DISPOSE_TIMEOUT_MS);
+    assert.equal(await shutdown, 1);
+    assert.deepEqual(exits, [1]);
+    assert.equal(events.includes("db.close"), false);
 
     sendDeferred.resolve({ devicesNotified: 1, retryableFailures: 0 });
     const result = await sweep;
@@ -531,7 +561,7 @@ describe("ActivationReminderService", () => {
     const disposing = service.dispose();
     service.forceFence();
     service.forceFence();
-    await disposing;
+    await assert.rejects(disposing, /ActivationReminderDrainFenced/);
 
     markerDeferred.resolve(true);
     const result = await sweep;

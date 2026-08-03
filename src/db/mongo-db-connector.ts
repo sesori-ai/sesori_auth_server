@@ -53,11 +53,14 @@ export class MongoDbConnector {
 
   async close(): Promise<void> {
     this.#closed = true;
+    let client: MongoClient;
     try {
-      const client = await this.#connectPromise;
-      await client.close();
+      client = await this.#connectPromise;
     } catch {
       // Connection already failed — nothing to close
+      return;
     }
+
+    await client.close();
   }
 }

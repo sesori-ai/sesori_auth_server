@@ -2,58 +2,18 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { describe, it } from "node:test";
 import Fastify from "fastify";
+import { MongoClient } from "mongodb";
+import { MongoDbConnector } from "../src/db/mongo-db-connector.js";
 import type { AppServices } from "../src/server.js";
 import { buildApp } from "../src/server.js";
-import {
-  SHUTDOWN_DRAIN_DEADLINE_MS,
-  SHUTDOWN_HARD_DEADLINE_MS,
-  cleanupPartialStartup,
-  createShutdownCoordinator,
-  type ShutdownTimers,
-} from "../src/shutdown.js";
-import type { MainHandle, ProductionRuntime, SignalTarget } from "../src/index.js";
+import { SHUTDOWN_DRAIN_DEADLINE_MS, SHUTDOWN_HARD_DEADLINE_MS, createShutdownCoordinator } from "../src/shutdown.js";
+import type { ProductionRuntime, SignalTarget } from "../src/index.js";
 
 type Deferred<T> = {
   promise: Promise<T>;
   resolve: (value: T | PromiseLike<T>) => void;
   reject: (reason?: unknown) => void;
 };
-
-type TestTimer = {
-  at: number;
-  callback: () => void;
-  unref: () => void;
-};
-
-class TestTimers implements ShutdownTimers {
-  #now = 0;
-  readonly #timers = new Set<TestTimer>();
-
-  setTimeout = (callback: () => void, delayMs: number): TestTimer => {
-    const timer = { at: this.#now + delayMs, callback, unref: () => undefined };
-    this.#timers.add(timer);
-    return timer;
-  };
-
-  clearTimeout = (handle: { unref?: () => unknown }): void => {
-    this.#timers.delete(handle as TestTimer);
-  };
-
-  advance(delayMs: number): void {
-    const target = this.#now + delayMs;
-    while (true) {
-      const next = [...this.#timers].sort((left, right) => left.at - right.at)[0];
-      if (!next || next.at > target) {
-        break;
-      }
-
-      this.#timers.delete(next);
-      this.#now = next.at;
-      next.callback();
-    }
-    this.#now = target;
-  }
-}
 
 function deferred<T>(): Deferred<T> {
   let resolve!: Deferred<T>["resolve"];
@@ -69,55 +29,65 @@ function flushMicrotasks(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
+function createRuntime(events: string[], startFails = false): ProductionRuntime {
+  const record = (event: string) => (): void => {
+    events.push(event);
+  };
+  const recordAsync = (event: string) => async (): Promise<void> => {
+    events.push(event);
+  };
+  return {
+    app: {
+      close: recordAsync("app.close"),
+      server: { closeAllConnections: record("app.force") },
+    },
+    bridgeStateTracker: {
+      dispose: recordAsync("bridge.dispose"),
+      forceFence: record("bridge.force"),
+    },
+    activationReminderService: {
+      start: () => {
+        events.push("activation.start");
+        if (startFails) {
+          throw new Error("PRIVATE_START_FAILURE");
+        }
+      },
+      dispose: recordAsync("activation.dispose"),
+      forceFence: record("activation.force"),
+    },
+    dbConnector: { close: recordAsync("db.close") },
+  } as unknown as ProductionRuntime;
+}
+
 function createHarness(synchronousFailure?: "app" | "bridge" | "activation") {
-  const timers = new TestTimers();
   const events: string[] = [];
   const exits: number[] = [];
-  const appClose = deferred<void>();
-  const bridgeDrain = deferred<void>();
-  const activationDrain = deferred<void>();
-  const dbClose = deferred<void>();
+  const drains = { app: deferred<void>(), bridge: deferred<void>(), activation: deferred<void>() };
+  const drain = (stage: keyof typeof drains) => () => {
+    events.push(`${stage}.${stage === "app" ? "close" : "dispose"}`);
+    if (synchronousFailure === stage) {
+      throw new Error("PRIVATE_SYNC_FAILURE");
+    }
+
+    return drains[stage].promise;
+  };
   const coordinator = createShutdownCoordinator({
     app: {
-      close: () => {
-        events.push("app.close");
-        if (synchronousFailure === "app") {
-          throw new Error("PRIVATE_SYNC_FAILURE");
-        }
-        return appClose.promise;
-      },
+      close: drain("app"),
       closeAllConnections: () => events.push("app.force"),
     },
     bridgeStateTracker: {
-      dispose: () => {
-        events.push("bridge.dispose");
-        if (synchronousFailure === "bridge") {
-          throw new Error("PRIVATE_SYNC_FAILURE");
-        }
-        return bridgeDrain.promise;
-      },
+      dispose: drain("bridge"),
       forceFence: () => events.push("bridge.force"),
     },
     activationReminderService: {
-      dispose: () => {
-        events.push("activation.dispose");
-        if (synchronousFailure === "activation") {
-          throw new Error("PRIVATE_SYNC_FAILURE");
-        }
-        return activationDrain.promise;
-      },
+      dispose: drain("activation"),
       forceFence: () => events.push("activation.force"),
     },
-    dbConnector: {
-      close: () => {
-        events.push("db.close");
-        return dbClose.promise;
-      },
-    },
+    dbConnector: { close: async () => void events.push("db.close") },
     selectExit: (code) => exits.push(code),
-    timers,
   });
-  return { timers, events, exits, appClose, bridgeDrain, activationDrain, dbClose, coordinator };
+  return { events, exits, drains, coordinator };
 }
 
 describe("shutdown coordinator", () => {
@@ -128,75 +98,83 @@ describe("shutdown coordinator", () => {
     assert.equal(first, second);
     assert.deepEqual(harness.events, ["bridge.dispose", "activation.dispose", "app.close"]);
 
-    harness.appClose.resolve();
-    harness.bridgeDrain.resolve();
-    harness.activationDrain.resolve();
-    await flushMicrotasks();
-    assert.equal(harness.events.at(-1), "db.close");
-    harness.dbClose.resolve();
+    for (const drain of Object.values(harness.drains)) {
+      drain.resolve();
+    }
 
     assert.equal(await first, 0);
+    assert.equal(harness.events.at(-1), "db.close");
     assert.deepEqual(harness.exits, [0]);
   });
 
-  it("keeps MongoDB open until hard exit after every pre-drain throw or rejection", async () => {
-    for (const [failedStage, synchronous] of [
-      ["app", false],
-      ["bridge", false],
-      ["activation", false],
-      ["app", true],
-      ["bridge", true],
-      ["activation", true],
-    ] as const) {
-      const harness = createHarness(synchronous ? failedStage : undefined);
-      const shutdown = harness.coordinator.shutdown("SIGTERM");
-      if (!synchronous) {
-        harness[
-          failedStage === "app" ? "appClose" : failedStage === "bridge" ? "bridgeDrain" : "activationDrain"
-        ].reject(new Error("PRIVATE_FAILURE"));
-      }
-      await flushMicrotasks();
-      assert.equal(harness.events.includes("db.close"), false, failedStage);
-      assert.deepEqual(harness.exits, []);
+  it("keeps MongoDB open until hard exit after every pre-drain throw or rejection", async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    for (const failedStage of ["app", "bridge", "activation"] as const) {
+      for (const synchronous of [false, true]) {
+        const harness = createHarness(synchronous ? failedStage : undefined);
+        const shutdown = harness.coordinator.shutdown("SIGTERM");
+        if (!synchronous) {
+          harness.drains[failedStage].reject(new Error("PRIVATE_FAILURE"));
+        }
+        await flushMicrotasks();
+        assert.equal(harness.events.includes("db.close"), false, failedStage);
+        assert.deepEqual(harness.exits, []);
 
-      harness.timers.advance(SHUTDOWN_HARD_DEADLINE_MS);
-      assert.equal(await shutdown, 1);
-      assert.deepEqual(harness.exits, [1]);
-      assert.equal(harness.events.includes("db.close"), false, failedStage);
+        t.mock.timers.tick(SHUTDOWN_HARD_DEADLINE_MS);
+        assert.equal(await shutdown, 1);
+        assert.deepEqual(harness.exits, [1]);
+      }
     }
   });
 
-  it("force-fences at T+15 but never closes MongoDB even after late drains settle", async () => {
+  it("force-fences at T+15 but never closes MongoDB even after late drains settle", async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
     const harness = createHarness();
     const shutdown = harness.coordinator.shutdown("SIGTERM");
 
-    harness.timers.advance(SHUTDOWN_DRAIN_DEADLINE_MS);
+    t.mock.timers.tick(SHUTDOWN_DRAIN_DEADLINE_MS);
     await flushMicrotasks();
     assert.deepEqual(harness.events.slice(-3), ["bridge.force", "activation.force", "app.force"]);
     assert.equal(harness.events.includes("db.close"), false);
 
-    harness.appClose.resolve();
-    harness.bridgeDrain.resolve();
-    harness.activationDrain.resolve();
+    for (const drain of Object.values(harness.drains)) {
+      drain.resolve();
+    }
     await flushMicrotasks();
     assert.equal(harness.events.includes("db.close"), false);
 
-    harness.timers.advance(SHUTDOWN_HARD_DEADLINE_MS - SHUTDOWN_DRAIN_DEADLINE_MS);
+    t.mock.timers.tick(SHUTDOWN_HARD_DEADLINE_MS - SHUTDOWN_DRAIN_DEADLINE_MS);
     assert.equal(await shutdown, 1);
     assert.deepEqual(harness.exits, [1]);
   });
 
-  it("returns exit 1 when MongoDB close rejects after a successful drain", async () => {
-    const harness = createHarness();
-    const shutdown = harness.coordinator.shutdown("SIGTERM");
-    harness.appClose.resolve();
-    harness.bridgeDrain.resolve();
-    harness.activationDrain.resolve();
-    await flushMicrotasks();
-    harness.dbClose.reject(new Error("PRIVATE_DATABASE_FAILURE"));
+  it("ignores initial connection failure but exits 1 for a production MongoDB client-close rejection", async (t) => {
+    let connectFails = true;
+    t.mock.method(console, "error", () => {});
+    t.mock.method(MongoClient.prototype, "connect", async function () {
+      if (connectFails) {
+        throw new Error("PRIVATE_CONNECT_FAILURE");
+      }
 
-    assert.equal(await shutdown, 1);
-    assert.deepEqual(harness.exits, [1]);
+      return this;
+    });
+    t.mock.method(MongoClient.prototype, "close", async () => {
+      throw new Error("PRIVATE_CLOSE_FAILURE");
+    });
+    await new MongoDbConnector({ connectionString: "mongodb://unused" }).close();
+
+    connectFails = false;
+    const exits: number[] = [];
+    const coordinator = createShutdownCoordinator({
+      app: { close: async () => {}, closeAllConnections: () => {} },
+      bridgeStateTracker: { dispose: async () => {}, forceFence: () => {} },
+      activationReminderService: { dispose: async () => {}, forceFence: () => {} },
+      dbConnector: new MongoDbConnector({ connectionString: "mongodb://unused" }),
+      selectExit: (code) => exits.push(code),
+    });
+
+    assert.equal(await coordinator.shutdown("SIGTERM"), 1);
+    assert.deepEqual(exits, [1]);
   });
 });
 
@@ -209,23 +187,8 @@ describe("startup and signal composition", () => {
     const target = new EventEmitter();
     const events: string[] = [];
     const exits: number[] = [];
-    const runtime = {
-      app: {
-        close: async () => events.push("app.close"),
-        server: { closeAllConnections: () => events.push("app.force") },
-      },
-      bridgeStateTracker: {
-        dispose: async () => events.push("bridge.dispose"),
-        forceFence: () => events.push("bridge.force"),
-      },
-      activationReminderService: {
-        start: () => events.push("activation.start"),
-        dispose: async () => events.push("activation.dispose"),
-        forceFence: () => events.push("activation.force"),
-      },
-      dbConnector: { close: async () => events.push("db.close") },
-    } as unknown as ProductionRuntime;
-    const handle: MainHandle = await main({
+    const runtime = createRuntime(events);
+    const handle = await main({
       startRuntime: async () => runtime,
       signalTarget: target as SignalTarget,
       selectExit: (code) => exits.push(code),
@@ -246,23 +209,38 @@ describe("startup and signal composition", () => {
     assert.equal(target.listenerCount("SIGTERM"), 0);
   });
 
-  it("cleans a partially started runtime in producer-before-MongoDB order", async () => {
-    const events: string[] = [];
-    await cleanupPartialStartup({
-      app: { close: async () => events.push("app.close") },
-      bridgeStateTracker: {
-        forceFence: () => events.push("bridge.force"),
-        dispose: async () => events.push("bridge.dispose"),
-      },
-      activationReminderService: {
-        forceFence: () => events.push("activation.force"),
-        dispose: async () => events.push("activation.dispose"),
-      },
-      dbConnector: { close: async () => events.push("db.close") },
-    });
+  it("removes attempted listeners and cleans DB-last after post-composition startup failures", async () => {
+    const { main } = await import("../src/index.js");
+    for (const failure of ["listener", "scheduler"] as const) {
+      const events: string[] = [];
+      const emitter = new EventEmitter();
+      const signalTarget: SignalTarget = {
+        on: (signal, listener) => {
+          emitter.on(signal, listener);
+          if (failure === "listener" && signal === "SIGTERM") {
+            throw new Error("PRIVATE_LISTENER_FAILURE");
+          }
+        },
+        off: (signal, listener) => emitter.off(signal, listener),
+      };
 
-    assert.deepEqual(events.slice(0, 2), ["bridge.force", "activation.force"]);
-    assert.equal(events.at(-1), "db.close");
+      await assert.rejects(
+        main({
+          startRuntime: async () => createRuntime(events, failure === "scheduler"),
+          signalTarget,
+          selectExit: () => {},
+        }),
+        { name: "ProductionStartupError", message: "ProductionStartupError" },
+      );
+
+      assert.equal(emitter.listenerCount("SIGINT"), 0, failure);
+      assert.equal(emitter.listenerCount("SIGTERM"), 0, failure);
+      assert.deepEqual(
+        events.filter((event) => event.endsWith(".force")),
+        ["bridge.force", "activation.force"],
+      );
+      assert.equal(events.at(-1), "db.close", failure);
+    }
   });
 
   it("buildApp closes its owned Fastify instance before rethrowing registration failure", async (t) => {

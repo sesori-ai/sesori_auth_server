@@ -1686,7 +1686,7 @@ each PR; `actual` includes authored additions plus deletions):
 | Slice | Status  | Reviewed base SHA | Forecast authored lines | Actual authored/generated lines | Verification | Next slice |
 | ----- | ------- | ----------------- | ----------------------- | ------------------------------- | ------------ | ---------- |
 | PR1   | Merged  | `8fc4fcf`         | 1,480                   | 1,402 / 0                       | MongoDB 7 focused/full; production dry-run zero; deployed | PR2a       |
-| PR2a  | Active  | `bc7df1d`         | 1,450                   | -                               | Pending      | PR2b       |
+| PR2a  | Active  | `fa831d1`         | 1,450                   | 1,498 / 0                       | MongoDB 7.0.24 focused 60/60 and full 552 passed/1 skipped; static checks passed; Docker CI pending | PR2b       |
 | PR2b  | Pending | -                 | TBD before coding       | -                               | -            | PR3        |
 | PR3   | Pending | -                 | TBD before coding       | -                               | -            | PR4        |
 | PR4   | Pending | -                 | TBD before coding       | -                               | -            | PR5        |
@@ -1804,12 +1804,12 @@ File map:
 
 Acceptance criteria:
 
-- [ ] Diagnostics retain eight bounded allowlisted path/code issues only; typed
+- [x] Diagnostics retain eight bounded allowlisted path/code issues only; typed
       503 errors alone emit `Retry-After: 1`.
-- [ ] Bridge/activation aborts prevent post-fence stages and expose safe drains/logs.
-- [ ] Only three fulfilled pre-T+15 drains permit MongoDB close; every earlier
+- [x] Bridge/activation aborts prevent post-fence stages and expose safe drains/logs.
+- [x] Only three fulfilled pre-T+15 drains permit MongoDB close; every earlier
       failure force-fences, leaves MongoDB open, and exits 1 at T+22.
-- [ ] Signals memoize; import has no side effect; partial startup closes DB-last.
+- [x] Signals memoize; import has no side effect; partial startup closes DB-last.
 - [ ] Docker serves `/health`, handles SIGTERM, and exits zero within 25 seconds.
 
 Focused verification:

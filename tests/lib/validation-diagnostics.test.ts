@@ -34,27 +34,11 @@ describe("toValidationDiagnostics", () => {
       ],
       truncated: false,
     });
-    assert.deepEqual(Object.keys(diagnostics.issues[0]).sort(), ["code", "path"]);
-
-    const serialized = JSON.stringify(diagnostics);
-    for (const secret of [
-      "symbol-segment-secret",
-      "dynamic-field-secret",
-      "message-value-secret",
-      "input-value-secret",
-      "raw-value-secret",
-      "submitted-input-secret",
-    ]) {
-      assert.equal(serialized.includes(secret), false);
-    }
+    assert.doesNotMatch(JSON.stringify(diagnostics), /secret/);
   });
 
   it("does not expose unknown-key lists, dynamic fields, values, messages, or raw issues", () => {
-    const schema = z
-      .object({
-        words: z.record(z.string(), z.number()),
-      })
-      .strict();
+    const schema = z.object({ words: z.record(z.string(), z.number()) }).strict();
 
     const diagnostics = toValidationDiagnostics(
       getZodError(schema, {
@@ -71,15 +55,7 @@ describe("toValidationDiagnostics", () => {
       ],
       truncated: false,
     });
-    assert.deepEqual(Object.keys(diagnostics).sort(), ["issues", "truncated"]);
-    for (const issue of diagnostics.issues) {
-      assert.deepEqual(Object.keys(issue).sort(), ["code", "path"]);
-    }
-
-    const serialized = JSON.stringify(diagnostics);
-    for (const secret of ["dynamic-record-key-secret", "submitted-value-secret", "unknown-key-secret"]) {
-      assert.equal(serialized.includes(secret), false);
-    }
+    assert.doesNotMatch(JSON.stringify(diagnostics), /secret/);
   });
 
   it("bounds both issue count and path depth and marks truncation", () => {
@@ -98,15 +74,14 @@ describe("toValidationDiagnostics", () => {
     assert.equal(diagnostics.issues.length, 8);
     assert.deepEqual(diagnostics.issues[0].path, [0, 1, 2, 3, 4, 5, 6, 7]);
     assert.equal(diagnostics.truncated, true);
-    assert.equal(JSON.stringify(diagnostics).includes("omitted-issue"), false);
-    assert.equal(JSON.stringify(diagnostics).includes("omitted-path"), false);
+    assert.doesNotMatch(JSON.stringify(diagnostics), /omitted-(?:issue|path)/);
   });
 });
 
 function getZodError(schema: ZodType, value: unknown): ZodError {
   const result = schema.safeParse(value);
   if (result.success) {
-    assert.fail("Expected schema validation to fail");
+    throw new Error("Expected schema validation to fail");
   }
 
   return result.error;

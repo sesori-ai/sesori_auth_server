@@ -186,8 +186,9 @@ export class ActivationReminderService {
     }, ACTIVATION_REMINDER_DISPOSE_TIMEOUT_MS);
     timeout.unref?.();
 
+    let drained: boolean;
     try {
-      await Promise.race([inFlight.then(() => undefined), forceFencePromise]);
+      drained = await Promise.race([inFlight.then(() => true), forceFencePromise.then(() => false)]);
     } finally {
       clearTimeout(timeout);
       if (this.#resolveForceFence === resolveForceFence) {
@@ -199,6 +200,10 @@ export class ActivationReminderService {
       console.warn("[ActivationReminderService] Disposal timed out with reminder delivery still in flight", {
         timeoutMs: ACTIVATION_REMINDER_DISPOSE_TIMEOUT_MS,
       });
+    }
+
+    if (!drained) {
+      throw new Error("ActivationReminderDrainFenced");
     }
   }
 
