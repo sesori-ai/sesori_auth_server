@@ -4,6 +4,7 @@ import { loadGlossaryMigrationConfig } from "../config.js";
 import {
   GlossaryIndexMigrationMode,
   GlossaryIndexMigrationOutcome,
+  GlossaryIndexMigrationPersistenceError,
   runGlossaryIndexMigration,
 } from "../db/glossary-index-migration.js";
 import { MongoDbConnector } from "../db/mongo-db-connector.js";
@@ -86,6 +87,7 @@ export async function runProjectGlossaryIndexMigrationCli(input: {
       mode: options.mode,
       outcome: GlossaryIndexMigrationOutcome.RepairRequired,
       errorType: safeErrorType({ error }),
+      ...(error instanceof GlossaryIndexMigrationPersistenceError ? { diagnostic: error.diagnostic } : {}),
     });
     return 1;
   } finally {

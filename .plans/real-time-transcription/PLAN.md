@@ -693,7 +693,7 @@ schemas cover the collection metadata, each list-indexes record, and the bounded
 duplicate-count aggregation result; all counters must be nonnegative safe
 integers. Unknown/malformed persistence metadata is a closed redacted failure.
 The collection must be absent or be a normal collection with no default
-collation (binary/simple); dry-run/apply fail before mutation when a non-simple
+collation or an explicit `{ locale: "simple" }` default; dry-run/apply fail before mutation when a non-simple
 default collation could be inherited by a newly created index. Same-spec sparse,
 partial, collated, hidden, non-unique, or otherwise semantically mismatched old/
 target indexes also fail closed.
@@ -728,7 +728,7 @@ closed recovery outcomes:
 
 | Observed state after failure/re-audit                                                                            | Outcome           | Required action                                                                                                       |
 | ---------------------------------------------------------------------------------------------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Valid data/simple collation and only absent/exact old/target indexes, including exact-both interruption          | `safe_to_rerun`   | Keep auth stopped and rerun the same mode; missing required indexes may be recreated.                                 |
+| Valid data/simple collation and only absent/exact old/target indexes, including exact-both interruption; rollback additionally requires zero documents | `safe_to_rerun`   | Keep auth stopped and rerun the same mode; missing required indexes may be recreated.                                 |
 | Requested final state passes the complete audit despite a same-mode `IndexNotFound`/create race                  | `completed`       | Treat as success only while the maintenance/DDL exclusion remains held through command exit.                          |
 | Any invalid/unscoped/nonempty-for-rollback data, duplicate target key, non-simple collation, or mismatched index | `repair_required` | Keep auth stopped; do not rerun blindly or start either binary. Design and review a separate data/index repair first. |
 | Fresh audit itself cannot complete, so current state is unknown                                                  | `repair_required` | Keep auth stopped and restore database observability; inspect with a reviewed read-only audit before further DDL.     |
@@ -1684,7 +1684,7 @@ each PR; `actual` includes authored additions plus deletions):
 
 | Slice | Status  | Reviewed base SHA | Forecast authored lines | Actual authored/generated lines | Verification | Next slice |
 | ----- | ------- | ----------------- | ----------------------- | ------------------------------- | ------------ | ---------- |
-| PR1   | Ready   | `8fc4fcf`         | 1,480                   | 1,256 / 0                       | MongoDB 7 focused/full; all checks; production dry-run zero | PR2        |
+| PR1   | Ready   | `8fc4fcf`         | 1,480                   | 1,402 / 0                       | MongoDB 7 focused/full; all checks; production dry-run zero | PR2        |
 | PR2   | Pending | -                 | TBD before coding       | -                               | -            | PR3        |
 | PR3   | Pending | -                 | TBD before coding       | -                               | -            | PR4        |
 | PR4   | Pending | -                 | TBD before coding       | -                               | -            | PR5        |

@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, describe, it, mock } from "node:test";
-import { AggregationCursor, Collection, MongoClient, ObjectId, type Db, type Document } from "mongodb";
+import {
+  AggregationCursor,
+  Collection,
+  MongoClient,
+  ObjectId,
+  type AggregateOptions,
+  type Db,
+  type Document,
+  type FindOptions,
+} from "mongodb";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import {
   GlossaryCollectionState,
@@ -22,6 +31,7 @@ import { AuthDbCollection, MongoDbDatabase } from "../../src/types/mongo.js";
 
 const validProjectKey = `prj_v1_${"A".repeat(43)}`;
 const canaryWord = "PRIVATE_GLOSSARY_CANARY";
+const metadataCanary = "PRIVATE_METADATA_CANARY";
 
 describe("project glossary index migration", () => {
   let memoryServer: MongoMemoryServer | null = null;
@@ -175,6 +185,40 @@ describe("project glossary index migration", () => {
     assert.ok((await indexKeys()).some((key) => key.projectKey === 1));
   });
 
+  it("accepts an explicit simple collection collation", async () => {
+    await db.createCollection(AuthDbCollection.GlossaryEntries, { collation: { locale: "simple" } });
+    await createLegacyIndex();
+
+    const report = await runGlossaryIndexMigration({ db, mode: GlossaryIndexMigrationMode.DryRun });
+
+    assert.equal(report.collectionState, GlossaryCollectionState.Simple);
+    assert.equal(report.legacyIndexState, GlossaryIndexState.Exact);
+    assert.equal(report.outcome, GlossaryIndexMigrationOutcome.Completed);
+  });
+
+  it("bounds complete audit queries with the reviewed MongoDB options", async () => {
+    await createLegacyIndex();
+    const originalFind = Collection.prototype.find;
+    const originalAggregate = Collection.prototype.aggregate;
+    let findOptions: FindOptions | undefined;
+    let aggregateOptions: AggregateOptions | undefined;
+    mock.method(Collection.prototype, "find", function (this: Collection, filter, options) {
+      findOptions = options;
+      return originalFind.call(this, filter, options);
+    });
+    mock.method(Collection.prototype, "aggregate", function (this: Collection, pipeline, options) {
+      aggregateOptions = options;
+      return originalAggregate.call(this, pipeline, options);
+    });
+
+    await runGlossaryIndexMigration({ db, mode: GlossaryIndexMigrationMode.DryRun });
+
+    assert.equal(findOptions?.maxTimeMS, 300_000);
+    assert.equal(findOptions?.batchSize, 1_000);
+    assert.equal(aggregateOptions?.maxTimeMS, 300_000);
+    assert.equal(aggregateOptions?.allowDiskUse, true);
+  });
+
   it("returns repair_required for a conflicting target index name", async () => {
     await createLegacyIndex();
     await collection().createIndex({ createdAt: 1 }, { name: projectScopedGlossaryIndexName });
@@ -203,7 +247,7 @@ describe("project glossary index migration", () => {
     });
     await assert.rejects(
       runGlossaryIndexMigration({ db, mode: GlossaryIndexMigrationMode.DryRun }),
-      /GlossaryIndexMigrationPersistenceError/,
+      /GlossaryIndexMigrationPersistenceError.*options.*unrecognized_keys/,
     );
 
     await db.dropDatabase();
@@ -356,7 +400,8 @@ describe("project glossary index migration", () => {
   it("keeps CLI output content-redacted and closes its connector", async () => {
     await createLegacyIndex();
     const document = glossaryDocument();
-    await collection().insertOne(document);
+    const scopedDocument = glossaryDocument({ projectKey: validProjectKey });
+    await collection().insertMany([document, scopedDocument]);
     const calls: unknown[][] = [];
     let closeCalls = 0;
     const originalClose = MongoDbConnector.prototype.close;
@@ -374,7 +419,32 @@ describe("project glossary index migration", () => {
     assert.equal(output.includes(canaryWord), false);
     assert.equal(output.includes(validProjectKey), false);
     assert.equal(output.includes(document._id.toHexString()), false);
+    assert.equal(output.includes(scopedDocument._id.toHexString()), false);
     assert.equal(closeCalls, 1);
+  });
+
+  it("reports bounded persistence diagnostics without logging dynamic metadata", async () => {
+    await createLegacyIndex();
+    mock.method(AggregationCursor.prototype, "toArray", async () =>
+      Array.from({ length: 20 }, (_, index) => ({
+        duplicateTargetKeyCount: -1,
+        [`${metadataCanary}_${index}`]: true,
+      })),
+    );
+    const calls: unknown[][] = [];
+    mock.method(console, "log", (...args: unknown[]) => calls.push(args));
+    mock.method(console, "error", (...args: unknown[]) => calls.push(args));
+
+    const exitCode = await runProjectGlossaryIndexMigrationCli({ argv: [], env: { MONGODB_URI: mongodbUri } });
+
+    assert.equal(exitCode, 1);
+    const output = JSON.stringify(calls);
+    assert.equal(output.includes("GlossaryIndexMigrationPersistenceError"), true);
+    assert.equal(output.includes("too_small"), true);
+    assert.equal(output.includes("unrecognized_keys"), true);
+    assert.equal(output.includes("truncated"), true);
+    assert.equal(output.includes(metadataCanary), false);
+    assert.ok(output.length < 2_000);
   });
 
   it("handles help and missing configuration without connecting", async () => {

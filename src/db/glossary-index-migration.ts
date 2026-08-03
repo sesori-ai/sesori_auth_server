@@ -48,6 +48,7 @@ export type GlossaryIndexMigrationReport = {
 };
 
 type ParsedIndex = z.infer<typeof indexMetadataSchema>;
+type ParsedCollation = z.infer<typeof collationSchema>;
 type Audit = Omit<GlossaryIndexMigrationReport, "mode" | "outcome"> & {
   legacyIndexName: string | null;
   targetIndexName: string | null;
@@ -111,18 +112,84 @@ const indexMetadataListSchema = z.array(indexMetadataSchema).min(1);
 const duplicateCountResultSchema = z
   .array(z.object({ duplicateTargetKeyCount: nonnegativeSafeIntegerSchema }).strict())
   .max(1);
+const glossaryIndexMigrationMaxTimeMs = 5 * 60 * 1_000;
+const maxPersistenceDiagnosticIssues = 10;
+const maxPersistenceDiagnosticPathSegments = 8;
+const persistenceDiagnosticStaticPathSegments = new Set([
+  "2dsphereIndexVersion",
+  "alternate",
+  "backwards",
+  "bits",
+  "bucketSize",
+  "caseFirst",
+  "caseLevel",
+  "collation",
+  "default_language",
+  "duplicateTargetKeyCount",
+  "expireAfterSeconds",
+  "hidden",
+  "idIndex",
+  "info",
+  "key",
+  "language_override",
+  "locale",
+  "max",
+  "maxVariable",
+  "min",
+  "name",
+  "normalization",
+  "ns",
+  "numericOrdering",
+  "options",
+  "partialFilterExpression",
+  "prepareUnique",
+  "readOnly",
+  "sparse",
+  "storageEngine",
+  "strength",
+  "textIndexVersion",
+  "unique",
+  "uuid",
+  "v",
+  "version",
+  "weights",
+  "wildcardProjection",
+]);
 
-class GlossaryIndexMigrationPersistenceError extends Error {
-  constructor() {
-    super("GlossaryIndexMigrationPersistenceError");
+function safePersistenceDiagnosticPath(path: PropertyKey[]): string {
+  if (path.length === 0) {
+    return "<root>";
+  }
+
+  return path
+    .slice(0, maxPersistenceDiagnosticPathSegments)
+    .map((segment) =>
+      typeof segment === "string" && persistenceDiagnosticStaticPathSegments.has(segment) ? segment : "<field>",
+    )
+    .join(".");
+}
+
+export class GlossaryIndexMigrationPersistenceError extends Error {
+  readonly diagnostic: string;
+
+  constructor(error: z.ZodError) {
+    const diagnostic = JSON.stringify({
+      issues: error.issues.slice(0, maxPersistenceDiagnosticIssues).map((issue) => ({
+        path: safePersistenceDiagnosticPath(issue.path),
+        code: issue.code,
+      })),
+      truncated: error.issues.length > maxPersistenceDiagnosticIssues,
+    });
+    super(diagnostic);
     this.name = "GlossaryIndexMigrationPersistenceError";
+    this.diagnostic = diagnostic;
   }
 }
 
 function parsePersistence<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);
   if (!result.success) {
-    throw new GlossaryIndexMigrationPersistenceError();
+    throw new GlossaryIndexMigrationPersistenceError(result.error);
   }
 
   return result.data;
@@ -152,7 +219,7 @@ function isExactUniqueIndex(index: ParsedIndex): boolean {
     index.hidden !== true &&
     index.prepareUnique !== true &&
     index.partialFilterExpression === undefined &&
-    index.collation === undefined &&
+    isSimpleCollation(index.collation) &&
     index.expireAfterSeconds === undefined &&
     index.storageEngine === undefined &&
     index.weights === undefined &&
@@ -166,6 +233,10 @@ function isExactUniqueIndex(index: ParsedIndex): boolean {
     index.bucketSize === undefined &&
     index.wildcardProjection === undefined
   );
+}
+
+function isSimpleCollation(collation: ParsedCollation | undefined): boolean {
+  return collation === undefined || collation.locale === "simple";
 }
 
 function classifyIndex(
@@ -198,7 +269,7 @@ async function auditDocuments(collection: Collection<Document>): Promise<{
   let missingProjectKeyCount = 0;
   let invalidProjectKeyCount = 0;
   let invalidDocumentCount = 0;
-  const cursor = collection.find({});
+  const cursor = collection.find({}, { batchSize: 1_000, maxTimeMS: glossaryIndexMigrationMaxTimeMs });
 
   try {
     for await (const document of cursor) {
@@ -238,7 +309,7 @@ async function countDuplicateTargetKeys(collection: Collection<Document>): Promi
         { $match: { count: { $gt: 1 } } },
         { $count: "duplicateTargetKeyCount" },
       ],
-      { allowDiskUse: true },
+      { allowDiskUse: true, maxTimeMS: glossaryIndexMigrationMaxTimeMs },
     )
     .toArray();
   const result = parsePersistence(duplicateCountResultSchema, rawResult);
@@ -266,9 +337,9 @@ async function audit(db: Db): Promise<Audit> {
   }
 
   const collectionMetadata = collections[0];
-  const collectionState = collectionMetadata.options.collation
-    ? GlossaryCollectionState.NonSimpleCollation
-    : GlossaryCollectionState.Simple;
+  const collectionState = isSimpleCollation(collectionMetadata.options.collation)
+    ? GlossaryCollectionState.Simple
+    : GlossaryCollectionState.NonSimpleCollation;
   const collection = db.collection(AuthDbCollection.GlossaryEntries);
   const documents = await auditDocuments(collection);
   const duplicateTargetKeyCount = await countDuplicateTargetKeys(collection);
