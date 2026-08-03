@@ -57,7 +57,12 @@ describe("createAuthMiddleware", () => {
       await assert.rejects(() => requireAuth(request, reply), UnauthenticatedError);
       assert.equal(request.user, null);
     } finally {
-      process.env.NODE_ENV = original;
+      // Assigning undefined would store the truthy string "undefined".
+      if (original === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = original;
+      }
     }
   });
 

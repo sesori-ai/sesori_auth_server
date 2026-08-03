@@ -16,12 +16,25 @@ const baseConfigSchema = z.object({
   NODE_ENV: z.string().optional(),
   // Fastify reads request.ip from the socket unless proxy headers are trusted,
   // so behind a load balancer every client collapses into one rate-limit bucket.
-  // Trusting them without a real proxy in front lets clients forge
-  // X-Forwarded-For and evade rate limiting, so each deployment must opt in.
+  // Prefer a hop count: proxies normally APPEND to X-Forwarded-For, so trusting
+  // the whole chain ("true") lets a client prepend a forged address and choose
+  // its own request.ip. A count trusts only that many trailing hops, which is
+  // the real ingress. Unset leaves the socket address in place.
   TRUST_PROXY: z
-    .union([z.literal("true"), z.literal("false"), z.literal("1"), z.literal("0")])
+    .string()
+    .regex(/^(true|false|0|[1-9][0-9]*)$/, 'TRUST_PROXY must be "true", "false", or a positive integer hop count')
     .optional()
-    .transform((v) => v === "true" || v === "1"),
+    .transform((value) => {
+      if (value === undefined || value === "false" || value === "0") {
+        return false;
+      }
+
+      if (value === "true") {
+        return true;
+      }
+
+      return Number(value);
+    }),
   // Skips JWT verification and serves every request as a fixed local user.
   // The refinement below keeps it unreachable outside NODE_ENV=development.
   AUTH_DEV_BYPASS_ENABLED: z

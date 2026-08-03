@@ -73,17 +73,26 @@ describe("configSchema", () => {
     assert.equal(result.data?.TRUST_PROXY, false);
   });
 
-  it("enables proxy trust only when explicitly requested", () => {
+  it("resolves proxy trust to a hop count, a full-chain opt-in, or off", () => {
     for (const [value, expected] of [
-      ["true", true],
-      ["1", true],
       ["false", false],
       ["0", false],
+      ["1", 1],
+      ["3", 3],
+      ["true", true],
     ] as const) {
       const result = configSchema.safeParse(validEnv({ TRUST_PROXY: value }));
 
       assert.equal(result.success, true, `TRUST_PROXY=${value} should parse`);
       assert.equal(result.data?.TRUST_PROXY, expected);
+    }
+  });
+
+  it("rejects proxy trust values that are neither a boolean nor a hop count", () => {
+    for (const value of ["-1", "1.5", "01", "yes", "all", "1,2"]) {
+      const result = configSchema.safeParse(validEnv({ TRUST_PROXY: value }));
+
+      assert.equal(result.success, false, `TRUST_PROXY=${value} should be rejected`);
     }
   });
 
