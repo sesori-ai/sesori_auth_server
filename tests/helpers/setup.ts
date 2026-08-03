@@ -22,6 +22,7 @@ import { OAuthAccountRepository } from "../../src/repositories/oauth-account-rep
 import { PasswordAccountRepository } from "../../src/repositories/password-account-repo.js";
 import { UserRepository } from "../../src/repositories/user-repo.js";
 import { ActivationStateRepository } from "../../src/repositories/activation-state-repo.js";
+import { SettingsConfigurationRepository } from "../../src/repositories/settings-configuration-repo.js";
 import { buildApp } from "../../src/server.js";
 import { AuthService } from "../../src/services/auth-service.js";
 import { ActivationService } from "../../src/services/activation-service.js";
@@ -36,6 +37,7 @@ import { TokenService } from "../../src/services/token-service.js";
 import { VoiceService } from "../../src/services/voice-service.js";
 import { AppClientPresenceService } from "../../src/services/app-client-presence-service.js";
 import { ProductAnalyticsPreferenceService } from "../../src/services/product-analytics-preference-service.js";
+import { SettingsService } from "../../src/services/settings-service.js";
 import { loadConfig } from "../../src/config.js";
 import { ProductAnalyticsPreference } from "../../src/types/product-analytics.js";
 
@@ -77,6 +79,7 @@ export type TestAppOverrides = {
   legalDocumentService?: LegalDocumentService;
   activationService?: ActivationService;
   appClientPresenceService?: AppClientPresenceService;
+  settingsService?: SettingsService;
 };
 
 export type { OAuthClient };
@@ -153,6 +156,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   const deviceTokenRepo = new DeviceTokenRepository(dbAccessor);
   const bridgeRepo = new BridgeRepository(dbAccessor);
   const activationStateRepo = new ActivationStateRepository(dbAccessor);
+  const settingsRepo = new SettingsConfigurationRepository(dbAccessor);
 
   const tokenService = new TokenService(privPem, pubPem);
   const stateStore = new StateStore();
@@ -187,6 +191,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     userRepo,
     pseudonymizationKey: testProductAnalyticsPseudonymizationKey,
   });
+  const settingsService = overrides?.settingsService ?? new SettingsService({ settingsRepo });
   const authService = new AuthService({ tokenService, userRepo, oauthAccountRepo, passwordAccountRepo, bridgeService });
   const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
   const sessionMetadataService =
@@ -206,6 +211,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     legalDocumentService,
     deviceTokenRepo,
     appClientPresenceService,
+    settingsService,
     notificationService,
     activationService,
     stateStore,

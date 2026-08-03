@@ -125,6 +125,7 @@ function createTestServices(params: {
       hasRegisteredClient: async () => false,
       waitForRegistration: async () => false,
     } as AppServices["appClientPresenceService"],
+    settingsService: {} as AppServices["settingsService"],
     notificationService: {} as AppServices["notificationService"],
     activationService: {} as AppServices["activationService"],
     stateStore: new StateStore(),
