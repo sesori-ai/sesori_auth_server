@@ -688,23 +688,55 @@ duplicate-key findings, and exact old/target index state without logging words,
 user IDs, or project keys. Operations identify indexes by ordered key spec and
 options, not by an assumed generated name.
 
+The migration validates every consumed MongoDB result before use: strict Zod
+schemas cover the collection metadata, each list-indexes record, and the bounded
+duplicate-count aggregation result; all counters must be nonnegative safe
+integers. Unknown/malformed persistence metadata is a closed redacted failure.
+The collection must be absent or be a normal collection with no default
+collation or an explicit `{ locale: "simple" }` default; dry-run/apply fail before mutation when a non-simple
+default collation could be inherited by a newly created index. Same-spec sparse,
+partial, collated, hidden, non-unique, or otherwise semantically mismatched old/
+target indexes also fail closed.
+
 - Dry-run succeeds only when applying is safe: the collection is empty, or all
   rows already contain a valid `projectKey` and have no duplicate target key. It
   fails on any unscoped/invalid row. The expected first production result is
   zero documents.
 - `--apply` repeats the audit, creates the unique
   `{ userId: 1, projectKey: 1, word: 1 }` index, reloads index metadata and
-  confirms its exact key order and `unique: true`, then drops the old index and
-  verifies the final state. It never mutates documents or invents a project key.
+  confirms its exact key order/options and collection collation, repeats the
+  complete document/duplicate/index audit, then drops the old index and repeats
+  that complete audit again before reporting the final target-only state. It
+  never mutates documents or invents a project key.
 - `--verify` is read-only and succeeds only when all rows are scoped, the exact
   target unique index exists, and the old index is absent.
 - `--rollback` is intentionally narrower: it refuses unless the collection is
   empty, creates and verifies the old unique index first, then drops the target
-  index and verifies the old-only state. Once any project-scoped term exists,
-  rollback is forbidden and recovery must roll forward.
+  index and repeats the complete audit before reporting the old-only state. Once
+  any project-scoped term exists, rollback is forbidden and recovery must roll
+  forward.
 - `--apply` and `--rollback` are idempotent. An interruption after creating the
   replacement but before dropping the old index leaves both indexes and can be
   resumed safely.
+
+Mutating modes are supported only while all auth glossary writers are stopped
+and no other migration or manual index DDL runs, from the initial audit through
+command exit and capture of its report. Under that maintained exclusion, the
+final complete audit is the success boundary; the tool makes no claim against
+DDL or writes performed after it exits. Mutation failures return one of these
+closed recovery outcomes:
+
+| Observed state after failure/re-audit                                                                            | Outcome           | Required action                                                                                                       |
+| ---------------------------------------------------------------------------------------------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Valid data/simple collation and only absent/exact old/target indexes, including exact-both interruption; rollback additionally requires zero documents | `safe_to_rerun`   | Keep auth stopped and rerun the same mode; missing required indexes may be recreated.                                 |
+| Requested final state passes the complete audit despite a same-mode `IndexNotFound`/create race                  | `completed`       | Treat as success only while the maintenance/DDL exclusion remains held through command exit.                          |
+| Any invalid/unscoped/nonempty-for-rollback data, duplicate target key, non-simple collation, or mismatched index | `repair_required` | Keep auth stopped; do not rerun blindly or start either binary. Design and review a separate data/index repair first. |
+| Fresh audit itself cannot complete, so current state is unknown                                                  | `repair_required` | Keep auth stopped and restore database observability; inspect with a reviewed read-only audit before further DDL.     |
+
+Tests deterministically inject a legacy row and conflicting index operation
+between verification and each drop. Post-drop invalid data/mismatched DDL must
+return `repair_required`; separate valid missing-index fixtures return
+`safe_to_rerun` and prove an ordinary rerun converges.
 
 `DATABASE_CONFIG` changes to the target index. `MongoDbAccessor.ensureIndexes()`
 may create a missing target index but must never drop the old glossary index;
@@ -725,7 +757,8 @@ Production sequence for this single-instance service:
 2. Require a zero-document report. If any row exists, stop this rollout and
    design a product-approved assignment/deletion migration; do not apply PR2.
 3. Stop the old auth instance or otherwise enter a maintenance window that
-   prevents glossary writes. Do not run old and new binaries concurrently.
+   prevents glossary writes. Do not run old and new binaries concurrently, and
+   allow exactly one migration command with no manual glossary index DDL.
 4. From the reviewed PR2 artifact, apply and verify with the PR1 command:
 
    ```bash
@@ -741,11 +774,13 @@ Production sequence for this single-instance service:
 There is deliberately no mixed-version window. An old binary omits
 `projectKey` on writes and reads every term for the user, so it is semantically
 unsafe after project-scoped data exists even though MongoDB could accept some
-of its writes. If apply fails before the old index is dropped, resume the old
-binary and rerun the idempotent command. If the old index was dropped but no new
-term was written, stop the failed new binary, run `--rollback`, verify, and then
-restore the old binary. If any scoped term was written, do not run `--rollback`
-or an old binary; repair or redeploy PR2 forward.
+of its writes. On `safe_to_rerun`, keep auth stopped and rerun the same command.
+On `repair_required`, keep both binaries stopped and obtain a separately reviewed
+data/index repair; this migration never deletes or assigns terms. After a
+successful apply, if PR2 fails before any scoped term is written, keep it stopped,
+run `--rollback`, verify, and only then restore the old binary. If any scoped term
+was written, do not run `--rollback` or an old binary; repair or redeploy PR2
+forward.
 
 `dailyUsage` remains the durable quota source. Repository methods accept a
 captured strict `YYYY-MM-DD` UTC date key so a request crossing midnight reads
@@ -1649,7 +1684,7 @@ each PR; `actual` includes authored additions plus deletions):
 
 | Slice | Status  | Reviewed base SHA | Forecast authored lines | Actual authored/generated lines | Verification | Next slice |
 | ----- | ------- | ----------------- | ----------------------- | ------------------------------- | ------------ | ---------- |
-| PR1   | Pending | -                 | TBD before coding       | -                               | -            | PR2        |
+| PR1   | Ready   | `8fc4fcf`         | 1,480                   | 1,402 / 0                       | MongoDB 7 focused/full; all checks; production dry-run zero | PR2        |
 | PR2   | Pending | -                 | TBD before coding       | -                               | -            | PR3        |
 | PR3   | Pending | -                 | TBD before coding       | -                               | -            | PR4        |
 | PR4   | Pending | -                 | TBD before coding       | -                               | -            | PR5        |
@@ -1675,34 +1710,58 @@ File map:
 
 - `src/models/voice.ts` (new): define and export the strict reusable
   `projectKey` schema without changing a live request contract.
+- `src/models/documents.ts`: add exported strict legacy and project-scoped
+  glossary migration document schemas while leaving the live
+  `glossaryEntrySchema`/`GlossaryEntry` contract unchanged until PR2.
+- `src/config.ts`: add a narrow `MONGODB_URI`-only migration config loader using
+  `safeParse`; normal web config remains unchanged and no other app secret is
+  required by the CLI.
 - `src/db/glossary-index-migration.ts` (new): own old/target index specs,
-  old/target document-shape audit, exact verification, apply ordering, rollback
-  ordering, and redacted reports; it is not called by application startup.
+  binary/simple collection-collation invariant, strict collection/index/
+  aggregation metadata validation, old/target document-shape audit, exact
+  verification, apply ordering, rollback ordering, and redacted reports; it is
+  not called by application startup.
 - `src/scripts/migrate-project-glossary-index.ts` (new): expose dry-run,
   `--apply`, `--verify`, and `--rollback` modes using only `MONGODB_URI` and
   always close MongoDB.
 - `package.json`: add `migrate-project-glossary-index`; no new dependency.
 - `README.md`: document the derivation contract and complete dry-run/apply/
-  verify/interruption/rollback runbook, prominently stating that production
-  `--apply` waits for the PR2 maintenance-window cutover.
+  verify/interruption/rollback/`repair_required` runbook, prominently stating
+  that production `--apply` waits for the PR2 maintenance-window cutover and
+  auth stays stopped for every non-rerunnable partial state.
 - `tests/models/voice.test.ts` (new): cover exact opaque-key length/alphabet and
-  malformed variants.
+  malformed variants plus strict legacy/target migration document shapes.
+- `tests/config.test.ts` (new): cover isolated valid/missing/malformed migration
+  URI configuration without loading normal web configuration.
 - `tests/scripts/project-glossary-index-migration.test.ts` (new): cover dry-run,
   apply, verify, interruption/idempotency, unsafe legacy/target rows, exact index
-  mismatch, redacted output, and empty-only rollback against MongoDB 7.
+  mismatch, non-simple collection collation, malformed MongoDB metadata/counts,
+  redacted output, post-drop race detection, concurrent/conflicting DDL outcomes,
+  and empty-only rollback against MongoDB 7.
 
 Acceptance criteria:
 
-- [ ] Add the strict opaque `projectKey` schema and document the v1 client
+- [x] Add the strict opaque `projectKey` schema and document the v1 client
       derivation formula without importing client code.
-- [ ] Make migration dry-run the default; require explicit, mutually exclusive
+- [x] Make migration dry-run the default; require explicit, mutually exclusive
       flags for mutation and fail closed on malformed data/indexes.
-- [ ] Prove apply creates/verifies the target unique index before dropping the
+- [x] Validate complete persisted document and every consumed collection/index/
+      aggregation result through strict Zod `safeParse`, including nonnegative
+      safe-integer counts; require absent or binary/simple collection collation
+      before any index mutation.
+- [x] Prove apply creates/verifies the target unique index before dropping the
       legacy index, rollback does the inverse only while data is empty, and every
       mode is resumable and content-redacted.
-- [ ] Run the production dry-run and record its counts, but do not run production
+- [x] Require the mutating-mode maintenance boundary to exclude glossary writers
+      and concurrent migration/index DDL; run the complete data, duplicate,
+      collation, and index audit after every destructive drop and never report
+      success when an intervening write or conflicting DDL invalidates it.
+- [x] Return `safe_to_rerun` only for valid absent/exact-index interruption states
+      and `repair_required` for post-drop invalid data, mismatched DDL, or unknown
+      state; keep auth stopped and require separate review for every repair.
+- [x] Run the production dry-run and record its counts, but do not run production
       `--apply` until the PR2 binary/artifact and maintenance window are ready.
-- [ ] Record the actual authored/generated line count and the reviewed
+- [x] Record the actual authored/generated line count and the reviewed
       `origin/master` SHA in this plan before opening the PR.
 
 Focused verification:
@@ -1710,6 +1769,7 @@ Focused verification:
 ```bash
 MONGODB_URI_TEST=mongodb://localhost:27017/auth-backend-test \
   node --import tsx --test --test-concurrency=1 \
+  tests/config.test.ts \
   tests/models/voice.test.ts \
   tests/scripts/project-glossary-index-migration.test.ts
 ```
