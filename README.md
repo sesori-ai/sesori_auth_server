@@ -192,7 +192,15 @@ Relay reports to `POST /internal/bridge-status` must include the registered `bri
 
 Activation reminder timers and single-flight state are process-local. Keep `ACTIVATION_REMINDERS_ENABLED=false` on every instance except the single designated sender; multiple enabled instances can duplicate notifications.
 
-SIGINT/SIGTERM use one 22-second coordinator: Fastify and current producers drain before MongoDB closes. A pre-drain failure force-fences callbacks and exits nonzero without prematurely closing MongoDB under detached handlers.
+### Graceful shutdown
+
+SIGINT/SIGTERM use one memoized shutdown path across `src/index.ts` and `src/shutdown.ts`, with a 15-second drain deadline (`SHUTDOWN_DRAIN_DEADLINE_MS`) and a 22-second hard deadline (`SHUTDOWN_HARD_DEADLINE_MS`). Both deadlines start when the first signal is received, including while production runtime composition is still pending. Parked OAuth and app-client presence long polls are first released as an early successful poll timeout; new waits are refused, while immediate reads in already-admitted handlers remain tracked. Fastify close, detached presence-read drainage, the bridge notification tracker, and the activation reminder scheduler then drain concurrently. Idle keep-alive sockets are reaped throughout this window. MongoDB closes only after Fastify closes and every drain fulfills, then the process exits 0.
+
+If a drain throws, rejects, or misses the 15-second deadline, the coordinator force-fences callbacks and live sockets. When fencing unblocks an otherwise successful drain, MongoDB still closes in order and the process exits 0. A rejected or genuinely stuck drain reaches the 22-second hard deadline, exits 1, and deliberately leaves MongoDB open so detached work cannot observe a closed client.
+
+A signal observed at a startup checkpoint is an ordinary shutdown, not a startup failure: currently owned resources drain in MongoDB-last order and exit 0 when every prerequisite fulfills. If composition remains unresolved through the hard deadline, the process force-fences the ownership available at that point, exits 1 exactly once, and leaves MongoDB open rather than closing it under unresolved startup work.
+
+Deployments must allow at least 25 seconds of stop grace, for example Kubernetes `terminationGracePeriodSeconds: 30`, `docker stop --time 25`, Compose `stop_grace_period: 25s`, or systemd `TimeoutStopSec=30s`. The process cannot enforce an external orchestrator's grace period; shorter platform defaults can send SIGKILL before the coordinator's hard deadline.
 
 ## Project-scoped glossary migration
 

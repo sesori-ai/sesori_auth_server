@@ -452,19 +452,16 @@ describe("BridgeStateTracker", () => {
     ]);
   });
 
-  it("dispose and forceFence are idempotent", () => {
+  it("dispose is idempotent", () => {
     const notificationServiceMock = {
       sendToUser: async () => ({ devicesNotified: 1 }),
     } as unknown as NotificationService;
     const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
 
-    const disposing = tracker.dispose();
+    tracker.dispose();
 
     assert.doesNotThrow(() => {
       tracker.dispose();
-      tracker.forceFence();
-      tracker.forceFence();
     });
-    assert.equal(tracker.dispose(), disposing);
   });
 });

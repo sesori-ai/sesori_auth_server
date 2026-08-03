@@ -103,6 +103,7 @@ export class PendingAuthStore {
   readonly #sessionTtlMs: number;
   readonly #userCodeGenerator: () => string;
   readonly #now: () => Date;
+  #acceptingWaiters = true;
 
   constructor(deps?: {
     sessionTtlMs?: number;
@@ -434,6 +435,10 @@ export class PendingAuthStore {
       return Promise.resolve(null);
     }
 
+    if (!this.#acceptingWaiters) {
+      return Promise.resolve(this.#releasedSnapshot(session));
+    }
+
     if (options?.abortSignal?.aborted) {
       return Promise.resolve(null);
     }
@@ -494,6 +499,7 @@ export class PendingAuthStore {
       const waiters = this.#waitersByTokenHash.get(tokenHash) ?? new Set<StatusWaiter>();
       waiters.add(waiter);
       this.#waitersByTokenHash.set(tokenHash, waiters);
+      console.log("[PendingAuthStore] Status waiter registered");
 
       // Re-check after registration: if status changed between snapshot and
       // waiter add, resolve immediately. Without this, a transition that
@@ -505,6 +511,24 @@ export class PendingAuthStore {
         waiter.resolve(latestSession);
       }
     });
+  }
+
+  releaseWaiters(): void {
+    this.#acceptingWaiters = false;
+    for (const [tokenHash, waiters] of this.#waitersByTokenHash.entries()) {
+      const entry = this.#getActiveEntry(tokenHash);
+      const session = entry?.session ?? null;
+      for (const waiter of Array.from(waiters)) {
+        this.#removeWaiter(tokenHash, waiter);
+        clearTimeout(waiter.timeout);
+        waiter.resolve(session ? this.#releasedSnapshot(session) : null);
+      }
+    }
+    console.log("[PendingAuthStore] Status waiters released");
+  }
+
+  drainReleasedReads(): Promise<void> {
+    return Promise.resolve();
   }
 
   /**
@@ -674,5 +698,13 @@ export class PendingAuthStore {
       clientType: session.clientType,
       device: session.device ? { ...session.device } : undefined,
     };
+  }
+
+  #releasedSnapshot(session: PendingAuthSession): PendingAuthSession {
+    const snapshot = this.#cloneSession(session);
+    if (snapshot.status === PendingAuthStatus.AwaitingConfirmation) {
+      snapshot.status = PendingAuthStatus.Pending;
+    }
+    return snapshot;
   }
 }

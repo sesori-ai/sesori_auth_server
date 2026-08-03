@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
-import { PendingAuthStore } from "../../src/services/pending-auth-store.js";
+import { PendingAuthStatus, PendingAuthStore } from "../../src/services/pending-auth-store.js";
 import { OAuthProviderName } from "../../src/types/oauth.js";
 
 function createSessionTokenHash(token = "session-token"): string {
@@ -359,5 +359,23 @@ describe("PendingAuthStore", () => {
     assert.equal(a?.status, "denied");
     assert.equal(b?.status, "denied");
     assert.equal(c?.status, "denied");
+  });
+
+  it("releases existing waiters with their current snapshot and stops admitting new waits", async () => {
+    const store = createStore();
+    const tokenHash = createSessionTokenHash("shutdown-release");
+    store.createSession({
+      tokenHash,
+      provider: OAuthProviderName.Github,
+      pkceVerifier: "pkce-verifier",
+      state: "oauth-state-shutdown",
+    });
+    store.markAwaitingConfirmation(tokenHash);
+    const waiting = store.waitForStatusChange(tokenHash, 5_000);
+
+    store.releaseWaiters();
+
+    assert.equal((await waiting)?.status, PendingAuthStatus.Pending);
+    assert.equal((await store.waitForStatusChange(tokenHash, 5_000))?.status, PendingAuthStatus.Pending);
   });
 });

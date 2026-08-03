@@ -247,6 +247,70 @@ describe("AppClientPresenceService", () => {
     );
     assert.equal(getEventListeners(controller.signal, "abort").length, 0);
   });
+
+  it("releases parked waiters as an early false timeout", async () => {
+    const repo = new FakeDeviceTokenRepository();
+    repo.reads.push(false, false);
+    const service = createService(repo);
+    const waiting = service.waitForRegistration({
+      userId: "user-shutdown",
+      timeoutMs: 1_000,
+      abortSignal: new AbortController().signal,
+    });
+    await waitFor(() => repo.readCount === 2);
+
+    service.releaseWaiters();
+
+    assert.equal(await waiting, false);
+  });
+
+  it("tracks immediate reads started before or after release while refusing new waits", async () => {
+    for (const startAfterRelease of [false, true]) {
+      const repo = new FakeDeviceTokenRepository();
+      const read = deferred<boolean>();
+      repo.reads.push(read.promise);
+      const service = createService(repo);
+      let presence = startAfterRelease ? undefined : service.hasRegisteredClient({ userId: "immediate-user" });
+      service.releaseWaiters();
+      presence ??= service.hasRegisteredClient({ userId: "immediate-user" });
+      const draining = service.drainReleasedReads();
+
+      assert.equal(
+        await service.waitForRegistration({
+          userId: "refused-user",
+          timeoutMs: 1_000,
+          abortSignal: new AbortController().signal,
+        }),
+        false,
+      );
+      assert.equal(repo.readCount, 1);
+      assert.equal(await Promise.race([draining.then(() => true), delayResult(false, 0)]), false);
+      read.resolve(true);
+      assert.equal(await presence, true);
+      await draining;
+    }
+  });
+
+  it("releases a poll blocked on its initial read but drains that detached read", async () => {
+    const repo = new FakeDeviceTokenRepository();
+    const read = deferred<boolean>();
+    repo.reads.push(read.promise);
+    const service = createService(repo);
+    const waiting = service.waitForRegistration({
+      userId: "user-detached-read",
+      timeoutMs: 1_000,
+      abortSignal: new AbortController().signal,
+    });
+    await waitFor(() => repo.readCount === 1);
+
+    service.releaseWaiters();
+    assert.equal(await waiting, false);
+    const draining = service.drainReleasedReads();
+    assert.equal(await Promise.race([draining.then(() => true), delayResult(false, 0)]), false);
+
+    read.resolve(false);
+    await draining;
+  });
 });
 
 function createService(repo: FakeDeviceTokenRepository): AppClientPresenceService {

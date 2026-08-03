@@ -39,11 +39,20 @@ import { AppClientPresenceService } from "./services/app-client-presence-service
 import { ProductAnalyticsPreferenceService } from "./services/product-analytics-preference-service.js";
 import { SettingsService } from "./services/settings-service.js";
 import {
+  SHUTDOWN_DRAIN_DEADLINE_MS,
+  SHUTDOWN_HARD_DEADLINE_MS,
   cleanupPartialStartup,
+  createExitSelector,
   createShutdownCoordinator,
+  defaultShutdownTimers,
+  forceFencePartialStartup,
+  remainingShutdownMs,
+  type PartialStartupResources,
   type ShutdownCoordinator,
   type ShutdownExitCode,
+  type ShutdownRequestWaiters,
   type ShutdownSignal,
+  type ShutdownTimers,
 } from "./shutdown.js";
 import type { FastifyInstance } from "fastify";
 
@@ -52,9 +61,15 @@ export type ProductionRuntime = {
   activationReminderService: ActivationReminderService;
   bridgeStateTracker: BridgeStateTracker;
   dbConnector: MongoDbConnector;
+  requestWaiters: ShutdownRequestWaiters[];
 };
 
 type StartupOwnership = Partial<ProductionRuntime>;
+
+type StartupContext = {
+  ownership: StartupOwnership;
+  throwIfShutdownRequested: () => void;
+};
 
 export type SignalTarget = {
   on: (signal: ShutdownSignal, listener: () => void) => unknown;
@@ -62,9 +77,11 @@ export type SignalTarget = {
 };
 
 export type MainOptions = {
-  startRuntime?: () => Promise<ProductionRuntime>;
+  startRuntime?: (startup: StartupContext) => Promise<ProductionRuntime>;
   signalTarget?: SignalTarget;
   selectExit?: (code: ShutdownExitCode) => void;
+  now?: () => number;
+  timers?: ShutdownTimers;
 };
 
 export type MainHandle = {
@@ -73,13 +90,19 @@ export type MainHandle = {
 };
 
 class ProductionStartupError extends Error {
-  constructor() {
-    super("ProductionStartupError");
+  constructor(options?: ErrorOptions) {
+    super("ProductionStartupError", options);
     this.name = "ProductionStartupError";
   }
 }
 
-async function composeProductionRuntime(ownership: StartupOwnership): Promise<ProductionRuntime> {
+const PRODUCTION_STARTUP_INTERRUPTED = Symbol("ProductionStartupInterrupted");
+
+async function composeProductionRuntime(
+  ownership: StartupOwnership,
+  throwIfShutdownRequested: () => void,
+): Promise<ProductionRuntime> {
+  throwIfShutdownRequested();
   const config = loadConfig();
 
   const dbConnector = new MongoDbConnector({
@@ -101,10 +124,12 @@ async function composeProductionRuntime(ownership: StartupOwnership): Promise<Pr
 
   console.log("Creating indexes...");
   await dbAccessor.ensureIndexes();
+  throwIfShutdownRequested();
   console.log("Indexes ready");
 
   const userRepo = new UserRepository(dbAccessor);
   await userRepo.assertProductAnalyticsPreferenceBackfillComplete();
+  throwIfShutdownRequested();
   const oauthAccountRepo = new OAuthAccountRepository(dbAccessor);
   const passwordAccountRepo = new PasswordAccountRepository(dbAccessor);
   const glossaryRepo = new GlossaryEntryRepository(dbAccessor);
@@ -150,6 +175,7 @@ async function composeProductionRuntime(ownership: StartupOwnership): Promise<Pr
     deviceTokenRepo,
   });
   const appClientPresenceService = new AppClientPresenceService({ deviceTokenRepo });
+  ownership.requestWaiters = [pendingAuthStore, appClientPresenceService];
   const productAnalyticsPreferenceService = new ProductAnalyticsPreferenceService({
     userRepo,
     pseudonymizationKey: config.PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY,
@@ -204,6 +230,7 @@ async function composeProductionRuntime(ownership: StartupOwnership): Promise<Pr
     readFile(getLegalDocumentUrl(import.meta.url, "terms"), "utf8"),
     readFile(getLegalDocumentUrl(import.meta.url, "privacy"), "utf8"),
   ]);
+  throwIfShutdownRequested();
   const legalDocumentService = new LegalDocumentService(termsText, privacyText);
 
   const app = await buildApp({
@@ -229,42 +256,141 @@ async function composeProductionRuntime(ownership: StartupOwnership): Promise<Pr
     productAnalyticsPreferenceService,
   });
   ownership.app = app;
+  throwIfShutdownRequested();
 
   const address = await app.listen({ port: config.PORT, host: "0.0.0.0" });
+  throwIfShutdownRequested();
   console.log(`Server listening at ${address}`);
-  return { app, activationReminderService, bridgeStateTracker, dbConnector };
+  return {
+    app,
+    activationReminderService,
+    bridgeStateTracker,
+    dbConnector,
+    requestWaiters: [pendingAuthStore, appClientPresenceService],
+  };
 }
 
-async function startProductionRuntime(): Promise<ProductionRuntime> {
-  const ownership: StartupOwnership = {};
-  try {
-    return await composeProductionRuntime(ownership);
-  } catch {
-    await cleanupPartialStartup(ownership);
-    throw new ProductionStartupError();
-  }
+function startProductionRuntime(startup: StartupContext): Promise<ProductionRuntime> {
+  return composeProductionRuntime(startup.ownership, startup.throwIfShutdownRequested);
 }
+
+function partialStartupResources(ownership: StartupOwnership): PartialStartupResources {
+  const app = ownership.app;
+  return {
+    app: app
+      ? {
+          close: app.close.bind(app),
+          closeAllConnections: () => app.server.closeAllConnections(),
+        }
+      : undefined,
+    requestWaiters: ownership.requestWaiters,
+    activationReminderService: ownership.activationReminderService,
+    bridgeStateTracker: ownership.bridgeStateTracker,
+    dbConnector: ownership.dbConnector,
+  };
+}
+
+type StartupResult = { runtime: ProductionRuntime; error?: never } | { runtime?: never; error: unknown };
 
 export async function main(options: MainOptions = {}): Promise<MainHandle> {
-  const runtime = await (options.startRuntime ?? startProductionRuntime)();
   const signalTarget = options.signalTarget ?? process;
-  const shutdownCoordinator = createShutdownCoordinator({
-    app: {
-      close: runtime.app.close.bind(runtime.app),
-      closeAllConnections: () => runtime.app.server.closeAllConnections(),
-    },
-    activationReminderService: runtime.activationReminderService,
-    bridgeStateTracker: runtime.bridgeStateTracker,
-    dbConnector: runtime.dbConnector,
-    selectExit: options.selectExit ?? ((code) => process.exit(code)),
+  const timers = options.timers ?? defaultShutdownTimers;
+  const now = options.now ?? Date.now;
+  const ownership: StartupOwnership = {};
+  const selectExit = createExitSelector(options.selectExit ?? ((code: ShutdownExitCode) => process.exit(code)));
+  let shutdownCoordinator: ShutdownCoordinator | null = null;
+  let startupShutdownPromise: Promise<ShutdownExitCode> | null = null;
+  let startupHardFenced = false;
+  let startupResult: Promise<StartupResult> = new Promise(() => undefined);
+  let resolveSignalRequest!: () => void;
+  const signalRequest = new Promise<void>((resolve) => {
+    resolveSignalRequest = resolve;
   });
 
-  const onSignal = (signal: ShutdownSignal): void => {
-    void shutdownCoordinator.shutdown(signal);
+  const forceCurrentOwnership = (): void => {
+    forceFencePartialStartup(partialStartupResources(ownership));
   };
-  const onSigint = (): void => onSignal("SIGINT");
-  const onSigterm = (): void => onSignal("SIGTERM");
-  const signalHandlers: Array<[ShutdownSignal, () => void]> = [];
+
+  const createRuntimeCoordinator = (runtime: ProductionRuntime, startedAt?: number): ShutdownCoordinator =>
+    createShutdownCoordinator({
+      app: {
+        close: runtime.app.close.bind(runtime.app),
+        closeAllConnections: () => runtime.app.server.closeAllConnections(),
+        closeIdleConnections: () => runtime.app.server.closeIdleConnections(),
+      },
+      requestWaiters: runtime.requestWaiters,
+      activationReminderService: runtime.activationReminderService,
+      bridgeStateTracker: runtime.bridgeStateTracker,
+      dbConnector: runtime.dbConnector,
+      selectExit,
+      startedAt,
+      now,
+      timers,
+    });
+
+  const shutdownPendingStartup = async (signal: ShutdownSignal, startedAt: number): Promise<ShutdownExitCode> => {
+    console.log("[Shutdown] Started", { signal });
+    const drainTimer = timers.setTimeout(
+      forceCurrentOwnership,
+      remainingShutdownMs(startedAt, SHUTDOWN_DRAIN_DEADLINE_MS, now),
+    );
+    drainTimer.unref?.();
+
+    let hardTimer!: ReturnType<ShutdownTimers["setTimeout"]>;
+    const hardDeadline = new Promise<ShutdownExitCode>((resolve) => {
+      hardTimer = timers.setTimeout(
+        () => {
+          startupHardFenced = true;
+          forceCurrentOwnership();
+          resolve(selectExit(1));
+        },
+        remainingShutdownMs(startedAt, SHUTDOWN_HARD_DEADLINE_MS, now),
+      );
+    });
+    const result = await Promise.race([startupResult, hardDeadline.then((exitCode) => ({ exitCode }))]);
+
+    timers.clearTimeout(drainTimer);
+    if ("exitCode" in result) {
+      return result.exitCode;
+    }
+
+    timers.clearTimeout(hardTimer);
+    if (result.runtime) {
+      shutdownCoordinator = createRuntimeCoordinator(result.runtime, startedAt);
+      return shutdownCoordinator.shutdown(signal);
+    }
+
+    const cleanupCode = await cleanupPartialStartup(partialStartupResources(ownership), {
+      startedAt,
+      now,
+      timers,
+    });
+    if (result.error === PRODUCTION_STARTUP_INTERRUPTED) {
+      return selectExit(cleanupCode);
+    }
+
+    console.error("[Startup] Failed during shutdown", {
+      errorType: safeErrorType({ error: result.error }),
+    });
+    return selectExit(1);
+  };
+
+  const onSignal = (signal: ShutdownSignal): void => {
+    if (shutdownCoordinator) {
+      void shutdownCoordinator.shutdown(signal);
+      return;
+    }
+
+    if (!startupShutdownPromise) {
+      const startedAt = now();
+      startupShutdownPromise = Promise.resolve().then(() => shutdownPendingStartup(signal, startedAt));
+      resolveSignalRequest();
+    }
+  };
+  const signalHandlers: Array<[ShutdownSignal, () => void]> = [
+    ["SIGINT", () => onSignal("SIGINT")],
+    ["SIGTERM", () => onSignal("SIGTERM")],
+  ];
   const removeSignalHandlers = (): void => {
     for (const [signal, listener] of signalHandlers.splice(0)) {
       try {
@@ -274,17 +400,70 @@ export async function main(options: MainOptions = {}): Promise<MainHandle> {
       }
     }
   };
+  const failStartup = async (error: unknown): Promise<never> => {
+    removeSignalHandlers();
+    await cleanupPartialStartup(partialStartupResources(ownership), { now, timers });
+    throw new ProductionStartupError({ cause: error });
+  };
 
   try {
-    signalHandlers.push(["SIGINT", onSigint]);
-    signalTarget.on("SIGINT", onSigint);
-    signalHandlers.push(["SIGTERM", onSigterm]);
-    signalTarget.on("SIGTERM", onSigterm);
-    runtime.activationReminderService.start();
-  } catch {
-    removeSignalHandlers();
-    await cleanupPartialStartup(runtime);
-    throw new ProductionStartupError();
+    for (const [signal, listener] of signalHandlers) {
+      signalTarget.on(signal, listener);
+    }
+  } catch (error) {
+    return failStartup(error);
+  }
+
+  const throwIfShutdownRequested = (): void => {
+    if (startupShutdownPromise) {
+      throw PRODUCTION_STARTUP_INTERRUPTED;
+    }
+  };
+  let starting: Promise<ProductionRuntime>;
+  try {
+    starting = (options.startRuntime ?? startProductionRuntime)({
+      ownership,
+      throwIfShutdownRequested,
+    });
+  } catch (error) {
+    starting = Promise.reject(error);
+  }
+  startupResult = starting
+    .then<StartupResult, StartupResult>(
+      (runtime) => ({ runtime }),
+      (error: unknown) => ({ error }),
+    )
+    .then((result) => {
+      if (result.runtime) {
+        const { runtime } = result;
+        Object.assign(ownership, runtime);
+      }
+      if (startupHardFenced) {
+        forceCurrentOwnership();
+      }
+      return result;
+    });
+
+  await Promise.race([startupResult.then(() => undefined), signalRequest]);
+  const completedStartupShutdown = startupShutdownPromise;
+  if (completedStartupShutdown) {
+    await completedStartupShutdown;
+    return {
+      shutdownCoordinator: shutdownCoordinator ?? { shutdown: () => completedStartupShutdown },
+      removeSignalHandlers,
+    };
+  }
+
+  const result = await startupResult;
+  if (!result.runtime) {
+    return failStartup(result.error);
+  }
+
+  shutdownCoordinator = createRuntimeCoordinator(result.runtime);
+  try {
+    result.runtime.activationReminderService.start();
+  } catch (error) {
+    return failStartup(error);
   }
 
   return { shutdownCoordinator, removeSignalHandlers };
@@ -293,7 +472,11 @@ export async function main(options: MainOptions = {}): Promise<MainHandle> {
 const entrypoint = process.argv[1];
 if (entrypoint && import.meta.url === pathToFileURL(entrypoint).href) {
   void main().catch((error) => {
-    console.error("[Startup] Fatal error", { errorType: safeErrorType({ error }) });
+    const cause = error instanceof Error ? error.cause : undefined;
+    console.error("[Startup] Fatal error", {
+      errorType: safeErrorType({ error }),
+      causeType: safeErrorType({ error: cause }),
+    });
     process.exit(1);
   });
 }

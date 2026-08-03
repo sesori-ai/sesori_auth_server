@@ -1,30 +1,23 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import Fastify, { type LightMyRequestResponse } from "fastify";
-import { ApiError, ServiceUnavailableError } from "../../src/lib/errors.js";
+import { ApiError, safeErrorType, ServiceUnavailableError } from "../../src/lib/errors.js";
 import { registerErrorHandler } from "../../src/server.js";
 
 describe("ApiError retry metadata", () => {
-  it("accepts an absent or positive safe-integer retry delay", () => {
-    assert.equal(new ApiError("ordinary_error", 500).retryAfterSeconds, undefined);
-    assert.equal(new ApiError("retryable_error", 503, undefined, undefined, 1).retryAfterSeconds, 1);
-    assert.equal(
-      new ApiError("retryable_error", 503, undefined, undefined, Number.MAX_SAFE_INTEGER).retryAfterSeconds,
-      Number.MAX_SAFE_INTEGER,
-    );
-  });
-
-  it("rejects every invalid retry delay with a fixed value-free error", () => {
-    for (const retryAfterSeconds of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, Number.NaN, Number.POSITIVE_INFINITY]) {
-      assert.throws(
-        () => new ApiError("retryable_error", 503, undefined, undefined, retryAfterSeconds),
-        (error: unknown) => {
-          assert.ok(error instanceof Error);
-          assert.equal(error.name, "Error");
-          assert.equal(error.message, "InvalidRetryAfterSeconds");
-          return true;
-        },
+  it("accepts valid retry delays and rejects every invalid value", () => {
+    for (const retryAfterSeconds of [undefined, 1, Number.MAX_SAFE_INTEGER]) {
+      assert.equal(
+        new ApiError("retryable_error", 503, undefined, undefined, retryAfterSeconds).retryAfterSeconds,
+        retryAfterSeconds,
       );
+    }
+
+    for (const retryAfterSeconds of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      assert.throws(() => new ApiError("retryable_error", 503, undefined, undefined, retryAfterSeconds), {
+        name: "Error",
+        message: "InvalidRetryAfterSeconds",
+      });
     }
   });
 
@@ -32,60 +25,59 @@ describe("ApiError retry metadata", () => {
     const nestedError = new Error("nested");
     const error = new ServiceUnavailableError({ debugMessage: "debug", nestedError });
 
-    assert.equal(error.message, "service_unavailable");
-    assert.equal(error.errorCode, 503);
-    assert.equal(error.retryAfterSeconds, 1);
-    assert.equal(error.debugMessage, "debug");
+    assert.deepEqual(
+      [error.message, error.errorCode, error.retryAfterSeconds, error.debugMessage],
+      ["service_unavailable", 503, 1, "debug"],
+    );
     assert.equal(error.nestedError, nestedError);
   });
 });
 
-describe("registerErrorHandler", () => {
-  it("emits Retry-After from typed retry metadata and preserves the JSON response", async () => {
-    const response = await injectThrownError(new ServiceUnavailableError());
-
-    assert.equal(response.statusCode, 503);
-    assert.equal(response.headers["retry-after"], "1");
-    assert.deepEqual(response.json(), { error: "service_unavailable" });
-  });
-
-  it("does not infer Retry-After from an ordinary ApiError message", async () => {
-    const response = await injectThrownError(new ApiError("Retry-After: 60", 503));
-
-    assert.equal(response.statusCode, 503);
-    assert.equal(response.headers["retry-after"], undefined);
-    assert.deepEqual(response.json(), { error: "Retry-After: 60" });
-  });
-
-  it("does not emit Retry-After for framework 4xx errors", async () => {
-    const frameworkError = Object.assign(new Error("framework_bad_request"), {
-      statusCode: 422,
-      retryAfterSeconds: 60,
+describe("safeErrorType", () => {
+  it("returns only bounded error type names and never throws", () => {
+    const throwingName = new Error("private");
+    Object.defineProperty(throwingName, "name", {
+      get() {
+        throw new Error("PRIVATE_NAME_GETTER");
+      },
     });
-    const response = await injectThrownError(frameworkError);
 
-    assert.equal(response.statusCode, 422);
-    assert.equal(response.headers["retry-after"], undefined);
-    assert.deepEqual(response.json(), { error: "framework_bad_request" });
+    assert.equal(safeErrorType({ error: new TypeError("private") }), "TypeError");
+    assert.equal(safeErrorType({ error: Object.assign(new Error("private"), { name: "line\nbreak" }) }), "Error");
+    assert.equal(safeErrorType({ error: Object.assign(new Error("private"), { name: "A".repeat(129) }) }), "Error");
+    assert.equal(safeErrorType({ error: throwingName }), "UnknownError");
+    assert.equal(safeErrorType({ error: "private" }), "UnknownError");
   });
+});
 
-  it("does not emit Retry-After for unhandled errors", async (t) => {
+describe("registerErrorHandler", () => {
+  it("emits Retry-After only from typed retry metadata", async (t) => {
     t.mock.method(console, "error", () => {});
-    const unhandledError = Object.assign(new Error("Retry-After: 60"), { retryAfterSeconds: 60 });
-    const response = await injectThrownError(unhandledError);
-
-    assert.equal(response.statusCode, 500);
-    assert.equal(response.headers["retry-after"], undefined);
-    assert.deepEqual(response.json(), { error: "internal_server_error" });
+    const cases: Array<[unknown, number, string | undefined, string]> = [
+      [new ServiceUnavailableError(), 503, "1", "service_unavailable"],
+      [new ApiError("Retry-After: 60", 503), 503, undefined, "Retry-After: 60"],
+      [
+        Object.assign(new Error("framework_bad_request"), { statusCode: 422, retryAfterSeconds: 60 }),
+        422,
+        undefined,
+        "framework_bad_request",
+      ],
+      [Object.assign(new Error("Retry-After: 60"), { retryAfterSeconds: 60 }), 500, undefined, "internal_server_error"],
+    ];
+    for (const [error, status, retryAfter, responseError] of cases) {
+      const response = await injectThrownError(error);
+      assert.deepEqual(
+        [response.statusCode, response.headers["retry-after"], response.json()],
+        [status, retryAfter, { error: responseError }],
+      );
+    }
   });
 });
 
 async function injectThrownError(error: unknown): Promise<LightMyRequestResponse> {
   const app = Fastify({ disableRequestLogging: true });
   registerErrorHandler(app);
-  app.get("/error", async () => {
-    throw error;
-  });
+  app.get("/error", () => Promise.reject(error));
 
   try {
     return await app.inject({ method: "GET", url: "/error" });

@@ -151,6 +151,12 @@ export class BridgeStateTracker {
     entry.timer = null;
   }
 
+  /**
+   * Stops new work, aborts in-flight notification stages, and waits for every
+   * callback to settle. Notification failures are absorbed by `#notify`; the
+   * shutdown coordinator provides the hard bound for a transport that ignores
+   * abort and never settles.
+   */
   dispose(): Promise<void> {
     this.#stop();
 
@@ -161,6 +167,10 @@ export class BridgeStateTracker {
     return this.#disposePromise;
   }
 
+  /**
+   * Reasserts the synchronous stop/abort fence. It deliberately does not make
+   * `dispose()` resolve while a callback is still retained.
+   */
   forceFence(): void {
     this.#stop();
   }

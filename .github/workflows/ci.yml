@@ -113,10 +113,40 @@ jobs:
           echo "Health response: $response"
           echo "$response" | jq -e '.status == "ok"'
 
-      - name: Graceful shutdown
+      - name: Graceful shutdown under an in-flight long poll
         run: |
+          TOKEN=$(printf 'a%.0s' {1..64})
+          curl -sf -X POST http://localhost:3001/auth/github/init \
+            -H "content-type: application/json" \
+            -H "x-sesori-session-token: $TOKEN" \
+            -d '{"clientType":"app_macos"}' > /dev/null
+          curl -sS -m 40 -o /tmp/poll-body -w '%{http_code}' \
+            http://localhost:3001/auth/session/status \
+            -H "x-sesori-session-token: $TOKEN" > /tmp/poll-status &
+          POLL_PID=$!
+          for _ in {1..50}; do
+            docker logs auth-ci 2>&1 | grep -qF '[PendingAuthStore] Status waiter registered' && break
+            sleep 0.1
+          done
+          docker logs auth-ci 2>&1 | grep -qF '[PendingAuthStore] Status waiter registered'
+          kill -0 "$POLL_PID"
+          STARTED_AT=$(date +%s)
           docker stop --time 25 auth-ci
+          ELAPSED_SECONDS=$(( $(date +%s) - STARTED_AT ))
+          wait "$POLL_PID"
+          test "$(cat /tmp/poll-status)" = "200"
+          jq -e '.status == "pending"' /tmp/poll-body
+          test "$ELAPSED_SECONDS" -lt 10
           test "$(docker inspect --format '{{.State.ExitCode}}' auth-ci)" = "0"
+          docker logs auth-ci > /tmp/auth-ci.log 2>&1
+          REGISTER_LINE=$(grep -nF '[PendingAuthStore] Status waiter registered' /tmp/auth-ci.log | cut -d: -f1 | tail -1)
+          SHUTDOWN_LINE=$(grep -n '\[Shutdown\] Started' /tmp/auth-ci.log | cut -d: -f1 | tail -1)
+          RELEASE_LINE=$(grep -nF '[PendingAuthStore] Status waiters released' /tmp/auth-ci.log | cut -d: -f1 | tail -1)
+          MONGO_CLOSE_LINE=$(grep -n 'MongoDB connection closed' /tmp/auth-ci.log | cut -d: -f1 | tail -1)
+          test -n "$REGISTER_LINE" && test -n "$SHUTDOWN_LINE" && test -n "$RELEASE_LINE" && test -n "$MONGO_CLOSE_LINE"
+          test "$REGISTER_LINE" -lt "$SHUTDOWN_LINE"
+          test "$SHUTDOWN_LINE" -lt "$RELEASE_LINE"
+          test "$RELEASE_LINE" -lt "$MONGO_CLOSE_LINE"
 
       - name: Dump container logs on failure
         if: failure()

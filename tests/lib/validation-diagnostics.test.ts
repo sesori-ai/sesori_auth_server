@@ -4,58 +4,44 @@ import { z, type ZodError, type ZodType } from "zod";
 import { toValidationDiagnostics } from "../../src/lib/validation-diagnostics.js";
 
 describe("toValidationDiagnostics", () => {
-  it("keeps only allowlisted fields and nonnegative safe-integer indices", () => {
+  it("keeps only allowlisted fields and indices without exposing input details", () => {
+    const max = Number.MAX_SAFE_INTEGER;
     const schema = z.unknown().superRefine((_value, context) => {
       context.addIssue({
         code: "custom",
-        path: [
-          "words",
-          0,
-          Number.MAX_SAFE_INTEGER,
-          -1,
-          1.5,
-          Number.MAX_SAFE_INTEGER + 1,
-          Symbol("symbol-segment-secret"),
-          "dynamic-field-secret",
-        ],
+        path: ["words", 0, max, -1, 1.5, max + 1, Symbol("symbol-segment-secret"), "dynamic-field-secret"],
         message: "message-value-secret",
         params: { input: "input-value-secret", value: "raw-value-secret" },
       });
     });
 
-    const diagnostics = toValidationDiagnostics(getZodError(schema, "submitted-input-secret"), new Set(["words"]));
+    const pathDiagnostics = toValidationDiagnostics(getZodError(schema, "submitted-input-secret"), new Set(["words"]));
 
-    assert.deepEqual(diagnostics, {
+    assert.deepEqual(pathDiagnostics, {
       issues: [
         {
-          path: ["words", 0, Number.MAX_SAFE_INTEGER, "<field>", "<field>", "<field>", "<field>", "<field>"],
+          path: ["words", 0, max, "<field>", "<field>", "<field>", "<field>", "<field>"],
           code: "custom",
         },
       ],
       truncated: false,
     });
-    assert.doesNotMatch(JSON.stringify(diagnostics), /secret/);
-  });
-
-  it("does not expose unknown-key lists, dynamic fields, values, messages, or raw issues", () => {
-    const schema = z.object({ words: z.record(z.string(), z.number()) }).strict();
-
-    const diagnostics = toValidationDiagnostics(
-      getZodError(schema, {
+    const shapeDiagnostics = toValidationDiagnostics(
+      getZodError(z.object({ words: z.record(z.string(), z.number()) }).strict(), {
         words: { "dynamic-record-key-secret": "submitted-value-secret" },
         "unknown-key-secret": true,
       }),
       new Set(["words"]),
     );
 
-    assert.deepEqual(diagnostics, {
+    assert.deepEqual(shapeDiagnostics, {
       issues: [
         { path: ["words", "<field>"], code: "invalid_type" },
         { path: [], code: "unrecognized_keys" },
       ],
       truncated: false,
     });
-    assert.doesNotMatch(JSON.stringify(diagnostics), /secret/);
+    assert.doesNotMatch(JSON.stringify([pathDiagnostics, shapeDiagnostics]), /secret/);
   });
 
   it("bounds both issue count and path depth and marks truncation", () => {

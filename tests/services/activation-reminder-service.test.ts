@@ -30,6 +30,12 @@ const DEFAULT_OPTIONS: ActivationReminderServiceOptions = {
   sessionReminderDelayMs: 24_000,
   batchLimit: 5,
 };
+const RETRY_WARNING = "[ActivationReminderService] Reminder failed and remains retryable";
+
+function assertRetryWarning(calls: unknown[][], kind: ActivationReminderKind, errorType: string, secret: string): void {
+  assert.deepEqual(calls, [[RETRY_WARNING, { kind, errorType }]]);
+  assert.equal(JSON.stringify(calls).includes(secret), false);
+}
 
 function candidate(userId: string): DueActivationReminder {
   return { userId, baselineAt: new Date("2026-07-15T10:00:00.000Z") };
@@ -295,16 +301,7 @@ describe("ActivationReminderService", () => {
     assert.equal(first.reminders[ActivationReminderKind.Bridge1].failed, 1);
     assert.equal(second.reminders[ActivationReminderKind.Bridge1].sent, 1);
     assert.equal(repo.markCalls.length, 1);
-    assert.deepEqual(
-      warnCalls.filter((args) => args[0] === "[ActivationReminderService] Reminder failed and remains retryable"),
-      [
-        [
-          "[ActivationReminderService] Reminder failed and remains retryable",
-          { kind: ActivationReminderKind.Bridge1, errorType: "NotificationSendError" },
-        ],
-      ],
-    );
-    assert.equal(JSON.stringify(warnCalls).includes("retry-user"), false);
+    assertRetryWarning(warnCalls, ActivationReminderKind.Bridge1, "NotificationSendError", "retry-user");
   });
 
   it("logs query failures with bounded kind and safe error type only", async () => {
@@ -410,16 +407,7 @@ describe("ActivationReminderService", () => {
     assert.equal(first.reminders[ActivationReminderKind.Session].failed, 1);
     assert.equal(second.reminders[ActivationReminderKind.Session].sent, 1);
     assert.equal(notification.sendCalls.length, 2);
-    assert.deepEqual(
-      warnCalls.filter((args) => args[0] === "[ActivationReminderService] Reminder failed and remains retryable"),
-      [
-        [
-          "[ActivationReminderService] Reminder failed and remains retryable",
-          { kind: ActivationReminderKind.Session, errorType: "ActivationMarkerError" },
-        ],
-      ],
-    );
-    assert.equal(JSON.stringify(warnCalls).includes("marker-failure-user"), false);
+    assertRetryWarning(warnCalls, ActivationReminderKind.Session, "ActivationMarkerError", "marker-failure-user");
   });
 
   it("coalesces concurrent sweeps and dispose drains only the current reminder through its marker", async () => {
@@ -483,27 +471,12 @@ describe("ActivationReminderService", () => {
 
     const sweep = service.sweepOnce(NOW);
     await flushMicrotasks();
-    const events: string[] = [];
     const exits: number[] = [];
     const coordinator = createShutdownCoordinator({
-      app: {
-        close: async () => {
-          events.push("app.close");
-        },
-        closeAllConnections: () => events.push("app.force"),
-      },
-      bridgeStateTracker: {
-        dispose: async () => {
-          events.push("bridge.dispose");
-        },
-        forceFence: () => events.push("bridge.force"),
-      },
+      app: { close: async () => {}, closeAllConnections: () => {}, closeIdleConnections: () => {} },
+      bridgeStateTracker: { dispose: async () => {}, forceFence: () => {} },
       activationReminderService: service,
-      dbConnector: {
-        close: async () => {
-          events.push("db.close");
-        },
-      },
+      dbConnector: { close: async () => void exits.push(99) },
       selectExit: (code) => exits.push(code),
     });
     const shutdown = coordinator.shutdown("SIGTERM");
@@ -512,36 +485,29 @@ describe("ActivationReminderService", () => {
     t.mock.timers.tick(ACTIVATION_REMINDER_DISPOSE_TIMEOUT_MS);
     await assert.rejects(disposing, /ActivationReminderDrainFenced/);
     await flushMicrotasks();
-    service.forceFence();
 
     assert.equal(repo.markCalls.length, 0);
     assert.equal(notification.sendCalls[0]?.abortSignal?.aborted, true);
-    assert.equal(events.includes("db.close"), false);
     assert.deepEqual(exits, []);
-    assert.equal(
-      warnCalls.filter(
-        (args) => args[0] === "[ActivationReminderService] Disposal timed out with reminder delivery still in flight",
-      ).length,
-      1,
-    );
+    assert.deepEqual(warnCalls.at(-1), [
+      "[ActivationReminderService] Disposal timed out with reminder delivery still in flight",
+      { timeoutMs: ACTIVATION_REMINDER_DISPOSE_TIMEOUT_MS },
+    ]);
 
     t.mock.timers.tick(SHUTDOWN_HARD_DEADLINE_MS - ACTIVATION_REMINDER_DISPOSE_TIMEOUT_MS);
     assert.equal(await shutdown, 1);
     assert.deepEqual(exits, [1]);
-    assert.equal(events.includes("db.close"), false);
 
     sendDeferred.resolve({ devicesNotified: 1, retryableFailures: 0 });
     const result = await sweep;
-    assert.equal(repo.markCalls.length, 0);
-    assert.equal(notification.sendCalls.length, 1);
-    assert.equal(result.reminders[ActivationReminderKind.Bridge1].failed, 1);
-    assert.equal(
-      warnCalls.some((args) => args[0] === "[ActivationReminderService] Reminder failed and remains retryable"),
-      false,
+    assert.deepEqual(
+      [repo.markCalls.length, notification.sendCalls.length, result.reminders[ActivationReminderKind.Bridge1].failed],
+      [0, 1, 1],
     );
+    assert.equal(warnCalls.length, 1);
   });
 
-  it("allows an already-dispatched marker to settle after fencing without starting the next candidate", async () => {
+  it("counts an already-dispatched marker after fencing without starting the next candidate", async () => {
     const markerDeferred = createDeferred<boolean>();
     const repo = createRepo({
       due: { [ActivationReminderKind.Bridge1]: [candidate("marking-user"), candidate("queued-user")] },
@@ -566,13 +532,15 @@ describe("ActivationReminderService", () => {
     markerDeferred.resolve(true);
     const result = await sweep;
 
-    assert.equal(notification.sendCalls.length, 1);
-    assert.equal(repo.markCalls.length, 1);
-    assert.equal(result.reminders[ActivationReminderKind.Bridge1].sent, 0);
-    assert.equal(result.reminders[ActivationReminderKind.Bridge1].failed, 1);
-    assert.equal(
-      warnCalls.some((args) => args[0] === "[ActivationReminderService] Reminder failed and remains retryable"),
-      false,
+    assert.deepEqual(
+      [
+        notification.sendCalls.length,
+        repo.markCalls.length,
+        result.reminders[ActivationReminderKind.Bridge1].sent,
+        result.reminders[ActivationReminderKind.Bridge1].failed,
+        warnCalls.length,
+      ],
+      [1, 1, 1, 0, 0],
     );
   });
 

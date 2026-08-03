@@ -188,7 +188,18 @@ export class ActivationReminderService {
 
     let drained: boolean;
     try {
-      drained = await Promise.race([inFlight.then(() => true), forceFencePromise.then(() => false)]);
+      drained = await Promise.race([
+        inFlight.then(
+          () => true,
+          (error: unknown) => {
+            console.warn("[ActivationReminderService] In-flight sweep rejected during drain", {
+              errorType: safeErrorType({ error }),
+            });
+            return true;
+          },
+        ),
+        forceFencePromise.then(() => false),
+      ]);
     } finally {
       clearTimeout(timeout);
       if (this.#resolveForceFence === resolveForceFence) {
@@ -297,11 +308,6 @@ export class ActivationReminderService {
       const sentAt = new Date();
       stage = "marker";
       const marked = await this.#activationStateRepo.markReminderSentIfStillDue(reminder.userId, kind, cutoff, sentAt);
-      if (this.#forceFenced) {
-        counters.failed += 1;
-        return;
-      }
-
       if (!marked) {
         counters.skipped += 1;
         console.log("[ActivationReminderService] Reminder no longer eligible after send", {

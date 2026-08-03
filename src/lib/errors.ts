@@ -65,5 +65,14 @@ export class ServiceUnavailableError extends ApiError {
 }
 
 export function safeErrorType(input: { error: unknown }): string {
-  return input.error instanceof Error ? input.error.name : "UnknownError";
+  try {
+    if (!(input.error instanceof Error)) {
+      return "UnknownError";
+    }
+
+    const name = input.error.name;
+    return /^[A-Za-z][A-Za-z0-9_.:-]{0,127}$/.test(name) ? name : "Error";
+  } catch {
+    return "UnknownError";
+  }
 }

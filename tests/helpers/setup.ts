@@ -306,29 +306,69 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   }
 
   async function cleanup(): Promise<void> {
-    const lifecycleResults = await Promise.allSettled([bridgeStateTracker.dispose(), app.close()]);
-    let failed = lifecycleResults.some((result) => result.status === "rejected");
+    const failures: Error[] = [];
+    const recordFailure = (stage: string, cause: unknown): void => {
+      failures.push(new Error(stage, { cause }));
+    };
+    const releaseStages = [
+      { stage: "pendingAuthStore.releaseWaiters", operation: () => pendingAuthStore.releaseWaiters() },
+      {
+        stage: "appClientPresenceService.releaseWaiters",
+        operation: () => appClientPresenceService.releaseWaiters(),
+      },
+    ];
+    for (const { stage, operation } of releaseStages) {
+      try {
+        operation();
+      } catch (error) {
+        recordFailure(stage, error);
+      }
+    }
+
+    const lifecycleStages = [
+      { stage: "bridgeStateTracker.dispose", operation: () => bridgeStateTracker.dispose() },
+      { stage: "pendingAuthStore.drainReleasedReads", operation: () => pendingAuthStore.drainReleasedReads() },
+      {
+        stage: "appClientPresenceService.drainReleasedReads",
+        operation: () => appClientPresenceService.drainReleasedReads(),
+      },
+      { stage: "app.close", operation: () => app.close() },
+    ];
+    const lifecycleResults = await Promise.allSettled(
+      lifecycleStages.map(async ({ operation }) => {
+        await operation();
+      }),
+    );
+    lifecycleResults.forEach((result, index) => {
+      if (result.status === "rejected") {
+        recordFailure(lifecycleStages[index].stage, result.reason);
+      }
+    });
+
+    if (failures.length > 0) {
+      throw new AggregateError(failures, "TestAppCleanupError");
+    }
 
     try {
       await dbAccessor.getDb(MongoDbDatabase.Auth).dropDatabase();
-    } catch {
-      failed = true;
+    } catch (error) {
+      recordFailure("authDatabase.dropDatabase", error);
     }
 
     try {
       await dbConnector.close();
-    } catch {
-      failed = true;
+    } catch (error) {
+      recordFailure("dbConnector.close", error);
     }
 
     try {
       await mongoServer?.stop();
-    } catch {
-      failed = true;
+    } catch (error) {
+      recordFailure("mongoServer.stop", error);
     }
 
-    if (failed) {
-      throw new Error("TestAppCleanupError");
+    if (failures.length > 0) {
+      throw new AggregateError(failures, "TestAppCleanupError");
     }
   }
 

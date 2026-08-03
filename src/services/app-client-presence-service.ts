@@ -16,14 +16,16 @@ enum OutcomeKind {
   Aborted = "aborted",
   Deadline = "deadline",
   Error = "error",
+  Released = "released",
 }
 
 type ReadOutcome =
   | { kind: OutcomeKind.Registered; registered: boolean }
   | { kind: OutcomeKind.Aborted }
   | { kind: OutcomeKind.Deadline }
+  | { kind: OutcomeKind.Released }
   | { kind: OutcomeKind.Error; error: unknown };
-type WaitOutcome = Exclude<ReadOutcome, { kind: OutcomeKind.Deadline }>;
+type WaitOutcome = Exclude<ReadOutcome, { kind: OutcomeKind.Deadline } | { kind: OutcomeKind.Released }>;
 
 /**
  * Thrown by `waitForRegistration` when the initial repository read does not
@@ -64,6 +66,9 @@ export class AppClientPresenceInitialReadTimeout extends Error {
 export class AppClientPresenceService {
   readonly #deviceTokenRepo: DeviceTokenRepository;
   readonly #waitersByUserId = new Map<string, Set<RegistrationWaiter>>();
+  readonly #releaseController = new AbortController();
+  readonly #detachedReads = new Set<Promise<void>>();
+  #acceptingWaiters = true;
 
   constructor(params: { deviceTokenRepo: DeviceTokenRepository }) {
     this.#deviceTokenRepo = params.deviceTokenRepo;
@@ -88,7 +93,7 @@ export class AppClientPresenceService {
   }
 
   async hasRegisteredClient(params: { userId: string }): Promise<boolean> {
-    return this.#deviceTokenRepo.hasAnyForUser(params.userId);
+    return this.#readPresence(params.userId);
   }
 
   /**
@@ -115,11 +120,15 @@ export class AppClientPresenceService {
       return null;
     }
 
+    if (!this.#acceptingWaiters) {
+      return false;
+    }
+
     if (params.timeoutMs <= 0) {
       // No wait budget: degrade to an immediate read (no waiter, no deadline
       // race). The route always passes a positive timeout; this is a
       // defensive fallback only.
-      return this.#deviceTokenRepo.hasAnyForUser(params.userId);
+      return this.#readPresence(params.userId);
     }
 
     const deadline = Date.now() + params.timeoutMs;
@@ -141,6 +150,12 @@ export class AppClientPresenceService {
         throw new AppClientPresenceInitialReadTimeout();
       case OutcomeKind.Error:
         throw initialRead.error;
+      case OutcomeKind.Released:
+        return false;
+    }
+
+    if (!this.#acceptingWaiters) {
+      return false;
     }
 
     if (params.abortSignal.aborted) {
@@ -159,7 +174,7 @@ export class AppClientPresenceService {
     });
     // A registration that committed between the initial false read and waiter
     // storage would never wake this waiter; the recheck observes it.
-    const recheck = this.#deviceTokenRepo.hasAnyForUser(params.userId).then<WaitOutcome, WaitOutcome>(
+    const recheck = this.#readPresence(params.userId).then<WaitOutcome, WaitOutcome>(
       (registered) => ({ kind: OutcomeKind.Registered, registered }),
       (error: unknown) => ({ kind: OutcomeKind.Error, error }),
     );
@@ -187,6 +202,24 @@ export class AppClientPresenceService {
     return waiter.promise;
   }
 
+  releaseWaiters(): void {
+    if (!this.#acceptingWaiters) {
+      return;
+    }
+
+    this.#acceptingWaiters = false;
+    this.#releaseController.abort();
+    for (const waiters of Array.from(this.#waitersByUserId.values())) {
+      for (const waiter of Array.from(waiters)) {
+        this.#completeWaiter(waiter, false);
+      }
+    }
+  }
+
+  async drainReleasedReads(): Promise<void> {
+    await Promise.all(this.#detachedReads);
+  }
+
   async #readUntilDeadline(params: {
     userId: string;
     deadline: number;
@@ -195,8 +228,9 @@ export class AppClientPresenceService {
     const remainingMs = Math.max(0, params.deadline - Date.now());
     let timeout: ReturnType<typeof setTimeout> | undefined;
     let abortListener: (() => void) | undefined;
+    let releaseListener: (() => void) | undefined;
 
-    const repositoryRead = this.#deviceTokenRepo.hasAnyForUser(params.userId).then<ReadOutcome, ReadOutcome>(
+    const repositoryRead = this.#readPresence(params.userId).then<ReadOutcome, ReadOutcome>(
       (registered) => ({ kind: OutcomeKind.Registered, registered }),
       (error: unknown) => ({ kind: OutcomeKind.Error, error }),
     );
@@ -211,9 +245,16 @@ export class AppClientPresenceService {
         resolve({ kind: OutcomeKind.Aborted });
       }
     });
+    const released = new Promise<ReadOutcome>((resolve) => {
+      releaseListener = () => resolve({ kind: OutcomeKind.Released });
+      this.#releaseController.signal.addEventListener("abort", releaseListener, { once: true });
+      if (this.#releaseController.signal.aborted) {
+        resolve({ kind: OutcomeKind.Released });
+      }
+    });
 
     try {
-      return await Promise.race([repositoryRead, deadline, abort]);
+      return await Promise.race([repositoryRead, deadline, abort, released]);
     } finally {
       if (timeout) {
         clearTimeout(timeout);
@@ -222,7 +263,25 @@ export class AppClientPresenceService {
       if (abortListener) {
         params.abortSignal.removeEventListener("abort", abortListener);
       }
+
+      if (releaseListener) {
+        this.#releaseController.signal.removeEventListener("abort", releaseListener);
+      }
     }
+  }
+
+  #trackDetachedRead(read: Promise<boolean>): Promise<boolean> {
+    const settled = read.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.#detachedReads.add(settled);
+    void settled.then(() => this.#detachedReads.delete(settled));
+    return read;
+  }
+
+  #readPresence(userId: string): Promise<boolean> {
+    return this.#trackDetachedRead(this.#deviceTokenRepo.hasAnyForUser(userId));
   }
 
   #createWaiter(params: { userId: string; timeoutMs: number; abortSignal: AbortSignal }): RegistrationWaiter {
