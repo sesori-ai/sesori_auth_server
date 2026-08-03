@@ -12,7 +12,9 @@ export type MongoDbConnectorOptions = {
 export class MongoDbConnector {
   readonly #client: MongoClient;
   readonly #connectPromise: Promise<MongoClient>;
+  readonly #onClose?: () => void;
   #closed = false;
+  #closePromise: Promise<void> | null = null;
 
   constructor(options: MongoDbConnectorOptions) {
     const { connectionString, clientOptions, onError, onOpen, onClose } = options;
@@ -27,12 +29,9 @@ export class MongoDbConnector {
       onOpen?.();
     });
 
-    mongoClient.on("close", () => {
-      onClose?.();
-    });
-
     this.#connectPromise = mongoClient.connect();
     this.#client = mongoClient;
+    this.#onClose = onClose;
   }
 
   async isHealthy(): Promise<boolean> {
@@ -51,7 +50,11 @@ export class MongoDbConnector {
     return this.#client.db(name);
   }
 
-  async close(): Promise<void> {
+  close(): Promise<void> {
+    return (this.#closePromise ??= this.#closeClient());
+  }
+
+  async #closeClient(): Promise<void> {
     this.#closed = true;
     let client: MongoClient;
     try {
@@ -62,5 +65,6 @@ export class MongoDbConnector {
     }
 
     await client.close();
+    this.#onClose?.();
   }
 }

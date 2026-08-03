@@ -19,12 +19,10 @@ import {
 import type { MainOptions, ProductionRuntime, SignalTarget } from "../src/index.js";
 
 const deferred = <T>() => Promise.withResolvers<T>();
-
 const flushMicrotasks = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 const processSignalCounts = (): number[] => [process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")];
 const record = (events: string[], event: string) => (): void => void events.push(event);
 const recordAsync = (events: string[], event: string) => async (): Promise<void> => void events.push(event);
-
 function createRuntime(events: string[], startFails = false): ProductionRuntime {
   return {
     app: {
@@ -114,6 +112,26 @@ async function startMain(startRuntime: NonNullable<MainOptions["startRuntime"]>,
 }
 
 describe("shutdown coordinator", () => {
+  it("shares MongoDB close completion and invokes its callback after close", async (t) => {
+    let finishClose!: () => void;
+    t.mock.method(MongoClient.prototype, "connect", async function () {
+      return this;
+    });
+    t.mock.method(MongoClient.prototype, "close", () => new Promise<void>((resolve) => (finishClose = resolve)));
+    const events: string[] = [];
+    const connector = new MongoDbConnector({
+      connectionString: "mongodb://unused",
+      onClose: () => events.push("closed"),
+    });
+    const first = connector.close();
+    assert.equal(connector.close(), first);
+    await flushMicrotasks();
+    assert.deepEqual(events, []);
+    finishClose();
+    await first;
+    assert.deepEqual(events, ["closed"]);
+  });
+
   it("memoizes duplicate signals and closes MongoDB only after every drain fulfills", async () => {
     const harness = createHarness();
     const first = harness.coordinator.shutdown("SIGTERM");
@@ -155,19 +173,16 @@ describe("shutdown coordinator", () => {
         handlerResult = await presence.hasRegisteredClient({ userId: "admitted-user" });
       },
     });
-
     const shutdown = harness.coordinator.shutdown("SIGTERM");
     await flushMicrotasks();
     assert.equal(harness.events[0], "waiters.release");
     Object.values(harness.drains).forEach((drain) => drain.resolve());
     await flushMicrotasks();
     assert.equal(harness.events.includes("db.close"), false);
-
     read.resolve(true);
     await flushMicrotasks();
     assert.equal(handlerResult, true);
     assert.equal(harness.events.includes("db.close"), false);
-
     waiterDrain.resolve();
     assert.deepEqual([await shutdown, harness.events.at(-1)], [0, "db.close"]);
   });
@@ -186,7 +201,6 @@ describe("shutdown coordinator", () => {
       throw new Error("PRIVATE_CLOSE_FAILURE");
     });
     await new MongoDbConnector({ connectionString: "mongodb://unused" }).close();
-
     connectFails = false;
     const exits: number[] = [];
     const coordinator = createShutdownCoordinator({
@@ -196,7 +210,6 @@ describe("shutdown coordinator", () => {
       dbConnector: new MongoDbConnector({ connectionString: "mongodb://unused" }),
       selectExit: (code) => exits.push(code),
     });
-
     assert.equal(await coordinator.shutdown("SIGTERM"), 1);
     assert.deepEqual(exits, [1]);
   });
@@ -207,11 +220,9 @@ describe("startup and signal composition", () => {
     const before = processSignalCounts();
     await import("../src/index.js");
     assert.deepEqual(processSignalCounts(), before);
-
     const events: string[] = [];
     const { target, exits, starting } = await startMain(async () => createRuntime(events));
     const handle = await starting;
-
     target.emit("SIGINT");
     await handle.shutdownCoordinator.shutdown("SIGTERM");
     assert.deepEqual(exits, [0]);
@@ -233,7 +244,6 @@ describe("startup and signal composition", () => {
         },
         off: (signal, listener) => emitter.off(signal, listener),
       };
-
       await assert.rejects(
         main({
           startRuntime: async () => createRuntime(events, failure === "scheduler"),
@@ -246,7 +256,6 @@ describe("startup and signal composition", () => {
           error.cause instanceof Error &&
           error.cause.message === (failure === "listener" ? "PRIVATE_LISTENER_FAILURE" : "PRIVATE_START_FAILURE"),
       );
-
       assert.deepEqual([emitter.listenerCount("SIGINT"), emitter.listenerCount("SIGTERM")], [0, 0], failure);
       assert.equal(events.at(-1), failure === "listener" ? undefined : "db.close", failure);
     }
@@ -265,13 +274,11 @@ describe("startup and signal composition", () => {
       },
       () => now,
     );
-
     target.emit("SIGTERM");
     now += SHUTDOWN_HARD_DEADLINE_MS - 1;
     t.mock.timers.tick(SHUTDOWN_HARD_DEADLINE_MS - 1);
     await flushMicrotasks();
     assert.deepEqual(exits, []);
-
     now += 1;
     t.mock.timers.tick(1);
     const handle = await starting;
@@ -298,7 +305,6 @@ describe("startup and signal composition", () => {
       () => startup.promise,
       () => now,
     );
-
     target.emit("SIGINT");
     now = SHUTDOWN_DRAIN_DEADLINE_MS - 1_000;
     t.mock.timers.tick(SHUTDOWN_DRAIN_DEADLINE_MS - 1_000);
@@ -306,7 +312,6 @@ describe("startup and signal composition", () => {
     await flushMicrotasks();
     assert.equal(events.includes("app.close"), true);
     assert.equal(events.includes("app.force"), false);
-
     now = SHUTDOWN_DRAIN_DEADLINE_MS;
     t.mock.timers.tick(1_000);
     const handle = await starting;

@@ -1686,7 +1686,7 @@ each PR; `actual` includes authored additions plus deletions):
 | Slice | Status  | Reviewed base SHA | Forecast authored lines | Actual authored/generated lines | Verification | Next slice |
 | ----- | ------- | ----------------- | ----------------------- | ------------------------------- | ------------ | ---------- |
 | PR1   | Merged  | `8fc4fcf`         | 1,480                   | 1,402 / 0                       | MongoDB 7 focused/full; production dry-run zero; deployed | PR2a       |
-| PR2a  | Active  | `fa831d1`         | 1,450                   | 2,130 / 0                       | Focused 61/61; MongoDB 7 memory full 557 pass/1 skip; static/build passed; Docker CI pending | PR2b       |
+| PR2a  | Active  | `fa831d1`         | 1,450                   | 2,149 / 0                       | Focused 62/62; MongoDB 7 memory full 557 pass/1 skip; static/build passed; Docker CI pending | PR2b       |
 | PR2b  | Pending | -                 | TBD before coding       | -                               | -            | PR3        |
 | PR3   | Pending | -                 | TBD before coding       | -                               | -            | PR4        |
 | PR4   | Pending | -                 | TBD before coding       | -                               | -            | PR5        |
