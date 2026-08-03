@@ -21,6 +21,7 @@ import { OAuthAccountRepository } from "./repositories/oauth-account-repo.js";
 import { PasswordAccountRepository } from "./repositories/password-account-repo.js";
 import { UserRepository } from "./repositories/user-repo.js";
 import { ActivationStateRepository } from "./repositories/activation-state-repo.js";
+import { SettingsConfigurationRepository } from "./repositories/settings-configuration-repo.js";
 import { buildApp } from "./server.js";
 import { AuthService } from "./services/auth-service.js";
 import { ActivationReminderService } from "./services/activation-reminder-service.js";
@@ -36,6 +37,7 @@ import { TokenService } from "./services/token-service.js";
 import { VoiceService } from "./services/voice-service.js";
 import { AppClientPresenceService } from "./services/app-client-presence-service.js";
 import { ProductAnalyticsPreferenceService } from "./services/product-analytics-preference-service.js";
+import { SettingsService } from "./services/settings-service.js";
 import {
   cleanupPartialStartup,
   createShutdownCoordinator,
@@ -110,6 +112,7 @@ async function composeProductionRuntime(ownership: StartupOwnership): Promise<Pr
   const deviceTokenRepo = new DeviceTokenRepository(dbAccessor);
   const bridgeRepo = new BridgeRepository(dbAccessor);
   const activationStateRepo = new ActivationStateRepository(dbAccessor);
+  const settingsRepo = new SettingsConfigurationRepository(dbAccessor);
 
   const tokenService = new TokenService(config.JWT_PRIVATE_KEY, config.JWT_PUBLIC_KEY);
   const pendingAuthStore = new PendingAuthStore({
@@ -151,6 +154,7 @@ async function composeProductionRuntime(ownership: StartupOwnership): Promise<Pr
     userRepo,
     pseudonymizationKey: config.PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY,
   });
+  const settingsService = new SettingsService({ settingsRepo });
   const activationReminderService = new ActivationReminderService({
     activationStateRepo,
     notificationService,
@@ -213,6 +217,7 @@ async function composeProductionRuntime(ownership: StartupOwnership): Promise<Pr
     legalDocumentService,
     deviceTokenRepo,
     appClientPresenceService,
+    settingsService,
     notificationService,
     activationService,
     stateStore,

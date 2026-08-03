@@ -130,6 +130,32 @@ Up to **50 non-revoked bridges per user**; registration beyond the cap returns 4
 | `GET`    | `/auth/bridges`            | Bearer | List the user's non-revoked bridges                                                                                                       |
 | `DELETE` | `/auth/bridges/:bridgeId`  | Bearer | Soft-revoke a bridge (404 if unknown, another user's, or already revoked)                                                                 |
 
+### Settings
+
+Per-device application settings (currently notification toggles), keyed by a client-generated `deviceId` (UUIDv4) and always scoped to the authenticated user — a leaked `deviceId` cannot cross accounts. Settings are stored sparse and **resolved against server-side defaults on read**, so a device with no record (or one predating a newly added toggle) reads back a complete, all-enabled set with no migration.
+
+| Method  | Path                       | Auth   | Description                                                                                                                                                     |
+| ------- | -------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`   | `/auth/settings/:deviceId` | Bearer | Get the device's fully-resolved settings (defaults applied; returns 200 with defaults when nothing is stored)                                                  |
+| `PATCH` | `/auth/settings/:deviceId` | Bearer | Merge-update settings. Body `{ notifications?: { aiInteraction?, sessionMessage?, connectionStatus?, systemUpdate? } }` — all toggles optional, at least one required |
+
+Both endpoints return the complete resolved shape:
+
+```json
+{
+  "deviceId": "550e8400-e29b-41d4-a716-446655440000",
+  "notifications": {
+    "aiInteraction": true,
+    "sessionMessage": true,
+    "connectionStatus": true,
+    "systemUpdate": true
+  },
+  "updatedAt": null
+}
+```
+
+`updatedAt` is `null` until the device stores its first override, then an ISO 8601 timestamp. Missing or invalid bearer authentication returns 401. A malformed/non-v4 `deviceId`, an empty PATCH, unknown groups or toggles, and non-boolean toggle values return 400.
+
 ## Environment variables
 
 Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configuration.
@@ -435,8 +461,6 @@ See the **STRUCTURE** section in [AGENTS.md](AGENTS.md) — it is the maintained
 # Requires MongoDB running on localhost:27017
 npm test
 ```
-
-36 tests across 4 suites covering all API endpoints.
 
 ## Related
 
