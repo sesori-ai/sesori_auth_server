@@ -74,8 +74,13 @@ export class AppClientPresenceService {
    * `userId` with `true`. If the upsert throws, no waiter is notified — the
    * database write must succeed before presence is asserted.
    */
-  async registerToken(params: { userId: string; token: string; platform: DevicePlatform }): Promise<void> {
-    await this.#deviceTokenRepo.upsertToken(params.userId, params.token, params.platform);
+  async registerToken(params: {
+    userId: string;
+    token: string;
+    platform: DevicePlatform;
+    deviceId?: string;
+  }): Promise<void> {
+    await this.#deviceTokenRepo.upsertToken(params.userId, params.token, params.platform, params.deviceId);
 
     const waiters = this.#waitersByUserId.get(params.userId);
     if (!waiters) {

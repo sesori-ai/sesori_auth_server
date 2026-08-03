@@ -1,5 +1,6 @@
 import { BridgeStatus } from "../models/bridge.js";
 import type { NotificationPayload, NotificationService } from "./notification-service.js";
+import { NotificationCategory } from "../models/notification.js";
 
 /**
  * Debounces bridge online/offline push notifications so transient relay
@@ -140,7 +141,7 @@ export class BridgeStateTracker {
   #buildPayload(status: BridgeStatus): NotificationPayload {
     if (status === BridgeStatus.active) {
       return {
-        category: "connection_status",
+        category: NotificationCategory.ConnectionStatus,
         title: "Bridge Online",
         body: "Your bridge has reconnected.",
         collapseKey: "connection_status",
@@ -148,7 +149,7 @@ export class BridgeStateTracker {
     }
 
     return {
-      category: "connection_status",
+      category: NotificationCategory.ConnectionStatus,
       title: "Bridge Offline",
       body: "Your bridge has disconnected. AI sessions are paused.",
       collapseKey: "connection_status",

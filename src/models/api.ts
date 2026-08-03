@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { BridgePlatform, bridgeIdSchema, bridgePlatformSchema } from "./bridge.js";
 import { devicePlatformSchema } from "./device.js";
+import { CLIENT_SENDABLE_NOTIFICATION_CATEGORIES } from "./notification.js";
+import { deviceIdSchema } from "./settings.js";
 import {
   productAnalyticsExpectedRevisionSchema,
   productAnalyticsOperationIdSchema,
@@ -218,6 +220,9 @@ export type GlossaryRemoveReply = {
 export const registerTokenBodySchema = z.object({
   token: z.string().min(1),
   platform: devicePlatformSchema,
+  // Optional during rollout: clients that predate per-device notification
+  // settings keep registering without it and stay unfiltered.
+  deviceId: deviceIdSchema.optional(),
 });
 export type RegisterTokenBody = z.infer<typeof registerTokenBodySchema>;
 
@@ -243,7 +248,7 @@ export const notificationDataSchema = z.object({
 });
 
 export const sendNotificationBodySchema = z.object({
-  category: z.enum(["ai_interaction", "session_message", "system_update"]),
+  category: z.enum(CLIENT_SENDABLE_NOTIFICATION_CATEGORIES),
   title: z.string().min(1).max(200),
   body: z.string().min(1).max(500),
   collapseKey: z.string().nullable(),
