@@ -240,6 +240,27 @@ describe("NotificationService category filtering", () => {
     assert.equal(result.devicesNotified, 1);
   });
 
+  it("does not query settings when no token carries a deviceId", async () => {
+    const tokenRepo = createMockDeviceTokenRepo([
+      { userId: "user-1", token: "legacy-a", platform: "ios", deviceId: null },
+      { userId: "user-1", token: "legacy-b", platform: "android" },
+    ]);
+    const messaging = createMockMessaging([{ success: true }, { success: true }]);
+    let resolverCalls = 0;
+    const settings: NotificationSettingsResolver = {
+      resolveNotificationsByDevice: async () => {
+        resolverCalls += 1;
+        return new Map();
+      },
+    };
+    const service = new NotificationService(tokenRepo.repo, messaging.messaging, settings);
+
+    const result = await service.sendToUser("user-1", buildPayload(NotificationCategory.AiInteraction));
+
+    assert.equal(result.devicesNotified, 2);
+    assert.equal(resolverCalls, 0);
+  });
+
   it("does not query settings when the user has no tokens", async () => {
     const tokenRepo = createMockDeviceTokenRepo([]);
     const messaging = createMockMessaging([]);

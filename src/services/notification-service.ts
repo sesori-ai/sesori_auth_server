@@ -47,6 +47,12 @@ export class NotificationService {
   // A token with no deviceId predates per-device settings and cannot be matched
   // to a stored preference, so it keeps delivering rather than going silent.
   async #selectOptedInTokens(userId: string, tokens: DeviceToken[], category: NotificationCategory) {
+    // Until clients send deviceId, every token fails open, so the settings read
+    // cannot change the outcome and is skipped on the whole push path.
+    if (!tokens.some((deviceToken) => deviceToken.deviceId)) {
+      return tokens;
+    }
+
     const settingKey = NOTIFICATION_CATEGORY_SETTING_KEYS[category];
 
     let settingsByDevice: Map<string, NotificationSettings>;
