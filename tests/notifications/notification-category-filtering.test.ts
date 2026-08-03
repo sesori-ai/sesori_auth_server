@@ -20,12 +20,16 @@ function createMockMessaging(responses: MockResponse[]) {
   const calls: unknown[][] = [];
 
   const messaging = {
+    // FCM returns exactly one response per message sent, so align to what was
+    // actually delivered. Counting the canned responses instead would let a
+    // test report deliveries for tokens that filtering had dropped.
     sendEach: async (messages: unknown[]) => {
       calls.push(messages);
+      const delivered = responses.slice(0, messages.length);
       return {
-        successCount: responses.filter((r) => r.success).length,
-        failureCount: responses.filter((r) => !r.success).length,
-        responses: responses.map((r) => ({
+        successCount: delivered.filter((r) => r.success).length,
+        failureCount: delivered.filter((r) => !r.success).length,
+        responses: delivered.map((r) => ({
           success: r.success,
           error: r.error ? { code: r.error.code } : undefined,
         })),
@@ -141,6 +145,7 @@ describe("NotificationService category filtering", () => {
 
     const result = await service.sendToUser("user-1", buildPayload(NotificationCategory.AiInteraction));
 
+    assert.deepEqual(sentTokens(messaging.calls), ["token-a"]);
     assert.equal(result.devicesNotified, 1);
   });
 
@@ -228,8 +233,10 @@ describe("NotificationService category filtering", () => {
       { userId: "user-1", token: "token-a", platform: "ios", deviceId: DEVICE_A },
     ]);
     const messaging = createMockMessaging([{ success: true }]);
+    let resolverCalls = 0;
     const settings: NotificationSettingsResolver = {
       resolveNotificationsByDevice: async () => {
+        resolverCalls += 1;
         throw new Error("settings unavailable");
       },
     };
@@ -237,6 +244,8 @@ describe("NotificationService category filtering", () => {
 
     const result = await service.sendToUser("user-1", buildPayload(NotificationCategory.AiInteraction));
 
+    assert.equal(resolverCalls, 1, "the failing settings read must actually have been attempted");
+    assert.deepEqual(sentTokens(messaging.calls), ["token-a"]);
     assert.equal(result.devicesNotified, 1);
   });
 
@@ -257,6 +266,7 @@ describe("NotificationService category filtering", () => {
 
     const result = await service.sendToUser("user-1", buildPayload(NotificationCategory.AiInteraction));
 
+    assert.deepEqual(sentTokens(messaging.calls), ["legacy-a", "legacy-b"]);
     assert.equal(result.devicesNotified, 2);
     assert.equal(resolverCalls, 0);
   });
