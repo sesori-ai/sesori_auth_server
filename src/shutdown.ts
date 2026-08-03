@@ -121,6 +121,11 @@ async function settleStage(
   }
 }
 
+async function closeAndDrain(app: Pick<ShutdownApp, "close">, waiters: ShutdownRequestWaiters[]): Promise<void> {
+  await app.close();
+  await Promise.all(waiters.map((waiter) => waiter.drainReleasedReads()));
+}
+
 async function runBoundedShutdown(options: BoundedShutdownOptions): Promise<ShutdownExitCode> {
   const timers = options.timers ?? defaultShutdownTimers;
   const now = options.now ?? Date.now;
@@ -235,11 +240,7 @@ export function createShutdownCoordinator(deps: ShutdownCoordinatorDependencies)
     ...waiters.map((waiter) => ["request_waiter_release", () => waiter.releaseWaiters()] as const),
     ["bridge_drain", () => deps.bridgeStateTracker.dispose()],
     ["activation_dispose", () => deps.activationReminderService.dispose()],
-    [
-      "request_waiter_drain",
-      async () => void (await Promise.all(waiters.map((waiter) => waiter.drainReleasedReads()))),
-    ],
-    ["fastify_close", () => deps.app.close()],
+    ["fastify_close", () => closeAndDrain(deps.app, waiters)],
   ];
 
   return {
@@ -279,9 +280,9 @@ export async function cleanupPartialStartup(
   };
   for (const waiters of input.requestWaiters ?? []) {
     add("request_waiter_release", waiters.releaseWaiters.bind(waiters));
-    add("request_waiter_drain", waiters.drainReleasedReads.bind(waiters));
   }
-  add("fastify_close", input.app?.close.bind(input.app));
+  const app = input.app;
+  add("fastify_close", app ? () => closeAndDrain(app, input.requestWaiters ?? []) : undefined);
   add("bridge_drain", input.bridgeStateTracker?.dispose.bind(input.bridgeStateTracker));
   add("activation_dispose", input.activationReminderService?.dispose.bind(input.activationReminderService));
   const logFailure = createFailureLogger("[StartupCleanup] Stage failed");
