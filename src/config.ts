@@ -80,6 +80,19 @@ const configSchema = z.object({
 
 export type Config = z.infer<typeof configSchema>;
 
+const glossaryMigrationConfigSchema = z.object({
+  MONGODB_URI: z.string().regex(/^mongodb(?:\+srv)?:\/\/\S+$/),
+});
+
+export function loadGlossaryMigrationConfig(env: NodeJS.ProcessEnv): { mongodbUri: string } {
+  const result = glossaryMigrationConfigSchema.safeParse(env);
+  if (!result.success) {
+    throw new Error("GlossaryMigrationConfigError");
+  }
+
+  return { mongodbUri: result.data.MONGODB_URI };
+}
+
 let cached: Config | null = null;
 
 export function loadConfig(): Config {
