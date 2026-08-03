@@ -166,6 +166,8 @@ Relay reports to `POST /internal/bridge-status` must include the registered `bri
 
 Activation reminder timers and single-flight state are process-local. Keep `ACTIVATION_REMINDERS_ENABLED=false` on every instance except the single designated sender; multiple enabled instances can duplicate notifications.
 
+SIGINT/SIGTERM use one 22-second coordinator: Fastify and current producers drain before MongoDB closes. A pre-drain failure force-fences callbacks and exits nonzero without prematurely closing MongoDB under detached handlers.
+
 ## Project-scoped glossary migration
 
 Glossary ownership uses an opaque, stable client-derived project key rather than

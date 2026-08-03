@@ -1666,7 +1666,8 @@ All slices are sequential and independently deployable from the then-current
 | PR   | Scope                                                         | Expected production behavior after merge                                                                        | Fallback split boundary if over target                                  |
 | ---- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | PR1  | Glossary migration audit/tooling and opaque-key primitives    | No runtime/API change; operators must not run `--apply` yet.                                                    | Separate CLI wiring/docs from migration library/tests.                  |
-| PR2  | Glossary cutover and shared shutdown-coordinator foundation   | Existing clients omit the key and transcribe with no glossary; shutdown is idempotent/testable.                 | Insert coordinator/error PR before the atomic DB/API cutover.           |
+| PR2a | Shared shutdown, error, and validation foundation              | No glossary/API change; shutdown becomes bounded, idempotent, and import-safe.                                  | Keep lifecycle corrections together; defer no tests.                    |
+| PR2b | Atomic project-scoped glossary cutover                         | Existing clients omit the key and transcribe with no glossary.                                                  | Separate repository/service from route only if deploy safety permits.   |
 | PR3  | Async pre-buffer admission, deadlines, and fixed filenames    | OpenAI behavior remains; buffering and timeout/error handling become bounded.                                   | Separate timeout errors/watchdogs from async gate/route integration.    |
 | PR4  | Provider-neutral validated OpenAI transcription boundary      | Existing OpenAI provider and public response remain unchanged.                                                  | Separate API validation/client adaptation from DI conversion.           |
 | PR5  | Idempotent daily-debit persistence and maintenance primitives | Optional bounded receipts/repository/maintenance CLI exist; live route still uses its previous accounting path. | Land maintenance CLI/failpoint harness first, then receipt repository.  |
@@ -1684,8 +1685,9 @@ each PR; `actual` includes authored additions plus deletions):
 
 | Slice | Status  | Reviewed base SHA | Forecast authored lines | Actual authored/generated lines | Verification | Next slice |
 | ----- | ------- | ----------------- | ----------------------- | ------------------------------- | ------------ | ---------- |
-| PR1   | Ready   | `8fc4fcf`         | 1,480                   | 1,402 / 0                       | MongoDB 7 focused/full; all checks; production dry-run zero | PR2        |
-| PR2   | Pending | -                 | TBD before coding       | -                               | -            | PR3        |
+| PR1   | Merged  | `8fc4fcf`         | 1,480                   | 1,402 / 0                       | MongoDB 7 focused/full; production dry-run zero; deployed | PR2a       |
+| PR2a  | Active  | `bc7df1d`         | 1,450                   | -                               | Pending      | PR2b       |
+| PR2b  | Pending | -                 | TBD before coding       | -                               | -            | PR3        |
 | PR3   | Pending | -                 | TBD before coding       | -                               | -            | PR4        |
 | PR4   | Pending | -                 | TBD before coding       | -                               | -            | PR5        |
 | PR5   | Pending | -                 | TBD before coding       | -                               | -            | PR6        |
@@ -1780,7 +1782,49 @@ PR1 non-goals:
 - No glossary API/repository behavior change.
 - No transcription behavior change.
 
-### PR2 - Project-Scoped Glossary Cutover And Shutdown Foundation
+### PR2a - Shared Shutdown, Error, And Validation Foundation
+
+This uses PR2's fallback because the combined shutdown and glossary cutover
+forecast above 1,500 lines. It changes no glossary/index/API/transcription behavior.
+
+File map:
+
+- `src/lib/errors.ts`, `src/server.ts`, `src/lib/validation-diagnostics.ts` (new),
+  and `src/routes/voice.ts`: add typed retry-1 handling and reduce voice Zod
+  failures to eight allowlisted path/code issues with bounded paths/truncation.
+- `src/services/bridge-state-tracker.ts` and
+  `src/services/activation-reminder-service.ts`: synchronously stop/abort/fence,
+  expose drains/force fences, and redact touched failure logs.
+- `src/shutdown.ts` (new) and `src/index.ts`: own the memoized 22-second
+  coordinator, all-fulfilled T+15 boundary, MongoDB-last normal close, injectable
+  guarded `main()`, signal ownership, and partial-startup cleanup. Any earlier
+  failure leaves MongoDB open until hard exit for detached handlers.
+- Tests/helper cleanup, CI, README, and AGENTS prove/document lifecycle ordering,
+  including health, SIGTERM, 25-second stop, and exit zero.
+
+Acceptance criteria:
+
+- [ ] Diagnostics retain eight bounded allowlisted path/code issues only; typed
+      503 errors alone emit `Retry-After: 1`.
+- [ ] Bridge/activation aborts prevent post-fence stages and expose safe drains/logs.
+- [ ] Only three fulfilled pre-T+15 drains permit MongoDB close; every earlier
+      failure force-fences, leaves MongoDB open, and exits 1 at T+22.
+- [ ] Signals memoize; import has no side effect; partial startup closes DB-last.
+- [ ] Docker serves `/health`, handles SIGTERM, and exits zero within 25 seconds.
+
+Focused verification:
+
+```bash
+node --import tsx --test --test-concurrency=1 \
+  tests/lib/errors.test.ts \
+  tests/lib/validation-diagnostics.test.ts \
+  tests/index-shutdown.test.ts \
+  tests/notifications/bridge-state-tracker.test.ts \
+  tests/services/activation-reminder-service.test.ts \
+  tests/voice/glossary.test.ts
+```
+
+### PR2b - Project-Scoped Glossary Cutover
 
 File map:
 
@@ -1805,13 +1849,6 @@ File map:
   async transcription supplies a key, skip the call when omitted, and otherwise
   retain only transcription orchestration. Replace current user-ID/raw-error
   quota logs with bounded outcome and `safeErrorType` fields.
-- `src/lib/errors.ts`: add a bounded HTTP 503 service-unavailable error with a
-  typed `retryAfterSeconds: 1` field for process-local mutation-cap exhaustion;
-  extend `ApiError` with that optional positive-safe-integer field.
-- `src/lib/validation-diagnostics.ts` (new): convert Zod failures to at most eight
-  path/code-only issues; permit only schema-declared field names and numeric
-  indices in paths, replace every other string segment with `<field>`, and never
-  retain messages, received values, unknown-key lists, input, or raw issues.
 - `src/routes/voice.ts`: validate the GET query, POST/DELETE bodies, and
   order-independent optional multipart `projectKey`; reject duplicate fields,
   duplicate files, malformed fields, and unknown extra parts; bound multipart
@@ -1823,16 +1860,8 @@ File map:
   when handling `ApiError`, set
   `Retry-After` from the typed field before sending the existing JSON error and
   never infer headers from free-form messages.
-- `src/shutdown.ts` (new): export the concrete PR2 shutdown coordinator with one
-  memoized `shutdownPromise`, injected/testable timers and exit selection,
-  referenced 22-second hard deadline, T+0 producer stop before `app.close()`,
-  bounded glossary/activation drain and force fence, `BridgeStateTracker`
-  disposal, `closeAllConnections`, and MongoDB-last ordering.
-- `src/index.ts`: export `main()`, compose `GlossaryService` and the one shutdown
-  coordinator, register SIGINT/SIGTERM exactly once inside `main`, and invoke
-  `main()` only under an ESM `import.meta.url`/`pathToFileURL(process.argv[1])`
-  entrypoint guard so tests can import composition without listening or process
-  handlers.
+- `src/shutdown.ts` and `src/index.ts`: extend the PR2a coordinator and
+  composition with `GlossaryService` T+0 stop, bounded drain, and force fence.
 - `README.md`: update glossary API examples and mark the PR1 migration runbook
   ready for the exact maintenance-window apply/cutover sequence.
 - `AGENTS.md`: record that glossary cap serialization is process-local and
@@ -1852,15 +1881,8 @@ File map:
   glossary mutation saturation, FIFO serialization, rejection before input
   retention, queued disconnect removal, executing completion, slot release, and
   bounded shutdown.
-- `tests/lib/errors.test.ts` (new): prove the global handler emits exactly
-  `Retry-After: 1` for the typed 503 and no retry header for ordinary errors.
-- `tests/lib/validation-diagnostics.test.ts` (new): seed secret values, unknown
-  keys, dynamic path segments, messages, and more than eight issues; assert only
-  bounded allowlisted paths/codes reach captured logs.
-- `tests/index-shutdown.test.ts` (new): import guarded composition and prove PR2
-  production ordering, duplicate signals returning one promise, one disposal/
-  DB-close/exit decision, active glossary drain/force fence, activation bound,
-  late callback fencing, direct-import side-effect absence, and hard deadline.
+- `tests/index-shutdown.test.ts`: extend PR2a production-order cases with active
+  glossary drain/force-fence behavior.
 - `tests/voice/transcribe.test.ts`: cover multipart order/duplicates, omitted
   key query skipping, exact scope/no-match, malformed fields, disconnect during
   glossary work, and otherwise unchanged async behavior.
@@ -1899,10 +1921,8 @@ Acceptance criteria:
       the common class mandatory for later overload slices.
 - [ ] Reduce all logged voice Zod failures to the bounded path/code-only helper;
       never attach a raw `ZodError` or submitted value to an `ApiError`.
-- [ ] Introduce the single entrypoint-guarded shutdown coordinator now; prove
-      producer-before-Fastify/MongoDB order and duplicate-signal idempotency in
-      production-composition tests, then extend this same coordinator in every
-      later stateful slice.
+- [ ] Extend the single PR2a shutdown coordinator with glossary stop, drain, and
+      force-fence behavior before MongoDB close.
 - [ ] Run the exact focused command below against MongoDB 7, then the common
       full verification sequence.
 
@@ -1913,8 +1933,6 @@ MONGODB_URI_TEST=mongodb://localhost:27017/auth-backend-test \
   node --import tsx --test --test-concurrency=1 \
   tests/db/mongo-db-accessor.test.ts \
   tests/repositories/glossary-entry-repo.test.ts \
-  tests/lib/errors.test.ts \
-  tests/lib/validation-diagnostics.test.ts \
   tests/services/glossary-service.test.ts \
   tests/index-shutdown.test.ts \
   tests/voice/glossary.test.ts \

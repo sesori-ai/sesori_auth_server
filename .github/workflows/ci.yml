@@ -113,6 +113,11 @@ jobs:
           echo "Health response: $response"
           echo "$response" | jq -e '.status == "ok"'
 
+      - name: Graceful shutdown
+        run: |
+          docker stop --time 25 auth-ci
+          test "$(docker inspect --format '{{.State.ExitCode}}' auth-ci)" = "0"
+
       - name: Dump container logs on failure
         if: failure()
         run: |

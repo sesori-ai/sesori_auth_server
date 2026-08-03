@@ -1,13 +1,21 @@
 export class ApiError extends Error {
   public responseBody?: Record<string, unknown>;
+  public readonly retryAfterSeconds?: number;
 
   constructor(
     message: string,
     public readonly errorCode: number,
     public readonly debugMessage?: string,
     public readonly nestedError?: unknown,
+    retryAfterSeconds?: number,
   ) {
     super(message);
+
+    if (retryAfterSeconds !== undefined && (!Number.isSafeInteger(retryAfterSeconds) || retryAfterSeconds <= 0)) {
+      throw new Error("InvalidRetryAfterSeconds");
+    }
+
+    this.retryAfterSeconds = retryAfterSeconds;
     Object.setPrototypeOf(this, new.target.prototype);
     this.name = this.constructor.name;
   }
@@ -47,6 +55,12 @@ export class QuotaExceededError extends ApiError {
 export class BadGatewayError extends ApiError {
   constructor(opts?: { debugMessage?: string; nestedError?: unknown }) {
     super("bad_gateway", 502, opts?.debugMessage, opts?.nestedError);
+  }
+}
+
+export class ServiceUnavailableError extends ApiError {
+  constructor(opts?: { debugMessage?: string; nestedError?: unknown }) {
+    super("service_unavailable", 503, opts?.debugMessage, opts?.nestedError, 1);
   }
 }
 

@@ -73,6 +73,7 @@ src/
 - **App-client presence waiters are in-process only.** `AppClientPresenceService` wakes long polls on the instance that commits a device-token registration. Keep auth single-instance until app-presence signaling is distributed.
 - **Bridge notification debounce is in-process only.** `BridgeStateTracker` keeps per-(userId, bridgeId) debounce timers and last-notified state in a process-local Map: pending notifications are lost on restart, the map is unbounded for the process lifetime (acceptable under the 50-bridges-per-user registration cap), and multiple instances would double-notify. Same single-instance constraint as above.
 - **Activation reminder polling is in-process only.** `ActivationReminderService` has a process-local interval and single-flight guard. Multiple enabled instances can send the same reminder before either writes its MongoDB marker. Keep `ACTIVATION_REMINDERS_ENABLED=false` on all but one instance unless a distributed lease or claim is added.
+- **One shutdown coordinator owns process lifecycle.** Every newly composed stateful producer must extend `src/shutdown.ts` and `tests/index-shutdown.test.ts`; never install a second signal handler or close MongoDB before all pre-deadline participants fulfill.
 
 ## ACTIVATION REMINDERS
 

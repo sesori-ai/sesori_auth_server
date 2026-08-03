@@ -2,6 +2,7 @@ import { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import multipart from "@fastify/multipart";
 import { z } from "zod";
 import { ApiError, BadRequestError, InternalServerError, UnauthenticatedError } from "../lib/errors.js";
+import { toValidationDiagnostics } from "../lib/validation-diagnostics.js";
 import type {
   TranscribeReply,
   GlossaryListReply,
@@ -42,6 +43,8 @@ const glossaryAddBodySchema = z.object({
 const glossaryRemoveBodySchema = z.object({
   words: z.array(z.string().min(1)).min(1).max(100),
 });
+
+const GLOSSARY_VALIDATION_FIELDS: ReadonlySet<string> = new Set(["words"]);
 
 export type VoiceRouteOptions = {
   voiceService: VoiceService;
@@ -129,7 +132,10 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRouteOptions> = async (fastify
     async (request) => {
       const bodyResult = glossaryAddBodySchema.safeParse(request.body);
       if (!bodyResult.success) {
-        throw new BadRequestError({ debugMessage: "Invalid request body", nestedError: bodyResult.error.issues });
+        throw new BadRequestError({
+          debugMessage: "Invalid request body",
+          nestedError: toValidationDiagnostics(bodyResult.error, GLOSSARY_VALIDATION_FIELDS),
+        });
       }
 
       const userId = getUserId(request);
@@ -144,7 +150,10 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRouteOptions> = async (fastify
     async (request) => {
       const bodyResult = glossaryRemoveBodySchema.safeParse(request.body);
       if (!bodyResult.success) {
-        throw new BadRequestError({ debugMessage: "Invalid request body", nestedError: bodyResult.error.issues });
+        throw new BadRequestError({
+          debugMessage: "Invalid request body",
+          nestedError: toValidationDiagnostics(bodyResult.error, GLOSSARY_VALIDATION_FIELDS),
+        });
       }
 
       const userId = getUserId(request);

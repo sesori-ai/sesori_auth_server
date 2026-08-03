@@ -3,7 +3,7 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import type { OAuthClient } from "./clients/auth/oauth-client.js";
 import type { Config } from "./config.js";
-import { ApiError } from "./lib/errors.js";
+import { ApiError, safeErrorType } from "./lib/errors.js";
 import type { StateStore } from "./lib/state-store.js";
 import { createAuthMiddleware } from "./middleware/auth.js";
 import { createRelayAuthMiddleware } from "./middleware/relay-auth.js";
@@ -60,28 +60,17 @@ export type AppServices = {
   productAnalyticsPreferenceService: ProductAnalyticsPreferenceService;
 };
 
-export async function buildApp(services: AppServices): Promise<FastifyInstance> {
-  const app = Fastify({
-    disableRequestLogging: true,
-  });
-
-  await app.register(cors, {
-    origin: true,
-  });
-
-  await app.register(rateLimit, {
-    max: 100,
-    timeWindow: "1 minute",
-    allowList: ["127.0.0.1", "::1"],
-  });
-
-  app.decorateRequest("user", null);
-
+export function registerErrorHandler(app: FastifyInstance): void {
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof ApiError) {
       if (error.debugMessage || error.nestedError) {
         console.error(`[${error.name}] ${error.debugMessage ?? error.message}`, error.nestedError ?? "");
       }
+
+      if (error.retryAfterSeconds !== undefined) {
+        reply.header("Retry-After", error.retryAfterSeconds.toString());
+      }
+
       return reply.status(error.errorCode).send({ error: error.message, ...error.responseBody });
     }
 
@@ -96,6 +85,41 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
     console.error("[UnhandledError]", error);
     return reply.status(500).send({ error: "internal_server_error" });
   });
+}
+
+export type BuildAppOptions = {
+  createFastify?: () => FastifyInstance;
+};
+
+export async function buildApp(services: AppServices, options: BuildAppOptions = {}): Promise<FastifyInstance> {
+  const app = options.createFastify?.() ?? Fastify({ disableRequestLogging: true });
+
+  try {
+    return await configureApp(app, services);
+  } catch (error) {
+    try {
+      await app.close();
+    } catch (closeError) {
+      console.error("[AppBuild] Cleanup failed", { errorType: safeErrorType({ error: closeError }) });
+    }
+    throw error;
+  }
+}
+
+async function configureApp(app: FastifyInstance, services: AppServices): Promise<FastifyInstance> {
+  await app.register(cors, {
+    origin: true,
+  });
+
+  await app.register(rateLimit, {
+    max: 100,
+    timeWindow: "1 minute",
+    allowList: ["127.0.0.1", "::1"],
+  });
+
+  app.decorateRequest("user", null);
+
+  registerErrorHandler(app);
 
   app.get<{ Reply: HealthReply }>("/health", async () => {
     return { status: "ok" };

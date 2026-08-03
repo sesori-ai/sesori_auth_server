@@ -1,4 +1,5 @@
 import { BridgeStatus } from "../models/bridge.js";
+import { safeErrorType } from "../lib/errors.js";
 import type { NotificationPayload, NotificationService } from "./notification-service.js";
 
 /**
@@ -31,6 +32,10 @@ export class BridgeStateTracker {
   readonly #notificationService: NotificationService;
   readonly #debounceMs: number;
   readonly #state = new Map<string, BridgeStateEntry>();
+  readonly #lifecycleAbortController = new AbortController();
+  readonly #inFlight = new Set<Promise<void>>();
+  #disposePromise: Promise<void> | null = null;
+  #disposed = false;
 
   constructor(notificationService: NotificationService, debounceMs: number = DEFAULT_BRIDGE_NOTIFICATION_DEBOUNCE_MS) {
     this.#notificationService = notificationService;
@@ -38,10 +43,18 @@ export class BridgeStateTracker {
   }
 
   handleStatusChangeForBridge(userId: string, bridgeId: string, status: BridgeStatus): void {
+    if (this.#disposed) {
+      return;
+    }
+
     this.#dispatch(userId, instanceKey(userId, bridgeId), status);
   }
 
   cancelPendingForBridge(userId: string, bridgeId: string): void {
+    if (this.#disposed) {
+      return;
+    }
+
     const key = instanceKey(userId, bridgeId);
     this.#cancelPendingForKey(key);
   }
@@ -69,6 +82,10 @@ export class BridgeStateTracker {
   }
 
   #dispatch(userId: string, key: string, status: BridgeStatus): void {
+    if (this.#disposed) {
+      return;
+    }
+
     const entry = this.#getOrCreateEntry(key);
 
     if (status === entry.pendingStatus) {
@@ -88,22 +105,13 @@ export class BridgeStateTracker {
     entry.generation += 1;
     const capturedGeneration = entry.generation;
     entry.pendingStatus = status;
-    entry.timer = setTimeout(async () => {
-      if (entry.generation !== capturedGeneration) {
-        return;
-      }
-
-      try {
-        await this.#notificationService.sendToUser(userId, this.#buildPayload(status));
-      } catch (err) {
-        console.warn("Bridge notification failed", { userId, status, err });
-      } finally {
-        if (entry.generation === capturedGeneration) {
-          entry.lastNotifiedStatus = status;
-          entry.pendingStatus = null;
-          entry.timer = null;
-        }
-      }
+    entry.timer = setTimeout(() => {
+      const callback = this.#notify(userId, key, entry, status, capturedGeneration);
+      this.#inFlight.add(callback);
+      void callback.then(
+        () => this.#inFlight.delete(callback),
+        () => this.#inFlight.delete(callback),
+      );
     }, this.#debounceMs);
     // A pending debounce must not keep the process alive on shutdown
     // (dispose() is not on every exit path). Optional call: the mocked
@@ -111,14 +119,73 @@ export class BridgeStateTracker {
     entry.timer.unref?.();
   }
 
-  dispose(): void {
+  async #notify(
+    userId: string,
+    key: string,
+    entry: BridgeStateEntry,
+    status: BridgeStatus,
+    capturedGeneration: number,
+  ): Promise<void> {
+    if (!this.#isCurrent(key, entry, capturedGeneration)) {
+      return;
+    }
+
+    try {
+      await this.#notificationService.sendToUser(
+        userId,
+        this.#buildPayload(status),
+        this.#lifecycleAbortController.signal,
+      );
+    } catch (error) {
+      if (!this.#lifecycleAbortController.signal.aborted) {
+        console.warn("Bridge notification failed", { status, errorType: safeErrorType({ error }) });
+      }
+    }
+
+    if (!this.#isCurrent(key, entry, capturedGeneration)) {
+      return;
+    }
+
+    entry.lastNotifiedStatus = status;
+    entry.pendingStatus = null;
+    entry.timer = null;
+  }
+
+  dispose(): Promise<void> {
+    this.#stop();
+
+    if (!this.#disposePromise) {
+      this.#disposePromise = Promise.all(this.#inFlight).then(() => undefined);
+    }
+
+    return this.#disposePromise;
+  }
+
+  forceFence(): void {
+    this.#stop();
+  }
+
+  #stop(): void {
+    if (this.#disposed) {
+      return;
+    }
+
+    this.#disposed = true;
     for (const entry of this.#state.values()) {
+      entry.generation += 1;
+      entry.pendingStatus = null;
       if (entry.timer) {
         clearTimeout(entry.timer);
+        entry.timer = null;
       }
     }
 
     this.#state.clear();
+    this.#lifecycleAbortController.abort();
+  }
+
+  #isCurrent(key: string, entry: BridgeStateEntry, capturedGeneration: number): boolean {
+    return !this.#disposed && entry.generation === capturedGeneration && this.#state.get(key) === entry;
   }
 
   #getOrCreateEntry(key: string): BridgeStateEntry {

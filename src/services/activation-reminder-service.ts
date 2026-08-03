@@ -3,6 +3,7 @@ import {
   type ActivationStateRepository,
   type DueActivationReminder,
 } from "../repositories/activation-state-repo.js";
+import { safeErrorType } from "../lib/errors.js";
 import type { NotificationPayload, NotificationService } from "./notification-service.js";
 
 export const ACTIVATION_REMINDER_DISPOSE_TIMEOUT_MS = 15_000;
@@ -86,7 +87,10 @@ export class ActivationReminderService {
   readonly #disposalAbortController = new AbortController();
   #timer: ReturnType<typeof setInterval> | null = null;
   #inFlight: Promise<ActivationReminderSweepResult> | null = null;
+  #disposePromise: Promise<void> | null = null;
+  #resolveForceFence: (() => void) | null = null;
   #disposed = false;
+  #forceFenced = false;
   #disposeTimedOut = false;
 
   constructor(deps: {
@@ -144,38 +148,65 @@ export class ActivationReminderService {
     return sweep;
   }
 
-  async dispose(): Promise<void> {
+  dispose(): Promise<void> {
+    this.#stop();
+
+    if (!this.#disposePromise) {
+      const inFlight = this.#inFlight;
+      this.#disposePromise = inFlight ? this.#drain(inFlight) : Promise.resolve();
+    }
+
+    return this.#disposePromise;
+  }
+
+  forceFence(): void {
+    this.#stop();
+    if (this.#forceFenced) {
+      return;
+    }
+
+    this.#forceFenced = true;
+    this.#disposalAbortController.abort();
+    this.#resolveForceFence?.();
+  }
+
+  async #drain(inFlight: Promise<ActivationReminderSweepResult>): Promise<void> {
+    let resolveForceFence!: () => void;
+    const forceFencePromise = new Promise<void>((resolve) => {
+      resolveForceFence = resolve;
+      this.#resolveForceFence = resolve;
+    });
+    if (this.#forceFenced) {
+      resolveForceFence();
+    }
+
+    const timeout = setTimeout(() => {
+      this.#disposeTimedOut = true;
+      this.forceFence();
+    }, ACTIVATION_REMINDER_DISPOSE_TIMEOUT_MS);
+    timeout.unref?.();
+
+    try {
+      await Promise.race([inFlight.then(() => undefined), forceFencePromise]);
+    } finally {
+      clearTimeout(timeout);
+      if (this.#resolveForceFence === resolveForceFence) {
+        this.#resolveForceFence = null;
+      }
+    }
+
+    if (this.#disposeTimedOut) {
+      console.warn("[ActivationReminderService] Disposal timed out with reminder delivery still in flight", {
+        timeoutMs: ACTIVATION_REMINDER_DISPOSE_TIMEOUT_MS,
+      });
+    }
+  }
+
+  #stop(): void {
     this.#disposed = true;
     if (this.#timer) {
       clearInterval(this.#timer);
       this.#timer = null;
-    }
-
-    const inFlight = this.#inFlight;
-    if (!inFlight) {
-      return;
-    }
-
-    let timedOut = false;
-    let timeout: ReturnType<typeof setTimeout> | null = null;
-    const timeoutPromise = new Promise<void>((resolve) => {
-      timeout = setTimeout(() => {
-        timedOut = true;
-        this.#disposeTimedOut = true;
-        this.#disposalAbortController.abort();
-        resolve();
-      }, ACTIVATION_REMINDER_DISPOSE_TIMEOUT_MS);
-      timeout.unref?.();
-    });
-    await Promise.race([inFlight.then(() => undefined), timeoutPromise]);
-    if (timeout) {
-      clearTimeout(timeout);
-    }
-
-    if (timedOut) {
-      console.warn("[ActivationReminderService] Disposal timed out with reminder delivery still in flight", {
-        timeoutMs: ACTIVATION_REMINDER_DISPOSE_TIMEOUT_MS,
-      });
     }
   }
 
@@ -190,7 +221,10 @@ export class ActivationReminderService {
         result.reminders[kind] = await this.#processKind(kind, now);
       } catch (error) {
         result.reminders[kind].failed += 1;
-        console.warn("[ActivationReminderService] Reminder query failed", { kind, error });
+        console.warn("[ActivationReminderService] Reminder query failed", {
+          kind,
+          errorType: safeErrorType({ error }),
+        });
       }
     }
     console.log("[ActivationReminderService] Sweep completed", { at: now, reminders: result.reminders });
@@ -219,6 +253,7 @@ export class ActivationReminderService {
     cutoff: Date,
     counters: ActivationReminderCounters,
   ): Promise<void> {
+    let stage: "eligibility" | "send" | "marker" = "eligibility";
     try {
       if (!(await this.#activationStateRepo.isReminderStillDue(reminder.userId, kind, cutoff))) {
         counters.skipped += 1;
@@ -230,12 +265,13 @@ export class ActivationReminderService {
         return;
       }
 
+      stage = "send";
       const { devicesNotified, retryableFailures } = await this.#notificationService.sendToUser(
         reminder.userId,
         REMINDER_PAYLOADS[kind],
         this.#disposalAbortController.signal,
       );
-      if (this.#disposeTimedOut) {
+      if (this.#forceFenced) {
         counters.failed += 1;
         return;
       }
@@ -248,14 +284,19 @@ export class ActivationReminderService {
         counters.failed += 1;
         console.warn("[ActivationReminderService] Reminder delivery unresolved", {
           kind,
-          userId: reminder.userId,
           retryableFailures,
         });
         return;
       }
 
       const sentAt = new Date();
+      stage = "marker";
       const marked = await this.#activationStateRepo.markReminderSentIfStillDue(reminder.userId, kind, cutoff, sentAt);
+      if (this.#forceFenced) {
+        counters.failed += 1;
+        return;
+      }
+
       if (!marked) {
         counters.skipped += 1;
         console.log("[ActivationReminderService] Reminder no longer eligible after send", {
@@ -280,10 +321,13 @@ export class ActivationReminderService {
       });
     } catch (error) {
       counters.failed += 1;
+      if (stage === "send" && this.#disposalAbortController.signal.aborted) {
+        return;
+      }
+
       console.warn("[ActivationReminderService] Reminder failed and remains retryable", {
         kind,
-        userId: reminder.userId,
-        error,
+        errorType: safeErrorType({ error }),
       });
     }
   }

@@ -52,12 +52,19 @@ function disconnectedPayload(): NotificationPayload {
 }
 
 describe("BridgeStateTracker", () => {
+  let warnCalls: unknown[][];
+
   beforeEach(() => {
+    warnCalls = [];
+    mock.method(console, "warn", (...args: unknown[]) => {
+      warnCalls.push(args);
+    });
     mock.timers.enable({ apis: ["setTimeout"] });
   });
 
   afterEach(() => {
     mock.timers.reset();
+    mock.restoreAll();
   });
 
   it("default debounce waits two minutes before notifying", async () => {
@@ -282,6 +289,60 @@ describe("BridgeStateTracker", () => {
     assert.equal(sendCalls.length, 0);
   });
 
+  it("dispose synchronously aborts in-flight callbacks and memoizes their drain", async () => {
+    const fcmDeferreds = [createDeferred<void>(), createDeferred<void>()];
+    const lifecycleSignals: AbortSignal[] = [];
+    let nextStageCalls = 0;
+    const notificationServiceMock = {
+      sendToUser: async (_userId: string, _payload: NotificationPayload, abortSignal?: AbortSignal) => {
+        assert.ok(abortSignal);
+        const fcmDeferred = fcmDeferreds[lifecycleSignals.length];
+        lifecycleSignals.push(abortSignal);
+        await fcmDeferred.promise;
+        abortSignal.throwIfAborted();
+        nextStageCalls += 1;
+        return { devicesNotified: 1 };
+      },
+    } as unknown as NotificationService;
+    const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
+
+    tracker.handleStatusChangeForBridge("private-user", BRIDGE_ID, "active");
+    tracker.handleStatusChangeForBridge("other-private-user", BRIDGE_ID, "inactive");
+    mock.timers.tick(DEBOUNCE_MS);
+
+    const firstDrain = tracker.dispose();
+    const secondDrain = tracker.dispose();
+    tracker.forceFence();
+    tracker.forceFence();
+
+    assert.equal(firstDrain, secondDrain);
+    assert.equal(lifecycleSignals.length, 2);
+    assert.equal(lifecycleSignals[0], lifecycleSignals[1]);
+    assert.ok(lifecycleSignals.every((signal) => signal.aborted));
+
+    let drained = false;
+    void firstDrain.then(() => {
+      drained = true;
+    });
+    await flushMicrotasks();
+    assert.equal(drained, false);
+
+    fcmDeferreds[0].resolve();
+    await flushMicrotasks();
+    assert.equal(drained, false);
+
+    fcmDeferreds[1].resolve();
+    await firstDrain;
+
+    tracker.handleStatusChangeForBridge("private-user", BRIDGE_ID, "inactive");
+    tracker.cancelPendingForBridge("private-user", BRIDGE_ID);
+    mock.timers.tick(DEBOUNCE_MS);
+    await flushMicrotasks();
+
+    assert.equal(nextStageCalls, 0);
+    assert.deepEqual(warnCalls, []);
+  });
+
   it("cancelPendingForBridge clears only the targeted bridge timer", async () => {
     const sendCalls: SendCall[] = [];
     const notificationServiceMock = {
@@ -326,11 +387,13 @@ describe("BridgeStateTracker", () => {
   it("sendToUser rejection is caught and new status change still works", async () => {
     const sendCalls: SendCall[] = [];
     let shouldReject = true;
+    const unsafeError = new Error("send failed for user-1");
+    unsafeError.name = "BridgeSendError";
     const notificationServiceMock = {
       sendToUser: async (userId: string, payload: NotificationPayload) => {
         sendCalls.push({ userId, payload });
         if (shouldReject) {
-          throw new Error("send failed");
+          throw unsafeError;
         }
 
         return { devicesNotified: 1 };
@@ -351,6 +414,8 @@ describe("BridgeStateTracker", () => {
       { userId: "user-1", payload: connectedPayload() },
       { userId: "user-1", payload: disconnectedPayload() },
     ]);
+    assert.deepEqual(warnCalls, [["Bridge notification failed", { status: "active", errorType: "BridgeSendError" }]]);
+    assert.equal(JSON.stringify(warnCalls).includes("user-1"), false);
   });
 
   it("stale async completion does not overwrite newer state", async () => {
@@ -387,16 +452,19 @@ describe("BridgeStateTracker", () => {
     ]);
   });
 
-  it("dispose is idempotent", () => {
+  it("dispose and forceFence are idempotent", () => {
     const notificationServiceMock = {
       sendToUser: async () => ({ devicesNotified: 1 }),
     } as unknown as NotificationService;
     const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
 
-    tracker.dispose();
+    const disposing = tracker.dispose();
 
     assert.doesNotThrow(() => {
       tracker.dispose();
+      tracker.forceFence();
+      tracker.forceFence();
     });
+    assert.equal(tracker.dispose(), disposing);
   });
 });

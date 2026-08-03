@@ -44,6 +44,11 @@ function emptyDue(): Record<ActivationReminderKind, DueActivationReminder[]> {
 
 function createRepo(args?: {
   due?: Partial<Record<ActivationReminderKind, DueActivationReminder[]>>;
+  find?: (
+    kind: ActivationReminderKind,
+    cutoff: Date,
+    batchLimit: number,
+  ) => DueActivationReminder[] | Promise<DueActivationReminder[]>;
   isDue?: (userId: string, kind: ActivationReminderKind) => boolean | Promise<boolean>;
   mark?: (userId: string, kind: ActivationReminderKind) => boolean | Promise<boolean>;
 }) {
@@ -54,6 +59,10 @@ function createRepo(args?: {
   const repo = {
     findDueReminders: async (kind: ActivationReminderKind, cutoff: Date, batchLimit: number) => {
       findCalls.push({ kind, cutoff, batchLimit });
+      if (args?.find) {
+        return (await args.find(kind, cutoff, batchLimit)).slice(0, batchLimit);
+      }
+
       return due[kind].slice(0, batchLimit);
     },
     isReminderStillDue: async (userId: string, kind: ActivationReminderKind, cutoff: Date) => {
@@ -260,10 +269,15 @@ describe("ActivationReminderService", () => {
   it("leaves thrown sends retryable and succeeds on a later sweep", async () => {
     const repo = createRepo({ due: { [ActivationReminderKind.Bridge1]: [candidate("retry-user")] } });
     let attempts = 0;
+    const unsafeError = new Error("FCM unavailable for retry-user");
+    unsafeError.name = "NotificationSendError";
     const notification = createNotification({
       send: async () => {
         attempts += 1;
-        if (attempts === 1) throw new Error("FCM unavailable");
+        if (attempts === 1) {
+          throw unsafeError;
+        }
+
         return { devicesNotified: 1, retryableFailures: 0 };
       },
     });
@@ -280,9 +294,45 @@ describe("ActivationReminderService", () => {
     assert.equal(first.reminders[ActivationReminderKind.Bridge1].failed, 1);
     assert.equal(second.reminders[ActivationReminderKind.Bridge1].sent, 1);
     assert.equal(repo.markCalls.length, 1);
-    assert.ok(
-      warnCalls.some((args) => args[0] === "[ActivationReminderService] Reminder failed and remains retryable"),
+    assert.deepEqual(
+      warnCalls.filter((args) => args[0] === "[ActivationReminderService] Reminder failed and remains retryable"),
+      [
+        [
+          "[ActivationReminderService] Reminder failed and remains retryable",
+          { kind: ActivationReminderKind.Bridge1, errorType: "NotificationSendError" },
+        ],
+      ],
     );
+    assert.equal(JSON.stringify(warnCalls).includes("retry-user"), false);
+  });
+
+  it("logs query failures with bounded kind and safe error type only", async () => {
+    const unsafeError = new Error("query failed for private-user");
+    unsafeError.name = "ActivationQueryError";
+    const repo = createRepo({
+      find: async (kind) => {
+        if (kind === ActivationReminderKind.Bridge2) {
+          throw unsafeError;
+        }
+
+        return [];
+      },
+    });
+    const service = new ActivationReminderService({
+      activationStateRepo: repo.repo,
+      notificationService: createNotification().service,
+      options: DEFAULT_OPTIONS,
+    });
+
+    await service.sweepOnce(NOW);
+
+    assert.deepEqual(warnCalls, [
+      [
+        "[ActivationReminderService] Reminder query failed",
+        { kind: ActivationReminderKind.Bridge2, errorType: "ActivationQueryError" },
+      ],
+    ]);
+    assert.equal(JSON.stringify(warnCalls).includes("private-user"), false);
   });
 
   it("does not mark a stage that completes while the notification is sending", async () => {
@@ -332,11 +382,16 @@ describe("ActivationReminderService", () => {
 
   it("leaves a successful send retryable when the conditional marker write fails", async () => {
     let markAttempts = 0;
+    const unsafeError = new Error("MongoDB unavailable for marker-failure-user");
+    unsafeError.name = "ActivationMarkerError";
     const repo = createRepo({
       due: { [ActivationReminderKind.Session]: [candidate("marker-failure-user")] },
       mark: () => {
         markAttempts += 1;
-        if (markAttempts === 1) throw new Error("MongoDB unavailable");
+        if (markAttempts === 1) {
+          throw unsafeError;
+        }
+
         return true;
       },
     });
@@ -354,6 +409,16 @@ describe("ActivationReminderService", () => {
     assert.equal(first.reminders[ActivationReminderKind.Session].failed, 1);
     assert.equal(second.reminders[ActivationReminderKind.Session].sent, 1);
     assert.equal(notification.sendCalls.length, 2);
+    assert.deepEqual(
+      warnCalls.filter((args) => args[0] === "[ActivationReminderService] Reminder failed and remains retryable"),
+      [
+        [
+          "[ActivationReminderService] Reminder failed and remains retryable",
+          { kind: ActivationReminderKind.Session, errorType: "ActivationMarkerError" },
+        ],
+      ],
+    );
+    assert.equal(JSON.stringify(warnCalls).includes("marker-failure-user"), false);
   });
 
   it("coalesces concurrent sweeps and dispose drains only the current reminder through its marker", async () => {
@@ -395,11 +460,19 @@ describe("ActivationReminderService", () => {
     assert.equal(result.reminders[ActivationReminderKind.Bridge1].sent, 1);
   });
 
-  it("bounds disposal when an FCM send does not settle", async (t) => {
+  it("uses one fence for the exact disposal timeout and a concurrent force", async (t) => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
     const sendDeferred = createDeferred<NotificationDeliveryResult>();
-    const repo = createRepo({ due: { [ActivationReminderKind.Bridge1]: [candidate("stuck-user")] } });
-    const notification = createNotification({ send: async () => sendDeferred.promise });
+    const repo = createRepo({
+      due: { [ActivationReminderKind.Bridge1]: [candidate("stuck-user"), candidate("queued-user")] },
+    });
+    const notification = createNotification({
+      send: async (_userId, _payload, abortSignal) => {
+        const result = await sendDeferred.promise;
+        abortSignal?.throwIfAborted();
+        return result;
+      },
+    });
     const service = new ActivationReminderService({
       activationStateRepo: repo.repo,
       notificationService: notification.service,
@@ -408,22 +481,69 @@ describe("ActivationReminderService", () => {
 
     const sweep = service.sweepOnce(NOW);
     await flushMicrotasks();
+    setTimeout(() => {
+      service.forceFence();
+    }, ACTIVATION_REMINDER_DISPOSE_TIMEOUT_MS);
     const disposing = service.dispose();
+    assert.equal(service.dispose(), disposing);
     t.mock.timers.tick(ACTIVATION_REMINDER_DISPOSE_TIMEOUT_MS);
     await disposing;
+    service.forceFence();
+    service.forceFence();
 
     assert.equal(repo.markCalls.length, 0);
     assert.equal(notification.sendCalls[0]?.abortSignal?.aborted, true);
-    assert.ok(
-      warnCalls.some(
+    assert.equal(
+      warnCalls.filter(
         (args) => args[0] === "[ActivationReminderService] Disposal timed out with reminder delivery still in flight",
-      ),
+      ).length,
+      1,
     );
 
     sendDeferred.resolve({ devicesNotified: 1, retryableFailures: 0 });
     const result = await sweep;
     assert.equal(repo.markCalls.length, 0);
+    assert.equal(notification.sendCalls.length, 1);
     assert.equal(result.reminders[ActivationReminderKind.Bridge1].failed, 1);
+    assert.equal(
+      warnCalls.some((args) => args[0] === "[ActivationReminderService] Reminder failed and remains retryable"),
+      false,
+    );
+  });
+
+  it("allows an already-dispatched marker to settle after fencing without starting the next candidate", async () => {
+    const markerDeferred = createDeferred<boolean>();
+    const repo = createRepo({
+      due: { [ActivationReminderKind.Bridge1]: [candidate("marking-user"), candidate("queued-user")] },
+      mark: async () => markerDeferred.promise,
+    });
+    const notification = createNotification();
+    const service = new ActivationReminderService({
+      activationStateRepo: repo.repo,
+      notificationService: notification.service,
+      options: DEFAULT_OPTIONS,
+    });
+
+    const sweep = service.sweepOnce(NOW);
+    await flushMicrotasks();
+    assert.equal(repo.markCalls.length, 1);
+
+    const disposing = service.dispose();
+    service.forceFence();
+    service.forceFence();
+    await disposing;
+
+    markerDeferred.resolve(true);
+    const result = await sweep;
+
+    assert.equal(notification.sendCalls.length, 1);
+    assert.equal(repo.markCalls.length, 1);
+    assert.equal(result.reminders[ActivationReminderKind.Bridge1].sent, 0);
+    assert.equal(result.reminders[ActivationReminderKind.Bridge1].failed, 1);
+    assert.equal(
+      warnCalls.some((args) => args[0] === "[ActivationReminderService] Reminder failed and remains retryable"),
+      false,
+    );
   });
 
   it("starts only when enabled and stops interval sweeps on dispose", async (t) => {

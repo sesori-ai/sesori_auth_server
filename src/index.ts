@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 import * as admin from "firebase-admin/app";
 import { getMessaging } from "firebase-admin/messaging";
 import { AppleClient } from "./clients/auth/apple-client.js";
@@ -9,6 +10,7 @@ import { loadConfig } from "./config.js";
 import { MongoDbAccessor } from "./db/mongo-db-accessor.js";
 import { MongoDbConnector } from "./db/mongo-db-connector.js";
 import { getLegalDocumentUrl } from "./lib/legal-document-paths.js";
+import { safeErrorType } from "./lib/errors.js";
 import stateStore from "./lib/state-store.js";
 import { InstallScriptService } from "./services/install-script-service.js";
 import { BridgeRepository } from "./repositories/bridge-repo.js";
@@ -34,8 +36,48 @@ import { TokenService } from "./services/token-service.js";
 import { VoiceService } from "./services/voice-service.js";
 import { AppClientPresenceService } from "./services/app-client-presence-service.js";
 import { ProductAnalyticsPreferenceService } from "./services/product-analytics-preference-service.js";
+import {
+  cleanupPartialStartup,
+  createShutdownCoordinator,
+  type ShutdownCoordinator,
+  type ShutdownExitCode,
+  type ShutdownSignal,
+} from "./shutdown.js";
+import type { FastifyInstance } from "fastify";
 
-async function main() {
+export type ProductionRuntime = {
+  app: FastifyInstance;
+  activationReminderService: ActivationReminderService;
+  bridgeStateTracker: BridgeStateTracker;
+  dbConnector: MongoDbConnector;
+};
+
+type StartupOwnership = Partial<ProductionRuntime>;
+
+export type SignalTarget = {
+  on: (signal: ShutdownSignal, listener: () => void) => unknown;
+  off: (signal: ShutdownSignal, listener: () => void) => unknown;
+};
+
+export type MainOptions = {
+  startRuntime?: () => Promise<ProductionRuntime>;
+  signalTarget?: SignalTarget;
+  selectExit?: (code: ShutdownExitCode) => void;
+};
+
+export type MainHandle = {
+  shutdownCoordinator: ShutdownCoordinator;
+  removeSignalHandlers: () => void;
+};
+
+class ProductionStartupError extends Error {
+  constructor() {
+    super("ProductionStartupError");
+    this.name = "ProductionStartupError";
+  }
+}
+
+async function composeProductionRuntime(ownership: StartupOwnership): Promise<ProductionRuntime> {
   const config = loadConfig();
 
   const dbConnector = new MongoDbConnector({
@@ -51,6 +93,7 @@ async function main() {
     onOpen: () => console.log("MongoDB connected"),
     onClose: () => console.log("MongoDB connection closed"),
   });
+  ownership.dbConnector = dbConnector;
 
   const dbAccessor = new MongoDbAccessor(dbConnector);
 
@@ -95,6 +138,7 @@ async function main() {
 
   const notificationService = new NotificationService(deviceTokenRepo, messaging);
   const bridgeStateTracker = new BridgeStateTracker(notificationService);
+  ownership.bridgeStateTracker = bridgeStateTracker;
   const bridgeService = new BridgeService({ bridgeRepo, bridgeStateTracker });
   const activationService = new ActivationService({
     activationStateRepo,
@@ -119,6 +163,7 @@ async function main() {
       batchLimit: config.ACTIVATION_SWEEP_BATCH_LIMIT,
     },
   });
+  ownership.activationReminderService = activationReminderService;
 
   const openai = new OpenAIClient({ apiKey: config.OPENAI_API_KEY, model: config.OPENAI_TRANSCRIPTION_MODEL });
   console.log(`OpenAI client initialized (model: ${config.OPENAI_TRANSCRIPTION_MODEL})`);
@@ -178,25 +223,64 @@ async function main() {
     pendingAuthStore,
     productAnalyticsPreferenceService,
   });
+  ownership.app = app;
 
   const address = await app.listen({ port: config.PORT, host: "0.0.0.0" });
   console.log(`Server listening at ${address}`);
-  activationReminderService.start();
+  return { app, activationReminderService, bridgeStateTracker, dbConnector };
+}
 
-  const signals = ["SIGINT", "SIGTERM"] as const;
-  for (const signal of signals) {
-    process.on(signal, async () => {
-      console.log(`Received ${signal}, shutting down gracefully...`);
-      const reminderDisposal = activationReminderService.dispose();
-      bridgeStateTracker.dispose();
-      await Promise.all([app.close(), reminderDisposal]);
-      await dbConnector.close();
-      process.exit(0);
-    });
+async function startProductionRuntime(): Promise<ProductionRuntime> {
+  const ownership: StartupOwnership = {};
+  try {
+    return await composeProductionRuntime(ownership);
+  } catch {
+    await cleanupPartialStartup(ownership);
+    throw new ProductionStartupError();
   }
 }
 
-main().catch((error) => {
-  console.error("Fatal error:", error);
-  process.exit(1);
-});
+export async function main(options: MainOptions = {}): Promise<MainHandle> {
+  const runtime = await (options.startRuntime ?? startProductionRuntime)();
+  const signalTarget = options.signalTarget ?? process;
+  const shutdownCoordinator = createShutdownCoordinator({
+    app: {
+      close: runtime.app.close.bind(runtime.app),
+      closeAllConnections: () => runtime.app.server.closeAllConnections(),
+    },
+    activationReminderService: runtime.activationReminderService,
+    bridgeStateTracker: runtime.bridgeStateTracker,
+    dbConnector: runtime.dbConnector,
+    selectExit: options.selectExit ?? ((code) => process.exit(code)),
+  });
+
+  const onSignal = (signal: ShutdownSignal): void => {
+    void shutdownCoordinator.shutdown(signal);
+  };
+  const onSigint = (): void => onSignal("SIGINT");
+  const onSigterm = (): void => onSignal("SIGTERM");
+  signalTarget.on("SIGINT", onSigint);
+  signalTarget.on("SIGTERM", onSigterm);
+
+  let removed = false;
+  const removeSignalHandlers = (): void => {
+    if (removed) {
+      return;
+    }
+
+    removed = true;
+    signalTarget.off("SIGINT", onSigint);
+    signalTarget.off("SIGTERM", onSigterm);
+  };
+
+  runtime.activationReminderService.start();
+  return { shutdownCoordinator, removeSignalHandlers };
+}
+
+const entrypoint = process.argv[1];
+if (entrypoint && import.meta.url === pathToFileURL(entrypoint).href) {
+  void main().catch((error) => {
+    console.error("[Startup] Fatal error", { errorType: safeErrorType({ error }) });
+    process.exit(1);
+  });
+}

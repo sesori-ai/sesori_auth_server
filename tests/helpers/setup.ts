@@ -300,12 +300,29 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   }
 
   async function cleanup(): Promise<void> {
-    bridgeStateTracker.dispose();
-    await app.close();
-    await dbAccessor.getDb(MongoDbDatabase.Auth).dropDatabase();
-    await dbConnector.close();
-    if (mongoServer) {
-      await mongoServer.stop();
+    const lifecycleResults = await Promise.allSettled([bridgeStateTracker.dispose(), app.close()]);
+    let failed = lifecycleResults.some((result) => result.status === "rejected");
+
+    try {
+      await dbAccessor.getDb(MongoDbDatabase.Auth).dropDatabase();
+    } catch {
+      failed = true;
+    }
+
+    try {
+      await dbConnector.close();
+    } catch {
+      failed = true;
+    }
+
+    try {
+      await mongoServer?.stop();
+    } catch {
+      failed = true;
+    }
+
+    if (failed) {
+      throw new Error("TestAppCleanupError");
     }
   }
 
