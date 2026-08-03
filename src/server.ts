@@ -60,6 +60,14 @@ export type AppServices = {
   productAnalyticsPreferenceService: ProductAnalyticsPreferenceService;
 };
 
+// Once proxies are trusted, request.ip is derived from X-Forwarded-For, so a
+// client could send 127.0.0.1 and match a loopback allowlist to skip rate
+// limiting entirely. Behind a proxy the loopback address is never the real
+// ingress, so there is nothing legitimate left to exempt.
+export function resolveRateLimitAllowList(trustProxy: boolean | number): string[] {
+  return trustProxy === false ? ["127.0.0.1", "::1"] : [];
+}
+
 export async function buildApp(services: AppServices): Promise<FastifyInstance> {
   const app = Fastify({
     disableRequestLogging: true,
@@ -73,7 +81,7 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
   await app.register(rateLimit, {
     max: 100,
     timeWindow: "1 minute",
-    allowList: ["127.0.0.1", "::1"],
+    allowList: resolveRateLimitAllowList(services.config.TRUST_PROXY),
   });
 
   app.decorateRequest("user", null);
