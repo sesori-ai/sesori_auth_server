@@ -9,6 +9,10 @@ const appleConfigSchema = z.object({
   APPLE_PRIVATE_KEY: z.string().min(1, "APPLE_PRIVATE_KEY is required"),
 });
 
+// Real ingress chains are one or two hops; the ceiling exists so an oversized
+// value cannot widen to Infinity and silently trust the whole forwarded chain.
+const MAX_TRUST_PROXY_HOPS = 10;
+
 const baseConfigSchema = z.object({
   PORT: z.coerce.number().default(3001),
   // Left unconstrained on purpose: deployments using values like "staging" must
@@ -34,7 +38,8 @@ const baseConfigSchema = z.object({
       }
 
       return Number(value);
-    }),
+    })
+    .pipe(z.union([z.boolean(), z.number().int().min(1).max(MAX_TRUST_PROXY_HOPS)])),
   // Skips JWT verification and serves every request as a fixed local user.
   // The refinement below keeps it unreachable outside NODE_ENV=development.
   AUTH_DEV_BYPASS_ENABLED: z

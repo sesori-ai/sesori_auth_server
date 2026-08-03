@@ -96,6 +96,14 @@ describe("configSchema", () => {
     }
   });
 
+  it("rejects a hop count large enough to trust the whole forwarded chain", () => {
+    for (const value of ["11", "99999999999999999999", "9".repeat(400)]) {
+      const result = configSchema.safeParse(validEnv({ TRUST_PROXY: value }));
+
+      assert.equal(result.success, false, `TRUST_PROXY=${value.slice(0, 12)} should be rejected`);
+    }
+  });
+
   it("refuses to start when the dev auth bypass is enabled in production", () => {
     const result = configSchema.safeParse(validEnv({ AUTH_DEV_BYPASS_ENABLED: "true", NODE_ENV: "production" }));
 
