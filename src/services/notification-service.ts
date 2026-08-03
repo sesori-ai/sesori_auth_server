@@ -48,7 +48,16 @@ export class NotificationService {
   // to a stored preference, so it keeps delivering rather than going silent.
   async #selectOptedInTokens(userId: string, tokens: DeviceToken[], category: NotificationCategory) {
     const settingKey = NOTIFICATION_CATEGORY_SETTING_KEYS[category];
-    const settingsByDevice = await this.#settingsResolver.resolveNotificationsByDevice(userId);
+
+    let settingsByDevice: Map<string, NotificationSettings>;
+    try {
+      settingsByDevice = await this.#settingsResolver.resolveNotificationsByDevice(userId);
+    } catch (error) {
+      // Same rule as an unmatched token: an unreadable preference is not proof
+      // of an opt-out, and muting every device is worse than over-delivering.
+      console.warn("Failed to read notification settings; delivering unfiltered", { userId, error });
+      return tokens;
+    }
 
     return tokens.filter((deviceToken) => {
       if (!deviceToken.deviceId) {
@@ -87,9 +96,11 @@ export class NotificationService {
     }
 
     // FCM data must be a flat Record<string, string>. Flatten NotificationData and filter nulls.
+    // The enum-validated top-level category is the only outbound category.
+    // data.category is a free string, so honouring it would emit a category the
+    // device opted out of — or a server-only one — after filtering already ran.
     const flatData: Record<string, string> = { category: payload.category };
     if (payload.data) {
-      if (payload.data.category) flatData["category"] = payload.data.category;
       if (payload.data.eventType) flatData["eventType"] = payload.data.eventType;
       if (payload.data.sessionId) flatData["sessionId"] = payload.data.sessionId;
       if (payload.data.projectId) flatData["projectId"] = payload.data.projectId;

@@ -198,6 +198,48 @@ describe("NotificationService category filtering", () => {
     );
   });
 
+  // data.category is not enum-checked, so letting it through would deliver a
+  // category the device opted out of while filtering ran on the top-level one.
+  it("never lets data.category override the category that was filtered", async () => {
+    const tokenRepo = createMockDeviceTokenRepo([
+      { userId: "user-1", token: "token-a", platform: "ios", deviceId: DEVICE_A },
+    ]);
+    const messaging = createMockMessaging([{ success: true }]);
+    const settings = createMockSettingsResolver({
+      [DEVICE_A]: { aiInteraction: true, sessionMessage: false, connectionStatus: false },
+    });
+    const service = new NotificationService(tokenRepo.repo, messaging.messaging, settings);
+
+    await service.sendToUser("user-1", {
+      category: NotificationCategory.AiInteraction,
+      title: "Action required",
+      body: "Approve this command",
+      collapseKey: null,
+      data: { category: NotificationCategory.ConnectionStatus, sessionId: "session-1" },
+    });
+
+    const message = messaging.calls[0]?.[0] as { data?: Record<string, string> };
+    assert.equal(message.data?.category, NotificationCategory.AiInteraction);
+    assert.equal(message.data?.sessionId, "session-1", "other data fields still pass through");
+  });
+
+  it("delivers unfiltered when the settings lookup fails", async () => {
+    const tokenRepo = createMockDeviceTokenRepo([
+      { userId: "user-1", token: "token-a", platform: "ios", deviceId: DEVICE_A },
+    ]);
+    const messaging = createMockMessaging([{ success: true }]);
+    const settings: NotificationSettingsResolver = {
+      resolveNotificationsByDevice: async () => {
+        throw new Error("settings unavailable");
+      },
+    };
+    const service = new NotificationService(tokenRepo.repo, messaging.messaging, settings);
+
+    const result = await service.sendToUser("user-1", buildPayload(NotificationCategory.AiInteraction));
+
+    assert.equal(result.devicesNotified, 1);
+  });
+
   it("does not query settings when the user has no tokens", async () => {
     const tokenRepo = createMockDeviceTokenRepo([]);
     const messaging = createMockMessaging([]);
