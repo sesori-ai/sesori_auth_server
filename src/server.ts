@@ -63,6 +63,7 @@ export type AppServices = {
 export async function buildApp(services: AppServices): Promise<FastifyInstance> {
   const app = Fastify({
     disableRequestLogging: true,
+    trustProxy: services.config.TRUST_PROXY,
   });
 
   await app.register(cors, {
@@ -109,7 +110,9 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
     legalDocumentService: services.legalDocumentService,
   });
 
-  const requireAuth = createAuthMiddleware(services.tokenService);
+  const requireAuth = createAuthMiddleware(services.tokenService, {
+    devBypassEnabled: services.config.AUTH_DEV_BYPASS_ENABLED,
+  });
   const requireRelayAuth = createRelayAuthMiddleware(services.config.RELAY_WEBHOOK_SECRET);
 
   await app.register(tokenRoutes, {

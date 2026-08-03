@@ -154,6 +154,8 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 | `PENDING_AUTH_MAX_SESSIONS`    | Max concurrent pending OAuth sessions in-memory. Default `10000` (~10 MB).                                                                                                                  |
 | `PENDING_AUTH_POLL_TIMEOUT_MS` | Max long-poll duration on `/auth/session/status`. Default `30000`.                                                                                                                          |
 | `RELAY_WEBHOOK_SECRET`         | Shared secret authenticating the relay on `/internal/*` endpoints.                                                                                                                          |
+| `TRUST_PROXY`                  | Trust `X-Forwarded-For` when deriving `request.ip`. Default `false`. Set `true` **only** when a trusted reverse proxy or load balancer terminates every request — see below.                 |
+| `AUTH_DEV_BYPASS_ENABLED`      | Disables JWT verification and serves all requests as a fixed local user. Default `false`. Startup fails unless `NODE_ENV=development`. Never set this on a deployed instance.                |
 | `PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY` | Canonical base64 for at least 32 random bytes. The web/export/suppression runtimes must use the same long-lived key to derive stable HMAC user keys. |
 | `ACTIVATION_REMINDERS_ENABLED` | Master switch for activation reminder polling. Default `false`. Enable on only one server instance until distributed leasing exists.                                                         |
 | `ACTIVATION_SWEEP_INTERVAL_MS` | Reminder polling interval in milliseconds. Default `900000` (15 minutes).                                                                                                                    |
@@ -163,6 +165,16 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 | `ACTIVATION_SWEEP_BATCH_LIMIT` | Maximum candidates queried per reminder kind per sweep. Default `100`; delivery is sequential, so raise only after measuring FCM latency.                                                    |
 
 Relay reports to `POST /internal/bridge-status` must include the registered `bridgeId`; missing or malformed IDs are rejected with `400`.
+
+### Rate limiting and `TRUST_PROXY`
+
+The global limit is 100 requests per minute keyed on `request.ip`. Fastify takes
+that from the socket unless proxy headers are trusted, so behind a load balancer
+every client shares a single bucket and the limit stops being per-client — set
+`TRUST_PROXY=true` there. Do **not** set it when the service is reachable
+directly: nothing then prevents a client from forging `X-Forwarded-For` to get a
+fresh bucket per request, which is worse than the shared-bucket behaviour it
+replaces. Match the value to the actual deployment topology.
 
 Activation reminder timers and single-flight state are process-local. Keep `ACTIVATION_REMINDERS_ENABLED=false` on every instance except the single designated sender; multiple enabled instances can duplicate notifications.
 
