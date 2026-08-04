@@ -175,7 +175,9 @@ Push notifications are forwarded to Firebase Cloud Messaging. Every notification
 | `DELETE` | `/notifications/tokens/:token`   | Bearer | Unregister an FCM token                                                                          |
 | `POST`   | `/notifications/send`            | Bearer | Forward a notification to the user's opted-in devices. Body `{ category, title, body, collapseKey, data? }` |
 
-Filtering is applied to every producer, since they all funnel through `NotificationService.sendToUser` — including activation reminders, which a user can silence via the `systemUpdate` toggle.
+Filtering applies to every producer that goes through `NotificationService.sendToUser`, which covers bridge-sent notifications and bridge connect/disconnect.
+
+**Activation reminders are exempt.** They are lifecycle nudges about finishing setup rather than the product "System Updates" the toggle describes, so they are sent through `sendToUserIgnoringDeviceSettings` and reach the user even when that toggle is off. They currently ride the `system_update` category on the wire because the client enum has no dedicated activation member; a separate category would need a client change first.
 
 **`deviceId` rollout.** `deviceId` on `register-token` is the join key between a push token and its settings document, and it is optional while clients roll it out. A token registered without one cannot be matched to a stored preference, so it **keeps delivering unfiltered** rather than going silent. Per-device filtering only takes full effect once clients send `deviceId`; until then those devices behave exactly as before. A token that changes owner has its `deviceId` cleared, so a recycled token is never filtered against the previous account's settings.
 

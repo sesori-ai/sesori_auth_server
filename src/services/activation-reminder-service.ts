@@ -231,7 +231,7 @@ export class ActivationReminderService {
         return;
       }
 
-      const { devicesNotified, retryableFailures } = await this.#notificationService.sendToUser(
+      const { devicesNotified, retryableFailures } = await this.#notificationService.sendToUserIgnoringDeviceSettings(
         reminder.userId,
         REMINDER_PAYLOADS[kind],
         this.#disposalAbortController.signal,

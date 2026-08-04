@@ -96,7 +96,9 @@ Every push producer funnels through `NotificationService.sendToUser`, so that is
 
 `deviceTokens.deviceId` is the join key to `settingsConfiguration`. It is optional while clients roll it out: a token without one **fails open** and keeps delivering, because it cannot be matched to a stored preference and silently muting it would be worse than an unwanted notification. Do not invert that default until clients reliably send `deviceId`. A token that changes owner has its `deviceId` cleared so it is never filtered against the previous account's settings.
 
-Filtering applies to activation reminders too — they send `system_update`, so a user who disables that toggle stops receiving them. When every device opts out, `sendToUser` returns `devicesNotified: 0` without calling FCM, and `ActivationReminderService` treats that as a genuine zero-device result and marks the reminder complete rather than retrying forever.
+Activation reminders are the one deliberate exemption: `ActivationReminderService` calls `sendToUserIgnoringDeviceSettings`, so a user who disables `systemUpdate` still receives them. They are lifecycle nudges about finishing setup rather than the product "System Updates" the toggle names, and they only ride `system_update` on the wire because the client enum has no activation member — a dedicated category needs a client change first. Do not "fix" that call back to `sendToUser`; the reminder mock in the tests implements only the unfiltered method so such a regression fails.
+
+When every device opts out of a filtered category, `sendToUser` returns `devicesNotified: 0` without calling FCM, and `ActivationReminderService` treats a genuine zero-device result as complete rather than retrying forever.
 
 ## ANTI-PATTERNS
 
