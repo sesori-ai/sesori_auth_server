@@ -45,6 +45,45 @@ describe("settings write rate limit", () => {
     assert.ok(accepted <= 30, `expected at most the configured allowance, got ${accepted}`);
   });
 
+  // Refreshing mints a new access-token string, so keying on the token itself
+  // would hand the same account a fresh allowance on demand.
+  it("keeps throttling after the client refreshes its access token", async () => {
+    const user = await ctx.createUser();
+
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      await ctx.app.inject({
+        method: "PATCH",
+        url: `/auth/settings/${randomUUID()}`,
+        headers: { authorization: `Bearer ${user.accessToken}` },
+        remoteAddress: CLIENT_ADDRESS,
+        payload: { notifications: { aiInteraction: false } },
+      });
+    }
+
+    // iat/exp are second-granularity, so a same-second refresh returns a byte
+    // identical token and would not exercise the bypass at all.
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+
+    const refreshed = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/refresh",
+      payload: { refreshToken: user.refreshToken },
+    });
+    assert.equal(refreshed.statusCode, 200);
+    const rotatedToken = refreshed.json().accessToken;
+    assert.notEqual(rotatedToken, user.accessToken, "the refresh must actually rotate the token string");
+
+    const afterRefresh = await ctx.app.inject({
+      method: "PATCH",
+      url: `/auth/settings/${randomUUID()}`,
+      headers: { authorization: `Bearer ${rotatedToken}` },
+      remoteAddress: CLIENT_ADDRESS,
+      payload: { notifications: { aiInteraction: false } },
+    });
+
+    assert.equal(afterRefresh.statusCode, 429, "a rotated token must not reset the write allowance");
+  });
+
   it("does not throttle reads for a client that exhausted its write allowance", async () => {
     const user = await ctx.createUser();
     const headers = { authorization: `Bearer ${user.accessToken}` };

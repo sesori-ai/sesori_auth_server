@@ -20,16 +20,41 @@ function parseDeviceId(rawDeviceId: string): string {
   return result.data;
 }
 
+// The limiter runs on onRequest, before requireAuth populates request.user, so
+// the key has to come from the raw header. Keying on the token string itself
+// would hand out a fresh allowance on every POST /auth/refresh, so key on the
+// userId claim, which survives refresh. The claim is read without verifying the
+// signature, which is safe for keying only: a forged token still fails
+// authentication and writes nothing, so it can at most split its own buckets
+// while burning 401s against the global allowance.
+export function settingsWriteRateLimitKey(request: FastifyRequest): string {
+  const authorization = request.headers.authorization;
+  if (!authorization?.startsWith("Bearer ")) {
+    return request.ip;
+  }
+
+  const payloadSegment = authorization.slice(7).split(".")[1];
+  if (!payloadSegment) {
+    return request.ip;
+  }
+
+  try {
+    const claims: unknown = JSON.parse(Buffer.from(payloadSegment, "base64url").toString("utf8"));
+    const userId = (claims as { userId?: unknown }).userId;
+    return typeof userId === "string" && userId.length > 0 ? `user:${userId}` : request.ip;
+  } catch {
+    return request.ip;
+  }
+}
+
 // Each write for an unseen deviceId inserts a settingsConfiguration document,
 // and deviceId is client-generated, so this bounds how fast one client can grow
-// that collection. Keyed on the Authorization header rather than request.user
-// because the limiter runs on onRequest, before requireAuth has populated it;
-// unauthenticated callers fall back to IP. Reads create nothing and are not
-// limited here beyond the global allowance.
+// that collection. Reads create nothing and are not limited beyond the global
+// allowance.
 const SETTINGS_WRITE_RATE_LIMIT = {
   max: 30,
   timeWindow: "1 minute",
-  keyGenerator: (request: FastifyRequest) => request.headers.authorization ?? request.ip,
+  keyGenerator: settingsWriteRateLimitKey,
 };
 
 export type SettingsRouteOptions = {
