@@ -84,6 +84,42 @@ describe("settings write rate limit", () => {
     assert.equal(afterRefresh.statusCode, 429, "a rotated token must not reset the write allowance");
   });
 
+  // Keying on an unverified claim would let anyone forge a Bearer carrying a
+  // known userId and exhaust that account's allowance without authenticating.
+  it("cannot be filled for another account with a forged bearer token", async () => {
+    const victim = await ctx.createUser();
+    const forgedHeader = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" }), "utf8").toString("base64url");
+    const forgedClaims = Buffer.from(
+      JSON.stringify({ tokenType: "access", userId: victim.userId, provider: "github", providerUserId: "1" }),
+      "utf8",
+    ).toString("base64url");
+    const forgedToken = `${forgedHeader}.${forgedClaims}.not-a-real-signature`;
+
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const rejected = await ctx.app.inject({
+        method: "PATCH",
+        url: `/auth/settings/${randomUUID()}`,
+        headers: { authorization: `Bearer ${forgedToken}` },
+        remoteAddress: "198.51.100.7",
+        payload: { notifications: { aiInteraction: false } },
+      });
+      assert.ok(
+        rejected.statusCode === 401 || rejected.statusCode === 429,
+        `a forged token must never be accepted, got ${rejected.statusCode}`,
+      );
+    }
+
+    const legitimate = await ctx.app.inject({
+      method: "PATCH",
+      url: `/auth/settings/${randomUUID()}`,
+      headers: { authorization: `Bearer ${victim.accessToken}` },
+      remoteAddress: CLIENT_ADDRESS,
+      payload: { notifications: { aiInteraction: false } },
+    });
+
+    assert.equal(legitimate.statusCode, 200, "the victim's own writes must be unaffected by forged traffic");
+  });
+
   it("does not throttle reads for a client that exhausted its write allowance", async () => {
     const user = await ctx.createUser();
     const headers = { authorization: `Bearer ${user.accessToken}` };

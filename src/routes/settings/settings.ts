@@ -1,7 +1,9 @@
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { BadRequestError, UnauthenticatedError } from "../../lib/errors.js";
 import { deviceIdSchema, updateSettingsBodySchema, type SettingsConfigurationView } from "../../models/settings.js";
+import { accessTokenPayloadSchema } from "../../models/jwt.js";
 import type { SettingsService } from "../../services/settings-service.js";
+import type { TokenService } from "../../services/token-service.js";
 
 function getUserId(request: FastifyRequest): string {
   if (!request.user) {
@@ -21,49 +23,49 @@ function parseDeviceId(rawDeviceId: string): string {
 }
 
 // The limiter runs on onRequest, before requireAuth populates request.user, so
-// the key has to come from the raw header. Keying on the token string itself
-// would hand out a fresh allowance on every POST /auth/refresh, so key on the
-// userId claim, which survives refresh. The claim is read without verifying the
-// signature, which is safe for keying only: a forged token still fails
-// authentication and writes nothing, so it can at most split its own buckets
-// while burning 401s against the global allowance.
-export function settingsWriteRateLimitKey(request: FastifyRequest): string {
-  const authorization = request.headers.authorization;
-  if (!authorization?.startsWith("Bearer ")) {
-    return request.ip;
-  }
+// the key is derived here instead. It must be an account rather than the token
+// string, because a refresh re-signs the token and would otherwise hand out a
+// fresh allowance on demand. The signature is verified before the claim is
+// trusted: keying on an unverified claim would let anyone forge a Bearer
+// carrying a known userId and exhaust that account's allowance without ever
+// authenticating. Anything unverifiable falls back to the caller's address, so
+// forged traffic can only consume its own bucket.
+export function buildSettingsWriteRateLimitKey(tokenService: TokenService) {
+  return (request: FastifyRequest): string => {
+    const authorization = request.headers.authorization;
+    if (!authorization?.startsWith("Bearer ")) {
+      return request.ip;
+    }
 
-  const payloadSegment = authorization.slice(7).split(".")[1];
-  if (!payloadSegment) {
-    return request.ip;
-  }
-
-  try {
-    const claims: unknown = JSON.parse(Buffer.from(payloadSegment, "base64url").toString("utf8"));
-    const userId = (claims as { userId?: unknown }).userId;
-    return typeof userId === "string" && userId.length > 0 ? `user:${userId}` : request.ip;
-  } catch {
-    return request.ip;
-  }
+    try {
+      const claims = accessTokenPayloadSchema.safeParse(tokenService.verifyAccessToken(authorization.slice(7)));
+      return claims.success ? `user:${claims.data.userId}` : request.ip;
+    } catch {
+      return request.ip;
+    }
+  };
 }
 
 // Each write for an unseen deviceId inserts a settingsConfiguration document,
 // and deviceId is client-generated, so this bounds how fast one client can grow
 // that collection. Reads create nothing and are not limited beyond the global
 // allowance.
-const SETTINGS_WRITE_RATE_LIMIT = {
-  max: 30,
-  timeWindow: "1 minute",
-  keyGenerator: settingsWriteRateLimitKey,
-};
+const SETTINGS_WRITE_MAX_PER_MINUTE = 30;
 
 export type SettingsRouteOptions = {
   settingsService: SettingsService;
+  tokenService: TokenService;
   requireAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
 };
 
 export const settingsRoutes: FastifyPluginAsync<SettingsRouteOptions> = async (fastify, opts) => {
-  const { settingsService, requireAuth } = opts;
+  const { settingsService, tokenService, requireAuth } = opts;
+
+  const settingsWriteRateLimit = {
+    max: SETTINGS_WRITE_MAX_PER_MINUTE,
+    timeWindow: "1 minute",
+    keyGenerator: buildSettingsWriteRateLimitKey(tokenService),
+  };
 
   fastify.get<{ Params: { deviceId: string }; Reply: SettingsConfigurationView }>(
     "/auth/settings/:deviceId",
@@ -77,7 +79,7 @@ export const settingsRoutes: FastifyPluginAsync<SettingsRouteOptions> = async (f
 
   fastify.patch<{ Params: { deviceId: string }; Body: unknown; Reply: SettingsConfigurationView }>(
     "/auth/settings/:deviceId",
-    { preHandler: requireAuth, config: { rateLimit: SETTINGS_WRITE_RATE_LIMIT } },
+    { preHandler: requireAuth, config: { rateLimit: settingsWriteRateLimit } },
     async (request) => {
       const deviceId = parseDeviceId(request.params.deviceId);
 
