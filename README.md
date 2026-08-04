@@ -178,7 +178,16 @@ over `true`: proxies usually *append* to `X-Forwarded-For` rather than replacing
 it, so trusting the whole chain lets a client prepend a forged address and choose
 its own `request.ip`, defeating the limit entirely. Use `true` only when the
 proxy is known to overwrite the header. Leave it unset when the service is
-reachable directly.
+reachable directly. Values above a small hop ceiling are rejected at startup, so
+an oversized number cannot silently widen to full-chain trust.
+
+Loopback addresses (`127.0.0.1`, `::1`) are exempt from the limit **only while
+`TRUST_PROXY` is unset**. Once proxy headers are trusted, `request.ip` comes from
+a client-supplied header, so keeping that exemption would let anyone send
+`X-Forwarded-For: 127.0.0.1` and skip rate limiting entirely; behind a proxy the
+loopback address is never the real ingress. If you relied on unthrottled local
+requests (health checks, smoke scripts), route them so they do not depend on the
+exemption before enabling `TRUST_PROXY`.
 
 Activation reminder timers and single-flight state are process-local. Keep `ACTIVATION_REMINDERS_ENABLED=false` on every instance except the single designated sender; multiple enabled instances can duplicate notifications.
 
