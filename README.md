@@ -156,6 +156,8 @@ Both endpoints return the complete resolved shape:
 
 `updatedAt` is `null` until the device stores its first override, then an ISO 8601 timestamp. Missing or invalid bearer authentication returns 401. A malformed/non-v4 `deviceId`, an empty PATCH, unknown groups or toggles, and non-boolean toggle values return 400.
 
+`PATCH` is additionally limited to **30 writes per minute per access token**, returning 429 beyond that. `deviceId` is client-generated, so each write for an unseen device inserts a row; the limit bounds how fast one client can grow the collection. It is deliberately well above real use — a settings screen has four toggles — so normal clients never reach it. `GET` creates nothing and is not limited beyond the global allowance. This bounds growth rather than capping total devices: an earlier per-user cap was removed in `2e370cb` because the count-then-write pre-check it needed was a persistent source of races.
+
 ## Environment variables
 
 Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configuration.
