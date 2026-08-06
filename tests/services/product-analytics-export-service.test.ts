@@ -294,6 +294,7 @@ describe("ProductAnalyticsExportService", () => {
       latePreferenceRowsRemoved: 1,
       milestoneRowsPublished: 1,
       cohortRowsPublished: 2,
+      preCreationMilestonesDropped: 0,
     });
     assert.equal(exportRepo.milestones.length, 1);
     assert.equal(exportRepo.milestones[0].userKey, userKeyFor({ userId: ids[0] }));

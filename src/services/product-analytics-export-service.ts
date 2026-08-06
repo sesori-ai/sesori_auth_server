@@ -445,6 +445,7 @@ export class ProductAnalyticsExportService {
           latePreferenceRowsRemoved,
           milestoneRowsPublished: progress.milestoneRowsStaged,
           cohortRowsPublished: cohortRows.length,
+          preCreationMilestonesDropped: progress.preCreationMilestonesDropped,
         },
       });
       completed = true;

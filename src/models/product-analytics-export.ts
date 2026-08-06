@@ -58,6 +58,7 @@ export type ProductAnalyticsSetupCohortRow = {
 
 export type ProductAnalyticsExportRunMetadata = {
   runId: string;
+  preCreationMilestonesDropped: number;
   runCutoff: Date;
   preferenceScanCutoff: Date;
   controlUpdatedAt: Date;
