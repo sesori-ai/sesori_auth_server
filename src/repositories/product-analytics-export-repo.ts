@@ -50,8 +50,10 @@ const runMetadataSchema: ProductAnalyticsExportTableField[] = [
   { name: "late_preference_rows_removed", type: "INTEGER", mode: "REQUIRED" },
   { name: "milestone_rows_published", type: "INTEGER", mode: "REQUIRED" },
   { name: "cohort_rows_published", type: "INTEGER", mode: "REQUIRED" },
-  { name: "pre_creation_milestones_dropped", type: "INTEGER", mode: "NULLABLE" },
   { name: "published_at", type: "TIMESTAMP", mode: "REQUIRED" },
+  // Added after initial deployment; BigQuery ALTER TABLE ADD COLUMN appends at
+  // the end and the schema assertion compares field order exactly.
+  { name: "pre_creation_milestones_dropped", type: "INTEGER", mode: "NULLABLE" },
 ];
 
 const exportStateSchema: ProductAnalyticsExportTableField[] = [

@@ -257,9 +257,12 @@ export class ActivationBackfillService {
     const stage = stageFor(snapshot);
     // Push reachability is about owning a device token at all, not about the
     // token's timestamp being a valid milestone. A carried-over token still
-    // reaches this user, so reminders key off raw token existence.
-    const pushReachable = rawMobileSetupAt !== null;
-    const reminder = reminderFor(snapshot, pushReachable);
+    // reaches this user. The repository additionally persists a reminder
+    // baseline only when the merged mobile milestone is non-null, so propose a
+    // reminder only when both hold; otherwise proposed and applied counters
+    // would diverge silently.
+    const reminderEligible = rawMobileSetupAt !== null && snapshot.mobileSetupAt !== null;
+    const reminder = reminderFor(snapshot, reminderEligible);
     const jitterMs = deterministicActivationJitterMs(userId, options.jitterWindowMs);
     const baselineAt = new Date(options.backfillAt.getTime() + jitterMs);
     if (Number.isNaN(baselineAt.getTime())) {
@@ -277,7 +280,7 @@ export class ActivationBackfillService {
       ...evidence,
       // The repository selects the current unsent stage atomically. Supplying
       // one candidate also covers an organic stage transition during this run.
-      reminderBaseAt: pushReachable ? baselineAt : null,
+      reminderBaseAt: reminderEligible ? baselineAt : null,
       backfilledAt: options.backfillAt,
     };
     const applied = await this.#activationStateRepo.applyBackfill(userId, input);
