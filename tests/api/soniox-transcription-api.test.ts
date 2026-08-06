@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  parseCreatedTranscriptionId,
   parseTranscription,
   parseTranscriptText,
   parseUploadedFileId,
@@ -44,9 +45,9 @@ describe("soniox transcription api", () => {
       });
     });
 
-    it("maps a provider error status to provider_rejected, not malformed output", () => {
+    it("maps a provider error status to a rejection, not malformed output", () => {
       expectReason(
-        () => parseTranscription({ id: "t1", status: "error", error_type: "bad_audio" }),
+        () => parseTranscription({ id: "t1", status: "error", error_type: "unauthorized" }),
         TranscriptionFailureReason.ProviderRejected,
       );
     });
@@ -57,10 +58,36 @@ describe("soniox transcription api", () => {
       }
     });
 
+    it("classifies an audio rejection as caller input, not a configuration fault", () => {
+      for (const errorType of ["bad_audio", "unsupported_audio", "audio_too_short"]) {
+        expectReason(
+          () => parseTranscription({ id: "t1", status: "error", error_type: errorType }),
+          TranscriptionFailureReason.InvalidInput,
+        );
+      }
+    });
+
+    it("keeps an unknown or credential-style error as a configuration fault", () => {
+      for (const errorType of ["unauthorized", "internal", null, undefined]) {
+        expectReason(
+          () => parseTranscription({ id: "t1", status: "error", error_type: errorType }),
+          TranscriptionFailureReason.ProviderRejected,
+        );
+      }
+    });
+
+    it("rejects a non-positive or absurd duration rather than billing it", () => {
+      for (const audioDurationMs of [0, -1, 86_400_001]) {
+        expectReason(
+          () => parseTranscription({ id: "t1", status: "completed", audio_duration_ms: audioDurationMs }),
+          TranscriptionFailureReason.MalformedOutput,
+        );
+      }
+    });
+
     it("rejects unknown statuses and malformed durations", () => {
       for (const value of [
         { id: "t1", status: "unknown_status" },
-        { id: "t1", status: "completed", audio_duration_ms: -1 },
         { id: "t1", status: "completed", audio_duration_ms: Number.NaN },
         { id: "", status: "completed" },
       ]) {
@@ -69,10 +96,31 @@ describe("soniox transcription api", () => {
     });
   });
 
+  describe("parseCreatedTranscriptionId", () => {
+    it("accepts a non-terminal job, which is what creation actually returns", () => {
+      for (const status of ["queued", "processing"]) {
+        assert.equal(parseCreatedTranscriptionId({ id: "tr_1", status }), "tr_1");
+      }
+    });
+
+    it("rejects a missing or empty id", () => {
+      for (const value of [{}, { id: "" }, { id: 7 }, null]) {
+        expectReason(() => parseCreatedTranscriptionId(value), TranscriptionFailureReason.MalformedOutput);
+      }
+    });
+  });
+
   describe("parseTranscriptText", () => {
     it("accepts text including empty text", () => {
       assert.equal(parseTranscriptText({ text: "hello" }), "hello");
       assert.equal(parseTranscriptText({ text: "" }), "");
+    });
+
+    it("rejects an oversized transcript", () => {
+      expectReason(
+        () => parseTranscriptText({ text: "x".repeat(1_000_001) }),
+        TranscriptionFailureReason.MalformedOutput,
+      );
     });
 
     it("rejects a missing or non-string text", () => {
@@ -87,11 +135,12 @@ describe("soniox transcription api", () => {
       assert.equal(toBillableSeconds(1), 1);
       assert.equal(toBillableSeconds(1500), 2);
       assert.equal(toBillableSeconds(2000), 2);
-      assert.equal(toBillableSeconds(0), 0);
     });
 
-    it("treats an absent duration as malformed rather than free", () => {
-      expectReason(() => toBillableSeconds(null), TranscriptionFailureReason.MalformedOutput);
+    it("treats an absent or non-positive duration as malformed rather than free", () => {
+      for (const value of [null, 0, -1]) {
+        expectReason(() => toBillableSeconds(value), TranscriptionFailureReason.MalformedOutput);
+      }
     });
   });
 

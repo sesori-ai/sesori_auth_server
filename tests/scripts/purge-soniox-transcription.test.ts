@@ -85,6 +85,67 @@ describe("purge-soniox-transcription", () => {
       assert.deepEqual(deleted, ["transcription:t1", "file:f1"]);
     });
 
+    it("continues the sweep when one delete fails and still reports failure", async () => {
+      const attempted: string[] = [];
+      const sdk: SonioxPurgeSdk = {
+        files: {
+          async list() {
+            return [{ id: "f1" }].values();
+          },
+          async delete(fileId: string) {
+            attempted.push(`file:${fileId}`);
+          },
+        },
+        stt: {
+          async list() {
+            return [{ id: "t1" }, { id: "t2" }].values();
+          },
+          async delete(id: string) {
+            attempted.push(`transcription:${id}`);
+            if (id === "t1") {
+              throw new Error("delete failed");
+            }
+          },
+        },
+      };
+
+      const report = await runSonioxPurge({ sdk, mode: "apply" });
+
+      // One failure must not abandon the remaining resources.
+      assert.deepEqual(attempted, ["transcription:t1", "transcription:t2", "file:f1"]);
+      assert.equal(report.deletedTranscriptionCount, 1);
+      assert.equal(report.deletedFileCount, 1);
+      assert.equal(report.outcome, "failed");
+    });
+
+    it("skips a malformed list item instead of deleting an invalid id", async () => {
+      const attempted: string[] = [];
+      const sdk: SonioxPurgeSdk = {
+        files: {
+          async list() {
+            return [].values();
+          },
+          async delete(fileId: string) {
+            attempted.push(fileId);
+          },
+        },
+        stt: {
+          async list() {
+            return [{ id: "" }, { notAnId: true }].values() as AsyncIterable<{ id: string }> | never;
+          },
+          async delete(id: string) {
+            attempted.push(id);
+          },
+        },
+      };
+
+      const report = await runSonioxPurge({ sdk, mode: "apply" });
+
+      assert.deepEqual(attempted, []);
+      assert.equal(report.transcriptionCount, 0);
+      assert.equal(report.outcome, "failed");
+    });
+
     it("reports a failed outcome without throwing", async () => {
       const { sdk } = createSdk([], [], { failOn: "transcriptions" });
 

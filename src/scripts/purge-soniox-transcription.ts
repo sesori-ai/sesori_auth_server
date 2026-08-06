@@ -8,9 +8,12 @@
  * filenames, transcript content, or provider messages.
  */
 import { pathToFileURL } from "node:url";
+import { z } from "zod";
 import { loadSonioxPurgeConfig } from "../config.js";
 import { safeErrorType } from "../lib/errors.js";
 import { SONIOX_REST_URL_BY_REGION } from "../types/transcription.js";
+
+const DEFAULT_PURGE_TIMEOUT_MS = 10_000;
 
 export type SonioxPurgeMode = "audit" | "apply";
 
@@ -60,11 +63,17 @@ export function printSonioxPurgeUsage(): void {
   console.log("Usage: npm run purge-soniox-transcription -- [--apply]");
   console.log();
   console.log("Without --apply the command only audits residue. --apply deletes every listed resource.");
+  console.log();
+  console.log("Run --apply only while no Soniox transcription traffic is in flight: it deletes every");
+  console.log("listed file and job, including one an active request just created.");
 }
+
+const purgeItemSchema = z.object({ id: z.string().min(1) }).loose();
 
 export async function runSonioxPurge(input: {
   sdk: SonioxPurgeSdk;
   mode: SonioxPurgeMode;
+  timeoutMs?: number;
 }): Promise<SonioxPurgeReport> {
   const report: SonioxPurgeReport = {
     mode: input.mode,
@@ -74,27 +83,63 @@ export async function runSonioxPurge(input: {
     deletedFileCount: 0,
     deletedTranscriptionCount: 0,
   };
+  const timeoutMs = input.timeoutMs ?? DEFAULT_PURGE_TIMEOUT_MS;
 
+  const markFailed = (stage: string, error: unknown): void => {
+    console.error("[SonioxPurge] failed", { stage, errorType: safeErrorType({ error }) });
+    report.outcome = "failed";
+  };
+
+  /** Deletes one resource. A single failure must not abandon the rest of the sweep. */
+  const deleteOne = async (remove: (signal: AbortSignal) => Promise<void>, stage: string): Promise<boolean> => {
+    try {
+      await remove(AbortSignal.timeout(timeoutMs));
+      return true;
+    } catch (error) {
+      markFailed(stage, error);
+      return false;
+    }
+  };
+
+  // Transcriptions first: they reference files.
   try {
-    // Transcriptions first: they reference files.
-    for await (const transcription of await input.sdk.stt.list()) {
+    for await (const item of await input.sdk.stt.list()) {
+      const parsed = purgeItemSchema.safeParse(item);
+      if (!parsed.success) {
+        markFailed("transcription_item", parsed.error.issues);
+        continue;
+      }
+
       report.transcriptionCount += 1;
-      if (input.mode === "apply") {
-        await input.sdk.stt.delete(transcription.id);
+      const removed =
+        input.mode === "apply" &&
+        (await deleteOne((signal) => input.sdk.stt.delete(parsed.data.id, signal), "transcription_delete"));
+      if (removed) {
         report.deletedTranscriptionCount += 1;
       }
     }
+  } catch (error) {
+    markFailed("transcription_list", error);
+  }
 
-    for await (const file of await input.sdk.files.list()) {
+  try {
+    for await (const item of await input.sdk.files.list()) {
+      const parsed = purgeItemSchema.safeParse(item);
+      if (!parsed.success) {
+        markFailed("file_item", parsed.error.issues);
+        continue;
+      }
+
       report.fileCount += 1;
-      if (input.mode === "apply") {
-        await input.sdk.files.delete(file.id);
+      const removed =
+        input.mode === "apply" &&
+        (await deleteOne((signal) => input.sdk.files.delete(parsed.data.id, signal), "file_delete"));
+      if (removed) {
         report.deletedFileCount += 1;
       }
     }
   } catch (error) {
-    console.error("[SonioxPurge] failed", { errorType: safeErrorType({ error }) });
-    report.outcome = "failed";
+    markFailed("file_list", error);
   }
 
   return report;

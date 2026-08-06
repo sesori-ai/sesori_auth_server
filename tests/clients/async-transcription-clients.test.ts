@@ -179,6 +179,21 @@ describe("SonioxTranscriptionClient", () => {
     );
   });
 
+  it("leaves the file for the purge command when the job delete fails", async () => {
+    const failing = createFakeSdk({
+      deleteTranscription: async () => {
+        throw new Error("job delete failed");
+      },
+    });
+
+    await createClient(failing.sdk).transcribe(request());
+
+    // Deleting the file while its job may still exist would leave a job
+    // referencing missing audio; both are left for the operator purge instead.
+    const deletes = failing.calls.filter((call) => call.name.endsWith(".delete")).map((call) => call.name);
+    assert.deepEqual(deletes, ["stt.delete"]);
+  });
+
   it("keeps a valid transcript when cleanup fails", async () => {
     const failing = createFakeSdk({
       deleteTranscription: async () => {
@@ -193,15 +208,23 @@ describe("SonioxTranscriptionClient", () => {
     assert.equal(result.text, "hello world");
   });
 
-  it("maps a provider error status to provider_rejected", async () => {
+  it("maps a credential-style provider error to provider_rejected", async () => {
     const failing = createFakeSdk({
-      wait: async () => ({ id: "tr_1", status: "error", error_type: "bad_audio" }),
+      wait: async () => ({ id: "tr_1", status: "error", error_type: "unauthorized" }),
     });
 
     await expectReason(
       () => createClient(failing.sdk).transcribe(request()),
       TranscriptionFailureReason.ProviderRejected,
     );
+  });
+
+  it("maps an unusable-audio provider error to invalid_input", async () => {
+    const failing = createFakeSdk({
+      wait: async () => ({ id: "tr_1", status: "error", error_type: "bad_audio" }),
+    });
+
+    await expectReason(() => createClient(failing.sdk).transcribe(request()), TranscriptionFailureReason.InvalidInput);
   });
 
   it("maps a malformed transcript to malformed_output", async () => {

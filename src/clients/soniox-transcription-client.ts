@@ -107,26 +107,42 @@ export class SonioxTranscriptionClient implements AsyncTranscriptionClient {
   }
 
   async #cleanup(ids: { fileId: string | null; transcriptionId: string | null }): Promise<void> {
-    const signal = AbortSignal.timeout(this.#cleanupTimeoutMs);
+    // The transcription references the file, so it must go first. Each delete
+    // gets its own budget: a slow job delete must not consume the file
+    // delete's time and strand uploaded audio.
+    const { transcriptionId, fileId } = ids;
+    if (transcriptionId !== null) {
+      const deleted = await this.#deleteQuietly(
+        () => this.#sdk.stt.delete(transcriptionId, AbortSignal.timeout(this.#cleanupTimeoutMs)),
+        "transcription",
+      );
 
-    // Transcription first: it references the file.
-    if (ids.transcriptionId !== null) {
-      await this.#deleteQuietly(() => this.#sdk.stt.delete(ids.transcriptionId as string, signal), "transcription");
+      // Deleting the file while its transcription may still exist would leave
+      // a job referencing missing audio. Leave both for the purge command.
+      if (!deleted) {
+        return;
+      }
     }
 
-    if (ids.fileId !== null) {
-      await this.#deleteQuietly(() => this.#sdk.files.delete(ids.fileId as string, signal), "file");
+    if (fileId !== null) {
+      await this.#deleteQuietly(
+        () => this.#sdk.files.delete(fileId, AbortSignal.timeout(this.#cleanupTimeoutMs)),
+        "file",
+      );
     }
   }
 
-  async #deleteQuietly(remove: () => Promise<void>, resource: "file" | "transcription"): Promise<void> {
+  /** Returns whether the delete succeeded; failures are logged, never thrown. */
+  async #deleteQuietly(remove: () => Promise<void>, resource: "file" | "transcription"): Promise<boolean> {
     try {
       await remove();
+      return true;
     } catch (error) {
       console.error("[SonioxTranscriptionClient] cleanup failed", {
         resource,
         errorType: safeErrorType({ error }),
       });
+      return false;
     }
   }
 }

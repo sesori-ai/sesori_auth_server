@@ -14,15 +14,19 @@ const completedTranscriptionSchema = z
   .object({
     id: z.string().min(1),
     status: transcriptionStatusSchema,
-    audio_duration_ms: z.number().finite().nonnegative().nullish(),
+    // Bounded: a non-positive duration would bill as free and an absurd one
+    // would blow the daily quota. 24h is far above any supported upload.
+    audio_duration_ms: z.number().finite().positive().max(86_400_000).nullish(),
     error_type: z.string().nullish(),
     error_message: z.string().nullish(),
   })
   .loose();
 
+const maxTranscriptCharacters = 1_000_000;
+
 const transcriptSchema = z
   .object({
-    text: z.string(),
+    text: z.string().max(maxTranscriptCharacters),
   })
   .loose();
 
@@ -46,6 +50,23 @@ export type ValidatedTranscription = {
 
 function fail(reason: TranscriptionFailureReason, cause?: unknown): never {
   throw new TranscriptionFailure(reason, { cause });
+}
+
+/**
+ * Provider `error_type` values that mean the submitted audio could not be
+ * transcribed. Anything else is treated as a configuration/credential problem,
+ * which is the safer default because it is not presented as the caller's fault.
+ */
+const audioRejectionErrorTypes = new Set([
+  "bad_audio",
+  "invalid_audio",
+  "unsupported_audio",
+  "audio_too_short",
+  "audio_too_long",
+]);
+
+function isAudioRejection(errorType: string | null | undefined): boolean {
+  return typeof errorType === "string" && audioRejectionErrorTypes.has(errorType);
 }
 
 /** Validates an uploaded file and returns only its ID. */
@@ -84,9 +105,15 @@ export function parseTranscription(value: unknown): ValidatedTranscription {
     fail(TranscriptionFailureReason.MalformedOutput, result.error.issues);
   }
 
-  const { id, status, audio_duration_ms: audioDurationMs } = result.data;
+  const { id, status, audio_duration_ms: audioDurationMs, error_type: errorType } = result.data;
   if (status === "error") {
-    fail(TranscriptionFailureReason.ProviderRejected);
+    // Distinguish "this audio is unusable" from "our credentials/config are
+    // wrong": the former is the caller's 400, the latter an operator 500.
+    fail(
+      isAudioRejection(errorType)
+        ? TranscriptionFailureReason.InvalidInput
+        : TranscriptionFailureReason.ProviderRejected,
+    );
   }
 
   if (status !== "completed") {
@@ -112,11 +139,12 @@ export function parseTranscriptText(value: unknown): string {
  * A provider that omits duration is malformed output rather than a free request.
  */
 export function toBillableSeconds(audioDurationMs: number | null): number {
-  if (audioDurationMs === null) {
+  if (audioDurationMs === null || audioDurationMs <= 0) {
     fail(TranscriptionFailureReason.MalformedOutput);
   }
 
-  return Math.ceil(audioDurationMs / 1000);
+  // At least one second: a sub-second clip must never bill as free.
+  return Math.max(1, Math.ceil(audioDurationMs / 1000));
 }
 
 /**

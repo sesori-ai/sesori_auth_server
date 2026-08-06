@@ -107,22 +107,35 @@ export class VoiceService {
       return new InternalServerError({ debugMessage: "Transcription failed", nestedError: error });
     }
 
+    // The cause is retained for server-side diagnosis only. `nestedError` is
+    // logged by the global handler and never included in the response body.
+    const cause = error.cause;
+
     switch (error.reason) {
       case TranscriptionFailureReason.InvalidInput:
-        return new BadRequestError({ debugMessage: "Provider rejected the audio input" });
+        return new BadRequestError({ debugMessage: "Provider rejected the audio input", nestedError: cause });
       case TranscriptionFailureReason.Capacity:
       case TranscriptionFailureReason.Unavailable:
-        return new TranscriptionUnavailableError({ debugMessage: "Transcription provider unavailable" });
+        return new TranscriptionUnavailableError({
+          debugMessage: "Transcription provider unavailable",
+          nestedError: cause,
+        });
       case TranscriptionFailureReason.Timeout:
-        return new TranscriptionTimeoutError({ debugMessage: "Transcription provider timed out" });
+        return new TranscriptionTimeoutError({ debugMessage: "Transcription provider timed out", nestedError: cause });
       case TranscriptionFailureReason.ProviderRejected:
-        return new TranscriptionConfigurationError({ debugMessage: "Transcription provider rejected the request" });
+        return new TranscriptionConfigurationError({
+          debugMessage: "Transcription provider rejected the request",
+          nestedError: cause,
+        });
       case TranscriptionFailureReason.MalformedOutput:
-        return new TranscriptionProviderError({ debugMessage: "Transcription provider returned malformed output" });
+        return new TranscriptionProviderError({
+          debugMessage: "Transcription provider returned malformed output",
+          nestedError: cause,
+        });
       case TranscriptionFailureReason.Cancelled:
         return new TranscriptionCancelledError();
       default:
-        return new InternalServerError({ debugMessage: "Transcription failed" });
+        return new InternalServerError({ debugMessage: "Transcription failed", nestedError: cause });
     }
   }
 }

@@ -26,6 +26,21 @@ export const SONIOX_REST_URL_BY_REGION = {
   eu: "https://api.eu.soniox.com",
 } as const satisfies Record<string, string>;
 
+/**
+ * The single glossary-prompt format. Shared so the budget reserved by
+ * `GlossaryService` and the string rendered by a provider adapter cannot drift.
+ */
+export const TRANSCRIPTION_PROMPT_PREFIX = "The following terms may appear in the audio: ";
+export const TRANSCRIPTION_PROMPT_SUFFIX = ".";
+
+export function renderTranscriptionPrompt(terms: string[]): string | null {
+  if (terms.length === 0) {
+    return null;
+  }
+
+  return `${TRANSCRIPTION_PROMPT_PREFIX}${terms.join(", ")}${TRANSCRIPTION_PROMPT_SUFFIX}`;
+}
+
 export type TranscriptionRequest = {
   audio: Buffer;
   filename: string;

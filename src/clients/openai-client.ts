@@ -3,6 +3,7 @@ import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/ch
 import { parseBuffer } from "music-metadata";
 import type { AsyncTranscriptionClient } from "./async-transcription-client.js";
 import {
+  renderTranscriptionPrompt,
   TranscriptionFailure,
   TranscriptionFailureReason,
   type TranscriptionRequest,
@@ -25,7 +26,7 @@ export class OpenAIClient implements AsyncTranscriptionClient {
   async transcribe(request: TranscriptionRequest): Promise<TranscriptionResult> {
     try {
       const file = await toFile(request.audio, request.filename, { type: request.mimeType });
-      const prompt = OpenAIClient.buildPrompt(request.terms);
+      const prompt = renderTranscriptionPrompt(request.terms);
 
       const [response, durationSeconds] = await Promise.all([
         this.#client.audio.transcriptions.create(
@@ -49,14 +50,6 @@ export class OpenAIClient implements AsyncTranscriptionClient {
         { cause: error },
       );
     }
-  }
-
-  private static buildPrompt(terms: string[]): string | null {
-    if (terms.length === 0) {
-      return null;
-    }
-
-    return `The following terms may appear in the audio: ${terms.join(", ")}.`;
   }
 
   /**
