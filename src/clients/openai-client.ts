@@ -1,8 +1,15 @@
 import OpenAI, { toFile } from "openai";
 import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
 import { parseBuffer } from "music-metadata";
+import type { AsyncTranscriptionClient } from "./async-transcription-client.js";
+import {
+  TranscriptionFailure,
+  TranscriptionFailureReason,
+  type TranscriptionRequest,
+  type TranscriptionResult,
+} from "../types/transcription.js";
 
-export class OpenAIClient {
+export class OpenAIClient implements AsyncTranscriptionClient {
   readonly #client: OpenAI;
   readonly #model: string;
 
@@ -15,26 +22,41 @@ export class OpenAIClient {
     this.#model = args.model;
   }
 
-  async transcribe(args: {
-    fileBuffer: Buffer;
-    filename: string;
-    mimetype: string;
-    prompt?: string;
-  }): Promise<{ text: string; durationSeconds: number }> {
-    const file = await toFile(args.fileBuffer, args.filename, { type: args.mimetype });
+  async transcribe(request: TranscriptionRequest): Promise<TranscriptionResult> {
+    try {
+      const file = await toFile(request.audio, request.filename, { type: request.mimeType });
+      const prompt = OpenAIClient.buildPrompt(request.terms);
 
-    const [response, durationSeconds] = await Promise.all([
-      this.#client.audio.transcriptions.create({
-        file,
-        model: this.#model,
-        language: "en",
-        response_format: "json",
-        ...(args.prompt ? { prompt: args.prompt } : {}),
-      }),
-      OpenAIClient.parseAudioDuration(args.fileBuffer, args.mimetype),
-    ]);
+      const [response, durationSeconds] = await Promise.all([
+        this.#client.audio.transcriptions.create(
+          {
+            file,
+            model: this.#model,
+            language: "en",
+            response_format: "json",
+            ...(prompt ? { prompt } : {}),
+          },
+          { signal: request.signal },
+        ),
+        OpenAIClient.parseAudioDuration(request.audio, request.mimeType),
+      ]);
 
-    return { text: response.text, durationSeconds };
+      return { text: response.text, durationSeconds };
+    } catch (error) {
+      // COMPATIBILITY 2026-08-06 (v0.1.0): OpenAI is the shipped default async provider and released apps expect HTTP 500 for every provider failure, so timeout, capacity, and malformed-response failures deliberately collapse to `internal` here instead of using the detailed enum Soniox uses. Only caller cancellation is distinguished. Remove this mapping and classify OpenAI failures like Soniox once OpenAI async rollback support is retired or a breaking error-contract rollout is approved.
+      throw new TranscriptionFailure(
+        request.signal?.aborted ? TranscriptionFailureReason.Cancelled : TranscriptionFailureReason.Internal,
+        { cause: error },
+      );
+    }
+  }
+
+  private static buildPrompt(terms: string[]): string | null {
+    if (terms.length === 0) {
+      return null;
+    }
+
+    return `The following terms may appear in the audio: ${terms.join(", ")}.`;
   }
 
   /**

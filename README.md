@@ -180,6 +180,12 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 | `PENDING_AUTH_MAX_SESSIONS`    | Max concurrent pending OAuth sessions in-memory. Default `10000` (~10 MB).                                                                                                                  |
 | `PENDING_AUTH_POLL_TIMEOUT_MS` | Max long-poll duration on `/auth/session/status`. Default `30000`.                                                                                                                          |
 | `RELAY_WEBHOOK_SECRET`         | Shared secret authenticating the relay on `/internal/*` endpoints.                                                                                                                          |
+| `ASYNC_TRANSCRIPTION_PROVIDER` | Async transcription provider: `openai` (default) or `soniox`. Selected once at startup; a failed request is never retried against the other provider. |
+| `SONIOX_API_KEY`               | Soniox API key. Required only when `ASYNC_TRANSCRIPTION_PROVIDER=soniox`; keep it in the encrypted env only. |
+| `SONIOX_REGION`                | Soniox data-residency region. Only `eu` is accepted. Default `eu`. |
+| `SONIOX_ASYNC_MODEL`           | Soniox async model. Default `stt-async-v5`. |
+| `SONIOX_ASYNC_TIMEOUT_MS`      | Budget covering upload, processing, and transcript fetch. Default `100000` (range 1,000-110,000). |
+| `SONIOX_CLEANUP_TIMEOUT_MS`    | Independent budget for deleting provider-side audio. Default `10000` (range 1,000-30,000). |
 | `PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY` | Canonical base64 for at least 32 random bytes. The web/export/suppression runtimes must use the same long-lived key to derive stable HMAC user keys. |
 | `ACTIVATION_REMINDERS_ENABLED` | Master switch for activation reminder polling. Default `false`. Enable on only one server instance until distributed leasing exists.                                                         |
 | `ACTIVATION_SWEEP_INTERVAL_MS` | Reminder polling interval in milliseconds. Default `900000` (15 minutes).                                                                                                                    |
@@ -283,6 +289,46 @@ Require the rollback report itself to show legacy `exact`, target `absent`, zero
 documents, and `completed` before restoring the old binary. Do not use forward
 `--verify` after rollback. Once any scoped term exists, rollback is forbidden;
 repair or roll forward with the scoped runtime.
+
+## Async transcription providers
+
+`POST /voice/transcribe` runs on exactly one provider, chosen at startup by
+`ASYNC_TRANSCRIPTION_PROVIDER`. There is no automatic fallback: if the selected
+provider fails, the request fails with a provider-neutral error. Switching
+providers is a configuration change plus a restart.
+
+OpenAI remains the default. **Do not select Soniox in production until the
+Soniox DPA is signed, the EU project is provisioned, the updated privacy policy
+is published, and the mobile app's request timeout exceeds the server budget.**
+Soniox async processing can take longer than the app's current 30-second
+timeout.
+
+Provider failures map to bounded errors, each carrying an additive `retryable`
+boolean that older apps may ignore:
+
+| Condition | Status | Error | Retryable |
+| --- | --- | --- | --- |
+| Provider rejected the audio | `400` | `bad_request` | no |
+| Provider capacity or outage | `503` | `transcription_unavailable` | yes |
+| Provider exceeded the time budget | `504` | `transcription_timeout` | yes |
+| Provider rejected our credentials or configuration | `500` | `transcription_configuration_error` | no |
+| Provider returned an unparseable response | `502` | `transcription_provider_error` | yes |
+
+`Retry-After: 1` accompanies the retryable statuses. The daily Sesori quota
+remains a separate `429 quota_exceeded` and is never reported as provider
+capacity. OpenAI deliberately keeps its shipped behavior of reporting every
+provider failure as `500 internal_server_error`.
+
+Each request deletes its provider-side transcription and then its uploaded file.
+A hard crash can strand those resources, so audit them periodically:
+
+```bash
+sops exec-env env/app/prod.env 'npm run purge-soniox-transcription'
+sops exec-env env/app/prod.env 'npm run purge-soniox-transcription -- --apply'
+```
+
+The command audits by default and only deletes with `--apply`. It prints counts
+and an outcome, never IDs, filenames, or transcript content.
 
 ## Activation backfill
 
@@ -461,6 +507,7 @@ the restricted target dataset/table and deletion identity exist.
 | `npm run export-product-analytics` | Run one isolated auth-private export using ADC (unscheduled until analytics IAM exists) |
 | `npm run suppress-product-analytics-export` | Read one protected suppression request from stdin and hand off a restricted deletion target |
 | `npm run migrate-project-glossary-index` | Dry-run glossary index migration; mutation flags require the documented maintenance window |
+| `npm run purge-soniox-transcription` | Audit Soniox async residue; `-- --apply` deletes it. Reports counts only |
 
 ## Project structure
 

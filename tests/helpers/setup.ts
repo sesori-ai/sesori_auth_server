@@ -36,6 +36,7 @@ import { LegalDocumentService } from "../../src/services/legal-document-service.
 import { TokenService } from "../../src/services/token-service.js";
 import { GlossaryService } from "../../src/services/glossary-service.js";
 import { VoiceService } from "../../src/services/voice-service.js";
+import type { AsyncTranscriptionClient } from "../../src/clients/async-transcription-client.js";
 import { AppClientPresenceService } from "../../src/services/app-client-presence-service.js";
 import { ProductAnalyticsPreferenceService } from "../../src/services/product-analytics-preference-service.js";
 import { SettingsService } from "../../src/services/settings-service.js";
@@ -84,6 +85,7 @@ export type TestAppOverrides = {
   settingsService?: SettingsService;
   glossaryService?: GlossaryService;
   voiceService?: VoiceService;
+  asyncTranscriptionClient?: AsyncTranscriptionClient;
 };
 
 export type { OAuthClient };
@@ -126,6 +128,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   process.env.RELAY_WEBHOOK_SECRET ??= "test-relay-secret";
   process.env.OPENAI_API_KEY ??= "test-openai-api-key";
   process.env.OPENAI_TRANSCRIPTION_MODEL ??= "gpt-4o-mini-transcribe";
+  process.env.ASYNC_TRANSCRIPTION_PROVIDER ??= "openai";
   process.env.PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY ??= testProductAnalyticsPseudonymizationKey.toString("base64");
   process.env.FCM_SA_JSON ??= Buffer.from(
     JSON.stringify({
@@ -198,7 +201,14 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   const settingsService = overrides?.settingsService ?? new SettingsService({ settingsRepo });
   const authService = new AuthService({ tokenService, userRepo, oauthAccountRepo, passwordAccountRepo, bridgeService });
   const glossaryService = overrides?.glossaryService ?? new GlossaryService({ glossaryRepo });
-  const voiceService = overrides?.voiceService ?? new VoiceService({ openai, glossaryService, dailyUsageRepo });
+  const voiceService =
+    overrides?.voiceService ??
+    new VoiceService({
+      transcriptionClient: overrides?.asyncTranscriptionClient ?? openai,
+      glossaryService,
+      dailyUsageRepo,
+      dailyLimitSeconds: config.DAILY_TRANSCRIPTION_LIMIT_SECONDS,
+    });
   const sessionMetadataService =
     overrides?.sessionMetadataService ?? new SessionMetadataService({ openai, dailyUsageRepo, model: "gpt-4o-mini" });
   const installScriptService = overrides?.installScriptService ?? new InstallScriptService();

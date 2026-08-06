@@ -5,6 +5,9 @@ import { AppleClient } from "./clients/auth/apple-client.js";
 import { GithubClient } from "./clients/auth/github-client.js";
 import { GoogleClient } from "./clients/auth/google-client.js";
 import { OpenAIClient } from "./clients/openai-client.js";
+import { SonioxTranscriptionClient, type SonioxAsyncSdk } from "./clients/soniox-transcription-client.js";
+import type { AsyncTranscriptionClient } from "./clients/async-transcription-client.js";
+import { AsyncTranscriptionProvider, SONIOX_REST_URL_BY_REGION } from "./types/transcription.js";
 import { loadConfig } from "./config.js";
 import { MongoDbAccessor } from "./db/mongo-db-accessor.js";
 import { MongoDbConnector } from "./db/mongo-db-connector.js";
@@ -149,7 +152,38 @@ async function main() {
     bridgeService,
   });
   const glossaryService = new GlossaryService({ glossaryRepo });
-  const voiceService = new VoiceService({ openai, glossaryService, dailyUsageRepo });
+
+  // Exactly one async provider is selected at startup; a failed request is
+  // never retried against the other provider.
+  let transcriptionClient: AsyncTranscriptionClient = openai;
+  if (config.ASYNC_TRANSCRIPTION_PROVIDER === AsyncTranscriptionProvider.Soniox) {
+    const { SonioxNodeClient } = await import("@soniox/node");
+    // `base_url` is the SDK's highest-precedence endpoint source. `region` alone
+    // is NOT sufficient: it resolves below both SONIOX_BASE_DOMAIN and
+    // SONIOX_API_BASE_URL, so an environment variable could otherwise redirect
+    // audio and the API key off the approved EU project.
+    const sdk: SonioxAsyncSdk = new SonioxNodeClient({
+      api_key: config.SONIOX_API_KEY,
+      region: config.SONIOX_REGION,
+      base_url: SONIOX_REST_URL_BY_REGION[config.SONIOX_REGION],
+    });
+    transcriptionClient = new SonioxTranscriptionClient({
+      sdk,
+      model: config.SONIOX_ASYNC_MODEL,
+      timeoutMs: config.SONIOX_ASYNC_TIMEOUT_MS,
+      cleanupTimeoutMs: config.SONIOX_CLEANUP_TIMEOUT_MS,
+    });
+    console.log(
+      `Soniox async transcription selected (model: ${config.SONIOX_ASYNC_MODEL}, region: ${config.SONIOX_REGION})`,
+    );
+  }
+
+  const voiceService = new VoiceService({
+    transcriptionClient,
+    glossaryService,
+    dailyUsageRepo,
+    dailyLimitSeconds: config.DAILY_TRANSCRIPTION_LIMIT_SECONDS,
+  });
 
   const sessionMetadataService = new SessionMetadataService({
     openai,

@@ -1,6 +1,7 @@
 import { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import multipart from "@fastify/multipart";
 import { ApiError, BadRequestError, InternalServerError, UnauthenticatedError } from "../lib/errors.js";
+import { createRequestCloseSignal, isClientConnectionOpen } from "../lib/request-close-signal.js";
 import type {
   TranscribeReply,
   GlossaryListQuery,
@@ -18,7 +19,7 @@ import {
   type ProjectKey,
 } from "../models/voice.js";
 import type { GlossaryService } from "../services/glossary-service.js";
-import type { VoiceService } from "../services/voice-service.js";
+import { TranscriptionCancelledError, type VoiceService } from "../services/voice-service.js";
 
 const AUDIO_MAX_FILE_SIZE = 25 * 1024 * 1024;
 const AUDIO_FIELD_NAME = "audio";
@@ -154,7 +155,7 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRouteOptions> = async (fastify
   fastify.post<{ Reply: TranscribeReply }>(
     "/voice/transcribe",
     { preHandler: requireAuth, config: { rateLimit: TRANSCRIBE_RATE_LIMIT } },
-    async (request) => {
+    async (request, reply) => {
       const { audio, projectKey } = await readTranscribeRequest(request);
       const userId = getUserId(request);
 
@@ -165,6 +166,7 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRouteOptions> = async (fastify
           fileBuffer: audio.buffer,
           filename: audio.filename,
           mimetype: audio.mimetype,
+          signal: createRequestCloseSignal({ request, reply }),
         });
 
         if (!text || text.trim().length === 0) {
@@ -173,6 +175,19 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRouteOptions> = async (fastify
 
         return { text, dailySecondsRemaining };
       } catch (error) {
+        // A cancellation can also surface from an SDK-internal abort while the
+        // caller is still connected. Only relinquish the socket when the client
+        // is genuinely gone; otherwise a response must still be written or the
+        // connection would hang until the client's own deadline.
+        if (error instanceof TranscriptionCancelledError) {
+          if (!isClientConnectionOpen({ request, reply })) {
+            reply.hijack();
+            return reply;
+          }
+
+          throw new BadRequestError({ debugMessage: "Transcription cancelled before completion" });
+        }
+
         // Re-throw any ApiError subclass (BadRequestError, InternalServerError, QuotaExceededError, etc.)
         // so the global error handler returns the correct status code.
         if (error instanceof ApiError) {

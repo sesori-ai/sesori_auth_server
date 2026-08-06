@@ -1,19 +1,42 @@
 import { DailyUsageRepository } from "../repositories/daily-usage-repo.js";
-import { OpenAIClient } from "../clients/openai-client.js";
-import { QuotaExceededError } from "../lib/errors.js";
-import { loadConfig } from "../config.js";
+import type { AsyncTranscriptionClient } from "../clients/async-transcription-client.js";
+import {
+  BadRequestError,
+  InternalServerError,
+  QuotaExceededError,
+  TranscriptionConfigurationError,
+  TranscriptionProviderError,
+  TranscriptionTimeoutError,
+  TranscriptionUnavailableError,
+} from "../lib/errors.js";
 import { GlossaryService } from "./glossary-service.js";
 import type { ProjectKey } from "../models/voice.js";
+import { TranscriptionFailure, TranscriptionFailureReason } from "../types/transcription.js";
+
+/** Raised when the client disconnected, so no response should be written. */
+export class TranscriptionCancelledError extends Error {
+  constructor() {
+    super("transcription_cancelled");
+    this.name = "TranscriptionCancelledError";
+  }
+}
 
 export class VoiceService {
-  readonly #openai: OpenAIClient;
+  readonly #transcriptionClient: AsyncTranscriptionClient;
   readonly #glossaryService: GlossaryService;
   readonly #dailyUsageRepo: DailyUsageRepository;
+  readonly #dailyLimitSeconds: number;
 
-  constructor(deps: { openai: OpenAIClient; glossaryService: GlossaryService; dailyUsageRepo: DailyUsageRepository }) {
-    this.#openai = deps.openai;
+  constructor(deps: {
+    transcriptionClient: AsyncTranscriptionClient;
+    glossaryService: GlossaryService;
+    dailyUsageRepo: DailyUsageRepository;
+    dailyLimitSeconds: number;
+  }) {
+    this.#transcriptionClient = deps.transcriptionClient;
     this.#glossaryService = deps.glossaryService;
     this.#dailyUsageRepo = deps.dailyUsageRepo;
+    this.#dailyLimitSeconds = deps.dailyLimitSeconds;
   }
 
   async transcribe(args: {
@@ -22,26 +45,35 @@ export class VoiceService {
     fileBuffer: Buffer;
     filename: string;
     mimetype: string;
+    signal?: AbortSignal;
   }): Promise<{ text: string; dailySecondsRemaining: number }> {
     const usedSeconds = await this.#dailyUsageRepo.getDailyTranscriptionSeconds(args.userId);
 
-    if (usedSeconds >= loadConfig().DAILY_TRANSCRIPTION_LIMIT_SECONDS) {
+    if (usedSeconds >= this.#dailyLimitSeconds) {
       throw new QuotaExceededError({
         service: "transcription",
-        debugMessage: `Daily transcription limit reached: ${usedSeconds}/${loadConfig().DAILY_TRANSCRIPTION_LIMIT_SECONDS}s`,
+        debugMessage: `Daily transcription limit reached: ${usedSeconds}/${this.#dailyLimitSeconds}s`,
       });
     }
 
-    const prompt = await this.#glossaryService.buildTranscriptionPrompt({
+    const terms = await this.#glossaryService.getContextWords({
       userId: args.userId,
       projectKey: args.projectKey,
     });
-    const { text, durationSeconds } = await this.#openai.transcribe({
-      fileBuffer: args.fileBuffer,
-      filename: args.filename,
-      mimetype: args.mimetype,
-      prompt: prompt ?? undefined,
-    });
+
+    let text: string;
+    let durationSeconds: number;
+    try {
+      ({ text, durationSeconds } = await this.#transcriptionClient.transcribe({
+        audio: args.fileBuffer,
+        filename: args.filename,
+        mimeType: args.mimetype,
+        terms,
+        signal: args.signal,
+      }));
+    } catch (error) {
+      throw VoiceService.#toApiError(error);
+    }
 
     let dailySecondsRemaining: number;
     try {
@@ -50,20 +82,47 @@ export class VoiceService {
         durationSeconds,
       );
 
-      if (previousTotal >= loadConfig().DAILY_TRANSCRIPTION_LIMIT_SECONDS) {
-        console.warn("[VoiceService] Concurrent quota race detected");
+      if (previousTotal >= this.#dailyLimitSeconds) {
+        console.warn("[VoiceService] transcription_quota_race");
         dailySecondsRemaining = 0;
       } else {
-        dailySecondsRemaining = Math.max(0, loadConfig().DAILY_TRANSCRIPTION_LIMIT_SECONDS - newTotal);
+        dailySecondsRemaining = Math.max(0, this.#dailyLimitSeconds - newTotal);
       }
     } catch (error) {
-      console.error("[VoiceService] Failed to record transcription usage", error);
-      dailySecondsRemaining = Math.max(
-        0,
-        loadConfig().DAILY_TRANSCRIPTION_LIMIT_SECONDS - usedSeconds - durationSeconds,
-      );
+      // Soft-fail: the audio is already transcribed, so an infrastructure
+      // failure here must not cost the user their result. The pre-check above
+      // remains the primary quota gate.
+      console.error("[VoiceService] transcription_usage_write_failed", {
+        errorType: error instanceof Error ? error.name : "UnknownError",
+      });
+      dailySecondsRemaining = Math.max(0, this.#dailyLimitSeconds - usedSeconds - durationSeconds);
     }
 
     return { text, dailySecondsRemaining };
+  }
+
+  /** Maps the closed provider-neutral failure enum onto the public API contract. */
+  static #toApiError(error: unknown): Error {
+    if (!(error instanceof TranscriptionFailure)) {
+      return new InternalServerError({ debugMessage: "Transcription failed", nestedError: error });
+    }
+
+    switch (error.reason) {
+      case TranscriptionFailureReason.InvalidInput:
+        return new BadRequestError({ debugMessage: "Provider rejected the audio input" });
+      case TranscriptionFailureReason.Capacity:
+      case TranscriptionFailureReason.Unavailable:
+        return new TranscriptionUnavailableError({ debugMessage: "Transcription provider unavailable" });
+      case TranscriptionFailureReason.Timeout:
+        return new TranscriptionTimeoutError({ debugMessage: "Transcription provider timed out" });
+      case TranscriptionFailureReason.ProviderRejected:
+        return new TranscriptionConfigurationError({ debugMessage: "Transcription provider rejected the request" });
+      case TranscriptionFailureReason.MalformedOutput:
+        return new TranscriptionProviderError({ debugMessage: "Transcription provider returned malformed output" });
+      case TranscriptionFailureReason.Cancelled:
+        return new TranscriptionCancelledError();
+      default:
+        return new InternalServerError({ debugMessage: "Transcription failed" });
+    }
   }
 }
