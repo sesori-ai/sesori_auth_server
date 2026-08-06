@@ -101,12 +101,18 @@ export async function runSonioxPurge(input: {
     }
   };
 
+  // Tracks whether any job may still exist. Deleting a file whose transcription
+  // survived would leave a job referencing missing audio — the same unsafe state
+  // the request-path cleanup avoids.
+  let transcriptionsFullyCleared = true;
+
   // Transcriptions first: they reference files.
   try {
     for await (const item of await input.sdk.stt.list()) {
       const parsed = purgeItemSchema.safeParse(item);
       if (!parsed.success) {
         markFailed("transcription_item", parsed.error.issues);
+        transcriptionsFullyCleared = false;
         continue;
       }
 
@@ -116,10 +122,13 @@ export async function runSonioxPurge(input: {
         (await deleteOne((signal) => input.sdk.stt.delete(parsed.data.id, signal), "transcription_delete"));
       if (removed) {
         report.deletedTranscriptionCount += 1;
+      } else if (input.mode === "apply") {
+        transcriptionsFullyCleared = false;
       }
     }
   } catch (error) {
     markFailed("transcription_list", error);
+    transcriptionsFullyCleared = false;
   }
 
   try {
@@ -133,6 +142,7 @@ export async function runSonioxPurge(input: {
       report.fileCount += 1;
       const removed =
         input.mode === "apply" &&
+        transcriptionsFullyCleared &&
         (await deleteOne((signal) => input.sdk.files.delete(parsed.data.id, signal), "file_delete"));
       if (removed) {
         report.deletedFileCount += 1;

@@ -111,10 +111,11 @@ describe("purge-soniox-transcription", () => {
 
       const report = await runSonioxPurge({ sdk, mode: "apply" });
 
-      // One failure must not abandon the remaining resources.
-      assert.deepEqual(attempted, ["transcription:t1", "transcription:t2", "file:f1"]);
+      // One failure must not abandon the remaining transcriptions. Files are
+      // then held back, because t1's job may still reference its audio.
+      assert.deepEqual(attempted, ["transcription:t1", "transcription:t2"]);
       assert.equal(report.deletedTranscriptionCount, 1);
-      assert.equal(report.deletedFileCount, 1);
+      assert.equal(report.deletedFileCount, 0);
       assert.equal(report.outcome, "failed");
     });
 
@@ -143,6 +144,38 @@ describe("purge-soniox-transcription", () => {
 
       assert.deepEqual(attempted, []);
       assert.equal(report.transcriptionCount, 0);
+      assert.equal(report.outcome, "failed");
+    });
+
+    it("does not delete files when a transcription delete failed", async () => {
+      const attempted: string[] = [];
+      const sdk: SonioxPurgeSdk = {
+        files: {
+          async list() {
+            return [{ id: "f1" }].values();
+          },
+          async delete(fileId: string) {
+            attempted.push(`file:${fileId}`);
+          },
+        },
+        stt: {
+          async list() {
+            return [{ id: "t1" }].values();
+          },
+          async delete(id: string) {
+            attempted.push(`transcription:${id}`);
+            throw new Error("delete failed");
+          },
+        },
+      };
+
+      const report = await runSonioxPurge({ sdk, mode: "apply" });
+
+      // Removing audio whose job survived would leave a job referencing
+      // missing audio, the same unsafe state request cleanup avoids.
+      assert.deepEqual(attempted, ["transcription:t1"]);
+      assert.equal(report.deletedFileCount, 0);
+      assert.equal(report.fileCount, 1);
       assert.equal(report.outcome, "failed");
     });
 

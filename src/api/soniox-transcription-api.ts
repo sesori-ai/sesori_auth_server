@@ -14,19 +14,26 @@ const completedTranscriptionSchema = z
   .object({
     id: z.string().min(1),
     status: transcriptionStatusSchema,
-    // Bounded: a non-positive duration would bill as free and an absurd one
-    // would blow the daily quota. 24h is far above any supported upload.
-    audio_duration_ms: z.number().finite().positive().max(86_400_000).nullish(),
+    // Loose here on purpose: a failed job may echo a meaningless duration, and
+    // rejecting it at parse time would mask the real error classification.
+    // The strict bound is applied below, only for a completed job.
+    audio_duration_ms: z.number().finite().nullish(),
     error_type: z.string().nullish(),
     error_message: z.string().nullish(),
   })
   .loose();
 
 const maxTranscriptCharacters = 1_000_000;
+const maxAudioDurationMs = 86_400_000;
 
 const transcriptSchema = z
   .object({
-    text: z.string().max(maxTranscriptCharacters),
+    // A completed job with no usable text is malformed provider output. Failing
+    // here keeps it from consuming quota and surfacing as a late generic 500.
+    text: z
+      .string()
+      .max(maxTranscriptCharacters)
+      .refine((text) => text.trim().length > 0),
   })
   .loose();
 
@@ -118,6 +125,14 @@ export function parseTranscription(value: unknown): ValidatedTranscription {
 
   if (status !== "completed") {
     fail(TranscriptionFailureReason.Timeout);
+  }
+
+  // Only a completed job's duration is billable, so enforce the bound here:
+  // non-positive would bill as free, absurd would blow the daily quota.
+  if (audioDurationMs !== null && audioDurationMs !== undefined) {
+    if (audioDurationMs <= 0 || audioDurationMs > maxAudioDurationMs) {
+      fail(TranscriptionFailureReason.MalformedOutput);
+    }
   }
 
   return { id, status, audioDurationMs: audioDurationMs ?? null };

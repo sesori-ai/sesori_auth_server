@@ -76,6 +76,19 @@ describe("soniox transcription api", () => {
       }
     });
 
+    it("classifies a failed job by its error type even when it echoes a bad duration", () => {
+      // The duration bound must not short-circuit the error classification: a
+      // failed job's duration is meaningless.
+      expectReason(
+        () => parseTranscription({ id: "t1", status: "error", error_type: "bad_audio", audio_duration_ms: 0 }),
+        TranscriptionFailureReason.InvalidInput,
+      );
+      expectReason(
+        () => parseTranscription({ id: "t1", status: "error", error_type: "unauthorized", audio_duration_ms: -5 }),
+        TranscriptionFailureReason.ProviderRejected,
+      );
+    });
+
     it("rejects a non-positive or absurd duration rather than billing it", () => {
       for (const audioDurationMs of [0, -1, 86_400_001]) {
         expectReason(
@@ -111,9 +124,14 @@ describe("soniox transcription api", () => {
   });
 
   describe("parseTranscriptText", () => {
-    it("accepts text including empty text", () => {
+    it("accepts usable text", () => {
       assert.equal(parseTranscriptText({ text: "hello" }), "hello");
-      assert.equal(parseTranscriptText({ text: "" }), "");
+    });
+
+    it("rejects empty or whitespace-only text before it can be billed", () => {
+      for (const text of ["", "   ", "\n\t "]) {
+        expectReason(() => parseTranscriptText({ text }), TranscriptionFailureReason.MalformedOutput);
+      }
     });
 
     it("rejects an oversized transcript", () => {
