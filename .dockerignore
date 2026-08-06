@@ -9,5 +9,8 @@ keys/
 !assets/legal/terms.md
 !assets/legal/privacy.md
 tests/
-scripts/
+# Anchored: excludes only the repository-root operator scripts. An unanchored
+# "scripts/" also matched src/scripts/, which silently dropped the product
+# analytics export/suppression entry points from the production image.
+/scripts/
 .sops.yaml
