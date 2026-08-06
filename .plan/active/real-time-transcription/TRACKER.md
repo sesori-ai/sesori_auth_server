@@ -7,6 +7,7 @@
 - **Implementation base:** auth `master`
 - **Merged auth artifact SHA:** —
 - **Merged apps artifact SHA:** —
+- **Plan definition PR:** https://github.com/sesori-ai/sesori_auth_server/pull/59
 
 ## Current Pointer
 
