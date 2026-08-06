@@ -23,9 +23,10 @@
 - [ ] Run `sops exec-env env/app/prod.env 'npm run purge-soniox-transcription'`; continue only on its closed `completed` audit outcome. If residual counts are nonzero, run `sops exec-env env/app/prod.env 'npm run purge-soniox-transcription -- --apply'`, then rerun audit and require zero files/transcriptions. Any unknown/error outcome stops rollout.
 - [ ] Select Soniox async and restart; verify short production-backed smoke, latency, safe error outcome, and ordinary cleanup.
 - [ ] Enable realtime protocol 1 and restart; verify one authorized internal iOS and Android session.
+- [ ] Rehearse rollback while still internal-only: disable realtime and restart, confirm capability advertises disabled, an internal app selects async, and health/async smoke pass; then re-enable realtime and restart, confirming one internal session again. This proves the enable→disable flip before general exposure.
 - [ ] Observe safe logs, provider cost/concurrency/storage, process RSS, and error counts for the agreed initial window.
 - [ ] Confirm no secret/content/PII exposure and no relay change.
-- [ ] Confirm rollback flags work. If any scoped glossary row now exists, database rollback is forbidden; roll forward.
+- [ ] Confirm the OpenAI async rollback configuration remains deployable. If any scoped glossary row now exists, database rollback is forbidden; roll forward.
 
 ## Expected Evidence
 
@@ -40,5 +41,5 @@
 - Migration and both provider modes operate as planned.
 - Realtime is enabled only after app and staging readiness.
 - Ordinary provider cleanup returns to zero and accepted residual policy is understood.
-- Rollback to realtime-off/OpenAI is available without schema reversal.
+- Rollback to realtime-off is rehearsed in production and OpenAI async rollback remains deployable, all without schema reversal.
 - Tracker records User and Worker evidence status and any plan delta.

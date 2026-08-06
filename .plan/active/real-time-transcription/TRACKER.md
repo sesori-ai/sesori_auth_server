@@ -13,15 +13,15 @@
 
 - **Stage:** S01
 - **Wave:** W01
-- **Next action:** Deliver the approved plan (PR/commit decision), then pin the S01/W01 auth `master` baseline before implementation.
+- **Next action:** After the plan PR merges, pin the S01/W01 auth `master` baseline after drift assessment, then begin S01-W01-P01.
 
 ## Plan Review
 
-- **Verdict:** Approved (fifth round; four prior rejections corrected)
+- **Verdict:** Approved (sixth round; delta re-approval after PR #59 feedback edits)
 - **Reviewer:** `aristotle-plan-review`
 - **Date:** 2026-08-06
 - **Reviewed commit:** `020afc0c456bdbf4edd13bbea56b2e95410bec29` (invocation worktree; selected implementation base remains auth `master` at `9cc495397158722e4bf9c7ee2ed10f4b17b59e26`)
-- **Plan-definition digest:** `sesori-plan-definition-v1:sha256:afce0de941b59a1a153908669cac1a6f9d4f817b17b1ea44ac96d95eaa49ef3f` (recomputed after recording the approved status in `PLAN.md`)
+- **Plan-definition digest:** `sesori-plan-definition-v1:sha256:c5529eb3838299e0488e3dbfa616a5514f0faabb447c140ebd615f83874c22e7`
 
 ## Wave Baselines
 
@@ -56,6 +56,7 @@
 
 ## Findings and Plan Deltas
 
+- 2026-08-06 — PR #59 bot review feedback addressed: re-review date sync, post-merge next-action pointer, reuse of shipped `createRequestCloseSignal` for async cancellation, no-user-ID quota-race logging with regression test, admission-fixed realtime cap without mid-session usage re-reads, explicit staging Soniox/realtime enablement steps, and a production realtime rollback rehearsal. Sixth `aristotle-plan-review` round re-APPROVED; digest refreshed.
 - 2026-08-06 — Fifth `aristotle-plan-review` round APPROVED the plan. All six fourth-round corrections were verified concretely present and consistent with shipped code, the record 7.1.1 SDK, CI workflows, and pinned baselines; digest recorded.
 - 2026-08-04 — Fourth `aristotle-plan-review` rejected six residual contradictions. The plan now gives the pre-auth limiter a named middleware and `src/index.ts` composition owner with corrected hook order; assigns retry headers solely to `src/server.ts`; atomically stops bridge admission and awaits tracker cleanup; uses a recorder start-paused/effective-config-before-start-frame sequence; clamps overshot glossary capacity at zero; and preserves shipped OpenAI HTTP 500 failures through an exact compatibility-marked mapping while Soniox uses detailed errors.
 - 2026-08-04 — Third `aristotle-plan-review` rejected seven remaining gaps. The plan now adds a bounded O(1) pre-auth upgrade limiter before the user limiter; tracks and quiescently drains every app-presence repository read only after `app.close()`; hardens and tests activation/bridge producer disposal; assigns realtime connect timeout to the Soniox client signal seam; closes first-frame, fractional-quota, and serialized-event protocol outcomes; defines exact async `ApiError`/HTTP/retry mappings; and separates staging/production operational waves with explicit merged auth/apps artifact SHA fields.

@@ -88,7 +88,7 @@ Introduce one async transcription client contract and a Soniox implementation wh
 
 ## Data Flow and Ownership
 
-1. `src/routes/voice.ts` owns one `AbortController` per multipart request. It listens to `request.raw`'s `aborted` event while receiving the body and `reply.raw`'s `close` event while provider work is pending; the close handler aborts only when the response is not `writableEnded`. A route `finally` removes both listeners. The route passes the signal through `VoiceService` with file bytes, filename, MIME, and project key.
+1. `src/routes/voice.ts` obtains one cancellation signal per multipart request from the existing `createRequestCloseSignal({request, reply})` helper in `src/lib/request-close-signal.ts`, which already returns an immediately aborted signal when the connection is gone on entry and removes its own listeners on the first terminal event. The route passes that signal through `VoiceService` with file bytes, filename, MIME, and project key; no new route-owned listener bookkeeping is added.
 2. OpenAI adapter preserves current behavior.
 3. `SonioxTranscriptionClient` uploads, creates, polls, and fetches through the SDK; `soniox-transcription-api.ts` validates and normalizes each consumed SDK value and maps stable errors to provider-neutral categories.
 4. A separate bounded cleanup signal deletes transcription then file in `finally`; cleanup failure is logged with outcome/type/request reference only and never suppresses a valid transcript.
@@ -103,7 +103,7 @@ Introduce one async transcription client contract and a Soniox implementation wh
 - Each new `ApiError` sets `responseBody = {retryable: <fixed boolean>}`; old clients may ignore that additive field. `cancelled` is consumed only when the route-owned signal fired: if the socket is already closed the route emits no response, and otherwise it maps to nonretryable `BadRequestError`. Daily Sesori quota remains existing HTTP 429 `quota_exceeded` and is never conflated with provider capacity.
 - The global handler in `src/server.ts` is the sole `Retry-After` response owner: it reads only the positive safe-integer `ApiError.retryAfterSeconds` constructor metadata, emits the header when present, and omits it otherwise. `app.inject()` route tests assert both paths; provider clients/routes never write this header directly.
 - To preserve shipped default-OpenAI behavior, the OpenAI adapter maps every non-caller-cancellation SDK timeout, capacity, malformed-response, and other SDK failure to internal `internal`, retaining HTTP 500 `internal_server_error`; only caller cancellation maps to `cancelled`. Place the required compatibility marker immediately above this mapping in `src/clients/openai-client.ts` using implementation date/auth version `0.1.0`. Affected pair: apps through current `1.6.1` (and any later app still supporting OpenAI rollback) with auth `0.1.0` after this PR while OpenAI remains selectable. Cleanup: when OpenAI async rollback support is explicitly removed or a breaking error-contract rollout is approved, delete the marker/legacy mapping and map OpenAI into the detailed enum with matching route tests.
-- Raw provider messages, audio, transcripts, terms, paths, user IDs, and keys are never logged.
+- Raw provider messages, audio, transcripts, terms, paths, user IDs, and keys are never logged. This includes the existing `VoiceService` quota-race warning, which currently prints the authenticated user ID: rewrite it (and any other touched log line) to a bounded event name plus safe error type only, and add a test asserting the quota-race and increment-failure logs contain no user ID.
 - Existing 25 MiB and route rate limits remain. No new async semaphore is added without observed memory pressure.
 
 ## Backward Compatibility
@@ -129,7 +129,7 @@ Introduce one async transcription client contract and a Soniox implementation wh
 - Soniox config conditional validation and explicit endpoint construction.
 - Zod rejection for malformed transcript, duration, status, and error shapes.
 - Success, provider error, timeout, cancellation, missing transcript, and cleanup failure.
-- Route abort propagation and listener cleanup; bounded provider timeout remains the shutdown bound.
+- Route abort propagation via `createRequestCloseSignal`, including an already-disconnected client on entry receiving an immediately aborted signal; bounded provider timeout remains the shutdown bound.
 - Route-level assertions for every closed internal failure: exact HTTP status, error string, retryable field/header presence or absence, daily quota distinction, and no response after a disconnected cancellation.
 - Cleanup order and the rule that cleanup failure does not discard a valid transcript.
 - Purge audit default, explicit apply guard, and content-free output.
