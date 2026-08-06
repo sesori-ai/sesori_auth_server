@@ -95,6 +95,36 @@ describe("glossary index cutover guard", () => {
     }
   });
 
+  it("refuses startup when two indexes share the target key", async () => {
+    const ctx = await createTestApp();
+    try {
+      await ctx.dbAccessor
+        .getDb(MongoDbDatabase.Auth)
+        .collection(AuthDbCollection.GlossaryEntries)
+        .createIndex(
+          { userId: 1, projectKey: 1, word: 1 },
+          { unique: true, name: "duplicate_target_key", collation: { locale: "en", strength: 2 } },
+        );
+
+      await assert.rejects(() => ctx.dbAccessor.ensureIndexes(), /Glossary index migration incomplete/);
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+
+  it("refuses startup when the glossary collection has a non-simple default collation", async () => {
+    const ctx = await createTestApp();
+    try {
+      const db = ctx.dbAccessor.getDb(MongoDbDatabase.Auth);
+      await db.collection(AuthDbCollection.GlossaryEntries).drop();
+      await db.createCollection(AuthDbCollection.GlossaryEntries, { collation: { locale: "en", strength: 2 } });
+
+      await assert.rejects(() => ctx.dbAccessor.ensureIndexes(), /Glossary index migration incomplete/);
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+
   it("allows startup once only the project-scoped target index exists", async () => {
     const ctx = await createTestApp();
     try {

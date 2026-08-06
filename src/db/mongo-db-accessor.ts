@@ -85,10 +85,14 @@ export function indexMatchesDesired(existing: Record<string, unknown>, desired: 
 }
 
 /**
- * Exact-metadata check for the project-scoped glossary index. `indexMatchesDesired`
- * compares only key and `unique`, so a sparse, partial, hidden, or non-simple
- * collated index would pass it while changing duplicate semantics. The startup
- * guard must accept exactly what the migration command accepts.
+ * Rejects every glossary target-index option that changes duplicate or lookup
+ * semantics; `indexMatchesDesired` compares only key and `unique`, which is too
+ * weak for this guard. This deliberately covers semantics, not the migration's
+ * complete metadata audit: `--verify` additionally rejects `v: 1`, storage-engine
+ * options, and type-specific fields, all of which leave duplicate behavior
+ * unchanged. Startup therefore never accepts an index whose behavior differs
+ * from the migrated state, but the operator command remains the authority on
+ * exact index shape. Keep these predicates aligned when either side changes.
  */
 function isExactGlossaryTargetIndex(index: Record<string, unknown>): boolean {
   const collation = index.collation as { locale?: unknown } | undefined;
@@ -163,9 +167,22 @@ export class MongoDbAccessor {
           const legacyIndex = currentIndexes.find((index) =>
             indexKeyMatches(index.key as IndexSpecification, { userId: 1, word: 1 }),
           );
-          const targetExists = currentIndexes.some((index) => isExactGlossaryTargetIndex(index));
+          // Exactly one index may own the target key: duplicates on the same key
+          // are a mismatched cutover state that `--verify` also refuses.
+          const targetKeyIndexes = currentIndexes.filter((index) =>
+            indexKeyMatches(index.key as IndexSpecification, { userId: 1, projectKey: 1, word: 1 }),
+          );
+          const targetExists = targetKeyIndexes.length === 1 && isExactGlossaryTargetIndex(targetKeyIndexes[0]);
+          // A non-simple default collation is inherited by lookups such as the
+          // repository's `word: { $in: [...] }` delete, silently changing match
+          // semantics, so the collection itself must be simple.
+          const [collectionMetadata] = await db
+            .listCollections({ name: collectionName }, { nameOnly: false })
+            .toArray();
+          const collectionLocale = collectionMetadata?.options?.collation?.locale;
+          const collationIsSimple = collectionLocale === undefined || collectionLocale === "simple";
 
-          if (legacyIndex || !targetExists) {
+          if (legacyIndex || !targetExists || !collationIsSimple) {
             throw new Error(
               "Glossary index migration incomplete: expected only the unique {userId, projectKey, word} index. " +
                 "Run `npm run migrate-project-glossary-index -- --apply` with this instance stopped, then --verify.",
