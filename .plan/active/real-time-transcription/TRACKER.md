@@ -12,8 +12,8 @@
 ## Current Pointer
 
 - **Stage:** S01
-- **Wave:** W01
-- **Next action:** After the plan PR merges, pin the S01/W01 auth `master` baseline after drift assessment, then begin S01-W01-P01.
+- **Wave:** W02
+- **Next action:** After S01-W01-P01 merges, pin the S01/W02 auth `master` baseline after drift assessment, then begin S01-W02-P01.
 
 ## Plan Review
 
@@ -27,7 +27,7 @@
 
 | Stage | Wave | Repository | Base | Pinned SHA | Drift Decision |
 |---|---|---|---|---|---|
-| S01 | W01 | `sesori-ai/sesori_auth_server` | `master` | — | Not started |
+| S01 | W01 | `sesori-ai/sesori_auth_server` | `master` | `287abb307f1e1cbd77c19bb81030b11749ff351b` | Assessed 2026-08-06: drift from the audited `9cc4953` tip is the merged plan-definition PR #59 only, which adds `.plan/active/real-time-transcription/` documentation and no runtime, schema, route, or composition change. Audited baseline remains valid. |
 | S01 | W02 | `sesori-ai/sesori_auth_server` | `master` | — | Not started |
 | S02 | W01 | `sesori-ai/sesori_auth_server` | `master` | — | Not started |
 | S03 | W01 | `sesori-ai/sesori_apps_monorepo` | `main` | — | Not started |
@@ -36,7 +36,7 @@
 
 | Done | ID | Stage | Wave | PR | Branch | Notes |
 |---|---|---|---|---|---|---|
-| [ ] | S01-W01-P01 | S01 | W01 | — | `plan/real-time-transcription/s01-w01-p01-project-scope-glossary` | Auth: scoped glossary runtime and migration-ready index config |
+| [ ] | S01-W01-P01 | S01 | W01 | — | `real-time-config-next-step` | Auth: scoped glossary runtime and migration-ready index config. Implemented on the session-provided worktree branch instead of the planned branch name. |
 | [ ] | S01-W02-P01 | S01 | W02 | — | `plan/real-time-transcription/s01-w02-p01-provider-neutral-async-soniox` | Auth: provider boundary, Soniox async, legal/config/cleanup |
 | [ ] | S02-W01-P01 | S02 | W01 | — | `plan/real-time-transcription/s02-w01-p01-realtime-voice-proxy` | Auth: protocol v1 proxy and minimal shutdown |
 | [ ] | S03-W01-P01 | S03 | W01 | — | `plan/real-time-transcription/s03-w01-p01-stream-mobile-voice` | Apps: PCM streaming, preview, commit, async fallback |
@@ -56,6 +56,8 @@
 
 ## Findings and Plan Deltas
 
+- 2026-08-06 — S01-W01-P01 implementation review found one blocking defect and it was fixed before the PR: rewriting the multipart reader initially caught `FST_REQ_FILE_TOO_LARGE` inside the route and reported an oversized upload as HTTP 400 instead of the shipped 413. The reader now rethrows that framework error and a regression test asserts the preserved 413.
+- 2026-08-06 — S01-W01-P01 implemented. Deltas from the step file: the live `GlossaryEntry` schema is now strict and the migration-only project-scoped schema aliases it rather than re-extending a non-strict base, so one shape owns scoped documents; `src/db/glossary-index-migration.ts` needed no change; and the work uses the session-provided worktree branch. The repository fails closed on malformed persisted documents through `glossaryEntrySchema.safeParse` and returns `InternalServerError` without document content. Legacy unscoped rows are unreachable through scoped reads rather than erroring, so a stale row cannot break a valid project read.
 - 2026-08-06 — PR #59 bot review feedback addressed: re-review date sync, post-merge next-action pointer, reuse of shipped `createRequestCloseSignal` for async cancellation, no-user-ID quota-race logging with regression test, admission-fixed realtime cap without mid-session usage re-reads, explicit staging Soniox/realtime enablement steps, and a production realtime rollback rehearsal. Sixth `aristotle-plan-review` round re-APPROVED; digest refreshed.
 - 2026-08-06 — Fifth `aristotle-plan-review` round APPROVED the plan. All six fourth-round corrections were verified concretely present and consistent with shipped code, the record 7.1.1 SDK, CI workflows, and pinned baselines; digest recorded.
 - 2026-08-04 — Fourth `aristotle-plan-review` rejected six residual contradictions. The plan now gives the pre-auth limiter a named middleware and `src/index.ts` composition owner with corrected hook order; assigns retry headers solely to `src/server.ts`; atomically stops bridge admission and awaits tracker cleanup; uses a recorder start-paused/effective-config-before-start-frame sequence; clamps overshot glossary capacity at zero; and preserves shipped OpenAI HTTP 500 failures through an exact compatibility-marked mapping while Soniox uses detailed errors.
