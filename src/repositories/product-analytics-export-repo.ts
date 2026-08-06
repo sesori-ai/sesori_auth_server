@@ -51,6 +51,9 @@ const runMetadataSchema: ProductAnalyticsExportTableField[] = [
   { name: "milestone_rows_published", type: "INTEGER", mode: "REQUIRED" },
   { name: "cohort_rows_published", type: "INTEGER", mode: "REQUIRED" },
   { name: "published_at", type: "TIMESTAMP", mode: "REQUIRED" },
+  // Added after initial deployment; BigQuery ALTER TABLE ADD COLUMN appends at
+  // the end and the schema assertion compares field order exactly.
+  { name: "pre_creation_milestones_dropped", type: "INTEGER", mode: "NULLABLE" },
 ];
 
 const exportStateSchema: ProductAnalyticsExportTableField[] = [
@@ -313,6 +316,7 @@ export class ProductAnalyticsExportRepository {
       input.metadata.latePreferenceRowsRemoved,
       input.metadata.milestoneRowsPublished,
       input.metadata.cohortRowsPublished,
+      input.metadata.preCreationMilestonesDropped,
     ];
     if (
       input.metadata.runId !== input.run.runId ||
@@ -415,6 +419,7 @@ export class ProductAnalyticsExportRepository {
           late_preference_rows_removed,
           milestone_rows_published,
           cohort_rows_published,
+          pre_creation_milestones_dropped,
           published_at
         ) VALUES (
           @run_id,
@@ -431,6 +436,7 @@ export class ProductAnalyticsExportRepository {
           @late_preference_rows_removed,
           @milestone_rows_published,
           @cohort_rows_published,
+          @pre_creation_milestones_dropped,
           CURRENT_TIMESTAMP()
         );
         UPDATE \`${this.#api.datasetReference}.product_analytics_export_state\`
@@ -459,6 +465,7 @@ export class ProductAnalyticsExportRepository {
         late_preference_rows_removed: input.metadata.latePreferenceRowsRemoved,
         milestone_rows_published: input.metadata.milestoneRowsPublished,
         cohort_rows_published: input.metadata.cohortRowsPublished,
+        pre_creation_milestones_dropped: input.metadata.preCreationMilestonesDropped,
       },
     });
   }

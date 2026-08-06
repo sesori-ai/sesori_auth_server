@@ -117,6 +117,9 @@ export class UserRepository {
   }
 
   async findById(userId: string): Promise<User | null> {
+    if (!ObjectId.isValid(userId)) {
+      return null;
+    }
     return this.#collection.findOne({ _id: new ObjectId(userId) });
   }
 

@@ -63,7 +63,7 @@ export type TestContext = {
   appClientPresenceService: AppClientPresenceService;
   glossaryService: GlossaryService;
   cleanup: () => Promise<void>;
-  createUser: (opts?: { provider?: string; providerUserId?: string }) => Promise<TestUser>;
+  createUser: (opts?: { provider?: string; providerUserId?: string; createdAt?: Date }) => Promise<TestUser>;
   createExpiredRefreshToken: (userId: string) => string;
   createExpiredAccessToken: (opts: { userId: string; provider: string; providerUserId: string }) => string;
 };
@@ -188,7 +188,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   const bridgeService = overrides?.bridgeService ?? new BridgeService({ bridgeRepo, bridgeStateTracker });
   const activationService =
     overrides?.activationService ??
-    new ActivationService({ activationStateRepo, bridgeRepo, dailyUsageRepo, deviceTokenRepo });
+    new ActivationService({ activationStateRepo, bridgeRepo, dailyUsageRepo, deviceTokenRepo, userRepo });
   const appClientPresenceService =
     overrides?.appClientPresenceService ?? new AppClientPresenceService({ deviceTokenRepo });
   const productAnalyticsPreferenceService = new ProductAnalyticsPreferenceService({
@@ -230,11 +230,13 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   });
   await app.ready();
 
-  async function createUser(opts: { provider?: string; providerUserId?: string } = {}): Promise<TestUser> {
+  async function createUser(
+    opts: { provider?: string; providerUserId?: string; createdAt?: Date } = {},
+  ): Promise<TestUser> {
     const provider = opts.provider ?? "github";
     const providerUserId = opts.providerUserId ?? new ObjectId().toHexString();
     const userId = new ObjectId();
-    const now = new Date();
+    const now = opts.createdAt ?? new Date();
 
     await dbAccessor.getCollection<User>(MongoDbDatabase.Auth, AuthDbCollection.Users).insertOne({
       _id: userId,
