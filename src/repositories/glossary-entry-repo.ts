@@ -1,9 +1,12 @@
 import { Collection, MongoBulkWriteError, ObjectId } from "mongodb";
+import { z } from "zod";
 import { MongoDbAccessor } from "../db/mongo-db-accessor.js";
 import { glossaryEntrySchema, type GlossaryEntry } from "../models/documents.js";
 import type { ProjectKey } from "../models/voice.js";
 import { InternalServerError } from "../lib/errors.js";
 import { MongoDbDatabase, AuthDbCollection } from "../types/mongo.js";
+
+const countSchema = z.number().int().nonnegative().safe();
 
 export class GlossaryEntryRepository {
   readonly #collection: Collection<GlossaryEntry>;
@@ -12,21 +15,31 @@ export class GlossaryEntryRepository {
     this.#collection = accessor.getCollection<GlossaryEntry>(MongoDbDatabase.Auth, AuthDbCollection.GlossaryEntries);
   }
 
-  async findByUserAndProject(args: { userId: string; projectKey: ProjectKey }): Promise<GlossaryEntry[]> {
+  /** Returns the project's words. Documents stay inside the repository boundary. */
+  async findWordsByUserAndProject(args: { userId: string; projectKey: ProjectKey }): Promise<string[]> {
     const entries = await this.#collection
       .find({ userId: new ObjectId(args.userId), projectKey: args.projectKey })
       .sort({ word: 1 })
       .toArray();
 
-    return entries.map((entry) => this.#parseEntry(entry));
+    return entries.map((entry) => this.#parseEntry(entry).word);
   }
 
   async countByUserAndProject(args: { userId: string; projectKey: ProjectKey }): Promise<number> {
-    return this.#collection.countDocuments({ userId: new ObjectId(args.userId), projectKey: args.projectKey });
+    return this.#parseCount(
+      await this.#collection.countDocuments({ userId: new ObjectId(args.userId), projectKey: args.projectKey }),
+    );
   }
 
-  async countByUserId(userId: string): Promise<number> {
-    return this.#collection.countDocuments({ userId: new ObjectId(userId) });
+  /**
+   * Counts a user's project-scoped terms. Unscoped legacy documents are excluded
+   * because scoped CRUD cannot list or delete them, so they must not permanently
+   * consume the per-user capacity.
+   */
+  async countScopedByUserId(userId: string): Promise<number> {
+    return this.#parseCount(
+      await this.#collection.countDocuments({ userId: new ObjectId(userId), projectKey: { $type: "string" } }),
+    );
   }
 
   async insertMany(args: { userId: string; projectKey: ProjectKey; words: string[] }): Promise<string[]> {
@@ -70,7 +83,16 @@ export class GlossaryEntryRepository {
       projectKey,
       word: { $in: words },
     });
-    return result.deletedCount;
+    return this.#parseCount(result.deletedCount);
+  }
+
+  #parseCount(value: unknown): number {
+    const result = countSchema.safeParse(value);
+    if (!result.success) {
+      throw new InternalServerError({ debugMessage: "Invalid glossary count result" });
+    }
+
+    return result.data;
   }
 
   #parseEntry(entry: unknown): GlossaryEntry {

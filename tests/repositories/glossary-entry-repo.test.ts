@@ -40,14 +40,13 @@ describe("GlossaryEntryRepository", () => {
     await repo.insertMany({ userId, projectKey: projectA, words: ["Beta", "Alpha"] });
     await repo.insertMany({ userId, projectKey: projectB, words: ["Gamma"] });
 
-    const entries = await repo.findByUserAndProject({ userId, projectKey: projectA });
+    const words = await repo.findWordsByUserAndProject({ userId, projectKey: projectA });
 
-    assert.deepEqual(
-      entries.map((entry) => entry.word),
-      ["Alpha", "Beta"],
+    assert.deepEqual(words, ["Alpha", "Beta"]);
+    assert.ok(
+      words.every((word) => typeof word === "string"),
+      "documents must not escape the repository boundary",
     );
-    assert.ok(entries.every((entry) => entry.projectKey === projectA));
-    assert.ok(entries.every((entry) => entry.userId instanceof ObjectId));
   });
 
   it("keeps the same word independent across projects and users", async () => {
@@ -74,7 +73,7 @@ describe("GlossaryEntryRepository", () => {
     await repo.insertMany({ userId, projectKey: projectB, words: ["Gamma"] });
 
     assert.equal(await repo.countByUserAndProject({ userId, projectKey: projectA }), 2);
-    assert.equal(await repo.countByUserId(userId), 3);
+    assert.equal(await repo.countScopedByUserId(userId), 3);
   });
 
   it("deletes only words within the requested project", async () => {
@@ -94,7 +93,7 @@ describe("GlossaryEntryRepository", () => {
   it("never returns unscoped legacy documents through a scoped read", async () => {
     await insertRaw({ _id: new ObjectId(), userId: new ObjectId(userId), word: "Legacy", createdAt: new Date() });
 
-    assert.deepEqual(await repo.findByUserAndProject({ userId, projectKey: projectA }), []);
+    assert.deepEqual(await repo.findWordsByUserAndProject({ userId, projectKey: projectA }), []);
     assert.equal(await repo.countByUserAndProject({ userId, projectKey: projectA }), 0);
   });
 
@@ -109,7 +108,7 @@ describe("GlossaryEntryRepository", () => {
     });
 
     await assert.rejects(
-      () => repo.findByUserAndProject({ userId, projectKey: projectA }),
+      () => repo.findWordsByUserAndProject({ userId, projectKey: projectA }),
       (error: unknown) => {
         assert.ok(error instanceof InternalServerError);
         assert.equal(error.message, "internal_server_error");

@@ -152,6 +152,59 @@ describe("POST /voice/transcribe", () => {
     assert.equal(res.statusCode, 413);
   });
 
+  it("rejects an unknown __proto__ multipart field instead of silently dropping it", async () => {
+    const user = await ctx.createUser();
+    mock.method(OpenAIClient.prototype, "transcribe", async () => ({ text: "unused", durationSeconds: 1 }));
+
+    const { body, contentType } = buildMultipartPayload({
+      fieldName: "audio",
+      filename: "test.m4a",
+      content: Buffer.from("fake-audio-data-for-testing"),
+      contentType: "audio/m4a",
+      fields: [{ name: "__proto__", value: "polluted" }],
+    });
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/voice/transcribe",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": contentType,
+      },
+      payload: body,
+    });
+
+    assert.equal(res.statusCode, 400);
+    assert.equal(({} as Record<string, unknown>).polluted, undefined);
+  });
+
+  it("rejects an unexpected extra file part without stalling the request", async () => {
+    const user = await ctx.createUser();
+    mock.method(OpenAIClient.prototype, "transcribe", async () => ({ text: "unused", durationSeconds: 1 }));
+
+    const filePart = (name: string) =>
+      Buffer.concat([
+        Buffer.from(
+          `--${BOUNDARY}\r\nContent-Disposition: form-data; name="${name}"; filename="f.m4a"\r\n` +
+            `Content-Type: audio/m4a\r\n\r\n`,
+        ),
+        Buffer.from("fake-audio-data-for-testing"),
+        Buffer.from("\r\n"),
+      ]);
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/voice/transcribe",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": `multipart/form-data; boundary=${BOUNDARY}`,
+      },
+      payload: Buffer.concat([filePart("audio"), filePart("extra"), Buffer.from(`--${BOUNDARY}--\r\n`)]),
+    });
+
+    assert.ok(res.statusCode >= 400 && res.statusCode < 500, `expected a 4xx, got ${res.statusCode}`);
+  });
+
   it("returns transcribed text and dailySecondsRemaining on success", async () => {
     const user = await ctx.createUser();
 

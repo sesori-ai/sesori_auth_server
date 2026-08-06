@@ -132,6 +132,28 @@ export class MongoDbAccessor {
           }
         }
 
+        // A partial glossary cutover leaves the legacy {userId, word} unique
+        // index in place, which rejects the same term in a second project and
+        // makes the repository report it as an ordinary duplicate — silent word
+        // loss. Refuse to serve until the operator migration finished. Index
+        // ownership stays with the migration command; startup never drops here.
+        if (dbName === MongoDbDatabase.Auth && collectionName === AuthDbCollection.GlossaryEntries) {
+          const currentIndexes = await collection.indexes();
+          const legacyIndex = currentIndexes.find((index) =>
+            indexKeyMatches(index.key as IndexSpecification, { userId: 1, word: 1 }),
+          );
+          const targetExists = currentIndexes.some((index) =>
+            indexMatchesDesired(index, { spec: { userId: 1, projectKey: 1, word: 1 }, options: { unique: true } }),
+          );
+
+          if (legacyIndex || !targetExists) {
+            throw new Error(
+              "Glossary index migration incomplete: expected only the unique {userId, projectKey, word} index. " +
+                "Run `npm run migrate-project-glossary-index -- --apply` with this instance stopped, then --verify.",
+            );
+          }
+        }
+
         // The compound lookup index supersedes PR1's user-only token index.
         // Drop the old index only after confirming its replacement exists.
         if (dbName === MongoDbDatabase.Auth && collectionName === AuthDbCollection.DeviceTokens) {

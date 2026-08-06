@@ -74,16 +74,22 @@ async function readTranscribeRequest(request: FastifyRequest): Promise<{
   projectKey: ProjectKey | null;
 }> {
   let audio: { buffer: Buffer; filename: string; mimetype: string } | null = null;
-  const fields: Record<string, string> = {};
+  // Null-prototype map: a `__proto__` part must land as an own key so the strict
+  // schema rejects it as an unknown field instead of silently vanishing.
+  const fields: Record<string, string> = Object.create(null);
 
   try {
     for await (const part of request.parts()) {
       if (part.type === "file") {
+        // Drain a rejected file stream before throwing so the parser can finish
+        // its cleanup instead of stalling on an unconsumed part.
         if (part.fieldname !== AUDIO_FIELD_NAME || audio !== null) {
+          part.file.resume();
           throw new BadRequestError({ debugMessage: "Unexpected file part" });
         }
 
         if (!ALLOWED_AUDIO_MIMES.has(part.mimetype)) {
+          part.file.resume();
           throw new BadRequestError({ debugMessage: `Unsupported audio MIME type: ${part.mimetype}` });
         }
 
@@ -98,11 +104,15 @@ async function readTranscribeRequest(request: FastifyRequest): Promise<{
       fields[part.fieldname] = part.value;
     }
   } catch (error) {
-    if (error instanceof ApiError) throw error;
+    if (error instanceof ApiError) {
+      throw error;
+    }
 
     // FST_REQ_FILE_TOO_LARGE carries its own 413; the global handler must keep
     // that status rather than see an oversized upload reported as a 400.
-    if (isFileTooLargeError(error)) throw error;
+    if (isFileTooLargeError(error)) {
+      throw error;
+    }
 
     throw new BadRequestError({
       debugMessage: "Request must be multipart/form-data with an audio file",
@@ -131,7 +141,14 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRouteOptions> = async (fastify
   const { voiceService, glossaryService, requireAuth } = opts;
 
   await fastify.register(multipart, {
-    limits: { fileSize: AUDIO_MAX_FILE_SIZE, files: 1, fieldSize: TRANSCRIBE_FIELD_MAX_SIZE },
+    limits: {
+      fileSize: AUDIO_MAX_FILE_SIZE,
+      files: 1,
+      // One audio file plus at most one optional projectKey field.
+      fields: 1,
+      parts: 2,
+      fieldSize: TRANSCRIBE_FIELD_MAX_SIZE,
+    },
   });
 
   fastify.post<{ Reply: TranscribeReply }>(
@@ -158,7 +175,9 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRouteOptions> = async (fastify
       } catch (error) {
         // Re-throw any ApiError subclass (BadRequestError, InternalServerError, QuotaExceededError, etc.)
         // so the global error handler returns the correct status code.
-        if (error instanceof ApiError) throw error;
+        if (error instanceof ApiError) {
+          throw error;
+        }
         throw new InternalServerError({
           debugMessage: "Transcription failed",
           nestedError: error,

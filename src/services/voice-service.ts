@@ -32,11 +32,10 @@ export class VoiceService {
       });
     }
 
-    const glossaryWords = await this.#glossaryService.getContextWords({
+    const prompt = await this.#glossaryService.buildTranscriptionPrompt({
       userId: args.userId,
       projectKey: args.projectKey,
     });
-    const prompt = this.#buildTranscriptionPrompt(glossaryWords);
     const { text, durationSeconds } = await this.#openai.transcribe({
       fileBuffer: args.fileBuffer,
       filename: args.filename,
@@ -66,13 +65,5 @@ export class VoiceService {
     }
 
     return { text, dailySecondsRemaining };
-  }
-
-  #buildTranscriptionPrompt(glossaryWords: string[]): string | null {
-    if (glossaryWords.length === 0) {
-      return null;
-    }
-
-    return `The following terms may appear in the audio: ${glossaryWords.join(", ")}.`;
   }
 }
