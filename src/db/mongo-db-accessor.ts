@@ -105,8 +105,17 @@ function isExactGlossaryTargetIndex(index: Record<string, unknown>): boolean {
     index.prepareUnique !== true &&
     index.partialFilterExpression === undefined &&
     index.expireAfterSeconds === undefined &&
-    (collation === undefined || collation.locale === "simple")
+    isSimpleCollationLocale(collation?.locale)
   );
+}
+
+/**
+ * Binary/simple collation is the only accepted state for the glossary index and
+ * its collection: anything else changes term comparison. Mirrors
+ * `isSimpleCollation` in glossary-index-migration.ts.
+ */
+function isSimpleCollationLocale(locale: unknown): boolean {
+  return locale === undefined || locale === "simple";
 }
 
 export class MongoDbAccessor {
@@ -180,7 +189,7 @@ export class MongoDbAccessor {
             .listCollections({ name: collectionName }, { nameOnly: false })
             .toArray();
           const collectionLocale = collectionMetadata?.options?.collation?.locale;
-          const collationIsSimple = collectionLocale === undefined || collectionLocale === "simple";
+          const collationIsSimple = isSimpleCollationLocale(collectionLocale);
 
           if (legacyIndex || !targetExists || !collationIsSimple) {
             throw new Error(
