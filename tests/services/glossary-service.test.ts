@@ -108,6 +108,38 @@ describe("GlossaryService", () => {
     assert.deepEqual(await service.addWords({ userId, projectKey: projectA, words: ["Scoped"] }), ["Scoped"]);
   });
 
+  it("rejects an invalid request before performing any database work", async () => {
+    let queried = false;
+    const spyRepo = {
+      findWordsByUserAndProject: async () => {
+        queried = true;
+        return [];
+      },
+      countByUserAndProject: async () => {
+        queried = true;
+        return 0;
+      },
+      countScopedByUserId: async () => {
+        queried = true;
+        return 0;
+      },
+      insertMany: async () => [],
+      deleteMany: async () => 0,
+    } as unknown as GlossaryEntryRepository;
+    const spyService = new GlossaryService({ glossaryRepo: spyRepo });
+
+    await assert.rejects(
+      () =>
+        spyService.addWords({
+          userId,
+          projectKey: projectA,
+          words: words("x", glossaryPolicy.maxWordsPerRequest + 1),
+        }),
+      BadRequestError,
+    );
+    assert.equal(queried, false, "no query should run for a request that is guaranteed to be rejected");
+  });
+
   it("enforces request and word-length caps for non-route callers", async () => {
     await assert.rejects(
       () =>

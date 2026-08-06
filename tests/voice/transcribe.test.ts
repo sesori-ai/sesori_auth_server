@@ -202,7 +202,7 @@ describe("POST /voice/transcribe", () => {
       payload: Buffer.concat([filePart("audio"), filePart("extra"), Buffer.from(`--${BOUNDARY}--\r\n`)]),
     });
 
-    assert.ok(res.statusCode >= 400 && res.statusCode < 500, `expected a 4xx, got ${res.statusCode}`);
+    assert.equal(res.statusCode, 400, "an unexpected extra file part must be a bounded 400");
   });
 
   it("returns transcribed text and dailySecondsRemaining on success", async () => {

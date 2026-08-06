@@ -27,6 +27,8 @@ export class GlossaryService {
   }
 
   async addWords(args: { userId: string; projectKey: ProjectKey; words: string[] }): Promise<string[]> {
+    // Validate before any database work so a rejected request costs no queries.
+    const requested = this.#uniqueWords(args.words);
     const [existing, projectCount, userCount] = await Promise.all([
       this.listWords(args),
       this.#glossaryRepo.countByUserAndProject(args),
@@ -36,7 +38,7 @@ export class GlossaryService {
     // Drop already-persisted terms before applying capacity so a duplicate
     // early in the request cannot consume a slot a new term could have used.
     const persisted = new Set(existing);
-    const candidates = this.#uniqueWords(args.words).filter((word) => !persisted.has(word));
+    const candidates = requested.filter((word) => !persisted.has(word));
     const remaining = Math.max(
       0,
       Math.min(this.#policy.maxWordsPerProject - projectCount, this.#policy.maxWordsPerUser - userCount),
@@ -89,8 +91,8 @@ export class GlossaryService {
 
   /**
    * Applies the safety policy the routes also validate, so a non-route caller
-   * cannot bypass it. Words are trimmed, empties dropped, and exact duplicates
-   * removed while preserving first request occurrence.
+   * cannot bypass it. Words are trimmed, empty and over-long words are
+   * rejected, and exact duplicates are removed preserving first occurrence.
    */
   #uniqueWords(words: string[]): string[] {
     if (words.length > this.#policy.maxWordsPerRequest) {

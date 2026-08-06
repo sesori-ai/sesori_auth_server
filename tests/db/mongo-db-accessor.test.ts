@@ -77,6 +77,24 @@ describe("glossary index cutover guard", () => {
     }
   });
 
+  it("refuses startup when the target index exists but is semantically wrong", async () => {
+    const ctx = await createTestApp();
+    try {
+      const collection = ctx.dbAccessor.getDb(MongoDbDatabase.Auth).collection(AuthDbCollection.GlossaryEntries);
+      const target = (await collection.indexes()).find((index) => index.name === "userId_1_projectKey_1_word_1");
+      assert.ok(target?.name);
+      await collection.dropIndex(target.name);
+      await collection.createIndex(
+        { userId: 1, projectKey: 1, word: 1 },
+        { unique: true, sparse: true, name: "userId_1_projectKey_1_word_1" },
+      );
+
+      await assert.rejects(() => ctx.dbAccessor.ensureIndexes(), /Glossary index migration incomplete/);
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+
   it("allows startup once only the project-scoped target index exists", async () => {
     const ctx = await createTestApp();
     try {

@@ -84,6 +84,27 @@ export function indexMatchesDesired(existing: Record<string, unknown>, desired: 
   return true;
 }
 
+/**
+ * Exact-metadata check for the project-scoped glossary index. `indexMatchesDesired`
+ * compares only key and `unique`, so a sparse, partial, hidden, or non-simple
+ * collated index would pass it while changing duplicate semantics. The startup
+ * guard must accept exactly what the migration command accepts.
+ */
+function isExactGlossaryTargetIndex(index: Record<string, unknown>): boolean {
+  const collation = index.collation as { locale?: unknown } | undefined;
+
+  return (
+    indexKeyMatches(index.key as IndexSpecification, { userId: 1, projectKey: 1, word: 1 }) &&
+    index.unique === true &&
+    index.sparse !== true &&
+    index.hidden !== true &&
+    index.prepareUnique !== true &&
+    index.partialFilterExpression === undefined &&
+    index.expireAfterSeconds === undefined &&
+    (collation === undefined || collation.locale === "simple")
+  );
+}
+
 export class MongoDbAccessor {
   readonly #connector: MongoDbConnector;
 
@@ -142,9 +163,7 @@ export class MongoDbAccessor {
           const legacyIndex = currentIndexes.find((index) =>
             indexKeyMatches(index.key as IndexSpecification, { userId: 1, word: 1 }),
           );
-          const targetExists = currentIndexes.some((index) =>
-            indexMatchesDesired(index, { spec: { userId: 1, projectKey: 1, word: 1 }, options: { unique: true } }),
-          );
+          const targetExists = currentIndexes.some((index) => isExactGlossaryTargetIndex(index));
 
           if (legacyIndex || !targetExists) {
             throw new Error(
