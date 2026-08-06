@@ -34,6 +34,7 @@ import { SessionMetadataService } from "../../src/services/session-metadata-serv
 import { InstallScriptService } from "../../src/services/install-script-service.js";
 import { LegalDocumentService } from "../../src/services/legal-document-service.js";
 import { TokenService } from "../../src/services/token-service.js";
+import { GlossaryService } from "../../src/services/glossary-service.js";
 import { VoiceService } from "../../src/services/voice-service.js";
 import { AppClientPresenceService } from "../../src/services/app-client-presence-service.js";
 import { ProductAnalyticsPreferenceService } from "../../src/services/product-analytics-preference-service.js";
@@ -60,6 +61,7 @@ export type TestContext = {
   tokenService: TokenService;
   pendingAuthStore: PendingAuthStore;
   appClientPresenceService: AppClientPresenceService;
+  glossaryService: GlossaryService;
   cleanup: () => Promise<void>;
   createUser: (opts?: { provider?: string; providerUserId?: string }) => Promise<TestUser>;
   createExpiredRefreshToken: (userId: string) => string;
@@ -80,6 +82,8 @@ export type TestAppOverrides = {
   activationService?: ActivationService;
   appClientPresenceService?: AppClientPresenceService;
   settingsService?: SettingsService;
+  glossaryService?: GlossaryService;
+  voiceService?: VoiceService;
 };
 
 export type { OAuthClient };
@@ -193,7 +197,8 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   });
   const settingsService = overrides?.settingsService ?? new SettingsService({ settingsRepo });
   const authService = new AuthService({ tokenService, userRepo, oauthAccountRepo, passwordAccountRepo, bridgeService });
-  const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
+  const glossaryService = overrides?.glossaryService ?? new GlossaryService({ glossaryRepo });
+  const voiceService = overrides?.voiceService ?? new VoiceService({ openai, glossaryService, dailyUsageRepo });
   const sessionMetadataService =
     overrides?.sessionMetadataService ?? new SessionMetadataService({ openai, dailyUsageRepo, model: "gpt-4o-mini" });
   const installScriptService = overrides?.installScriptService ?? new InstallScriptService();
@@ -206,6 +211,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     bridgeService,
     tokenService,
     voiceService,
+    glossaryService,
     sessionMetadataService,
     installScriptService,
     legalDocumentService,
@@ -321,6 +327,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     tokenService,
     pendingAuthStore,
     appClientPresenceService,
+    glossaryService,
     cleanup,
     createUser,
     createExpiredRefreshToken,
