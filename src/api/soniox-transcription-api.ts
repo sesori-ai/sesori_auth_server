@@ -52,7 +52,8 @@ const createdTranscriptionSchema = z
 export type ValidatedTranscription = {
   id: string;
   status: z.infer<typeof transcriptionStatusSchema>;
-  audioDurationMs: number | null;
+  /** Always present and billable: a completed job without one fails validation. */
+  audioDurationMs: number;
 };
 
 function fail(reason: TranscriptionFailureReason, cause?: unknown): never {
@@ -127,15 +128,19 @@ export function parseTranscription(value: unknown): ValidatedTranscription {
     fail(TranscriptionFailureReason.Timeout);
   }
 
-  // Only a completed job's duration is billable, so enforce the bound here:
-  // non-positive would bill as free, absurd would blow the daily quota.
-  if (audioDurationMs !== null && audioDurationMs !== undefined) {
-    if (audioDurationMs <= 0 || audioDurationMs > maxAudioDurationMs) {
-      fail(TranscriptionFailureReason.MalformedOutput);
-    }
+  // A completed job must carry a billable duration. Rejecting absent, non-
+  // positive, and absurd values here classifies malformed provider output at
+  // the adapter boundary rather than leaving it to a later billing step.
+  if (
+    audioDurationMs === null ||
+    audioDurationMs === undefined ||
+    audioDurationMs <= 0 ||
+    audioDurationMs > maxAudioDurationMs
+  ) {
+    fail(TranscriptionFailureReason.MalformedOutput);
   }
 
-  return { id, status, audioDurationMs: audioDurationMs ?? null };
+  return { id, status, audioDurationMs };
 }
 
 /** Validates a transcript payload and returns only its text. */

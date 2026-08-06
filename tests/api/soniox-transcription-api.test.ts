@@ -32,17 +32,21 @@ describe("soniox transcription api", () => {
   });
 
   describe("parseTranscription", () => {
-    it("accepts a completed transcription and normalizes an absent duration", () => {
-      assert.deepEqual(parseTranscription({ id: "t1", status: "completed" }), {
-        id: "t1",
-        status: "completed",
-        audioDurationMs: null,
-      });
+    it("accepts a completed transcription carrying a billable duration", () => {
       assert.deepEqual(parseTranscription({ id: "t1", status: "completed", audio_duration_ms: 1500 }), {
         id: "t1",
         status: "completed",
         audioDurationMs: 1500,
       });
+    });
+
+    it("rejects a completed transcription with no duration at the boundary", () => {
+      for (const value of [
+        { id: "t1", status: "completed" },
+        { id: "t1", status: "completed", audio_duration_ms: null },
+      ]) {
+        expectReason(() => parseTranscription(value), TranscriptionFailureReason.MalformedOutput);
+      }
     });
 
     it("maps a provider error status to a rejection, not malformed output", () => {
