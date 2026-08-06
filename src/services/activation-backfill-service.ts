@@ -229,11 +229,21 @@ export class ActivationBackfillService {
       return;
     }
 
-    const [mobileSetupAt, bridgeSetupAt, firstSessionAt] = await Promise.all([
+    const [user, rawMobileSetupAt, rawBridgeSetupAt, rawFirstSessionAt] = await Promise.all([
+      this.#userRepo.findById(userId),
       this.#deviceTokenRepo.findEarliestCreatedAt(userId),
       this.#bridgeRepo.findEarliestAddedAt(userId),
       this.#dailyUsageRepo.findEarliestMetadataRequestAt(userId),
     ]);
+    // Device-token rows survive account re-registration with their original
+    // createdAt, so earliest evidence can predate this account's creation.
+    // Ignore such evidence rather than backfill an impossible milestone.
+    const accountCreatedAt = user?.createdAt ?? null;
+    const guard = (evidenceAt: Date | null): Date | null =>
+      evidenceAt && accountCreatedAt && evidenceAt < accountCreatedAt ? null : evidenceAt;
+    const mobileSetupAt = guard(rawMobileSetupAt);
+    const bridgeSetupAt = guard(rawBridgeSetupAt);
+    const firstSessionAt = guard(rawFirstSessionAt);
     const evidence: ActivationEvidence = { mobileSetupAt, bridgeSetupAt, firstSessionAt };
     const snapshot = snapshotFrom(existing, evidence);
     const stage = stageFor(snapshot);

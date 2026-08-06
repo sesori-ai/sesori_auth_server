@@ -67,6 +67,7 @@ export type ProductAnalyticsExportProgress = {
   milestoneRowsStaged: number;
   sourceSuppressedUsers: number;
   internalUsers: number;
+  preCreationMilestonesDropped: number;
 };
 
 export type ProductAnalyticsExportReport = ProductAnalyticsExportProgress & {
@@ -89,6 +90,32 @@ function cohortWeekFor(accountCreatedAt: Date): string {
   const daysSinceMonday = (date.getUTCDay() + 6) % 7;
   date.setUTCDate(date.getUTCDate() - daysSinceMonday);
   return date.toISOString().slice(0, 10);
+}
+
+/**
+ * Drops milestone timestamps that precede account creation. Legacy device-token
+ * rows can survive account re-registration with their original `createdAt`, so
+ * reconciled milestones may predate `users.createdAt`. Such evidence is
+ * unusable for time-bound metrics; staging it would fail the pre-promotion
+ * timestamp invariant. Dropped values are counted, never silently rewritten.
+ */
+function sanitizedMilestones(input: {
+  milestones: ProductAnalyticsActivationMilestones;
+  accountCreatedAt: Date;
+  onDrop: () => void;
+}): ProductAnalyticsActivationMilestones {
+  const sanitize = (milestoneAt: Date | null): Date | null => {
+    if (milestoneAt && milestoneAt < input.accountCreatedAt) {
+      input.onDrop();
+      return null;
+    }
+    return milestoneAt;
+  };
+  return {
+    notificationRegisteredAt: sanitize(input.milestones.notificationRegisteredAt),
+    bridgeRegisteredAt: sanitize(input.milestones.bridgeRegisteredAt),
+    legacyFirstMetadataRequestAt: sanitize(input.milestones.legacyFirstMetadataRequestAt),
+  };
 }
 
 function occurredWithin(input: { milestoneAt: Date | null; accountCreatedAt: Date; days: number }): boolean {
@@ -257,6 +284,7 @@ export class ProductAnalyticsExportService {
         milestoneRowsStaged: 0,
         sourceSuppressedUsers: 0,
         internalUsers: 0,
+        preCreationMilestonesDropped: 0,
       };
       let externalAccounts = 0;
       let enabledAccounts = 0;
@@ -293,11 +321,17 @@ export class ProductAnalyticsExportService {
             continue;
           }
           externalAccounts += 1;
-          const milestones = milestonesByUserId.get(user.userId) ?? {
-            notificationRegisteredAt: null,
-            bridgeRegisteredAt: null,
-            legacyFirstMetadataRequestAt: null,
-          };
+          const milestones = sanitizedMilestones({
+            milestones: milestonesByUserId.get(user.userId) ?? {
+              notificationRegisteredAt: null,
+              bridgeRegisteredAt: null,
+              legacyFirstMetadataRequestAt: null,
+            },
+            accountCreatedAt: user.accountCreatedAt,
+            onDrop: () => {
+              progress.preCreationMilestonesDropped += 1;
+            },
+          });
           const preferenceKnownAtCutoff = user.preferenceUpdatedAt <= input.runCutoff;
           const enabled = preferenceKnownAtCutoff && user.preference === ProductAnalyticsPreference.Enabled;
           if (!preferenceKnownAtCutoff) {

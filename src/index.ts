@@ -105,6 +105,7 @@ async function main() {
     bridgeRepo,
     dailyUsageRepo,
     deviceTokenRepo,
+    userRepo,
   });
   const appClientPresenceService = new AppClientPresenceService({ deviceTokenRepo });
   const productAnalyticsPreferenceService = new ProductAnalyticsPreferenceService({
