@@ -14,9 +14,10 @@ export interface AsyncTranscriptionClient {
    * rather than from a provider error shape, because SDKs report both as an
    * indistinguishable abort.
    *
-   * Resolves with non-empty text and a positive whole `durationSeconds`, rounded
-   * up so a sub-second clip is never billed as free. An absent or absurd
-   * provider duration is `MalformedOutput`, never a free request.
+   * Resolves with non-empty text and positive `durationSeconds`. Implementations
+   * may preserve metadata precision, so consumers must not assume whole seconds.
+   * A consumed provider duration that is absent, non-positive, or absurd is
+   * `MalformedOutput`, never a free request.
    *
    * Rejects only with `TranscriptionFailure`. Retryability is not signalled
    * here: the service derives it from `TranscriptionFailureReason`, so

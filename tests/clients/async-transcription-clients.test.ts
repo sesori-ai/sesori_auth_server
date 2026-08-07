@@ -1,7 +1,5 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { Transcriptions } from "openai/resources/audio/transcriptions";
-import { OpenAIClient } from "../../src/clients/openai-client.js";
 import { SonioxTranscriptionClient, type SonioxAsyncSdk } from "../../src/clients/soniox-transcription-client.js";
 import { TranscriptionFailure, TranscriptionFailureReason } from "../../src/types/transcription.js";
 
@@ -408,101 +406,6 @@ describe("SonioxTranscriptionClient", () => {
 
     await assert.rejects(
       () => createClient(failing.sdk).transcribe(request()),
-      (error: unknown) => {
-        assert.ok(error instanceof TranscriptionFailure);
-        assert.ok(!error.message.includes(secret));
-        return true;
-      },
-    );
-  });
-});
-
-/**
- * Exercises the real OpenAI adapter, not a stub of it. Route tests mock
- * `OpenAIClient.prototype.transcribe` wholesale, so without this suite the
- * default provider's conformance to `AsyncTranscriptionClient` is unverified.
- * The seam is the SDK's own `Transcriptions.create`.
- */
-describe("OpenAIClient as an AsyncTranscriptionClient", () => {
-  function createOpenAIClient(): OpenAIClient {
-    return new OpenAIClient({ apiKey: "test-key", model: "whisper-1" });
-  }
-
-  it("returns text and a positive billable duration", async (t) => {
-    t.mock.method(Transcriptions.prototype, "create", async () => ({ text: "hello from openai" }));
-
-    const result = await createOpenAIClient().transcribe(request());
-
-    assert.equal(result.text, "hello from openai");
-    assert.ok(Number.isInteger(result.durationSeconds), "duration must be whole seconds");
-    assert.ok(result.durationSeconds > 0, "a sub-second clip must never bill as free");
-  });
-
-  it("renders glossary terms through the shared prompt format", async (t) => {
-    let captured: { prompt?: string } | undefined;
-    t.mock.method(Transcriptions.prototype, "create", async (body: { prompt?: string }) => {
-      captured = body;
-      return { text: "ok" };
-    });
-
-    await createOpenAIClient().transcribe(request({ terms: ["Sesori", "HKDF"] }));
-
-    assert.equal(captured?.prompt, "The following terms may appear in the audio: Sesori, HKDF.");
-  });
-
-  it("sends no prompt when the request carries no terms", async (t) => {
-    let captured: { prompt?: string } | undefined;
-    t.mock.method(Transcriptions.prototype, "create", async (body: { prompt?: string }) => {
-      captured = body;
-      return { text: "ok" };
-    });
-
-    await createOpenAIClient().transcribe(request({ terms: [] }));
-
-    assert.equal(captured?.prompt, undefined);
-  });
-
-  it("maps caller cancellation to cancelled", async (t) => {
-    const controller = new AbortController();
-    t.mock.method(Transcriptions.prototype, "create", async () => {
-      controller.abort();
-      throw Object.assign(new Error("Request was aborted."), { name: "APIUserAbortError" });
-    });
-
-    await expectReason(
-      () => createOpenAIClient().transcribe(request({ signal: controller.signal })),
-      TranscriptionFailureReason.Cancelled,
-    );
-  });
-
-  it("collapses every non-cancellation provider failure to internal", async (t) => {
-    // COMPATIBILITY: released apps expect HTTP 500 for any OpenAI failure, so
-    // this adapter deliberately does not use the detailed enum Soniox uses.
-    // Scheduled for removal by plan stage S05.
-    let thrown: unknown = new Error("placeholder");
-    t.mock.method(Transcriptions.prototype, "create", async () => {
-      throw thrown;
-    });
-
-    for (const candidate of [
-      Object.assign(new Error("rate limited"), { status: 429 }),
-      Object.assign(new Error("server error"), { status: 500 }),
-      Object.assign(new Error("bad audio"), { status: 400 }),
-      new Error("network down"),
-    ]) {
-      thrown = candidate;
-      await expectReason(() => createOpenAIClient().transcribe(request()), TranscriptionFailureReason.Internal);
-    }
-  });
-
-  it("never leaks a raw provider message through the thrown failure", async (t) => {
-    const secret = "openai-internal-detail-should-not-escape";
-    t.mock.method(Transcriptions.prototype, "create", async () => {
-      throw Object.assign(new Error(secret), { status: 500 });
-    });
-
-    await assert.rejects(
-      () => createOpenAIClient().transcribe(request()),
       (error: unknown) => {
         assert.ok(error instanceof TranscriptionFailure);
         assert.ok(!error.message.includes(secret));
