@@ -106,14 +106,23 @@ export function parseCreatedTranscriptionId(value: unknown): string {
  * Validates a settled transcription record. A provider-reported `error` status
  * is a provider rejection, not malformed output; a still-running status means
  * the job did not settle within our budget.
+ *
+ * `expectedId` is the job ID we created. The returned record must carry that
+ * same ID: without this check a provider response naming a different job would
+ * be accepted, and the caller would then fetch and bill that other job's
+ * transcript while cleanup deleted ours.
  */
-export function parseTranscription(value: unknown): ValidatedTranscription {
+export function parseTranscription(value: unknown, expectedId: string): ValidatedTranscription {
   const result = completedTranscriptionSchema.safeParse(value);
   if (!result.success) {
     fail(TranscriptionFailureReason.MalformedOutput, result.error.issues);
   }
 
   const { id, status, audio_duration_ms: audioDurationMs, error_type: errorType } = result.data;
+  if (id !== expectedId) {
+    fail(TranscriptionFailureReason.MalformedOutput);
+  }
+
   if (status === "error") {
     // Distinguish "this audio is unusable" from "our credentials/config are
     // wrong": the former is the caller's 400, the latter an operator 500.
@@ -131,11 +140,13 @@ export function parseTranscription(value: unknown): ValidatedTranscription {
   // A completed job must carry a billable duration. Rejecting absent, non-
   // positive, and absurd values here classifies malformed provider output at
   // the adapter boundary rather than leaving it to a later billing step.
+  // The upper bound is exclusive: a full 24h async job is itself out of
+  // contract, so equality is rejected rather than billed.
   if (
     audioDurationMs === null ||
     audioDurationMs === undefined ||
     audioDurationMs <= 0 ||
-    audioDurationMs > maxAudioDurationMs
+    audioDurationMs >= maxAudioDurationMs
   ) {
     fail(TranscriptionFailureReason.MalformedOutput);
   }
@@ -176,8 +187,13 @@ export function toFailureReason(error: unknown): TranscriptionFailureReason {
     return error.reason;
   }
 
+  // Deliberately NOT mapped to `cancelled`. Cancellation and our own budget
+  // expiry are decided by the client from the signals it owns, before this
+  // function is consulted. An abort shape arriving here means neither of those
+  // fired, so it is an unexplained transport abort — a transient provider
+  // condition, not something the caller asked for.
   if (isAbortLike(error)) {
-    return TranscriptionFailureReason.Cancelled;
+    return TranscriptionFailureReason.Unavailable;
   }
 
   if (isTimeoutLike(error)) {
@@ -206,6 +222,43 @@ export function toFailureReason(error: unknown): TranscriptionFailureReason {
   }
 
   return TranscriptionFailureReason.Internal;
+}
+
+/**
+ * Reads a provider-stated cooldown from a rate-limited response. `SonioxHttpError`
+ * retains the response headers, so a `Retry-After` on a 429 is recoverable here;
+ * discarding it would let clients retry into an active provider cooldown.
+ *
+ * Only the delta-seconds form is honored. The HTTP-date form is deliberately
+ * ignored rather than parsed, because a skewed provider clock would otherwise
+ * translate into an arbitrary client-visible wait.
+ */
+export function readProviderRetryAfterSeconds(error: unknown): number | undefined {
+  const headers = readHeaders(error);
+  if (headers === undefined) {
+    return undefined;
+  }
+
+  const raw = headers["retry-after"] ?? headers["Retry-After"];
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+
+  const seconds = Number(raw.trim());
+  if (!Number.isSafeInteger(seconds) || seconds <= 0) {
+    return undefined;
+  }
+
+  return seconds;
+}
+
+function readHeaders(error: unknown): Record<string, string> | undefined {
+  if (typeof error !== "object" || error === null || !("headers" in error)) {
+    return undefined;
+  }
+
+  const { headers } = error as { headers?: unknown };
+  return typeof headers === "object" && headers !== null ? (headers as Record<string, string>) : undefined;
 }
 
 /**

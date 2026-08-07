@@ -1,5 +1,7 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
+import { Transcriptions } from "openai/resources/audio/transcriptions";
+import { OpenAIClient } from "../../src/clients/openai-client.js";
 import { SonioxTranscriptionClient, type SonioxAsyncSdk } from "../../src/clients/soniox-transcription-client.js";
 import { TranscriptionFailure, TranscriptionFailureReason } from "../../src/types/transcription.js";
 
@@ -208,6 +210,105 @@ describe("SonioxTranscriptionClient", () => {
     assert.equal(result.text, "hello world");
   });
 
+  it("preserves the transcript when only the file delete fails", async () => {
+    const failing = createFakeSdk({
+      deleteFile: async () => {
+        throw new Error("file delete failed");
+      },
+    });
+
+    const result = await createClient(failing.sdk).transcribe(request());
+
+    // The job is already gone, so the orphaned file is ordinary purge residue
+    // and must not cost the caller a completed transcript.
+    assert.equal(result.text, "hello world");
+    const deletes = failing.calls.filter((call) => call.name.endsWith(".delete")).map((call) => call.name);
+    assert.deepEqual(deletes, ["stt.delete", "files.delete"]);
+  });
+
+  it("leaves the uploaded file for purge when the create outcome is unknown", async () => {
+    const failing = createFakeSdk({
+      create: async () => {
+        throw Object.assign(new Error("gateway timeout"), { statusCode: 504 });
+      },
+    });
+
+    await expectReason(() => createClient(failing.sdk).transcribe(request()), TranscriptionFailureReason.Unavailable);
+
+    // The provider may have accepted a job under an ID we never received.
+    // Deleting the file would strand that job against the provider's cap.
+    assert.deepEqual(
+      failing.calls.map((call) => call.name),
+      ["files.upload", "stt.create"],
+    );
+  });
+
+  it("leaves the uploaded file for purge when create returns an unusable body", async () => {
+    const failing = createFakeSdk({ create: async () => ({ notAnId: true }) });
+
+    await expectReason(
+      () => createClient(failing.sdk).transcribe(request()),
+      TranscriptionFailureReason.MalformedOutput,
+    );
+    assert.deepEqual(
+      failing.calls.map((call) => call.name),
+      ["files.upload", "stt.create"],
+    );
+  });
+
+  it("refuses a wait result naming a different job than the one it created", async () => {
+    const failing = createFakeSdk({
+      create: async () => ({ id: "tr_ours", status: "queued" }),
+      wait: async () => ({ id: "tr_theirs", status: "completed", audio_duration_ms: 1000 }),
+    });
+
+    await expectReason(
+      () => createClient(failing.sdk).transcribe(request()),
+      TranscriptionFailureReason.MalformedOutput,
+    );
+
+    // Fetching the echoed ID would have returned and billed another job's transcript.
+    assert.ok(!failing.calls.some((call) => call.name === "stt.getTranscript"));
+  });
+
+  it("addresses the transcript fetch by the ID it created, never one echoed back", async () => {
+    const staged = createFakeSdk({
+      create: async () => ({ id: "tr_ours", status: "queued" }),
+      wait: async () => ({ id: "tr_ours", status: "completed", audio_duration_ms: 1000 }),
+    });
+    let fetchedId: string | undefined;
+    staged.sdk.stt.getTranscript = async (id: string) => {
+      fetchedId = id;
+      return { text: "hello world" };
+    };
+
+    await createClient(staged.sdk).transcribe(request());
+
+    assert.equal(fetchedId, "tr_ours");
+  });
+
+  it("carries a provider-stated cooldown onto the failure", async () => {
+    const failing = createFakeSdk({
+      create: async () => {
+        throw Object.assign(new Error("HTTP 429"), {
+          name: "SonioxHttpError",
+          statusCode: 429,
+          headers: { "retry-after": "42" },
+        });
+      },
+    });
+
+    await assert.rejects(
+      () => createClient(failing.sdk).transcribe(request()),
+      (error: unknown) => {
+        assert.ok(error instanceof TranscriptionFailure);
+        assert.equal(error.reason, TranscriptionFailureReason.Capacity);
+        assert.equal(error.retryAfterSeconds, 42);
+        return true;
+      },
+    );
+  });
+
   it("maps a credential-style provider error to provider_rejected", async () => {
     const failing = createFakeSdk({
       wait: async () => ({ id: "tr_1", status: "error", error_type: "unauthorized" }),
@@ -307,6 +408,101 @@ describe("SonioxTranscriptionClient", () => {
 
     await assert.rejects(
       () => createClient(failing.sdk).transcribe(request()),
+      (error: unknown) => {
+        assert.ok(error instanceof TranscriptionFailure);
+        assert.ok(!error.message.includes(secret));
+        return true;
+      },
+    );
+  });
+});
+
+/**
+ * Exercises the real OpenAI adapter, not a stub of it. Route tests mock
+ * `OpenAIClient.prototype.transcribe` wholesale, so without this suite the
+ * default provider's conformance to `AsyncTranscriptionClient` is unverified.
+ * The seam is the SDK's own `Transcriptions.create`.
+ */
+describe("OpenAIClient as an AsyncTranscriptionClient", () => {
+  function createOpenAIClient(): OpenAIClient {
+    return new OpenAIClient({ apiKey: "test-key", model: "whisper-1" });
+  }
+
+  it("returns text and a positive billable duration", async (t) => {
+    t.mock.method(Transcriptions.prototype, "create", async () => ({ text: "hello from openai" }));
+
+    const result = await createOpenAIClient().transcribe(request());
+
+    assert.equal(result.text, "hello from openai");
+    assert.ok(Number.isInteger(result.durationSeconds), "duration must be whole seconds");
+    assert.ok(result.durationSeconds > 0, "a sub-second clip must never bill as free");
+  });
+
+  it("renders glossary terms through the shared prompt format", async (t) => {
+    let captured: { prompt?: string } | undefined;
+    t.mock.method(Transcriptions.prototype, "create", async (body: { prompt?: string }) => {
+      captured = body;
+      return { text: "ok" };
+    });
+
+    await createOpenAIClient().transcribe(request({ terms: ["Sesori", "HKDF"] }));
+
+    assert.equal(captured?.prompt, "The following terms may appear in the audio: Sesori, HKDF.");
+  });
+
+  it("sends no prompt when the request carries no terms", async (t) => {
+    let captured: { prompt?: string } | undefined;
+    t.mock.method(Transcriptions.prototype, "create", async (body: { prompt?: string }) => {
+      captured = body;
+      return { text: "ok" };
+    });
+
+    await createOpenAIClient().transcribe(request({ terms: [] }));
+
+    assert.equal(captured?.prompt, undefined);
+  });
+
+  it("maps caller cancellation to cancelled", async (t) => {
+    const controller = new AbortController();
+    t.mock.method(Transcriptions.prototype, "create", async () => {
+      controller.abort();
+      throw Object.assign(new Error("Request was aborted."), { name: "APIUserAbortError" });
+    });
+
+    await expectReason(
+      () => createOpenAIClient().transcribe(request({ signal: controller.signal })),
+      TranscriptionFailureReason.Cancelled,
+    );
+  });
+
+  it("collapses every non-cancellation provider failure to internal", async (t) => {
+    // COMPATIBILITY: released apps expect HTTP 500 for any OpenAI failure, so
+    // this adapter deliberately does not use the detailed enum Soniox uses.
+    // Scheduled for removal by plan stage S05.
+    let thrown: unknown = new Error("placeholder");
+    t.mock.method(Transcriptions.prototype, "create", async () => {
+      throw thrown;
+    });
+
+    for (const candidate of [
+      Object.assign(new Error("rate limited"), { status: 429 }),
+      Object.assign(new Error("server error"), { status: 500 }),
+      Object.assign(new Error("bad audio"), { status: 400 }),
+      new Error("network down"),
+    ]) {
+      thrown = candidate;
+      await expectReason(() => createOpenAIClient().transcribe(request()), TranscriptionFailureReason.Internal);
+    }
+  });
+
+  it("never leaks a raw provider message through the thrown failure", async (t) => {
+    const secret = "openai-internal-detail-should-not-escape";
+    t.mock.method(Transcriptions.prototype, "create", async () => {
+      throw Object.assign(new Error(secret), { status: 500 });
+    });
+
+    await assert.rejects(
+      () => createOpenAIClient().transcribe(request()),
       (error: unknown) => {
         assert.ok(error instanceof TranscriptionFailure);
         assert.ok(!error.message.includes(secret));

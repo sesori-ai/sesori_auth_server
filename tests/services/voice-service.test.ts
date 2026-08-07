@@ -63,17 +63,20 @@ describe("VoiceService provider failure mapping", () => {
     });
   }
 
-  const cases: [TranscriptionFailureReason, number, string, boolean | undefined, boolean][] = [
-    [TranscriptionFailureReason.InvalidInput, 400, "bad_request", undefined, false],
-    [TranscriptionFailureReason.Capacity, 503, "transcription_unavailable", true, true],
-    [TranscriptionFailureReason.Unavailable, 503, "transcription_unavailable", true, true],
-    [TranscriptionFailureReason.Timeout, 504, "transcription_timeout", true, true],
-    [TranscriptionFailureReason.ProviderRejected, 500, "transcription_configuration_error", false, false],
-    [TranscriptionFailureReason.MalformedOutput, 502, "transcription_provider_error", true, true],
-    [TranscriptionFailureReason.Internal, 500, "internal_server_error", undefined, false],
+  // The expected Retry-After is the exact header value, not just its presence:
+  // a capacity rejection the provider did not quantify uses a deliberately
+  // longer cadence than a generic transient failure.
+  const cases: [TranscriptionFailureReason, number, string, boolean | undefined, string | undefined][] = [
+    [TranscriptionFailureReason.InvalidInput, 400, "bad_request", undefined, undefined],
+    [TranscriptionFailureReason.Capacity, 503, "transcription_unavailable", true, "5"],
+    [TranscriptionFailureReason.Unavailable, 503, "transcription_unavailable", true, "1"],
+    [TranscriptionFailureReason.Timeout, 504, "transcription_timeout", true, "1"],
+    [TranscriptionFailureReason.ProviderRejected, 500, "transcription_configuration_error", false, undefined],
+    [TranscriptionFailureReason.MalformedOutput, 502, "transcription_provider_error", true, "1"],
+    [TranscriptionFailureReason.Internal, 500, "internal_server_error", undefined, undefined],
   ];
 
-  for (const [reason, status, errorCode, retryable, expectsRetryAfter] of cases) {
+  for (const [reason, status, errorCode, retryable, expectedRetryAfter] of cases) {
     it(`maps ${reason} to HTTP ${status} ${errorCode}`, async () => {
       const user = await ctx.createUser();
       provider.next = async () => {
@@ -85,11 +88,7 @@ describe("VoiceService provider failure mapping", () => {
       assert.equal(res.statusCode, status);
       assert.equal(res.json<{ error: string }>().error, errorCode);
       assert.equal(res.json<{ retryable?: boolean }>().retryable, retryable);
-      assert.equal(
-        res.headers["retry-after"],
-        expectsRetryAfter ? "1" : undefined,
-        `Retry-After presence for ${reason}`,
-      );
+      assert.equal(res.headers["retry-after"], expectedRetryAfter, `Retry-After for ${reason}`);
     });
   }
 
@@ -105,6 +104,34 @@ describe("VoiceService provider failure mapping", () => {
 
     assert.equal(res.statusCode, 400);
     assert.equal(res.json<{ error: string }>().error, "bad_request");
+
+    // Cancellation is the caller's own doing, so it is neither advertised as
+    // retryable nor given a cooldown.
+    assert.equal(res.json<{ retryable?: boolean }>().retryable, undefined);
+    assert.equal(res.headers["retry-after"], undefined);
+  });
+
+  it("writes a provider-stated cooldown into Retry-After", async () => {
+    const user = await ctx.createUser();
+    provider.next = async () => {
+      throw new TranscriptionFailure(TranscriptionFailureReason.Capacity, { retryAfterSeconds: 42 });
+    };
+
+    const res = await post(user.accessToken);
+
+    assert.equal(res.statusCode, 503);
+    assert.equal(res.headers["retry-after"], "42");
+  });
+
+  it("caps an implausible provider cooldown instead of stalling the caller", async () => {
+    const user = await ctx.createUser();
+    provider.next = async () => {
+      throw new TranscriptionFailure(TranscriptionFailureReason.Capacity, { retryAfterSeconds: 86_400 });
+    };
+
+    const res = await post(user.accessToken);
+
+    assert.equal(res.headers["retry-after"], "300");
   });
 
   it("keeps the daily quota rejection distinct from provider capacity", async () => {

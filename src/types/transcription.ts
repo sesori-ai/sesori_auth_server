@@ -61,10 +61,21 @@ export type TranscriptionResult = {
  */
 export class TranscriptionFailure extends Error {
   readonly reason: TranscriptionFailureReason;
+  /**
+   * Cooldown in whole seconds that the provider itself asked for, when it
+   * stated one (a `Retry-After` on a 429). Advisory and untrusted: the API
+   * error layer clamps it before it can reach a response header. Absent means
+   * "no provider guidance", not "retry immediately".
+   */
+  readonly retryAfterSeconds?: number;
 
-  constructor(reason: TranscriptionFailureReason, options?: { cause?: unknown }) {
+  constructor(reason: TranscriptionFailureReason, options?: { cause?: unknown; retryAfterSeconds?: number }) {
     super(reason, options);
     this.name = "TranscriptionFailure";
     this.reason = reason;
+
+    if (options?.retryAfterSeconds !== undefined) {
+      this.retryAfterSeconds = options.retryAfterSeconds;
+    }
   }
 }

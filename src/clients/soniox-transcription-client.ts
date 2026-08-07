@@ -4,6 +4,7 @@ import {
   parseTranscription,
   parseTranscriptText,
   parseUploadedFileId,
+  readProviderRetryAfterSeconds,
   toBillableSeconds,
   toFailureReason,
 } from "../api/soniox-transcription-api.js";
@@ -60,9 +61,15 @@ export class SonioxTranscriptionClient implements AsyncTranscriptionClient {
 
     let fileId: string | null = null;
     let transcriptionId: string | null = null;
+    let createAttempted = false;
 
     try {
       fileId = parseUploadedFileId(await this.#sdk.files.upload(request.audio, { filename: request.filename, signal }));
+
+      // Marked before the call, not after: if create times out or returns an
+      // unparseable body, the provider may still have accepted the job. Cleanup
+      // has to assume a job it cannot name exists.
+      createAttempted = true;
 
       // Job creation returns a non-terminal status; only its ID is meaningful
       // here. Record it immediately so cleanup can delete the job even if the
@@ -79,8 +86,11 @@ export class SonioxTranscriptionClient implements AsyncTranscriptionClient {
         ),
       );
 
-      const finished = parseTranscription(await this.#sdk.stt.wait(transcriptionId, { signal }));
-      const text = parseTranscriptText(await this.#sdk.stt.getTranscript(finished.id, signal));
+      // Both calls address the job by the ID we created, never by an ID echoed
+      // back by the provider, so a mismatched response cannot redirect the
+      // transcript fetch or the billed duration onto another job.
+      const finished = parseTranscription(await this.#sdk.stt.wait(transcriptionId, { signal }), transcriptionId);
+      const text = parseTranscriptText(await this.#sdk.stt.getTranscript(transcriptionId, signal));
 
       return { text, durationSeconds: toBillableSeconds(finished.audioDurationMs) };
     } catch (error) {
@@ -98,19 +108,39 @@ export class SonioxTranscriptionClient implements AsyncTranscriptionClient {
             ? TranscriptionFailureReason.Timeout
             : toFailureReason(error);
 
-      throw new TranscriptionFailure(reason, { cause: error });
+      throw new TranscriptionFailure(reason, {
+        cause: error,
+        retryAfterSeconds: readProviderRetryAfterSeconds(error),
+      });
     } finally {
       // Cleanup gets its own budget so a caller abort or request timeout cannot
       // strand provider-side audio. Failure is logged, never surfaced.
-      await this.#cleanup({ fileId, transcriptionId });
+      await this.#cleanup({
+        fileId,
+        transcriptionId,
+        createOutcomeUnknown: createAttempted && transcriptionId === null,
+      });
     }
   }
 
-  async #cleanup(ids: { fileId: string | null; transcriptionId: string | null }): Promise<void> {
+  async #cleanup(ids: {
+    fileId: string | null;
+    transcriptionId: string | null;
+    createOutcomeUnknown: boolean;
+  }): Promise<void> {
     // The transcription references the file, so it must go first. Each delete
     // gets its own budget: a slow job delete must not consume the file
     // delete's time and strand uploaded audio.
-    const { transcriptionId, fileId } = ids;
+    const { transcriptionId, fileId, createOutcomeUnknown } = ids;
+
+    // A job may exist under an ID we never received, so it cannot be deleted
+    // here. Removing its file anyway would leave that job referencing missing
+    // audio; the purge command reconciles both instead.
+    if (createOutcomeUnknown) {
+      console.error("[SonioxTranscriptionClient] create outcome unknown, leaving provider resources for purge");
+      return;
+    }
+
     if (transcriptionId !== null) {
       const deleted = await this.#deleteQuietly(
         () => this.#sdk.stt.delete(transcriptionId, AbortSignal.timeout(this.#cleanupTimeoutMs)),
