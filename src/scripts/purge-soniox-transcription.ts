@@ -102,7 +102,10 @@ export async function runSonioxPurge(input: {
       await remove(AbortSignal.timeout(timeoutMs));
       return true;
     } catch (error) {
-      markFailed(stage, error);
+      markFailed(
+        stage,
+        error instanceof Error ? error : new TypeError("Soniox SDK threw a non-Error value", { cause: error }),
+      );
       return false;
     }
   };
@@ -127,27 +130,23 @@ export async function runSonioxPurge(input: {
   // the request-path cleanup avoids.
   let transcriptionsFullyCleared = true;
 
+  let pendingTranscriptionIds: string[] = [];
+  const flushTranscriptions = async (): Promise<void> => {
+    if (pendingTranscriptionIds.length === 0) {
+      return;
+    }
+
+    const ids = pendingTranscriptionIds;
+    pendingTranscriptionIds = [];
+    const succeeded = await deleteBatch(ids, (id, signal) => input.sdk.stt.delete(id, signal), "transcription_delete");
+    report.deletedTranscriptionCount += succeeded;
+    if (succeeded !== ids.length) {
+      transcriptionsFullyCleared = false;
+    }
+  };
+
   // Transcriptions first: they reference files.
   try {
-    let pending: string[] = [];
-    const flush = async (): Promise<void> => {
-      if (pending.length === 0) {
-        return;
-      }
-
-      const ids = pending;
-      pending = [];
-      const succeeded = await deleteBatch(
-        ids,
-        (id, signal) => input.sdk.stt.delete(id, signal),
-        "transcription_delete",
-      );
-      report.deletedTranscriptionCount += succeeded;
-      if (succeeded !== ids.length) {
-        transcriptionsFullyCleared = false;
-      }
-    };
-
     for await (const item of await input.sdk.stt.list()) {
       const parsed = purgeItemSchema.safeParse(item);
       if (!parsed.success) {
@@ -161,34 +160,36 @@ export async function runSonioxPurge(input: {
         continue;
       }
 
-      pending.push(parsed.data.id);
-      if (pending.length >= DELETE_CONCURRENCY) {
-        await flush();
+      pendingTranscriptionIds.push(parsed.data.id);
+      if (pendingTranscriptionIds.length >= DELETE_CONCURRENCY) {
+        await flushTranscriptions();
       }
     }
-
-    await flush();
   } catch (error) {
-    markFailed("transcription_list", error);
+    markFailed(
+      "transcription_list",
+      error instanceof Error ? error : new TypeError("Soniox SDK threw a non-Error value", { cause: error }),
+    );
     transcriptionsFullyCleared = false;
   }
+  await flushTranscriptions();
+
+  let pendingFileIds: string[] = [];
+  const flushFiles = async (): Promise<void> => {
+    if (pendingFileIds.length === 0) {
+      return;
+    }
+
+    const ids = pendingFileIds;
+    pendingFileIds = [];
+    report.deletedFileCount += await deleteBatch(
+      ids,
+      (id, signal) => input.sdk.files.delete(id, signal),
+      "file_delete",
+    );
+  };
 
   try {
-    let pending: string[] = [];
-    const flush = async (): Promise<void> => {
-      if (pending.length === 0) {
-        return;
-      }
-
-      const ids = pending;
-      pending = [];
-      report.deletedFileCount += await deleteBatch(
-        ids,
-        (id, signal) => input.sdk.files.delete(id, signal),
-        "file_delete",
-      );
-    };
-
     for await (const item of await input.sdk.files.list()) {
       const parsed = purgeItemSchema.safeParse(item);
       if (!parsed.success) {
@@ -203,16 +204,18 @@ export async function runSonioxPurge(input: {
         continue;
       }
 
-      pending.push(parsed.data.id);
-      if (pending.length >= DELETE_CONCURRENCY) {
-        await flush();
+      pendingFileIds.push(parsed.data.id);
+      if (pendingFileIds.length >= DELETE_CONCURRENCY) {
+        await flushFiles();
       }
     }
-
-    await flush();
   } catch (error) {
-    markFailed("file_list", error);
+    markFailed(
+      "file_list",
+      error instanceof Error ? error : new TypeError("Soniox SDK threw a non-Error value", { cause: error }),
+    );
   }
+  await flushFiles();
 
   return report;
 }
