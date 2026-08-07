@@ -1,9 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import path from "node:path";
 import type { TestContext as NodeTestContext } from "node:test";
 import { describe, it } from "node:test";
-import { pathToFileURL } from "node:url";
 import { MongoClient } from "mongodb";
 import { getLegalDocumentUrl } from "../../src/lib/legal-document-paths.js";
 import { MongoDbAccessor } from "../../src/db/mongo-db-accessor.js";
@@ -98,9 +96,7 @@ describe("Legal routes", () => {
     // The other route tests inject synthetic text, so nothing else proves the
     // shipped asset actually discloses the providers we send audio to.
     mockMongoHarness(t);
-    // Resolved from the composition root's module URL, the way production does,
-    // rather than from this test file's own directory.
-    const compositionRootUrl = pathToFileURL(path.join(process.cwd(), "src/index.ts")).href;
+    const compositionRootUrl = new URL("../../src/index.ts", import.meta.url).href;
     const [termsText, privacyText] = await Promise.all([
       readFile(getLegalDocumentUrl(compositionRootUrl, "terms"), "utf8"),
       readFile(getLegalDocumentUrl(compositionRootUrl, "privacy"), "utf8"),
