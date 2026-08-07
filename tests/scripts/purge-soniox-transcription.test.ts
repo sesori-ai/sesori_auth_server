@@ -179,6 +179,112 @@ describe("purge-soniox-transcription", () => {
       assert.equal(report.outcome, "failed");
     });
 
+    it("holds back the file sweep when a transcription list item is malformed", async () => {
+      const attempted: string[] = [];
+      const sdk: SonioxPurgeSdk = {
+        files: {
+          async list() {
+            return [{ id: "f1" }].values();
+          },
+          async delete(fileId: string) {
+            attempted.push(`file:${fileId}`);
+          },
+        },
+        stt: {
+          async list() {
+            return [{ notAnId: true }].values() as unknown as AsyncIterable<{ id: string }>;
+          },
+          async delete(id: string) {
+            attempted.push(`transcription:${id}`);
+          },
+        },
+      };
+
+      const report = await runSonioxPurge({ sdk, mode: "apply" });
+
+      // A job we could not read may still reference f1's audio, so the file
+      // sweep is unsafe even though no delete was attempted.
+      assert.deepEqual(attempted, []);
+      assert.equal(report.fileCount, 1);
+      assert.equal(report.deletedFileCount, 0);
+      assert.equal(report.outcome, "failed");
+    });
+
+    it("is idempotent: a second apply finds nothing left to delete", async () => {
+      const files = new Set(["f1", "f2"]);
+      const transcriptions = new Set(["t1"]);
+      const sdk: SonioxPurgeSdk = {
+        files: {
+          async list() {
+            return [...files].map((id) => ({ id })).values();
+          },
+          async delete(fileId: string) {
+            if (!files.delete(fileId)) {
+              throw new Error("already gone");
+            }
+          },
+        },
+        stt: {
+          async list() {
+            return [...transcriptions].map((id) => ({ id })).values();
+          },
+          async delete(id: string) {
+            if (!transcriptions.delete(id)) {
+              throw new Error("already gone");
+            }
+          },
+        },
+      };
+
+      const first = await runSonioxPurge({ sdk, mode: "apply" });
+      assert.equal(first.outcome, "completed");
+      assert.equal(first.deletedTranscriptionCount, 1);
+      assert.equal(first.deletedFileCount, 2);
+
+      const second = await runSonioxPurge({ sdk, mode: "apply" });
+
+      // A rerun after a completed sweep must not double-delete or fail.
+      assert.deepEqual(second, {
+        mode: "apply",
+        outcome: "completed",
+        fileCount: 0,
+        transcriptionCount: 0,
+        deletedFileCount: 0,
+        deletedTranscriptionCount: 0,
+      });
+    });
+
+    it("completes every transcription delete before any file delete", async () => {
+      // Guards the phase ordering across batch boundaries: concurrency is
+      // bounded within a phase, never across the job/file split.
+      const order: string[] = [];
+      const items = Array.from({ length: 12 }, (_, index) => ({ id: `x${index}` }));
+      const sdk: SonioxPurgeSdk = {
+        files: {
+          async list() {
+            return items.values();
+          },
+          async delete() {
+            order.push("file");
+          },
+        },
+        stt: {
+          async list() {
+            return items.values();
+          },
+          async delete() {
+            order.push("transcription");
+          },
+        },
+      };
+
+      const report = await runSonioxPurge({ sdk, mode: "apply" });
+
+      assert.equal(report.deletedTranscriptionCount, 12);
+      assert.equal(report.deletedFileCount, 12);
+      assert.ok(order.lastIndexOf("transcription") < order.indexOf("file"));
+    });
+
     it("reports a failed outcome without throwing", async () => {
       const { sdk } = createSdk([], [], { failOn: "transcriptions" });
 

@@ -15,6 +15,12 @@ import { SONIOX_REST_URL_BY_REGION } from "../types/transcription.js";
 
 const DEFAULT_PURGE_TIMEOUT_MS = 10_000;
 
+/**
+ * Deletes issued at once per phase. Kept small so an operator sweep cannot
+ * present as a traffic spike to the provider.
+ */
+const DELETE_CONCURRENCY = 5;
+
 export type SonioxPurgeMode = "audit" | "apply";
 
 export type SonioxPurgeReport = {
@@ -101,6 +107,21 @@ export async function runSonioxPurge(input: {
     }
   };
 
+  /**
+   * Deletes one batch concurrently and reports how many succeeded. Sequential
+   * deletes make a worst-case sweep of the provider's default caps run for
+   * hours; bounding concurrency shortens that while never holding more than one
+   * batch of IDs in memory.
+   */
+  const deleteBatch = async (
+    ids: string[],
+    remove: (id: string, signal: AbortSignal) => Promise<void>,
+    stage: string,
+  ): Promise<number> => {
+    const results = await Promise.all(ids.map((id) => deleteOne((signal) => remove(id, signal), stage)));
+    return results.filter((removed) => removed).length;
+  };
+
   // Tracks whether any job may still exist. Deleting a file whose transcription
   // survived would leave a job referencing missing audio — the same unsafe state
   // the request-path cleanup avoids.
@@ -108,6 +129,25 @@ export async function runSonioxPurge(input: {
 
   // Transcriptions first: they reference files.
   try {
+    let pending: string[] = [];
+    const flush = async (): Promise<void> => {
+      if (pending.length === 0) {
+        return;
+      }
+
+      const ids = pending;
+      pending = [];
+      const succeeded = await deleteBatch(
+        ids,
+        (id, signal) => input.sdk.stt.delete(id, signal),
+        "transcription_delete",
+      );
+      report.deletedTranscriptionCount += succeeded;
+      if (succeeded !== ids.length) {
+        transcriptionsFullyCleared = false;
+      }
+    };
+
     for await (const item of await input.sdk.stt.list()) {
       const parsed = purgeItemSchema.safeParse(item);
       if (!parsed.success) {
@@ -117,21 +157,38 @@ export async function runSonioxPurge(input: {
       }
 
       report.transcriptionCount += 1;
-      const removed =
-        input.mode === "apply" &&
-        (await deleteOne((signal) => input.sdk.stt.delete(parsed.data.id, signal), "transcription_delete"));
-      if (removed) {
-        report.deletedTranscriptionCount += 1;
-      } else if (input.mode === "apply") {
-        transcriptionsFullyCleared = false;
+      if (input.mode !== "apply") {
+        continue;
+      }
+
+      pending.push(parsed.data.id);
+      if (pending.length >= DELETE_CONCURRENCY) {
+        await flush();
       }
     }
+
+    await flush();
   } catch (error) {
     markFailed("transcription_list", error);
     transcriptionsFullyCleared = false;
   }
 
   try {
+    let pending: string[] = [];
+    const flush = async (): Promise<void> => {
+      if (pending.length === 0) {
+        return;
+      }
+
+      const ids = pending;
+      pending = [];
+      report.deletedFileCount += await deleteBatch(
+        ids,
+        (id, signal) => input.sdk.files.delete(id, signal),
+        "file_delete",
+      );
+    };
+
     for await (const item of await input.sdk.files.list()) {
       const parsed = purgeItemSchema.safeParse(item);
       if (!parsed.success) {
@@ -140,14 +197,19 @@ export async function runSonioxPurge(input: {
       }
 
       report.fileCount += 1;
-      const removed =
-        input.mode === "apply" &&
-        transcriptionsFullyCleared &&
-        (await deleteOne((signal) => input.sdk.files.delete(parsed.data.id, signal), "file_delete"));
-      if (removed) {
-        report.deletedFileCount += 1;
+      // Re-checked per item, not hoisted: a transcription delete that failed
+      // above must stop every remaining file delete in this sweep.
+      if (input.mode !== "apply" || !transcriptionsFullyCleared) {
+        continue;
+      }
+
+      pending.push(parsed.data.id);
+      if (pending.length >= DELETE_CONCURRENCY) {
+        await flush();
       }
     }
+
+    await flush();
   } catch (error) {
     markFailed("file_list", error);
   }
