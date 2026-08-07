@@ -28,6 +28,7 @@
     "export-product-analytics": "tsx src/scripts/export-product-analytics.ts",
     "suppress-product-analytics-export": "tsx src/scripts/suppress-product-analytics-export.ts",
     "migrate-project-glossary-index": "tsx src/scripts/migrate-project-glossary-index.ts",
+    "purge-soniox-transcription": "tsx src/scripts/purge-soniox-transcription.ts",
     "circular-dependencies": "madge --circular --ts-config ./tsconfig.json ./src/index.ts"
   },
   "dependencies": {
@@ -35,6 +36,7 @@
     "@fastify/multipart": "^10.0.0",
     "@fastify/rate-limit": "^11.0.0",
     "@google-cloud/bigquery": "^8.3.1",
+    "@soniox/node": "^2.2.0",
     "argon2": "^0.45.0",
     "fastify": "^5.8.5",
     "firebase-admin": "^14.0.0",

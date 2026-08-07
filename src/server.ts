@@ -87,6 +87,14 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
       if (error.debugMessage || error.nestedError) {
         console.error(`[${error.name}] ${error.debugMessage ?? error.message}`, error.nestedError ?? "");
       }
+
+      // Sole owner of Retry-After: emitted only from typed error metadata, so
+      // routes and provider clients never write this header themselves.
+      const { retryAfterSeconds } = error;
+      if (typeof retryAfterSeconds === "number" && Number.isSafeInteger(retryAfterSeconds) && retryAfterSeconds > 0) {
+        reply.header("Retry-After", String(retryAfterSeconds));
+      }
+
       return reply.status(error.errorCode).send({ error: error.message, ...error.responseBody });
     }
 
