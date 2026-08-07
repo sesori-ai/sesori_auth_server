@@ -140,13 +140,12 @@ export function parseTranscription(value: unknown, expectedId: string): Validate
   // A completed job must carry a billable duration. Rejecting absent, non-
   // positive, and absurd values here classifies malformed provider output at
   // the adapter boundary rather than leaving it to a later billing step.
-  // The upper bound is exclusive: a full 24h async job is itself out of
-  // contract, so equality is rejected rather than billed.
+  // The maximum is inclusive, matching the existing provider contract.
   if (
     audioDurationMs === null ||
     audioDurationMs === undefined ||
     audioDurationMs <= 0 ||
-    audioDurationMs >= maxAudioDurationMs
+    audioDurationMs > maxAudioDurationMs
   ) {
     fail(TranscriptionFailureReason.MalformedOutput);
   }

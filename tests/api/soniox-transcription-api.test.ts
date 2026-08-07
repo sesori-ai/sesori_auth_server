@@ -113,16 +113,14 @@ describe("soniox transcription api", () => {
       }
     });
 
-    it("bounds duration on an exclusive 24h limit at the exact boundary", () => {
+    it("accepts duration at the inclusive 24h maximum", () => {
       assert.equal(
         parseTranscription({ id: "t1", status: "completed", audio_duration_ms: 86_399_999 }, "t1").audioDurationMs,
         86_399_999,
       );
-
-      // Exactly 24h is out of contract, so equality must reject rather than bill.
-      expectReason(
-        () => parseTranscription({ id: "t1", status: "completed", audio_duration_ms: 86_400_000 }, "t1"),
-        TranscriptionFailureReason.MalformedOutput,
+      assert.equal(
+        parseTranscription({ id: "t1", status: "completed", audio_duration_ms: 86_400_000 }, "t1").audioDurationMs,
+        86_400_000,
       );
     });
 
