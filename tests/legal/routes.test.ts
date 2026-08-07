@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import type { TestContext as NodeTestContext } from "node:test";
 import { describe, it } from "node:test";
+import { pathToFileURL } from "node:url";
 import { MongoClient } from "mongodb";
+import { getLegalDocumentUrl } from "../../src/lib/legal-document-paths.js";
 import { MongoDbAccessor } from "../../src/db/mongo-db-accessor.js";
 import { MongoDbConnector } from "../../src/db/mongo-db-connector.js";
 import { LegalDocumentService } from "../../src/services/legal-document-service.js";
@@ -85,6 +89,33 @@ describe("Legal routes", () => {
       });
 
       assert.equal(res.statusCode, 404);
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+
+  it("serves the real privacy asset disclosing every AI sub-processor", async (t) => {
+    // The other route tests inject synthetic text, so nothing else proves the
+    // shipped asset actually discloses the providers we send audio to.
+    mockMongoHarness(t);
+    // Resolved from the composition root's module URL, the way production does,
+    // rather than from this test file's own directory.
+    const compositionRootUrl = pathToFileURL(path.join(process.cwd(), "src/index.ts")).href;
+    const [termsText, privacyText] = await Promise.all([
+      readFile(getLegalDocumentUrl(compositionRootUrl, "terms"), "utf8"),
+      readFile(getLegalDocumentUrl(compositionRootUrl, "privacy"), "utf8"),
+    ]);
+    const ctx = await createTestApp({
+      legalDocumentService: new LegalDocumentService(termsText, privacyText),
+    });
+
+    try {
+      const res = await ctx.app.inject({ method: "GET", url: "/privacy" });
+
+      assert.equal(res.statusCode, 200);
+      for (const subProcessor of ["OpenAI", "Soniox", "Anthropic"]) {
+        assert.ok(res.body.includes(subProcessor), `privacy policy must disclose ${subProcessor}`);
+      }
     } finally {
       await ctx.cleanup();
     }
