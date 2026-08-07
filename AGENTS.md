@@ -52,6 +52,7 @@ src/
 | Product analytics preference/export/deletion | `src/types/product-analytics.ts`, `src/models/{documents,api,product-analytics-export}.ts`, `src/clients/bigquery-product-analytics-*.ts`, `src/api/product-analytics-*.ts`, `src/repositories/{user-repo,product-analytics-*}.ts`, `src/services/product-analytics-*.ts`, `src/routes/product-analytics.ts`, `src/scripts/{backfill-product-analytics-preference,export-product-analytics,suppress-product-analytics-export}.ts` | Required revisioned preference, isolated auth-private export, and separately permissioned privacy-target handoff; see README rollout and IAM boundaries |
 | Activation reminders       | `.plans/activation-reminders/` + `src/services/activation-reminder-service.ts` + `src/repositories/activation-state-repo.ts`            | Read `PLAN.md` and `CONSIDERATIONS.md` before continuing the staged implementation          |
 | Per-device settings        | `src/routes/settings/settings.ts` + `src/services/settings-service.ts` + `src/repositories/settings-configuration-repo.ts` + `src/models/settings.ts` | Settings keyed by `{userId, deviceId}`; toggle registry + server-resolved defaults live in `models/settings.ts` |
+| Push notification filtering | `src/models/notification.ts` + `src/services/notification-service.ts` | `NotificationCategory` is the wire contract; `NOTIFICATION_CATEGORY_SETTING_KEYS` maps each category to the toggle that silences it |
 | Wire dependencies          | `src/index.ts`                                                                                                                          | Composition root — all instantiation happens here                                           |
 
 ## CONVENTIONS
@@ -88,6 +89,16 @@ The activation-reminder feature is intentionally split into independently deploy
 Desktop bridge instances register via `POST /auth/bridges` (idempotent: clients resend their `bridgeId`; an owned non-revoked id updates in place, anything else mints a new `br_` id). `GET /auth/me` returns `bridges[]` (id, name, platform, addedAt, lastSeenAt — no live status; clients get live connectivity from the relay). The relay reports per-bridge connect/disconnect to `POST /internal/bridge-status`, which requires `bridgeId`; missing or malformed IDs get a 400. Unknown/revoked bridgeIds get a 404, which the relay turns into a WS close 4006 so the bridge re-registers. Bridges authenticate to the relay with the **user access token** — there is no bridge-scoped token. Bridge-scoped JWTs were prototyped and dropped (`8b600dd`): they added a second credential lifecycle (24h TTL, no re-issue path) and a synchronous relay→auth call per connect without buying real revocation, since the bridge host holds the user refresh token regardless. Re-evaluate only if bridge auth must outlive user sessions.
 
 Push notifications debounce through `BridgeStateTracker` (120s), keyed per bridge by `(userId, bridgeId)`.
+
+## NOTIFICATION CATEGORY FILTERING
+
+Every push producer funnels through `NotificationService.sendToUser`, so that is the only place category filtering belongs — adding a second filter at a route or producer would double-apply it. `NotificationCategory` values are the wire contract shared with the client's own enum; changing a value breaks the bridge and the apps. `NOTIFICATION_CATEGORY_SETTING_KEYS` is typed `Record<NotificationCategory, NotificationSettingKey>` so a new category cannot compile until it is mapped to a toggle.
+
+`deviceTokens.deviceId` is the join key to `settingsConfiguration`. It is optional while clients roll it out: a token without one **fails open** and keeps delivering, because it cannot be matched to a stored preference and silently muting it would be worse than an unwanted notification. Do not invert that default until clients reliably send `deviceId`. A token that changes owner has its `deviceId` cleared so it is never filtered against the previous account's settings.
+
+Activation reminders are the one deliberate exemption: `ActivationReminderService` calls `sendToUserIgnoringDeviceSettings`, so a user who disables `systemUpdate` still receives them. They are lifecycle nudges about finishing setup rather than the product "System Updates" the toggle names, and they only ride `system_update` on the wire because the client enum has no activation member — a dedicated category needs a client change first. Do not "fix" that call back to `sendToUser`; the reminder mock in the tests implements only the unfiltered method so such a regression fails.
+
+When every device opts out of a filtered category, `sendToUser` returns `devicesNotified: 0` without calling FCM, and `ActivationReminderService` treats a genuine zero-device result as complete rather than retrying forever.
 
 ## ANTI-PATTERNS
 

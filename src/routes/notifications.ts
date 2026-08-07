@@ -63,6 +63,7 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
         userId,
         token: bodyResult.data.token,
         platform: bodyResult.data.platform,
+        deviceId: bodyResult.data.deviceId,
       });
       try {
         await activationService.recordAppSetup(userId);

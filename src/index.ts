@@ -97,7 +97,8 @@ async function main() {
     );
   }
 
-  const notificationService = new NotificationService(deviceTokenRepo, messaging);
+  const settingsService = new SettingsService({ settingsRepo });
+  const notificationService = new NotificationService(deviceTokenRepo, messaging, settingsService);
   const bridgeStateTracker = new BridgeStateTracker(notificationService);
   const bridgeService = new BridgeService({ bridgeRepo, bridgeStateTracker });
   const activationService = new ActivationService({
@@ -112,7 +113,6 @@ async function main() {
     userRepo,
     pseudonymizationKey: config.PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY,
   });
-  const settingsService = new SettingsService({ settingsRepo });
   const activationReminderService = new ActivationReminderService({
     activationStateRepo,
     notificationService,
