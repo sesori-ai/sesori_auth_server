@@ -314,21 +314,41 @@ boolean that older apps may ignore:
 | Provider rejected our credentials or configuration | `500` | `transcription_configuration_error` | no |
 | Provider returned an unparseable response | `502` | `transcription_provider_error` | yes |
 
-`Retry-After: 1` accompanies the retryable statuses. The daily Sesori quota
-remains a separate `429 quota_exceeded` and is never reported as provider
-capacity. OpenAI deliberately keeps its shipped behavior of reporting every
-provider failure as `500 internal_server_error`.
+`Retry-After` accompanies the retryable statuses. When the provider states its
+own cooldown (a `Retry-After` on its 429) that value is honored, clamped to at
+most 300 seconds so a misconfigured provider cannot stall clients. A capacity
+rejection the provider did not quantify falls back to 5 seconds; every other
+retryable failure uses 1 second. The daily Sesori quota remains a separate
+`429 quota_exceeded` and is never reported as provider capacity. OpenAI
+deliberately keeps its shipped behavior of reporting every provider failure as
+`500 internal_server_error`.
 
 Each request deletes its provider-side transcription and then its uploaded file.
-A hard crash can strand those resources, so audit them periodically:
+A hard crash, or a job creation whose outcome never came back, can strand those
+resources, so audit them periodically:
 
 ```bash
 sops exec-env env/app/prod.env 'npm run purge-soniox-transcription'
-sops exec-env env/app/prod.env 'npm run purge-soniox-transcription -- --apply'
 ```
 
 The command audits by default and only deletes with `--apply`. It prints counts
 and an outcome, never IDs, filenames, or transcript content.
+
+> **Warning:** `--apply` deletes every file and job the project lists, including
+> one an in-flight request just created. Run it only after switching the
+> provider away from Soniox or draining auth traffic, and after confirming no
+> Soniox transcription is still in flight.
+
+```bash
+sops exec-env env/app/prod.env 'npm run purge-soniox-transcription -- --apply'
+```
+
+The report shape is `{ mode, outcome, fileCount, transcriptionCount,
+deletedFileCount, deletedTranscriptionCount }`. Any `outcome: "failed"` exits
+nonzero and should be investigated before a rerun. Deletes are issued with
+bounded concurrency, and the file sweep is held back whenever any job delete or
+list item failed, so the command is safe to rerun and is idempotent once a sweep
+completes.
 
 ## Activation backfill
 
