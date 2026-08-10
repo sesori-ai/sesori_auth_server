@@ -39,7 +39,7 @@ import { VoiceService } from "../../src/services/voice-service.js";
 import { AppClientPresenceService } from "../../src/services/app-client-presence-service.js";
 import { ProductAnalyticsPreferenceService } from "../../src/services/product-analytics-preference-service.js";
 import { SettingsService } from "../../src/services/settings-service.js";
-import { loadConfig } from "../../src/config.js";
+import { loadConfig, type Config } from "../../src/config.js";
 import { ProductAnalyticsPreference } from "../../src/types/product-analytics.js";
 
 export type TestUser = {
@@ -84,6 +84,7 @@ export type TestAppOverrides = {
   settingsService?: SettingsService;
   glossaryService?: GlossaryService;
   voiceService?: VoiceService;
+  configOverrides?: Partial<Config>;
 };
 
 export type { OAuthClient };
@@ -206,7 +207,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     overrides?.legalDocumentService ?? new LegalDocumentService("# Test Terms\n", "# Test Privacy\n");
 
   const app = await buildApp({
-    config,
+    config: { ...config, ...overrides?.configOverrides },
     authService,
     bridgeService,
     tokenService,

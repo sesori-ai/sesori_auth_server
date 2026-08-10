@@ -37,6 +37,7 @@ class RecordingOAuthClient extends FakeOAuthClient {
 function createTestConfig(): Config {
   return {
     PORT: 3001,
+    AUTH_DEV_BYPASS_ENABLED: false,
     AUTH_BASE_URL: "https://api.sesori.com",
     PENDING_AUTH_MAX_SESSIONS: 10_000,
     PENDING_AUTH_POLL_TIMEOUT_MS: 30_000,
@@ -55,6 +56,7 @@ function createTestConfig(): Config {
     ALLOWED_REDIRECT_URIS: ["myapp://oauth/callback", "https://app.example.com/oauth/callback"],
     RELAY_URL: "ws://localhost:8080",
     RELAY_WEBHOOK_SECRET: "test-relay-secret",
+    PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY: Buffer.alloc(32, 7),
     ACTIVATION_REMINDERS_ENABLED: false,
     ACTIVATION_SWEEP_INTERVAL_MS: 900_000,
     ACTIVATION_BRIDGE_REMINDER_1_DELAY_MS: 7_200_000,
