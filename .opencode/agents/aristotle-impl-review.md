@@ -2,9 +2,7 @@
 name: aristotle-impl-review
 description: Reviews changed code, branches, and PRs against strict architectural, security, persistence, compatibility, and operational rules for the Sesori auth server. Rejects misplaced Fastify/MongoDB concerns, unvalidated boundaries, unsafe OAuth/JWT changes, process-local scaling mistakes, speculative abstractions, and uncoordinated apps/relay contract changes. Reviews only new or changed code and always runs before a PR is opened.
 mode: subagent
-model: openai/gpt-5.6-sol
-variant: high
-temperature: 0.1
+model: 9router/generic-mid
 permission:
   "*": deny
   read:

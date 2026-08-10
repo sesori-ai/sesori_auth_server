@@ -1,7 +1,12 @@
 import { Collection, MongoBulkWriteError, ObjectId } from "mongodb";
+import { z } from "zod";
 import { MongoDbAccessor } from "../db/mongo-db-accessor.js";
-import type { GlossaryEntry } from "../models/documents.js";
+import { glossaryEntrySchema, type GlossaryEntry } from "../models/documents.js";
+import type { ProjectKey } from "../models/voice.js";
+import { InternalServerError } from "../lib/errors.js";
 import { MongoDbDatabase, AuthDbCollection } from "../types/mongo.js";
+
+const countSchema = z.number().int().nonnegative().safe();
 
 export class GlossaryEntryRepository {
   readonly #collection: Collection<GlossaryEntry>;
@@ -10,26 +15,45 @@ export class GlossaryEntryRepository {
     this.#collection = accessor.getCollection<GlossaryEntry>(MongoDbDatabase.Auth, AuthDbCollection.GlossaryEntries);
   }
 
-  async findByUserId(userId: string): Promise<GlossaryEntry[]> {
-    return this.#collection
-      .find({ userId: new ObjectId(userId) })
+  /** Returns the project's words. Documents stay inside the repository boundary. */
+  async findWordsByUserAndProject(args: { userId: string; projectKey: ProjectKey }): Promise<string[]> {
+    const entries = await this.#collection
+      .find({ userId: new ObjectId(args.userId), projectKey: args.projectKey })
       .sort({ word: 1 })
       .toArray();
+
+    return entries.map((entry) => this.#parseEntry(entry).word);
   }
 
-  async countByUserId(userId: string): Promise<number> {
-    return this.#collection.countDocuments({ userId: new ObjectId(userId) });
+  async countByUserAndProject(args: { userId: string; projectKey: ProjectKey }): Promise<number> {
+    return this.#parseCount(
+      await this.#collection.countDocuments({ userId: new ObjectId(args.userId), projectKey: args.projectKey }),
+    );
   }
 
-  async insertMany(args: { userId: string; words: string[] }): Promise<string[]> {
-    const { userId, words } = args;
-    if (words.length === 0) return [];
+  /**
+   * Counts a user's project-scoped terms. Unscoped legacy documents are excluded
+   * because scoped CRUD cannot list or delete them, so they must not permanently
+   * consume the per-user capacity.
+   */
+  async countScopedByUserId(userId: string): Promise<number> {
+    return this.#parseCount(
+      await this.#collection.countDocuments({ userId: new ObjectId(userId), projectKey: { $type: "string" } }),
+    );
+  }
+
+  async insertMany(args: { userId: string; projectKey: ProjectKey; words: string[] }): Promise<string[]> {
+    const { userId, projectKey, words } = args;
+    if (words.length === 0) {
+      return [];
+    }
+
     const objectUserId = new ObjectId(userId);
-
     const now = new Date();
     const docs: GlossaryEntry[] = words.map((word) => ({
       _id: new ObjectId(),
       userId: objectUserId,
+      projectKey,
       word,
       createdAt: now,
     }));
@@ -37,30 +61,46 @@ export class GlossaryEntryRepository {
     try {
       const result = await this.#collection.insertMany(docs, { ordered: false });
       const insertedIds = new Set(Object.values(result.insertedIds).map((id) => id.toHexString()));
-      return docs.filter((d) => insertedIds.has(d._id.toHexString())).map((d) => d.word);
+      return docs.filter((document) => insertedIds.has(document._id.toHexString())).map((document) => document.word);
     } catch (error: unknown) {
-      // ordered:false + duplicate key (11000) → throws but non-duplicate inserts still succeed.
       if (error instanceof MongoBulkWriteError && error.code === 11000) {
-        const insertedCount = error.result?.insertedCount ?? 0;
-        if (insertedCount > 0) {
-          const errors = Array.isArray(error.writeErrors) ? error.writeErrors : [error.writeErrors];
-          const failedIndices = new Set(errors.map((e) => e.index));
-          return docs.filter((_, i) => !failedIndices.has(i)).map((d) => d.word);
-        }
-        return [];
+        const errors = Array.isArray(error.writeErrors) ? error.writeErrors : [error.writeErrors];
+        const failedIndices = new Set(errors.map((entry) => entry.index));
+        return docs.filter((_, index) => !failedIndices.has(index)).map((document) => document.word);
       }
       throw error;
     }
   }
 
-  async deleteMany(args: { userId: string; words: string[] }): Promise<number> {
-    const { userId, words } = args;
-    if (words.length === 0) return 0;
+  async deleteMany(args: { userId: string; projectKey: ProjectKey; words: string[] }): Promise<number> {
+    const { userId, projectKey, words } = args;
+    if (words.length === 0) {
+      return 0;
+    }
 
     const result = await this.#collection.deleteMany({
       userId: new ObjectId(userId),
+      projectKey,
       word: { $in: words },
     });
-    return result.deletedCount;
+    return this.#parseCount(result.deletedCount);
+  }
+
+  #parseCount(value: unknown): number {
+    const result = countSchema.safeParse(value);
+    if (!result.success) {
+      throw new InternalServerError({ debugMessage: "Invalid glossary count result" });
+    }
+
+    return result.data;
+  }
+
+  #parseEntry(entry: unknown): GlossaryEntry {
+    const result = glossaryEntrySchema.safeParse(entry);
+    if (!result.success) {
+      throw new InternalServerError({ debugMessage: "Invalid glossary entry persistence" });
+    }
+
+    return result.data;
   }
 }

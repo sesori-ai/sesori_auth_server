@@ -229,15 +229,40 @@ export class ActivationBackfillService {
       return;
     }
 
-    const [mobileSetupAt, bridgeSetupAt, firstSessionAt] = await Promise.all([
+    const [user, rawMobileSetupAt, rawBridgeSetupAt, rawFirstSessionAt] = await Promise.all([
+      this.#userRepo.findById(userId),
       this.#deviceTokenRepo.findEarliestCreatedAt(userId),
       this.#bridgeRepo.findEarliestAddedAt(userId),
       this.#dailyUsageRepo.findEarliestMetadataRequestAt(userId),
     ]);
+    // Device-token rows survive account re-registration with their original
+    // createdAt, so earliest evidence can predate this account's creation.
+    // Ignore such evidence rather than backfill an impossible milestone.
+    const accountCreatedAt = user?.createdAt ?? null;
+    const guard = (kind: string, evidenceAt: Date | null): Date | null => {
+      if (evidenceAt && accountCreatedAt && evidenceAt < accountCreatedAt) {
+        console.warn("[ActivationBackfillService] Ignored milestone evidence predating account creation", {
+          userId,
+          milestone: kind,
+        });
+        return null;
+      }
+      return evidenceAt;
+    };
+    const mobileSetupAt = guard("mobile_setup", rawMobileSetupAt);
+    const bridgeSetupAt = guard("bridge_setup", rawBridgeSetupAt);
+    const firstSessionAt = guard("first_session", rawFirstSessionAt);
     const evidence: ActivationEvidence = { mobileSetupAt, bridgeSetupAt, firstSessionAt };
     const snapshot = snapshotFrom(existing, evidence);
     const stage = stageFor(snapshot);
-    const reminder = reminderFor(snapshot, mobileSetupAt !== null);
+    // Push reachability is about owning a device token at all, not about the
+    // token's timestamp being a valid milestone. A carried-over token still
+    // reaches this user. The repository additionally persists a reminder
+    // baseline only when the merged mobile milestone is non-null, so propose a
+    // reminder only when both hold; otherwise proposed and applied counters
+    // would diverge silently.
+    const reminderEligible = rawMobileSetupAt !== null && snapshot.mobileSetupAt !== null;
+    const reminder = reminderFor(snapshot, reminderEligible);
     const jitterMs = deterministicActivationJitterMs(userId, options.jitterWindowMs);
     const baselineAt = new Date(options.backfillAt.getTime() + jitterMs);
     if (Number.isNaN(baselineAt.getTime())) {
@@ -255,7 +280,7 @@ export class ActivationBackfillService {
       ...evidence,
       // The repository selects the current unsent stage atomically. Supplying
       // one candidate also covers an organic stage transition during this run.
-      reminderBaseAt: mobileSetupAt === null ? null : baselineAt,
+      reminderBaseAt: reminderEligible ? baselineAt : null,
       backfilledAt: options.backfillAt,
     };
     const applied = await this.#activationStateRepo.applyBackfill(userId, input);

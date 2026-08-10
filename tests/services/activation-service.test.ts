@@ -8,6 +8,7 @@ import { ActivationStateRepository } from "../../src/repositories/activation-sta
 import { BridgeRepository } from "../../src/repositories/bridge-repo.js";
 import { DailyUsageRepository } from "../../src/repositories/daily-usage-repo.js";
 import { DeviceTokenRepository } from "../../src/repositories/device-token-repo.js";
+import { UserRepository } from "../../src/repositories/user-repo.js";
 import { ActivationService } from "../../src/services/activation-service.js";
 import { AuthDbCollection, MongoDbDatabase } from "../../src/types/mongo.js";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
@@ -18,6 +19,7 @@ describe("ActivationService", () => {
   let bridgeRepo: BridgeRepository;
   let dailyUsageRepo: DailyUsageRepository;
   let deviceTokenRepo: DeviceTokenRepository;
+  let userRepo: UserRepository;
   let service: ActivationService;
   let logCalls: unknown[][];
 
@@ -27,7 +29,8 @@ describe("ActivationService", () => {
     bridgeRepo = new BridgeRepository(ctx.dbAccessor);
     dailyUsageRepo = new DailyUsageRepository(ctx.dbAccessor);
     deviceTokenRepo = new DeviceTokenRepository(ctx.dbAccessor);
-    service = new ActivationService({ activationStateRepo, bridgeRepo, dailyUsageRepo, deviceTokenRepo });
+    userRepo = new UserRepository(ctx.dbAccessor);
+    service = new ActivationService({ activationStateRepo, bridgeRepo, dailyUsageRepo, deviceTokenRepo, userRepo });
   });
 
   after(async () => {
@@ -46,7 +49,7 @@ describe("ActivationService", () => {
   });
 
   it("enrolls mobile setup and reconciles historical bridge and session milestones", async () => {
-    const user = await ctx.createUser();
+    const user = await ctx.createUser({ createdAt: new Date("2026-07-01T00:00:00.000Z") });
     const mobileAt = new Date("2026-07-10T08:00:00.000Z");
     const bridgeAt = new Date("2026-07-11T09:00:00.000Z");
     const sessionAt = new Date("2026-07-12T10:00:00.000Z");
@@ -91,7 +94,7 @@ describe("ActivationService", () => {
   });
 
   it("records app setup for a device-token registration", async () => {
-    const user = await ctx.createUser();
+    const user = await ctx.createUser({ createdAt: new Date("2026-07-01T00:00:00.000Z") });
     const observedAt = new Date("2026-07-12T10:00:00.000Z");
 
     const state = await service.recordAppSetup(user.userId, observedAt);
@@ -105,7 +108,7 @@ describe("ActivationService", () => {
   });
 
   it("records bridge and session milestones before mobile setup without creating reminder baselines", async () => {
-    const user = await ctx.createUser();
+    const user = await ctx.createUser({ createdAt: new Date("2026-07-01T00:00:00.000Z") });
     const bridgeAt = new Date("2026-07-12T10:00:00.000Z");
     const sessionAt = new Date("2026-07-12T11:00:00.000Z");
 
@@ -120,7 +123,7 @@ describe("ActivationService", () => {
   });
 
   it("logs a first milestone once when concurrent hooks race", async () => {
-    const user = await ctx.createUser();
+    const user = await ctx.createUser({ createdAt: new Date("2026-07-01T00:00:00.000Z") });
     const bridgeAt = new Date("2026-07-12T10:00:00.000Z");
 
     await Promise.all([
@@ -132,7 +135,7 @@ describe("ActivationService", () => {
   });
 
   it("uses the earliest historical bridge when recording a later registration", async () => {
-    const user = await ctx.createUser();
+    const user = await ctx.createUser({ createdAt: new Date("2026-07-01T00:00:00.000Z") });
     const historicalAt = new Date("2026-07-10T10:00:00.000Z");
     const observedAt = new Date("2026-07-15T10:00:00.000Z");
     const historical = await bridgeRepo.register({
@@ -153,7 +156,7 @@ describe("ActivationService", () => {
   });
 
   it("repairs mobile setup from token history when recording bridge setup", async () => {
-    const user = await ctx.createUser();
+    const user = await ctx.createUser({ createdAt: new Date("2026-07-01T00:00:00.000Z") });
     await deviceTokenRepo.upsertToken(user.userId, `bridge-repair-token-${user.userId}`, DevicePlatform.ios);
     const mobileAt = await deviceTokenRepo.findEarliestCreatedAt(user.userId);
     const bridge = await bridgeRepo.register({
@@ -171,7 +174,7 @@ describe("ActivationService", () => {
   });
 
   it("reconciles app setup from a persisted desktop token", async () => {
-    const user = await ctx.createUser();
+    const user = await ctx.createUser({ createdAt: new Date("2026-07-01T00:00:00.000Z") });
     await deviceTokenRepo.upsertToken(user.userId, `desktop-only-token-${user.userId}`, DevicePlatform.windows);
     const appSetupAt = await deviceTokenRepo.findEarliestCreatedAt(user.userId);
     const bridge = await bridgeRepo.register({
@@ -189,7 +192,7 @@ describe("ActivationService", () => {
   });
 
   it("uses historical metadata evidence when recording a later session request", async () => {
-    const user = await ctx.createUser();
+    const user = await ctx.createUser({ createdAt: new Date("2026-07-01T00:00:00.000Z") });
     const historicalAt = new Date("2026-07-10T10:00:00.000Z");
     const observedAt = new Date("2026-07-15T10:00:00.000Z");
     await ctx.dbAccessor.getCollection<DailyUsage>(MongoDbDatabase.Auth, AuthDbCollection.DailyUsage).insertOne({
@@ -208,7 +211,7 @@ describe("ActivationService", () => {
   });
 
   it("repairs bridge setup from bridge history when recording a session", async () => {
-    const user = await ctx.createUser();
+    const user = await ctx.createUser({ createdAt: new Date("2026-07-01T00:00:00.000Z") });
     const mobileAt = new Date("2026-07-10T10:00:00.000Z");
     const sessionAt = new Date("2026-07-12T10:00:00.000Z");
     await activationStateRepo.recordMilestones(user.userId, { mobileSetupAt: mobileAt }, mobileAt);
@@ -222,7 +225,7 @@ describe("ActivationService", () => {
   });
 
   it("preserves an earlier observed session time when its initial read loses a race", async () => {
-    const user = await ctx.createUser();
+    const user = await ctx.createUser({ createdAt: new Date("2026-07-01T00:00:00.000Z") });
     const earlierAt = new Date("2026-07-12T10:00:00.000Z");
     const laterAt = new Date("2026-07-12T10:00:01.000Z");
     await activationStateRepo.recordMilestones(user.userId, { firstSessionAt: laterAt }, laterAt);
@@ -233,7 +236,7 @@ describe("ActivationService", () => {
   });
 
   it("retries unresolved historical reconciliation on later token registration", async () => {
-    const user = await ctx.createUser();
+    const user = await ctx.createUser({ createdAt: new Date("2026-07-01T00:00:00.000Z") });
     const mobileAt = new Date("2026-07-10T08:00:00.000Z");
     const bridgeAt = new Date("2026-07-11T09:00:00.000Z");
     const sessionAt = new Date("2026-07-12T10:00:00.000Z");
@@ -271,12 +274,32 @@ describe("ActivationService", () => {
   });
 
   it("falls back to the observed registration time when no token history is available", async () => {
-    const user = await ctx.createUser();
+    const user = await ctx.createUser({ createdAt: new Date("2026-07-01T00:00:00.000Z") });
     const observedAt = new Date("2026-07-12T10:00:00.000Z");
 
     const state = await service.recordAppSetup(user.userId, observedAt);
 
     assert.equal(state.mobileSetupAt?.toISOString(), observedAt.toISOString());
     assert.equal(state.bridgeReminderBaseAt?.toISOString(), observedAt.toISOString());
+  });
+
+  it("ignores token evidence predating account creation and uses the observed time", async () => {
+    const user = await ctx.createUser({ createdAt: new Date("2026-07-01T00:00:00.000Z") });
+    // A re-registered token can survive with createdAt from a previous account
+    // or pre-account install; it must never become this account's milestone.
+    const carriedOverTokenAt = new Date("2026-06-20T08:00:00.000Z");
+    const observedAt = new Date("2026-07-12T10:00:00.000Z");
+    await ctx.dbAccessor.getCollection<DeviceToken>(MongoDbDatabase.Auth, AuthDbCollection.DeviceTokens).insertOne({
+      _id: new ObjectId(),
+      userId: new ObjectId(user.userId),
+      token: `carried-over-token-${user.userId}`,
+      platform: DevicePlatform.ios,
+      createdAt: carriedOverTokenAt,
+      updatedAt: carriedOverTokenAt,
+    });
+
+    const state = await service.recordAppSetup(user.userId, observedAt);
+
+    assert.equal(state.mobileSetupAt?.toISOString(), observedAt.toISOString());
   });
 });

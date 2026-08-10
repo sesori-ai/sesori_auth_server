@@ -62,7 +62,8 @@ describe("activation backfill CLI", () => {
   });
 
   it("is read-only by default and writes only with --apply", async () => {
-    const user = await ctx.createUser();
+    // The token must postdate account creation or the milestone guard ignores it.
+    const user = await ctx.createUser({ createdAt: new Date("2026-05-01T00:00:00.000Z") });
     const at = new Date("2026-06-01T10:00:00.000Z");
     await ctx.dbAccessor.getCollection<DeviceToken>(MongoDbDatabase.Auth, AuthDbCollection.DeviceTokens).insertOne({
       _id: new ObjectId(),

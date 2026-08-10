@@ -88,11 +88,11 @@ describe("ActivationBackfillService", () => {
   }
 
   it("previews safely, applies controlled baselines, and is idempotent", async () => {
-    const noToken = await ctx.createUser();
-    const bridge1 = await ctx.createUser();
-    const bridge2 = await ctx.createUser();
-    const session = await ctx.createUser();
-    const activated = await ctx.createUser();
+    const noToken = await ctx.createUser({ createdAt: new Date("2026-05-01T00:00:00.000Z") });
+    const bridge1 = await ctx.createUser({ createdAt: new Date("2026-05-01T00:00:00.000Z") });
+    const bridge2 = await ctx.createUser({ createdAt: new Date("2026-05-01T00:00:00.000Z") });
+    const session = await ctx.createUser({ createdAt: new Date("2026-05-01T00:00:00.000Z") });
+    const activated = await ctx.createUser({ createdAt: new Date("2026-05-01T00:00:00.000Z") });
     const mobileAt = new Date("2026-06-01T08:00:00.000Z");
     const bridgeAt = new Date("2026-06-02T09:00:00.000Z");
     const approximateSessionAt = new Date("2026-06-03T00:00:00.000Z");
@@ -212,7 +212,7 @@ describe("ActivationBackfillService", () => {
   });
 
   it("uses a desktop-only token as app activation evidence", async () => {
-    const user = await ctx.createUser();
+    const user = await ctx.createUser({ createdAt: new Date("2026-05-01T00:00:00.000Z") });
     const appSetupAt = new Date("2026-06-01T08:00:00.000Z");
     await seedToken(user.userId, appSetupAt, DevicePlatform.windows);
 
@@ -242,8 +242,29 @@ describe("ActivationBackfillService", () => {
     assert.throws(() => deterministicActivationJitterMs(userId, -1), RangeError);
   });
 
+  it("ignores milestone evidence predating account creation", async () => {
+    const user = await ctx.createUser({ createdAt: new Date("2026-05-01T00:00:00.000Z") });
+    // A re-registered token surviving from a pre-account install must not
+    // backfill an impossible milestone earlier than the account itself.
+    await seedToken(user.userId, new Date("2026-04-20T08:00:00.000Z"));
+    const validBridgeAt = new Date("2026-05-02T09:00:00.000Z");
+    await seedBridge(user.userId, validBridgeAt, false);
+
+    const report = await service.run({
+      apply: true,
+      backfillAt: BACKFILL_AT,
+      batchLimit: 10,
+      jitterWindowMs: JITTER_WINDOW_MS,
+    });
+    const state = await activationStateRepo.findByUserId(user.userId);
+
+    assert.equal(report.usersApplied >= 1, true);
+    assert.equal(state?.mobileSetupAt ?? null, null);
+    assert.equal(state?.bridgeSetupAt?.toISOString(), validBridgeAt.toISOString());
+  });
+
   it("preserves an organic baseline when the user no longer has a device token", async () => {
-    const user = await ctx.createUser();
+    const user = await ctx.createUser({ createdAt: new Date("2026-05-01T00:00:00.000Z") });
     const mobileAt = new Date("2026-06-01T10:00:00.000Z");
     await activationStateRepo.recordMilestones(user.userId, { mobileSetupAt: mobileAt }, mobileAt);
 
@@ -262,8 +283,8 @@ describe("ActivationBackfillService", () => {
   });
 
   it("continues after a per-user reconciliation failure and reports it", async (t) => {
-    const failedUser = await ctx.createUser();
-    const successfulUser = await ctx.createUser();
+    const failedUser = await ctx.createUser({ createdAt: new Date("2026-05-01T00:00:00.000Z") });
+    const successfulUser = await ctx.createUser({ createdAt: new Date("2026-05-01T00:00:00.000Z") });
     const deviceTokenRepo = new DeviceTokenRepository(ctx.dbAccessor);
     t.mock.method(deviceTokenRepo, "findEarliestCreatedAt", async (userId: string) => {
       if (userId === failedUser.userId) {

@@ -10,23 +10,36 @@ import type { DailyUsage } from "../../src/models/documents.js";
 import { MongoDbDatabase, AuthDbCollection } from "../../src/types/mongo.js";
 
 const BOUNDARY = "----TestBoundary9876543210";
+const PROJECT_KEY = `prj_v1_${"A".repeat(43)}`;
+const OTHER_PROJECT_KEY = `prj_v1_${"B".repeat(43)}`;
 
-function buildMultipartPayload(args: { fieldName: string; filename: string; content: Buffer; contentType: string }): {
+function buildMultipartPayload(args: {
+  fieldName: string;
+  filename: string;
+  content: Buffer;
+  contentType: string;
+  fields?: { name: string; value: string }[];
+  fieldsFirst?: boolean;
+}): {
   body: Buffer;
   contentType: string;
 } {
-  const parts: Buffer[] = [
+  const fieldParts = (args.fields ?? []).map((field) =>
+    Buffer.from(`--${BOUNDARY}\r\nContent-Disposition: form-data; name="${field.name}"\r\n\r\n${field.value}\r\n`),
+  );
+  const filePart = Buffer.concat([
     Buffer.from(
       `--${BOUNDARY}\r\n` +
         `Content-Disposition: form-data; name="${args.fieldName}"; filename="${args.filename}"\r\n` +
         `Content-Type: ${args.contentType}\r\n\r\n`,
     ),
     args.content,
-    Buffer.from(`\r\n--${BOUNDARY}--\r\n`),
-  ];
+    Buffer.from("\r\n"),
+  ]);
+  const ordered = args.fieldsFirst ? [...fieldParts, filePart] : [filePart, ...fieldParts];
 
   return {
-    body: Buffer.concat(parts),
+    body: Buffer.concat([...ordered, Buffer.from(`--${BOUNDARY}--\r\n`)]),
     contentType: `multipart/form-data; boundary=${BOUNDARY}`,
   };
 }
@@ -115,6 +128,83 @@ describe("POST /voice/transcribe", () => {
     assert.equal(res.statusCode, 400);
   });
 
+  it("preserves the framework 413 when the audio file exceeds the size limit", async () => {
+    const user = await ctx.createUser();
+    mock.method(OpenAIClient.prototype, "transcribe", async () => ({ text: "unused", durationSeconds: 1 }));
+
+    const { body, contentType } = buildMultipartPayload({
+      fieldName: "audio",
+      filename: "too-large.m4a",
+      content: Buffer.alloc(25 * 1024 * 1024 + 1024, 1),
+      contentType: "audio/m4a",
+    });
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/voice/transcribe",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": contentType,
+      },
+      payload: body,
+    });
+
+    assert.equal(res.statusCode, 413);
+  });
+
+  it("rejects an unknown __proto__ multipart field instead of silently dropping it", async () => {
+    const user = await ctx.createUser();
+    mock.method(OpenAIClient.prototype, "transcribe", async () => ({ text: "unused", durationSeconds: 1 }));
+
+    const { body, contentType } = buildMultipartPayload({
+      fieldName: "audio",
+      filename: "test.m4a",
+      content: Buffer.from("fake-audio-data-for-testing"),
+      contentType: "audio/m4a",
+      fields: [{ name: "__proto__", value: "polluted" }],
+    });
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/voice/transcribe",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": contentType,
+      },
+      payload: body,
+    });
+
+    assert.equal(res.statusCode, 400);
+    assert.equal(({} as Record<string, unknown>).polluted, undefined);
+  });
+
+  it("rejects an unexpected extra file part without stalling the request", async () => {
+    const user = await ctx.createUser();
+    mock.method(OpenAIClient.prototype, "transcribe", async () => ({ text: "unused", durationSeconds: 1 }));
+
+    const filePart = (name: string) =>
+      Buffer.concat([
+        Buffer.from(
+          `--${BOUNDARY}\r\nContent-Disposition: form-data; name="${name}"; filename="f.m4a"\r\n` +
+            `Content-Type: audio/m4a\r\n\r\n`,
+        ),
+        Buffer.from("fake-audio-data-for-testing"),
+        Buffer.from("\r\n"),
+      ]);
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/voice/transcribe",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": `multipart/form-data; boundary=${BOUNDARY}`,
+      },
+      payload: Buffer.concat([filePart("audio"), filePart("extra"), Buffer.from(`--${BOUNDARY}--\r\n`)]),
+    });
+
+    assert.equal(res.statusCode, 400, "an unexpected extra file part must be a bounded 400");
+  });
+
   it("returns transcribed text and dailySecondsRemaining on success", async () => {
     const user = await ctx.createUser();
 
@@ -148,34 +238,41 @@ describe("POST /voice/transcribe", () => {
     assert.equal(json.dailySecondsRemaining, 3590);
   });
 
-  it("passes glossary words in the prompt to OpenAI", async () => {
-    const user = await ctx.createUser();
-
-    await ctx.app.inject({
+  async function seedGlossary(accessToken: string, projectKey: string, words: string[]): Promise<void> {
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/voice/glossary",
-      headers: {
-        authorization: `Bearer ${user.accessToken}`,
-        "content-type": "application/json",
-      },
-      payload: JSON.stringify({ words: ["Sesori", "XChaCha20"] }),
+      headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+      payload: JSON.stringify({ projectKey, words }),
     });
+    assert.equal(res.statusCode, 200);
+  }
 
+  function capturePrompt(text: string, durationSeconds: number): { read: () => string | undefined } {
     let capturedPrompt: string | undefined;
     mock.method(
       OpenAIClient.prototype,
       "transcribe",
       async (args: { fileBuffer: Buffer; filename: string; mimetype: string; prompt?: string }) => {
         capturedPrompt = args.prompt;
-        return { text: "Sesori uses XChaCha20 encryption.", durationSeconds: 5 };
+        return { text, durationSeconds };
       },
     );
+    return { read: () => capturedPrompt };
+  }
 
+  it("passes the requested project's glossary words in the prompt to OpenAI", async () => {
+    const user = await ctx.createUser();
+    await seedGlossary(user.accessToken, PROJECT_KEY, ["Sesori", "XChaCha20"]);
+    await seedGlossary(user.accessToken, OTHER_PROJECT_KEY, ["OtherProjectTerm"]);
+
+    const prompt = capturePrompt("Sesori uses XChaCha20 encryption.", 5);
     const { body, contentType } = buildMultipartPayload({
       fieldName: "audio",
       filename: "test.m4a",
       content: Buffer.from("fake-audio-data-for-testing"),
       contentType: "audio/m4a",
+      fields: [{ name: "projectKey", value: PROJECT_KEY }],
     });
 
     const res = await ctx.app.inject({
@@ -189,24 +286,72 @@ describe("POST /voice/transcribe", () => {
     });
 
     assert.equal(res.statusCode, 200);
+    const capturedPrompt = prompt.read();
     assert.ok(capturedPrompt, "A prompt should have been passed to OpenAI");
     assert.ok(capturedPrompt.includes("Sesori"), "Prompt should contain glossary word 'Sesori'");
     assert.ok(capturedPrompt.includes("XChaCha20"), "Prompt should contain glossary word 'XChaCha20'");
+    assert.ok(!capturedPrompt.includes("OtherProjectTerm"), "Prompt must not leak another project's terms");
   });
 
-  it("sends no prompt when user has no glossary entries", async () => {
+  it("accepts the projectKey field before the audio part", async () => {
+    const user = await ctx.createUser();
+    await seedGlossary(user.accessToken, PROJECT_KEY, ["Sesori"]);
+
+    const prompt = capturePrompt("Sesori.", 2);
+    const { body, contentType } = buildMultipartPayload({
+      fieldName: "audio",
+      filename: "test.m4a",
+      content: Buffer.from("fake-audio-data-for-testing"),
+      contentType: "audio/m4a",
+      fields: [{ name: "projectKey", value: PROJECT_KEY }],
+      fieldsFirst: true,
+    });
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/voice/transcribe",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": contentType,
+      },
+      payload: body,
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.ok(prompt.read()?.includes("Sesori"));
+  });
+
+  it("sends no prompt when the requested project has no glossary entries", async () => {
     const user = await ctx.createUser();
 
-    let capturedPrompt: string | undefined;
-    mock.method(
-      OpenAIClient.prototype,
-      "transcribe",
-      async (args: { fileBuffer: Buffer; filename: string; mimetype: string; prompt?: string }) => {
-        capturedPrompt = args.prompt;
-        return { text: "Hello world.", durationSeconds: 3 };
-      },
-    );
+    const prompt = capturePrompt("Hello world.", 3);
+    const { body, contentType } = buildMultipartPayload({
+      fieldName: "audio",
+      filename: "test.m4a",
+      content: Buffer.from("fake-audio-data-for-testing"),
+      contentType: "audio/m4a",
+      fields: [{ name: "projectKey", value: PROJECT_KEY }],
+    });
 
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/voice/transcribe",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": contentType,
+      },
+      payload: body,
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(prompt.read(), undefined, "No prompt should be sent when the project glossary is empty");
+  });
+
+  it("sends no prompt when a legacy client omits projectKey even if other projects have terms", async () => {
+    const user = await ctx.createUser();
+    await seedGlossary(user.accessToken, PROJECT_KEY, ["Sesori"]);
+
+    const prompt = capturePrompt("Hello world.", 3);
     const { body, contentType } = buildMultipartPayload({
       fieldName: "audio",
       filename: "test.m4a",
@@ -225,7 +370,43 @@ describe("POST /voice/transcribe", () => {
     });
 
     assert.equal(res.statusCode, 200);
-    assert.equal(capturedPrompt, undefined, "No prompt should be sent when glossary is empty");
+    assert.equal(prompt.read(), undefined, "Omitted project context must never fall back to a global glossary");
+  });
+
+  it("returns 400 for malformed, duplicated, or unknown multipart text fields", async () => {
+    const user = await ctx.createUser();
+    mock.method(OpenAIClient.prototype, "transcribe", async () => ({ text: "unused", durationSeconds: 1 }));
+
+    const invalidFieldSets = [
+      [{ name: "projectKey", value: "prj_v1_short" }],
+      [
+        { name: "projectKey", value: PROJECT_KEY },
+        { name: "projectKey", value: OTHER_PROJECT_KEY },
+      ],
+      [{ name: "unexpected", value: "value" }],
+    ];
+
+    for (const fields of invalidFieldSets) {
+      const { body, contentType } = buildMultipartPayload({
+        fieldName: "audio",
+        filename: "test.m4a",
+        content: Buffer.from("fake-audio-data-for-testing"),
+        contentType: "audio/m4a",
+        fields,
+      });
+
+      const res = await ctx.app.inject({
+        method: "POST",
+        url: "/voice/transcribe",
+        headers: {
+          authorization: `Bearer ${user.accessToken}`,
+          "content-type": contentType,
+        },
+        payload: body,
+      });
+
+      assert.equal(res.statusCode, 400, JSON.stringify(fields));
+    }
   });
 
   it("returns 500 when OpenAI returns empty text", async () => {

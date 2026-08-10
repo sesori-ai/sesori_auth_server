@@ -116,6 +116,7 @@ function createTestServices(params: {
     bridgeService: {} as AppServices["bridgeService"],
     tokenService: {} as AppServices["tokenService"],
     voiceService: {} as AppServices["voiceService"],
+    glossaryService: {} as AppServices["glossaryService"],
     sessionMetadataService: {} as AppServices["sessionMetadataService"],
     installScriptService: {} as AppServices["installScriptService"],
     legalDocumentService: {} as AppServices["legalDocumentService"],

@@ -119,6 +119,7 @@ describe("ProductAnalyticsExportRepository", () => {
     latePreferenceRowsRemoved: 0,
     milestoneRowsPublished: 1,
     cohortRowsPublished: 1,
+    preCreationMilestonesDropped: 0,
   };
 
   it("uses expiring run-scoped staging and query jobs rather than streaming inserts", async () => {
