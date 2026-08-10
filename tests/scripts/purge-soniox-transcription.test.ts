@@ -6,6 +6,14 @@ import {
   type SonioxPurgeSdk,
 } from "../../src/scripts/purge-soniox-transcription.js";
 
+// The SDK's list helpers are async paginators, so a synchronous array iterator
+// would exercise a contract production never sees.
+async function* asAsyncIterable<T>(items: readonly T[]): AsyncIterable<T> {
+  for (const item of items) {
+    yield item;
+  }
+}
+
 function createSdk(
   files: { id: string }[],
   transcriptions: { id: string }[],
@@ -21,7 +29,7 @@ function createSdk(
           if (options.failOn === "files") {
             throw new Error("list failed");
           }
-          return files.values();
+          return asAsyncIterable(files);
         },
         async delete(fileId: string) {
           deleted.push(`file:${fileId}`);
@@ -32,7 +40,7 @@ function createSdk(
           if (options.failOn === "transcriptions") {
             throw new Error("list failed");
           }
-          return transcriptions.values();
+          return asAsyncIterable(transcriptions);
         },
         async delete(id: string) {
           deleted.push(`transcription:${id}`);
@@ -90,7 +98,7 @@ describe("purge-soniox-transcription", () => {
       const sdk: SonioxPurgeSdk = {
         files: {
           async list() {
-            return [{ id: "f1" }].values();
+            return asAsyncIterable([{ id: "f1" }]);
           },
           async delete(fileId: string) {
             attempted.push(`file:${fileId}`);
@@ -98,7 +106,7 @@ describe("purge-soniox-transcription", () => {
         },
         stt: {
           async list() {
-            return [{ id: "t1" }, { id: "t2" }].values();
+            return asAsyncIterable([{ id: "t1" }, { id: "t2" }]);
           },
           async delete(id: string) {
             attempted.push(`transcription:${id}`);
@@ -124,7 +132,7 @@ describe("purge-soniox-transcription", () => {
       const sdk: SonioxPurgeSdk = {
         files: {
           async list() {
-            return [].values();
+            return asAsyncIterable([]);
           },
           async delete(fileId: string) {
             attempted.push(fileId);
@@ -132,7 +140,7 @@ describe("purge-soniox-transcription", () => {
         },
         stt: {
           async list() {
-            return [{ id: "" }, { notAnId: true }].values() as AsyncIterable<{ id: string }> | never;
+            return asAsyncIterable([{ id: "" }, { notAnId: true }] as unknown as { id: string }[]);
           },
           async delete(id: string) {
             attempted.push(id);
@@ -152,7 +160,7 @@ describe("purge-soniox-transcription", () => {
       const sdk: SonioxPurgeSdk = {
         files: {
           async list() {
-            return [{ id: "f1" }].values();
+            return asAsyncIterable([{ id: "f1" }]);
           },
           async delete(fileId: string) {
             attempted.push(`file:${fileId}`);
@@ -160,7 +168,7 @@ describe("purge-soniox-transcription", () => {
         },
         stt: {
           async list() {
-            return [{ id: "t1" }].values();
+            return asAsyncIterable([{ id: "t1" }]);
           },
           async delete(id: string) {
             attempted.push(`transcription:${id}`);
@@ -184,7 +192,7 @@ describe("purge-soniox-transcription", () => {
       const sdk: SonioxPurgeSdk = {
         files: {
           async list() {
-            return [{ id: "f1" }].values();
+            return asAsyncIterable([{ id: "f1" }]);
           },
           async delete(fileId: string) {
             attempted.push(`file:${fileId}`);
@@ -192,7 +200,7 @@ describe("purge-soniox-transcription", () => {
         },
         stt: {
           async list() {
-            return [{ notAnId: true }].values() as unknown as AsyncIterable<{ id: string }>;
+            return asAsyncIterable([{ notAnId: true }] as unknown as { id: string }[]);
           },
           async delete(id: string) {
             attempted.push(`transcription:${id}`);
@@ -216,7 +224,7 @@ describe("purge-soniox-transcription", () => {
       const sdk: SonioxPurgeSdk = {
         files: {
           async list() {
-            return [...files].map((id) => ({ id })).values();
+            return asAsyncIterable([...files].map((id) => ({ id })));
           },
           async delete(fileId: string) {
             if (!files.delete(fileId)) {
@@ -226,7 +234,7 @@ describe("purge-soniox-transcription", () => {
         },
         stt: {
           async list() {
-            return [...transcriptions].map((id) => ({ id })).values();
+            return asAsyncIterable([...transcriptions].map((id) => ({ id })));
           },
           async delete(id: string) {
             if (!transcriptions.delete(id)) {
@@ -262,7 +270,7 @@ describe("purge-soniox-transcription", () => {
       const sdk: SonioxPurgeSdk = {
         files: {
           async list() {
-            return items.values();
+            return asAsyncIterable(items);
           },
           async delete() {
             order.push("file");
@@ -270,7 +278,7 @@ describe("purge-soniox-transcription", () => {
         },
         stt: {
           async list() {
-            return items.values();
+            return asAsyncIterable(items);
           },
           async delete() {
             order.push("transcription");
@@ -283,6 +291,44 @@ describe("purge-soniox-transcription", () => {
       assert.equal(report.deletedTranscriptionCount, 12);
       assert.equal(report.deletedFileCount, 12);
       assert.ok(order.lastIndexOf("transcription") < order.indexOf("file"));
+    });
+
+    it("never exceeds the bounded delete concurrency", async () => {
+      // The ordering test above proves phases never interleave, not that the
+      // bound holds. An unbounded sweep against the provider's caps presents as
+      // a traffic spike and holds every id in memory at once.
+      let inFlight = 0;
+      let peakInFlight = 0;
+      let fileDeletes = 0;
+      const items = Array.from({ length: 12 }, (_, index) => ({ id: `t${index}` }));
+      const sdk: SonioxPurgeSdk = {
+        files: {
+          async list() {
+            return asAsyncIterable([]);
+          },
+          async delete() {
+            fileDeletes += 1;
+          },
+        },
+        stt: {
+          async list() {
+            return asAsyncIterable(items);
+          },
+          async delete() {
+            inFlight += 1;
+            peakInFlight = Math.max(peakInFlight, inFlight);
+            await new Promise((resolve) => setImmediate(resolve));
+            inFlight -= 1;
+          },
+        },
+      };
+
+      const report = await runSonioxPurge({ sdk, mode: "apply" });
+
+      assert.equal(report.deletedTranscriptionCount, 12);
+      assert.equal(fileDeletes, 0);
+      // Batches of five; an unbounded sweep would peak at all 12 at once.
+      assert.equal(peakInFlight, 5);
     });
 
     it("reports a failed outcome without throwing", async () => {
