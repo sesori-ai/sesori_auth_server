@@ -202,18 +202,31 @@ Glossary ownership uses an opaque, stable client-derived project key rather than
 a filesystem path or raw bridge project ID:
 
 ```text
-digestInput = "sesori-project-glossary-v1\0" + bridgeId + "\0" + projectId
+digestInput = "sesori-project-glossary-v1\0" + projectId
 projectKey = "prj_v1_" + base64url(sha256(utf8(digestInput)))
 ```
 
 The result is exactly `prj_v1_` plus a 43-character unpadded base64url digest.
-Including the bridge ID separates bridge-local project namespaces; using stable
-`Project.id` keeps the key unchanged when a directory moves. The server validates
-only this opaque shape and scopes it to the authenticated user. It never accepts
-or persists a raw path for glossary ownership.
+The canonical cross-repository vector is project ID `project-123` →
+`prj_v1_xgjNDm_yyduAKisFHr498ZgcjIU1FACdyEj68wSmbhc`. Using stable `Project.id`
+keeps the key unchanged when a directory moves. The server validates only this
+opaque shape and scopes it to the authenticated user; the key is not an
+authorization credential. It never accepts or persists a raw path for glossary
+ownership. Equal project IDs on two bridges deliberately share one glossary for
+that user, because the composer flow does not carry bridge identity.
 
-PR1 adds a migration command but does not change live glossary behavior or the
-startup index configuration. The command defaults to a read-only dry-run and
+Glossary CRUD requires a project key: `GET /voice/glossary?projectKey=…` and
+`POST`/`DELETE /voice/glossary` with `{ projectKey, words }`. `POST
+/voice/transcribe` accepts an optional `projectKey` multipart field; omission
+means no glossary context is applied and never falls back to a global glossary.
+Safety caps are 100 words per request, 500 per project, 5,000 per user, 200
+characters per word, and an 8,000-character provider context. Caps are checked
+per request rather than serialized, so concurrent requests may narrowly exceed
+them; the compound unique index still prevents duplicates.
+
+The scoped runtime and the `{userId, projectKey, word}` startup index
+configuration ship together; the previously merged migration command owns the
+destructive index cutover. The command defaults to a read-only dry-run and
 reports only counts and closed state enums, never words, user IDs, project keys,
 documents, or index names:
 
@@ -229,12 +242,12 @@ collation, index mismatch, or `repair_required` outcome stops the rollout and
 requires a separately reviewed data/index plan. Do not infer a project key or
 delete production terms ad hoc.
 
-Do **not** run `--apply` from the PR1 deployment. Mutation waits until the reviewed
-PR2 artifact is ready and auth is in a maintenance window. For that cutover:
+Do **not** deploy the scoped runtime before applying the index. Mutation happens
+with the single auth instance stopped, in a maintenance window. For that cutover:
 
 1. Remove the single auth instance from ingress, stop it, and confirm no glossary
    writer remains. Permit exactly one migration command and no manual index DDL.
-2. Run `--apply` from the reviewed PR2 artifact:
+2. Run `--apply` from the reviewed scoped-runtime artifact:
 
    ```bash
    sops exec-env env/app/prod.env \
@@ -248,7 +261,7 @@ PR2 artifact is ready and auth is in a maintenance window. For that cutover:
    - `repair_required`: do not rerun blindly or start either binary. Restore DB
      observability if needed and obtain a separately reviewed repair.
 4. Run `--verify` and require target `exact`, legacy `absent`, every invalid/
-   duplicate count zero, and `completed` before starting PR2:
+   duplicate count zero, and `completed` before starting the scoped runtime:
 
    ```bash
    sops exec-env env/app/prod.env \
@@ -262,8 +275,8 @@ audit again. An exact-both interruption is resumable. Post-drop invalid data,
 mismatched DDL, or unknown state is `repair_required`, not automatically
 recoverable.
 
-Rollback is allowed only while the glossary collection is empty. If PR2 fails
-before any project-scoped term is written, keep it stopped and run:
+Rollback is allowed only while the glossary collection is empty. If the scoped
+runtime fails before any project-scoped term is written, keep it stopped and run:
 
 ```bash
 sops exec-env env/app/prod.env \
@@ -273,7 +286,7 @@ sops exec-env env/app/prod.env \
 Require the rollback report itself to show legacy `exact`, target `absent`, zero
 documents, and `completed` before restoring the old binary. Do not use forward
 `--verify` after rollback. Once any scoped term exists, rollback is forbidden;
-repair or roll forward with PR2.
+repair or roll forward with the scoped runtime.
 
 ## Activation backfill
 
@@ -451,7 +464,7 @@ the restricted target dataset/table and deletion identity exist.
 | `npm run backfill-product-analytics-preference` | Validate preference migration; pass `-- --apply` to persist bounded batches |
 | `npm run export-product-analytics` | Run one isolated auth-private export using ADC (unscheduled until analytics IAM exists) |
 | `npm run suppress-product-analytics-export` | Read one protected suppression request from stdin and hand off a restricted deletion target |
-| `npm run migrate-project-glossary-index` | Dry-run glossary index migration; mutation flags require the documented PR2 maintenance window |
+| `npm run migrate-project-glossary-index` | Dry-run glossary index migration; mutation flags require the documented maintenance window |
 
 ## Project structure
 

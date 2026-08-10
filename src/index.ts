@@ -32,6 +32,7 @@ import { NotificationService } from "./services/notification-service.js";
 import { PendingAuthStore } from "./services/pending-auth-store.js";
 import { SessionMetadataService } from "./services/session-metadata-service.js";
 import { TokenService } from "./services/token-service.js";
+import { GlossaryService } from "./services/glossary-service.js";
 import { VoiceService } from "./services/voice-service.js";
 import { AppClientPresenceService } from "./services/app-client-presence-service.js";
 import { ProductAnalyticsPreferenceService } from "./services/product-analytics-preference-service.js";
@@ -104,6 +105,7 @@ async function main() {
     bridgeRepo,
     dailyUsageRepo,
     deviceTokenRepo,
+    userRepo,
   });
   const appClientPresenceService = new AppClientPresenceService({ deviceTokenRepo });
   const productAnalyticsPreferenceService = new ProductAnalyticsPreferenceService({
@@ -147,7 +149,8 @@ async function main() {
     deviceTokenRepo,
     bridgeService,
   });
-  const voiceService = new VoiceService({ openai, glossaryRepo, dailyUsageRepo });
+  const glossaryService = new GlossaryService({ glossaryRepo });
+  const voiceService = new VoiceService({ openai, glossaryService, dailyUsageRepo });
 
   const sessionMetadataService = new SessionMetadataService({
     openai,
@@ -167,6 +170,7 @@ async function main() {
     bridgeService,
     tokenService,
     voiceService,
+    glossaryService,
     sessionMetadataService,
     installScriptService,
     legalDocumentService,

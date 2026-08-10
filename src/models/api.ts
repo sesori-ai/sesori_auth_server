@@ -200,6 +200,7 @@ export type GlossaryListReply = {
 };
 
 export type GlossaryAddBody = {
+  projectKey: string;
   words: string[];
 };
 
@@ -208,7 +209,12 @@ export type GlossaryAddReply = {
 };
 
 export type GlossaryRemoveBody = {
+  projectKey: string;
   words: string[];
+};
+
+export type GlossaryListQuery = {
+  projectKey: string;
 };
 
 export type GlossaryRemoveReply = {

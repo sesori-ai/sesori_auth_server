@@ -14,6 +14,7 @@ import type { AuthService } from "./services/auth-service.js";
 import type { BridgeService } from "./services/bridge-service.js";
 import type { NotificationService } from "./services/notification-service.js";
 import type { TokenService } from "./services/token-service.js";
+import type { GlossaryService } from "./services/glossary-service.js";
 import type { VoiceService } from "./services/voice-service.js";
 import type { SessionMetadataService } from "./services/session-metadata-service.js";
 import type { InstallScriptService } from "./services/install-script-service.js";
@@ -46,6 +47,7 @@ export type AppServices = {
   bridgeService: BridgeService;
   tokenService: TokenService;
   voiceService: VoiceService;
+  glossaryService: GlossaryService;
   sessionMetadataService: SessionMetadataService;
   installScriptService: InstallScriptService;
   legalDocumentService: LegalDocumentService;
@@ -164,6 +166,7 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
   });
   await app.register(voiceRoutes, {
     voiceService: services.voiceService,
+    glossaryService: services.glossaryService,
     requireAuth,
   });
   await app.register(notificationRoutes, {

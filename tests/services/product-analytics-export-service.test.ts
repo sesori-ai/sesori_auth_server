@@ -294,6 +294,7 @@ describe("ProductAnalyticsExportService", () => {
       latePreferenceRowsRemoved: 1,
       milestoneRowsPublished: 1,
       cohortRowsPublished: 2,
+      preCreationMilestonesDropped: 0,
     });
     assert.equal(exportRepo.milestones.length, 1);
     assert.equal(exportRepo.milestones[0].userKey, userKeyFor({ userId: ids[0] }));
@@ -488,5 +489,65 @@ describe("ProductAnalyticsExportService", () => {
     assert.equal(exportRepo.validationInput?.expectedTotalAccounts, 0);
     assert.equal(exportRepo.validationInput?.expectedEnabledAccounts, 0);
     assert.equal(exportRepo.cleanupCalls, 1);
+  });
+
+  it("drops and counts milestone timestamps predating account creation", async () => {
+    const runCutoff = new Date("2026-07-28T12:00:00.000Z");
+    const accountCreatedAt = new Date("2026-07-20T12:00:00.000Z");
+    const user: ProductAnalyticsExportUser = {
+      userId: "000000000000000000000001",
+      accountCreatedAt,
+      preference: ProductAnalyticsPreference.Enabled,
+      preferenceUpdatedAt: accountCreatedAt,
+      exportSuppressedAt: null,
+    };
+    const preCreation = new Date("2026-07-10T12:00:00.000Z");
+    const validBridgeAt = new Date("2026-07-21T12:00:00.000Z");
+    const exportRepo = new FakeExportRepository();
+    const service = new ProductAnalyticsExportService({
+      userRepo: new FakeUserRepository([user], []),
+      activationStateRepo: new FakeActivationStateRepository(
+        new Map([
+          [
+            user.userId,
+            {
+              notificationRegisteredAt: preCreation,
+              bridgeRegisteredAt: validBridgeAt,
+              legacyFirstMetadataRequestAt: preCreation,
+            },
+          ],
+        ]),
+      ),
+      controlRepo: {
+        async loadActiveInternalUserKeys() {
+          return { userKeys: new Set<string>(), controlUpdatedAt: new Date("2026-07-28T00:00:00.000Z") };
+        },
+      },
+      exportRepo,
+      batchLimit: 2,
+      pseudonymizationKey,
+      clock: (() => {
+        const values = [
+          new Date("2026-07-28T12:01:00.000Z"),
+          new Date("2026-07-28T12:02:00.000Z"),
+          new Date("2026-07-28T12:03:00.000Z"),
+        ];
+        return () => values.shift()!;
+      })(),
+      createRunId: () => "testrun01",
+    });
+
+    const report = await service.run({ runCutoff });
+
+    assert.equal(report.preCreationMilestonesDropped, 2);
+    assert.equal(report.milestoneRowsStaged, 1);
+    assert.equal(exportRepo.milestones.length, 1);
+    assert.equal(exportRepo.milestones[0].notificationRegisteredAt, null);
+    assert.equal(exportRepo.milestones[0].legacyFirstMetadataRequestAt, null);
+    assert.equal(exportRepo.milestones[0].bridgeRegisteredAt?.toISOString(), validBridgeAt.toISOString());
+    // The dropped milestone must not count toward within-N-day cohort columns.
+    assert.equal(exportRepo.cohorts.length, 1);
+    assert.equal(exportRepo.cohorts[0].notificationRegisteredWithin30Days, 0);
+    assert.equal(exportRepo.cohorts[0].bridgeRegisteredWithin7Days, 1);
   });
 });
