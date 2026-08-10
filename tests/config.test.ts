@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { configSchema, loadGlossaryMigrationConfig } from "../src/config.js";
+import { ClientIpSource } from "../src/types/client-ip.js";
 
 const serviceAccount = {
   type: "service_account",
@@ -70,6 +71,30 @@ describe("configSchema", () => {
 
     assert.equal(result.success, true);
     assert.equal(result.data?.AUTH_DEV_BYPASS_ENABLED, false);
+  });
+
+  it("uses socket client IP resolution by default", () => {
+    const result = configSchema.safeParse(validEnv());
+
+    assert.equal(result.success, true);
+    assert.equal(result.data?.CLIENT_IP_SOURCE, ClientIpSource.Socket);
+  });
+
+  it("accepts Cloudflare client IP resolution with configured ingress CIDRs", () => {
+    const result = configSchema.safeParse(
+      validEnv({ CLIENT_IP_SOURCE: "cloudflare", CLOUDFLARE_INGRESS_CIDRS: "173.245.48.0/20, 2400:cb00::/32" }),
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.data?.CLIENT_IP_SOURCE, ClientIpSource.Cloudflare);
+    assert.equal(result.data?.CLOUDFLARE_INGRESS_CIDRS, "173.245.48.0/20, 2400:cb00::/32");
+  });
+
+  it("rejects unknown client IP source values", () => {
+    const result = configSchema.safeParse(validEnv({ CLIENT_IP_SOURCE: "trust_proxy" }));
+
+    assert.equal(result.success, false);
+    assert.ok(result.error?.issues.some((issue) => issue.path.includes("CLIENT_IP_SOURCE")));
   });
 
   it("refuses to start when the dev auth bypass is enabled in production", () => {
