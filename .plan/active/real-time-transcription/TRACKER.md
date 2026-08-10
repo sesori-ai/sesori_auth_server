@@ -13,7 +13,7 @@
 
 - **Stage:** S01
 - **Wave:** W02
-- **Next action:** S01-W02-P01 in progress on the pinned S01/W02 baseline. After it merges, begin S02-W01-P01.
+- **Next action:** S01-W02-P01 is implemented and open as PR #64 on the pinned S01/W02 baseline, awaiting human approval and merge. After it merges, record the merged auth artifact SHA and begin S02-W01-P01.
 
 ## Plan Review
 
@@ -37,7 +37,7 @@
 | Done | ID | Stage | Wave | PR | Branch | Notes |
 |---|---|---|---|---|---|---|
 | [x] | S01-W01-P01 | S01 | W01 | [#61](https://github.com/sesori-ai/sesori_auth_server/pull/61) | `real-time-config-next-step` | Merged `1f1138b`. Production index migration applied and verified before merge: documentCount 0, legacy absent, target exact. Implemented on the session-provided worktree branch instead of the planned branch name. |
-| [ ] | S01-W02-P01 | S01 | W02 | — | `plan/real-time-transcription/s01-w02-p01-provider-neutral-async-soniox` | Auth: provider boundary, Soniox async, legal/config/cleanup |
+| [ ] | S01-W02-P01 | S01 | W02 | [#64](https://github.com/sesori-ai/sesori_auth_server/pull/64) | `real-time-config-next-step` | Auth: provider boundary, Soniox async, legal/config/cleanup. Implemented at `111b9af` with CI green and all inline review threads answered; PR is open and unmerged, so this row stays unchecked until the merge SHA exists. Implemented on the session-provided worktree branch instead of the planned branch name. |
 | [ ] | S02-W01-P01 | S02 | W01 | — | `plan/real-time-transcription/s02-w01-p01-realtime-voice-proxy` | Auth: protocol v1 proxy and minimal shutdown |
 | [ ] | S03-W01-P01 | S03 | W01 | — | `plan/real-time-transcription/s03-w01-p01-stream-mobile-voice` | Apps: PCM streaming, preview, commit, async fallback |
 | [ ] | S05-W01-P01 | S05 | W01 | — | `plan/real-time-transcription/s05-w01-p01-remove-scaffolding` | Auth: delete compatibility/migration scaffolding whose trigger has fired; runs after S04 and may run more than once |
@@ -56,6 +56,8 @@
 - Production enablement requires Soniox contractual approval, dedicated EU project configuration, and the glossary migration gate.
 
 ## Findings and Plan Deltas
+
+- 2026-08-07 — S01-W02-P01 implemented. Deltas from the step file: retryable failures no longer emit a fixed `Retry-After: 1`, because a provider that states its own cooldown on a 429 is better guidance than a constant — the shipped rule honors that value clamped to 300 s, falls back to 5 s for a capacity rejection the provider did not quantify, and uses 1 s otherwise. The step file described `durationSeconds` as positive whole seconds rounded up; the shipped `AsyncTranscriptionClient` contract instead permits fractional metadata precision, since the OpenAI adapter returns the parsed `music-metadata` duration and only its size-based fallback rounds up. The rule that an absent, non-positive, or absurd provider duration is `malformed_output` rather than a free request is unchanged, and the 24-hour ceiling is inclusive. The purge command was hardened past its step-file description: deletes run in bounded batches of five, the file sweep is held back whenever any transcription list item or delete is uncertain, and a list iterator that throws after yielding still flushes the IDs it already produced. Work used the session-provided worktree branch pushed to `real-time-config-next-step`.
 
 - 2026-08-06 — Added stage S05 to own removal of compatibility and migration scaffolding. The plan previously required retaining glossary rollback tooling and several `COMPATIBILITY` markers but never scheduled their deletion, so the debt was orphaned. S05-W01-P01 carries a per-item trigger inventory and an explicit retention list; legacy index *detection* and the startup guard are permanent, only *reversal* paths are in scope. Triggers are evidence-based, so the glossary rollback removal waits until a project-scoped document actually exists.
 
