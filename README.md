@@ -213,6 +213,7 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 | `PENDING_AUTH_MAX_SESSIONS`    | Max concurrent pending OAuth sessions in-memory. Default `10000` (~10 MB).                                                                                                                  |
 | `PENDING_AUTH_POLL_TIMEOUT_MS` | Max long-poll duration on `/auth/session/status`. Default `30000`.                                                                                                                          |
 | `RELAY_WEBHOOK_SECRET`         | Shared secret authenticating the relay on `/internal/*` endpoints.                                                                                                                          |
+| `AUTH_DEV_BYPASS_ENABLED`      | **Local development only — disables JWT verification on every authenticated route.** Default `false`. Accepted values: `false`, `0`, `true`, `1`. Startup fails unless `NODE_ENV=development`. See "Development auth bypass" below. |
 | `PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY` | Canonical base64 for at least 32 random bytes. The web/export/suppression runtimes must use the same long-lived key to derive stable HMAC user keys. |
 | `AUTH_REQUIRE_DEVICE_ID_IN_TOKEN_REGISTRATION` | Transition gate for per-device notification filtering. When `true`, `POST /notifications/register-token` rejects a body without `deviceId` (400). Default `false`. Flip only after clients send `deviceId`; doing so earlier drops those clients from push entirely. See the Notifications section. |
 | `ACTIVATION_REMINDERS_ENABLED` | Master switch for activation reminder polling. Default `false`. Enable on only one server instance until distributed leasing exists.                                                         |
@@ -223,6 +224,27 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 | `ACTIVATION_SWEEP_BATCH_LIMIT` | Maximum candidates queried per reminder kind per sweep. Default `100`; delivery is sequential, so raise only after measuring FCM latency.                                                    |
 
 Relay reports to `POST /internal/bridge-status` must include the registered `bridgeId`; missing or malformed IDs are rejected with `400`.
+
+### Development auth bypass
+
+> **Warning:** `AUTH_DEV_BYPASS_ENABLED=true` turns off authentication for the
+> entire service. Every route that normally requires a bearer token skips JWT
+> verification and runs as one fixed local user, across bridges, voice,
+> sessions, settings, analytics and `/auth/me`. It is not a debug log level or a
+> verbosity switch. Never set it on a deployed instance.
+
+The bypass is an explicitly injected, default-off option on
+`createAuthMiddleware`. The middleware itself reads no environment variable, so
+the only way to enable it is to set `AUTH_DEV_BYPASS_ENABLED` **and** run with
+`NODE_ENV=development`; the server refuses to start otherwise. The match on
+`NODE_ENV` is exact — `Development`, `dev` and `staging` will not enable it.
+
+Earlier revisions of this service bypassed authentication whenever
+`NODE_ENV=development` was present, with no second flag and no startup
+validation. Any process that happened to carry that value served every
+unauthenticated request as a hardcoded user. If you operate a deployment that
+predates this change, audit `NODE_ENV` in its environment before assuming it was
+unaffected.
 
 Activation reminder timers and single-flight state are process-local. Keep `ACTIVATION_REMINDERS_ENABLED=false` on every instance except the single designated sender; multiple enabled instances can duplicate notifications.
 

@@ -1,6 +1,43 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { loadGlossaryMigrationConfig } from "../src/config.js";
+import { configSchema, loadGlossaryMigrationConfig } from "../src/config.js";
+
+const serviceAccount = {
+  type: "service_account",
+  project_id: "sesori-test",
+  private_key_id: "key-id",
+  private_key: "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n",
+  client_email: "test@sesori-test.iam.gserviceaccount.com",
+  client_id: "1234567890",
+  auth_uri: "https://accounts.google.com/o/oauth2/auth",
+  token_uri: "https://oauth2.googleapis.com/token",
+  auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
+  client_x509_cert_url: "https://www.googleapis.com/robot/v1/metadata/x509/test",
+  universe_domain: "googleapis.com",
+};
+
+function validEnv(overrides: Record<string, string> = {}): Record<string, string> {
+  return {
+    MONGODB_URI: "mongodb://localhost:27017/test",
+    JWT_PRIVATE_KEY: "private",
+    JWT_PUBLIC_KEY: "public",
+    GITHUB_CLIENT_ID: "gh-id",
+    GITHUB_CLIENT_SECRET: "gh-secret",
+    GOOGLE_CLIENT_ID: "goog-id",
+    GOOGLE_CLIENT_SECRET: "goog-secret",
+    APPLE_CLIENT_ID: "apple-id",
+    APPLE_IOS_CLIENT_ID: "apple-ios-id",
+    APPLE_TEAM_ID: "apple-team",
+    APPLE_KEY_ID: "apple-key",
+    APPLE_PRIVATE_KEY: "apple-private",
+    ALLOWED_REDIRECT_URIS: "https://api.sesori.com/callback",
+    RELAY_URL: "wss://relay.sesori.com",
+    PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY: Buffer.alloc(32, 7).toString("base64"),
+    OPENAI_API_KEY: "openai-key",
+    FCM_SA_JSON: Buffer.from(JSON.stringify(serviceAccount), "utf8").toString("base64"),
+    ...overrides,
+  };
+}
 
 describe("loadGlossaryMigrationConfig", () => {
   it("returns only the validated MongoDB URI", () => {
@@ -20,5 +57,58 @@ describe("loadGlossaryMigrationConfig", () => {
       () => loadGlossaryMigrationConfig({ MONGODB_URI: "not-a-mongodb-uri" }),
       /GlossaryMigrationConfigError/,
     );
+  });
+});
+
+describe("configSchema", () => {
+  it("accepts the baseline environment", () => {
+    assert.equal(configSchema.safeParse(validEnv()).success, true);
+  });
+
+  it("disables the dev auth bypass by default", () => {
+    const result = configSchema.safeParse(validEnv());
+
+    assert.equal(result.success, true);
+    assert.equal(result.data?.AUTH_DEV_BYPASS_ENABLED, false);
+  });
+
+  it("refuses to start when the dev auth bypass is enabled in production", () => {
+    const result = configSchema.safeParse(validEnv({ AUTH_DEV_BYPASS_ENABLED: "true", NODE_ENV: "production" }));
+
+    assert.equal(result.success, false);
+    assert.ok(result.error?.issues.some((issue) => issue.path.includes("AUTH_DEV_BYPASS_ENABLED")));
+  });
+
+  it("refuses to start when the dev auth bypass is enabled without an explicit development env", () => {
+    const result = configSchema.safeParse(validEnv({ AUTH_DEV_BYPASS_ENABLED: "true" }));
+
+    assert.equal(result.success, false);
+    assert.ok(result.error?.issues.some((issue) => issue.path.includes("AUTH_DEV_BYPASS_ENABLED")));
+  });
+
+  // NODE_ENV is deliberately an unconstrained string so deployments using values
+  // like "staging" still boot; the gate must therefore match nothing but an
+  // exact "development", including case and whitespace variants.
+  it("refuses to start on development-like values that are not exactly development", () => {
+    for (const nodeEnv of ["Development", "DEVELOPMENT", " development", "development ", "dev"]) {
+      const result = configSchema.safeParse(validEnv({ AUTH_DEV_BYPASS_ENABLED: "true", NODE_ENV: nodeEnv }));
+
+      assert.equal(result.success, false, `NODE_ENV=${JSON.stringify(nodeEnv)} must not enable the bypass`);
+    }
+  });
+
+  it("rejects dev bypass values that are not an exact boolean literal", () => {
+    for (const value of ["TRUE", "True", "yes", "", " true", "2"]) {
+      const result = configSchema.safeParse(validEnv({ AUTH_DEV_BYPASS_ENABLED: value, NODE_ENV: "development" }));
+
+      assert.equal(result.success, false, `AUTH_DEV_BYPASS_ENABLED=${JSON.stringify(value)} should be rejected`);
+    }
+  });
+
+  it("allows the dev auth bypass under an explicit development env", () => {
+    const result = configSchema.safeParse(validEnv({ AUTH_DEV_BYPASS_ENABLED: "true", NODE_ENV: "development" }));
+
+    assert.equal(result.success, true);
+    assert.equal(result.data?.AUTH_DEV_BYPASS_ENABLED, true);
   });
 });
