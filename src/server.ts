@@ -195,6 +195,8 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
   });
   await app.register(settingsRoutes, {
     settingsService: services.settingsService,
+    tokenService: services.tokenService,
+    resolveClientIp,
     requireAuth,
   });
   await app.register(sessionRoutes, {
