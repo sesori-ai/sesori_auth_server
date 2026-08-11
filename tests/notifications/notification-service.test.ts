@@ -2,8 +2,18 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { describe, it } from "node:test";
 import type { Messaging } from "firebase-admin/messaging";
+import { NotificationCategory } from "../../src/models/notification.js";
 import type { DeviceTokenRepository } from "../../src/repositories/device-token-repo.js";
-import { NotificationService, type NotificationPayload } from "../../src/services/notification-service.js";
+import {
+  NotificationService,
+  type NotificationPayload,
+  type NotificationSettingsResolver,
+} from "../../src/services/notification-service.js";
+
+// These tokens carry no deviceId, so category filtering leaves them all deliverable.
+const allowAllSettings: NotificationSettingsResolver = {
+  resolveNotificationsByDevice: async () => new Map(),
+};
 
 type MockResponse = { success: boolean; error?: { code: string } };
 type MockToken = { userId: string; token: string; platform: string };
@@ -45,7 +55,7 @@ function createMockDeviceTokenRepo(tokens: MockToken[]) {
 }
 
 const payload: NotificationPayload = {
-  category: "updates",
+  category: NotificationCategory.SessionMessage,
   title: "New update",
   body: "You have a new message",
   collapseKey: "updates-collapse",
@@ -62,8 +72,8 @@ describe("NotificationService", () => {
     const tokenRepo = createMockDeviceTokenRepo([]);
     const messaging = createMockMessaging([]);
 
-    assert.equal(new NotificationService(tokenRepo.repo, messaging.messaging).isAvailable, true);
-    assert.equal(new NotificationService(tokenRepo.repo, null).isAvailable, false);
+    assert.equal(new NotificationService(tokenRepo.repo, messaging.messaging, allowAllSettings).isAvailable, true);
+    assert.equal(new NotificationService(tokenRepo.repo, null, allowAllSettings).isAvailable, false);
   });
 
   it("sends to all user tokens and returns success count", async () => {
@@ -72,7 +82,7 @@ describe("NotificationService", () => {
       { userId: "user-1", token: "token-b", platform: "android" },
     ]);
     const messaging = createMockMessaging([{ success: true }, { success: true }]);
-    const service = new NotificationService(tokenRepo.repo, messaging.messaging);
+    const service = new NotificationService(tokenRepo.repo, messaging.messaging, allowAllSettings);
 
     const result = await service.sendToUser("user-1", payload);
 
@@ -89,7 +99,7 @@ describe("NotificationService", () => {
   it("flattens projectId into FCM data payload", async () => {
     const tokenRepo = createMockDeviceTokenRepo([{ userId: "user-1", token: "token-a", platform: "ios" }]);
     const messaging = createMockMessaging([{ success: true }]);
-    const service = new NotificationService(tokenRepo.repo, messaging.messaging);
+    const service = new NotificationService(tokenRepo.repo, messaging.messaging, allowAllSettings);
 
     await service.sendToUser("user-1", payload);
 
@@ -105,7 +115,7 @@ describe("NotificationService", () => {
   it("sets a session-scoped Android tag and iOS apns-collapse-id from the collapse key", async () => {
     const tokenRepo = createMockDeviceTokenRepo([{ userId: "user-1", token: "token-a", platform: "android" }]);
     const messaging = createMockMessaging([{ success: true }]);
-    const service = new NotificationService(tokenRepo.repo, messaging.messaging);
+    const service = new NotificationService(tokenRepo.repo, messaging.messaging, allowAllSettings);
 
     await service.sendToUser("user-1", payload);
 
@@ -121,7 +131,7 @@ describe("NotificationService", () => {
   it("omits the Android tag and apns-collapse-id when the collapse key is empty", async () => {
     const tokenRepo = createMockDeviceTokenRepo([{ userId: "user-1", token: "token-a", platform: "android" }]);
     const messaging = createMockMessaging([{ success: true }]);
-    const service = new NotificationService(tokenRepo.repo, messaging.messaging);
+    const service = new NotificationService(tokenRepo.repo, messaging.messaging, allowAllSettings);
 
     await service.sendToUser("user-1", { ...payload, collapseKey: "" });
 
@@ -136,7 +146,7 @@ describe("NotificationService", () => {
   it("returns 0 and does not call messaging when user has no tokens", async () => {
     const tokenRepo = createMockDeviceTokenRepo([{ userId: "another-user", token: "token-x", platform: "ios" }]);
     const messaging = createMockMessaging([{ success: true }]);
-    const service = new NotificationService(tokenRepo.repo, messaging.messaging);
+    const service = new NotificationService(tokenRepo.repo, messaging.messaging, allowAllSettings);
 
     const result = await service.sendToUser("user-1", payload);
 
@@ -153,7 +163,7 @@ describe("NotificationService", () => {
       { success: true },
       { success: false, error: { code: "messaging/registration-token-not-registered" } },
     ]);
-    const service = new NotificationService(tokenRepo.repo, messaging.messaging);
+    const service = new NotificationService(tokenRepo.repo, messaging.messaging, allowAllSettings);
 
     const result = await service.sendToUser("user-1", payload);
 
@@ -173,7 +183,7 @@ describe("NotificationService", () => {
       { success: false, error: { code: "messaging/registration-token-not-registered" } },
       { success: false, error: { code: "messaging/invalid-registration-token" } },
     ]);
-    const service = new NotificationService(tokenRepo.repo, messaging.messaging);
+    const service = new NotificationService(tokenRepo.repo, messaging.messaging, allowAllSettings);
 
     const result = await service.sendToUser("user-1", payload);
 
@@ -199,7 +209,7 @@ describe("NotificationService", () => {
         };
       },
     } as unknown as Messaging;
-    const service = new NotificationService(tokenRepo.repo, messaging);
+    const service = new NotificationService(tokenRepo.repo, messaging, allowAllSettings);
 
     await assert.rejects(() => service.sendToUser("user-1", payload, abortController.signal), {
       name: "AbortError",
@@ -219,7 +229,7 @@ describe("NotificationService", () => {
       { success: true },
       { success: false, error: { code: "messaging/internal-error" } },
     ]);
-    const service = new NotificationService(tokenRepo.repo, messaging.messaging);
+    const service = new NotificationService(tokenRepo.repo, messaging.messaging, allowAllSettings);
 
     const originalWarn = console.warn;
     const warns: unknown[][] = [];
@@ -249,7 +259,7 @@ describe("NotificationService", () => {
 
   it("returns 0 when Firebase messaging is not configured", async () => {
     const tokenRepo = createMockDeviceTokenRepo([{ userId: "user-1", token: "token-a", platform: "ios" }]);
-    const service = new NotificationService(tokenRepo.repo, null);
+    const service = new NotificationService(tokenRepo.repo, null, allowAllSettings);
 
     const result = await service.sendToUser("user-1", payload);
 
