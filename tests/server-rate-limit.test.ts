@@ -34,7 +34,7 @@ describe("buildApp rate limit client IP wiring", () => {
       const ctx = await createTestApp({
         configOverrides: {
           CLIENT_IP_SOURCE: ClientIpSource.Cloudflare,
-          CLOUDFLARE_INGRESS_CIDRS: "198.51.100.0/24",
+          CLOUDFLARE_INGRESS_CIDRS: ["198.51.100.0/24"],
         },
       });
       app = ctx.app;
@@ -79,7 +79,7 @@ describe("buildApp rate limit client IP wiring", () => {
       const ctx = await createTestApp({
         configOverrides: {
           CLIENT_IP_SOURCE: ClientIpSource.Cloudflare,
-          CLOUDFLARE_INGRESS_CIDRS: "198.51.100.0/24",
+          CLOUDFLARE_INGRESS_CIDRS: ["198.51.100.0/24"],
         },
       });
       app = ctx.app;
