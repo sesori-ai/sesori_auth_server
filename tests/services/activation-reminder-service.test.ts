@@ -79,14 +79,7 @@ function createNotification(args?: {
   const sendCalls: SendCall[] = [];
   const service = {
     isAvailable: args?.available ?? true,
-    // Reminders deliberately use the unfiltered path; a plain sendToUser here
-    // would let the service silently regress to honouring the systemUpdate
-    // toggle without any test noticing.
-    sendToUserIgnoringDeviceSettings: async (
-      userId: string,
-      payload: NotificationPayload,
-      abortSignal?: AbortSignal,
-    ) => {
+    sendToUser: async (userId: string, payload: NotificationPayload, abortSignal?: AbortSignal) => {
       sendCalls.push({ userId, payload, abortSignal });
       return args?.send?.(userId, payload, abortSignal) ?? { devicesNotified: 1, retryableFailures: 0 };
     },

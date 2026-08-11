@@ -84,26 +84,6 @@ export class NotificationService {
     payload: NotificationPayload,
     abortSignal?: AbortSignal,
   ): Promise<NotificationDeliveryResult> {
-    return this.#deliver(userId, payload, abortSignal, true);
-  }
-
-  // Activation reminders are lifecycle nudges about finishing setup, not the
-  // product "System Updates" the toggle describes, so they are deliberately not
-  // silenced by it even though they ride the same category on the wire.
-  async sendToUserIgnoringDeviceSettings(
-    userId: string,
-    payload: NotificationPayload,
-    abortSignal?: AbortSignal,
-  ): Promise<NotificationDeliveryResult> {
-    return this.#deliver(userId, payload, abortSignal, false);
-  }
-
-  async #deliver(
-    userId: string,
-    payload: NotificationPayload,
-    abortSignal: AbortSignal | undefined,
-    respectDeviceSettings: boolean,
-  ): Promise<NotificationDeliveryResult> {
     abortSignal?.throwIfAborted();
     if (!this.#messaging) {
       return { devicesNotified: 0, retryableFailures: 0 };
@@ -115,9 +95,7 @@ export class NotificationService {
       return { devicesNotified: 0, retryableFailures: 0 };
     }
 
-    const deliverableTokens = respectDeviceSettings
-      ? await this.#selectOptedInTokens(userId, tokens, payload.category)
-      : tokens;
+    const deliverableTokens = await this.#selectOptedInTokens(userId, tokens, payload.category);
     abortSignal?.throwIfAborted();
     if (deliverableTokens.length === 0) {
       return { devicesNotified: 0, retryableFailures: 0 };

@@ -163,7 +163,7 @@ describe("NotificationService category filtering", () => {
     assert.equal(messaging.calls.length, 0);
   });
 
-  it("honours the system update toggle for a bridge-sent notification", async () => {
+  it("honours the system update toggle used by activation reminders", async () => {
     const tokenRepo = createMockDeviceTokenRepo([
       { userId: "user-1", token: "token-a", platform: "ios", deviceId: DEVICE_A },
     ]);
@@ -175,32 +175,6 @@ describe("NotificationService category filtering", () => {
 
     assert.equal(result.devicesNotified, 0);
     assert.equal(messaging.calls.length, 0);
-  });
-
-  // Activation reminders ride system_update but are lifecycle nudges, so they
-  // are exempt by design; this is the only path allowed to ignore a toggle.
-  it("delivers on the unfiltered path even when the device disabled the category", async () => {
-    const tokenRepo = createMockDeviceTokenRepo([
-      { userId: "user-1", token: "token-a", platform: "ios", deviceId: DEVICE_A },
-    ]);
-    const messaging = createMockMessaging([{ success: true }]);
-    let resolverCalls = 0;
-    const settings: NotificationSettingsResolver = {
-      resolveNotificationsByDevice: async () => {
-        resolverCalls += 1;
-        return new Map([[DEVICE_A, { ...NOTIFICATION_SETTINGS_DEFAULTS, systemUpdate: false }]]);
-      },
-    };
-    const service = new NotificationService(tokenRepo.repo, messaging.messaging, settings);
-
-    const result = await service.sendToUserIgnoringDeviceSettings(
-      "user-1",
-      buildPayload(NotificationCategory.SystemUpdate),
-    );
-
-    assert.deepEqual(sentTokens(messaging.calls), ["token-a"]);
-    assert.equal(result.devicesNotified, 1);
-    assert.equal(resolverCalls, 0, "the unfiltered path must not read settings at all");
   });
 
   // Stale-token cleanup indexes FCM responses positionally, so it has to line up
