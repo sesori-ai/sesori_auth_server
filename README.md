@@ -156,6 +156,39 @@ Both endpoints return the complete resolved shape:
 
 `updatedAt` is `null` until the device stores its first override, then an ISO 8601 timestamp. Missing or invalid bearer authentication returns 401. A malformed/non-v4 `deviceId`, an empty PATCH, unknown groups or toggles, and non-boolean toggle values return 400.
 
+### Notifications
+
+Push notifications are forwarded to Firebase Cloud Messaging. Every notification carries a `category`, and the server **drops it per device** when that device has switched the matching toggle off in `/auth/settings/:deviceId`.
+
+| Wire category      | Settings toggle    | Origin                                        |
+| ------------------ | ------------------ | --------------------------------------------- |
+| `ai_interaction`   | `aiInteraction`    | Bridge, via `POST /notifications/send`        |
+| `session_message`  | `sessionMessage`   | Bridge, via `POST /notifications/send`        |
+| `system_update`    | `systemUpdate`     | Bridge, plus activation reminders             |
+| `connection_status`| `connectionStatus` | Server, on bridge connect/disconnect          |
+
+`connection_status` is server-originated and is rejected on `POST /notifications/send`.
+
+| Method   | Path                            | Auth   | Description                                                                                     |
+| -------- | ------------------------------- | ------ | ----------------------------------------------------------------------------------------------- |
+| `POST`   | `/notifications/register-token`  | Bearer | Register an FCM token. Body `{ token, platform, deviceId? }`                                     |
+| `DELETE` | `/notifications/tokens/:token`   | Bearer | Unregister an FCM token                                                                          |
+| `POST`   | `/notifications/send`            | Bearer | Forward a notification to the user's opted-in devices. Body `{ category, title, body, collapseKey, data? }` |
+
+Filtering is applied to every producer, since they all funnel through `NotificationService.sendToUser` — including activation reminders, which a user can silence via the `systemUpdate` toggle.
+
+**`deviceId` rollout.** `deviceId` on `register-token` is the join key between a push token and its settings document, and it is optional while clients roll it out. A token registered without one cannot be matched to a stored preference, so it **keeps delivering unfiltered** rather than going silent. Per-device filtering only takes full effect once clients send `deviceId`; until then those devices behave exactly as before. A token that changes owner has its `deviceId` cleared, so a recycled token is never filtered against the previous account's settings.
+
+`/notifications/register-token` is not a new endpoint — every shipped client already calls it on sign-in and on FCM token refresh, currently sending only `{ token, platform }`. That is why `deviceId` starts optional: requiring it before clients send it would return 400 on every registration and leave those users with **no push notifications at all**, which is worse than leaving them unfiltered.
+
+Sequence the cutover with `AUTH_REQUIRE_DEVICE_ID_IN_TOKEN_REGISTRATION`:
+
+1. **Deploy this version** with the flag unset. The server stores `deviceId` when a client sends one and filters only those devices.
+2. **Ship the client** that includes its existing `deviceId` in the `register-token` body, and wait for the install base to roll over. Tokens still arriving without one remain unfiltered in the meantime.
+3. **Flip the flag to `true`.** Registrations without a `deviceId` are then rejected with 400, so every push token is filterable.
+
+Do not flip it before step 2 completes. Registration failures do not degrade filtering — they remove the client from push entirely until it updates, because the token never reaches the server. Flipping back to unset restores the previous behaviour immediately; no data migration is involved either way.
+
 ## Environment variables
 
 Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configuration.
@@ -181,6 +214,7 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 | `PENDING_AUTH_POLL_TIMEOUT_MS` | Max long-poll duration on `/auth/session/status`. Default `30000`.                                                                                                                          |
 | `RELAY_WEBHOOK_SECRET`         | Shared secret authenticating the relay on `/internal/*` endpoints.                                                                                                                          |
 | `PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY` | Canonical base64 for at least 32 random bytes. The web/export/suppression runtimes must use the same long-lived key to derive stable HMAC user keys. |
+| `AUTH_REQUIRE_DEVICE_ID_IN_TOKEN_REGISTRATION` | Transition gate for per-device notification filtering. When `true`, `POST /notifications/register-token` rejects a body without `deviceId` (400). Default `false`. Flip only after clients send `deviceId`; doing so earlier drops those clients from push entirely. See the Notifications section. |
 | `ACTIVATION_REMINDERS_ENABLED` | Master switch for activation reminder polling. Default `false`. Enable on only one server instance until distributed leasing exists.                                                         |
 | `ACTIVATION_SWEEP_INTERVAL_MS` | Reminder polling interval in milliseconds. Default `900000` (15 minutes).                                                                                                                    |
 | `ACTIVATION_BRIDGE_REMINDER_1_DELAY_MS` | Delay from the bridge reminder baseline to the first bridge reminder. Default `7200000` (2 hours).                                                                                           |

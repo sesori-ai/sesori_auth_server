@@ -170,6 +170,7 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
     requireAuth,
   });
   await app.register(notificationRoutes, {
+    config: services.config,
     deviceTokenRepo: services.deviceTokenRepo,
     appClientPresenceService: services.appClientPresenceService,
     notificationService: services.notificationService,
