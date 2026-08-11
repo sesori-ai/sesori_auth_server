@@ -160,6 +160,8 @@ Both endpoints return the complete resolved shape:
 
 The allowance is keyed on the access token's `userId` claim rather than the token string, so refreshing does not hand out a new allowance. The signature is verified before that claim is trusted; a request whose token cannot be verified is keyed on the caller's address instead, so forged traffic carrying someone else's `userId` consumes only its own bucket and cannot deny a real account its writes.
 
+Counters live in the process, so this is a bound on sustained abuse rather than a hard guarantee: multiple instances would each grant the full allowance, and the route's LRU holds 5000 keys, after which an evicted key starts a fresh window. That is adequate for the storage-growth concern it exists to address, but do not treat it as a correctness control.
+
 ### Notifications
 
 Push notifications are forwarded to Firebase Cloud Messaging. Every notification carries a `category`, and the server **drops it per device** when that device has switched the matching toggle off in `/auth/settings/:deviceId`.
