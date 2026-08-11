@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { configSchema, loadGlossaryMigrationConfig } from "../src/config.js";
+import { ClientIpSource } from "../src/types/client-ip.js";
 
 const serviceAccount = {
   type: "service_account",
@@ -72,6 +73,30 @@ describe("configSchema", () => {
     assert.equal(result.data?.AUTH_DEV_BYPASS_ENABLED, false);
   });
 
+  it("uses socket client IP resolution by default", () => {
+    const result = configSchema.safeParse(validEnv());
+
+    assert.equal(result.success, true);
+    assert.equal(result.data?.CLIENT_IP_SOURCE, ClientIpSource.Socket);
+  });
+
+  it("accepts Cloudflare client IP resolution with configured ingress CIDRs", () => {
+    const result = configSchema.safeParse(
+      validEnv({ CLIENT_IP_SOURCE: "cloudflare", CLOUDFLARE_INGRESS_CIDRS: "173.245.48.0/20, 2400:cb00::/32" }),
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.data?.CLIENT_IP_SOURCE, ClientIpSource.Cloudflare);
+    assert.deepEqual(result.data?.CLOUDFLARE_INGRESS_CIDRS, ["173.245.48.0/20", "2400:cb00::/32"]);
+  });
+
+  it("rejects unknown client IP source values", () => {
+    const result = configSchema.safeParse(validEnv({ CLIENT_IP_SOURCE: "trust_proxy" }));
+
+    assert.equal(result.success, false);
+    assert.ok(result.error?.issues.some((issue) => issue.path.includes("CLIENT_IP_SOURCE")));
+  });
+
   it("refuses to start when the dev auth bypass is enabled in production", () => {
     const result = configSchema.safeParse(validEnv({ AUTH_DEV_BYPASS_ENABLED: "true", NODE_ENV: "production" }));
 
@@ -102,6 +127,49 @@ describe("configSchema", () => {
       const result = configSchema.safeParse(validEnv({ AUTH_DEV_BYPASS_ENABLED: value, NODE_ENV: "development" }));
 
       assert.equal(result.success, false, `AUTH_DEV_BYPASS_ENABLED=${JSON.stringify(value)} should be rejected`);
+    }
+  });
+
+  it("parses a Cloudflare ingress list into trimmed entries", () => {
+    const result = configSchema.safeParse(
+      validEnv({ CLOUDFLARE_INGRESS_CIDRS: " 198.51.100.0/24 , 2001:db8::/32 ,203.0.113.7 " }),
+    );
+
+    assert.equal(result.success, true);
+    assert.deepEqual(result.data?.CLOUDFLARE_INGRESS_CIDRS, ["198.51.100.0/24", "2001:db8::/32", "203.0.113.7"]);
+  });
+
+  it("treats an absent or empty Cloudflare ingress list as unset", () => {
+    assert.equal(configSchema.safeParse(validEnv()).data?.CLOUDFLARE_INGRESS_CIDRS, undefined);
+    assert.equal(
+      configSchema.safeParse(validEnv({ CLOUDFLARE_INGRESS_CIDRS: " , " })).data?.CLOUDFLARE_INGRESS_CIDRS,
+      undefined,
+    );
+  });
+
+  // A malformed entry would otherwise reach @fastify/proxy-addr, which compiles
+  // the list when the app boots and throws an opaque ipaddr.js range error.
+  it("rejects a Cloudflare ingress list containing anything that is not an IP or CIDR", () => {
+    for (const value of [
+      "not-an-ip",
+      "198.51.100.0/",
+      "198.51.100.0/33",
+      "2001:db8::/129",
+      "198.51.100.0/8/8",
+      "198.51.100.0/0x8",
+      "198.51.100.0/+8",
+      "198.51.100.0/-1",
+      "198.51.100.0/ 8",
+      "198.51.100.0/08",
+      "198.51.100.0,not-an-ip",
+      // @fastify/proxy-addr rejects range <= 0, so a zero prefix must not pass
+      // config validation and reach proxyaddr.compile at boot.
+      "0.0.0.0/0",
+      "::/0",
+    ]) {
+      const result = configSchema.safeParse(validEnv({ CLOUDFLARE_INGRESS_CIDRS: value }));
+
+      assert.equal(result.success, false, `CLOUDFLARE_INGRESS_CIDRS=${JSON.stringify(value)} should be rejected`);
     }
   });
 

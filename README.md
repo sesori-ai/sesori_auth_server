@@ -213,6 +213,8 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 | `PENDING_AUTH_MAX_SESSIONS`    | Max concurrent pending OAuth sessions in-memory. Default `10000` (~10 MB).                                                                                                                  |
 | `PENDING_AUTH_POLL_TIMEOUT_MS` | Max long-poll duration on `/auth/session/status`. Default `30000`.                                                                                                                          |
 | `RELAY_WEBHOOK_SECRET`         | Shared secret authenticating the relay on `/internal/*` endpoints.                                                                                                                          |
+| `CLIENT_IP_SOURCE`             | Source used for per-client rate-limit keys. `socket` (default) ignores proxy headers; `cloudflare` uses `CF-Connecting-IP` only when syntactically valid.                                  |
+| `CLOUDFLARE_INGRESS_CIDRS`     | Optional comma-separated Cloudflare ingress CIDRs/IPs. In `cloudflare` mode, `CF-Connecting-IP` is honored only when the socket peer matches this list; otherwise the socket IP is used.       |
 | `AUTH_DEV_BYPASS_ENABLED`      | **Local development only — disables JWT verification on every authenticated route.** Default `false`. Accepted values: `false`, `0`, `true`, `1`. Startup fails unless `NODE_ENV=development`. See "Development auth bypass" below. |
 | `PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY` | Canonical base64 for at least 32 random bytes. The web/export/suppression runtimes must use the same long-lived key to derive stable HMAC user keys. |
 | `AUTH_REQUIRE_DEVICE_ID_IN_TOKEN_REGISTRATION` | Transition gate for per-device notification filtering. When `true`, `POST /notifications/register-token` rejects a body without `deviceId` (400). Default `false`. Flip only after clients send `deviceId`; doing so earlier drops those clients from push entirely. See the Notifications section. |
@@ -224,6 +226,46 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 | `ACTIVATION_SWEEP_BATCH_LIMIT` | Maximum candidates queried per reminder kind per sweep. Default `100`; delivery is sequential, so raise only after measuring FCM latency.                                                    |
 
 Relay reports to `POST /internal/bridge-status` must include the registered `bridgeId`; missing or malformed IDs are rejected with `400`.
+
+### Client IP source and rate limiting
+
+Global rate limiting keys clients by the socket peer by default. This preserves
+the historical behavior and ignores all proxy-supplied headers.
+
+Set `CLIENT_IP_SOURCE=cloudflare` only when the service is reached through
+Cloudflare. In that mode, the limiter reads `CF-Connecting-IP` as the client IP
+when it is exactly one valid IPv4 or IPv6 address. Missing, empty, malformed, or
+comma-separated values fall back to the socket address. The server does not set
+Fastify's global `trustProxy`; `X-Forwarded-For`, `request.host`,
+`request.hostname`, `request.protocol`, and `request.ips` keep their normal
+socket-derived behavior.
+
+> **Warning:** Enabling `cloudflare` mode without restricting origin ingress to
+> Cloudflare (firewall or `CLOUDFLARE_INGRESS_CIDRS`) makes rate limiting
+> *weaker* than leaving it on `socket`, because a direct-to-origin attacker can
+> forge the header for unlimited fresh buckets.
+
+For defense in depth, set `CLOUDFLARE_INGRESS_CIDRS` to the current Cloudflare
+ingress CIDR list, published at <https://www.cloudflare.com/ips/>. When
+configured, `CF-Connecting-IP` is honored only if the socket peer matches one of
+those ranges; direct-origin traffic falls back to the unspoofable socket
+address. Cloudflare changes these ranges occasionally, so treat the value as
+operational config to re-check rather than a constant.
+
+`/health` and `POST /internal/bridge-status` are exempt from the global limiter.
+A throttled liveness probe can get a container restart-looped, and the relay
+reports every bridge connect/disconnect from a single source IP, so a reconnect
+storm would otherwise exceed the limit and stall bridge status updates.
+`/internal/bridge-status` remains authenticated by `RELAY_WEBHOOK_SECRET`.
+
+The loopback exemption (`127.0.0.1`, `::1`) is evaluated against the socket
+address, never the resolved client IP, so it cannot be claimed by sending
+`CF-Connecting-IP: 127.0.0.1`.
+
+Post-deploy verification: send repeated requests through Cloudflare from two
+different client networks and confirm they receive independent rate-limit
+budgets, then send a direct-origin request with a forged `CF-Connecting-IP` and
+confirm it shares the socket-IP budget rather than the forged header value.
 
 ### Development auth bypass
 

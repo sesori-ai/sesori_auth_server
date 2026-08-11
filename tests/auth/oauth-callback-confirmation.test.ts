@@ -7,6 +7,7 @@ import { StateStore } from "../../src/lib/state-store.js";
 import { buildApp, type AppServices } from "../../src/server.js";
 import { OAuthClientType } from "../../src/models/api.js";
 import { PendingAuthStore } from "../../src/services/pending-auth-store.js";
+import { ClientIpSource } from "../../src/types/client-ip.js";
 import { OAuthProviderName, type OAuthExchangeParams, type OAuthIdentity } from "../../src/types/oauth.js";
 import { FakeOAuthClient } from "../helpers/fake-oauth-client.js";
 
@@ -56,6 +57,8 @@ function createTestConfig(): Config {
     ALLOWED_REDIRECT_URIS: ["myapp://oauth/callback", "https://app.example.com/oauth/callback"],
     RELAY_URL: "ws://localhost:8080",
     RELAY_WEBHOOK_SECRET: "test-relay-secret",
+    CLIENT_IP_SOURCE: ClientIpSource.Socket,
+    CLOUDFLARE_INGRESS_CIDRS: undefined,
     PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY: Buffer.alloc(32, 7),
     ACTIVATION_REMINDERS_ENABLED: false,
     ACTIVATION_SWEEP_INTERVAL_MS: 900_000,

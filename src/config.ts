@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { clientIpSourceSchema, ClientIpSource, trustedIngressCidrsSchema } from "./types/client-ip.js";
 import { productAnalyticsPseudonymizationKeySchema } from "./types/product-analytics.js";
 
 const appleConfigSchema = z.object({
@@ -48,6 +49,8 @@ const baseConfigSchema = z.object({
     .pipe(z.array(z.string().min(1)).min(1)),
   RELAY_URL: z.string().min(1, "RELAY_URL is required"),
   RELAY_WEBHOOK_SECRET: z.string().optional(),
+  CLIENT_IP_SOURCE: clientIpSourceSchema.default(ClientIpSource.Socket),
+  CLOUDFLARE_INGRESS_CIDRS: trustedIngressCidrsSchema,
   PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY: productAnalyticsPseudonymizationKeySchema,
   // Transition gate for per-device notification filtering. Default false so the
   // shipped client, which does not send deviceId yet, keeps registering its push
