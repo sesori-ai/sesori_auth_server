@@ -44,7 +44,12 @@ describe("buildApp auth bypass wiring", () => {
     let cleanup: () => Promise<void>;
 
     before(async () => {
-      const ctx = await createTestApp({ configOverrides: { AUTH_DEV_BYPASS_ENABLED: true } });
+      // NODE_ENV is set alongside the flag because configSchema refuses to
+      // produce this combination otherwise. buildApp never reads NODE_ENV, so
+      // this only keeps the fixture to a state real startup validation permits.
+      const ctx = await createTestApp({
+        configOverrides: { AUTH_DEV_BYPASS_ENABLED: true, NODE_ENV: "development" },
+      });
       app = ctx.app;
       cleanup = ctx.cleanup;
     });
