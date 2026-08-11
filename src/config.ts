@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { clientIpSourceSchema, ClientIpSource } from "./types/client-ip.js";
+import { clientIpSourceSchema, ClientIpSource, trustedIngressCidrsSchema } from "./types/client-ip.js";
 import { productAnalyticsPseudonymizationKeySchema } from "./types/product-analytics.js";
 
 const appleConfigSchema = z.object({
@@ -50,7 +50,7 @@ const baseConfigSchema = z.object({
   RELAY_URL: z.string().min(1, "RELAY_URL is required"),
   RELAY_WEBHOOK_SECRET: z.string().optional(),
   CLIENT_IP_SOURCE: clientIpSourceSchema.default(ClientIpSource.Socket),
-  CLOUDFLARE_INGRESS_CIDRS: z.string().optional(),
+  CLOUDFLARE_INGRESS_CIDRS: trustedIngressCidrsSchema,
   PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY: productAnalyticsPseudonymizationKeySchema,
   ACTIVATION_REMINDERS_ENABLED: z
     .union([z.literal("true"), z.literal("false"), z.literal("1"), z.literal("0")])

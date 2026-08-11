@@ -87,7 +87,7 @@ describe("configSchema", () => {
 
     assert.equal(result.success, true);
     assert.equal(result.data?.CLIENT_IP_SOURCE, ClientIpSource.Cloudflare);
-    assert.equal(result.data?.CLOUDFLARE_INGRESS_CIDRS, "173.245.48.0/20, 2400:cb00::/32");
+    assert.deepEqual(result.data?.CLOUDFLARE_INGRESS_CIDRS, ["173.245.48.0/20", "2400:cb00::/32"]);
   });
 
   it("rejects unknown client IP source values", () => {
@@ -127,6 +127,49 @@ describe("configSchema", () => {
       const result = configSchema.safeParse(validEnv({ AUTH_DEV_BYPASS_ENABLED: value, NODE_ENV: "development" }));
 
       assert.equal(result.success, false, `AUTH_DEV_BYPASS_ENABLED=${JSON.stringify(value)} should be rejected`);
+    }
+  });
+
+  it("parses a Cloudflare ingress list into trimmed entries", () => {
+    const result = configSchema.safeParse(
+      validEnv({ CLOUDFLARE_INGRESS_CIDRS: " 198.51.100.0/24 , 2001:db8::/32 ,203.0.113.7 " }),
+    );
+
+    assert.equal(result.success, true);
+    assert.deepEqual(result.data?.CLOUDFLARE_INGRESS_CIDRS, ["198.51.100.0/24", "2001:db8::/32", "203.0.113.7"]);
+  });
+
+  it("treats an absent or empty Cloudflare ingress list as unset", () => {
+    assert.equal(configSchema.safeParse(validEnv()).data?.CLOUDFLARE_INGRESS_CIDRS, undefined);
+    assert.equal(
+      configSchema.safeParse(validEnv({ CLOUDFLARE_INGRESS_CIDRS: " , " })).data?.CLOUDFLARE_INGRESS_CIDRS,
+      undefined,
+    );
+  });
+
+  // A malformed entry would otherwise reach @fastify/proxy-addr, which compiles
+  // the list when the app boots and throws an opaque ipaddr.js range error.
+  it("rejects a Cloudflare ingress list containing anything that is not an IP or CIDR", () => {
+    for (const value of [
+      "not-an-ip",
+      "198.51.100.0/",
+      "198.51.100.0/33",
+      "2001:db8::/129",
+      "198.51.100.0/8/8",
+      "198.51.100.0/0x8",
+      "198.51.100.0/+8",
+      "198.51.100.0/-1",
+      "198.51.100.0/ 8",
+      "198.51.100.0/08",
+      "198.51.100.0,not-an-ip",
+      // @fastify/proxy-addr rejects range <= 0, so a zero prefix must not pass
+      // config validation and reach proxyaddr.compile at boot.
+      "0.0.0.0/0",
+      "::/0",
+    ]) {
+      const result = configSchema.safeParse(validEnv({ CLOUDFLARE_INGRESS_CIDRS: value }));
+
+      assert.equal(result.success, false, `CLOUDFLARE_INGRESS_CIDRS=${JSON.stringify(value)} should be rejected`);
     }
   });
 

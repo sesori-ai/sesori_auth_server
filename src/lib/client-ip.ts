@@ -7,27 +7,10 @@ type TrustPredicate = (addr: string, i: number) => boolean;
 
 export type ClientIpResolverConfig = {
   readonly source: ClientIpSource;
-  readonly cloudflareIngressCidrs?: string;
+  readonly cloudflareIngressCidrs?: readonly string[];
 };
 
 export type ClientIpRequest = Pick<FastifyRequest, "headers" | "ip">;
-
-function parseIngressCidrs(rawCidrs: string | undefined): readonly string[] | undefined {
-  if (rawCidrs === undefined) {
-    return undefined;
-  }
-
-  const cidrs = rawCidrs
-    .split(",")
-    .map((cidr) => cidr.trim())
-    .filter((cidr) => cidr.length > 0);
-
-  if (cidrs.length === 0) {
-    return undefined;
-  }
-
-  return cidrs;
-}
 
 function readSingleHeaderValue(value: string | string[] | undefined): string | undefined {
   if (typeof value !== "string") {
@@ -41,9 +24,8 @@ function readSingleHeaderValue(value: string | string[] | undefined): string | u
   return value;
 }
 
-function buildIngressTrust(rawCidrs: string | undefined): TrustPredicate | undefined {
-  const cidrs = parseIngressCidrs(rawCidrs);
-  if (cidrs === undefined) {
+function buildIngressTrust(cidrs: readonly string[] | undefined): TrustPredicate | undefined {
+  if (cidrs === undefined || cidrs.length === 0) {
     return undefined;
   }
 
