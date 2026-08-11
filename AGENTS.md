@@ -96,6 +96,8 @@ Every push producer funnels through `NotificationService.sendToUser`, so that is
 
 `deviceTokens.deviceId` is the join key to `settingsConfiguration`. It is optional while clients roll it out: a token without one **fails open** and keeps delivering, because it cannot be matched to a stored preference and silently muting it would be worse than an unwanted notification. Do not invert that default until clients reliably send `deviceId`. A token that changes owner has its `deviceId` cleared so it is never filtered against the previous account's settings.
 
+`register-token` predates this feature and every shipped client already calls it with only `{ token, platform }`, so requiring `deviceId` outright would 400 every existing install and remove it from push entirely — a registration failure is not a degraded filter, it is no notifications at all. `AUTH_REQUIRE_DEVICE_ID_IN_TOKEN_REGISTRATION` gates that cutover: ship with it unset, ship the client that sends `deviceId`, then flip it once the install base has rolled over. Same shape as the retired `AUTH_REQUIRE_BRIDGE_ID_IN_STATUS` gate; delete it the same way once every client sends the field.
+
 Filtering applies to activation reminders too — they send `system_update`, so a user who disables that toggle stops receiving them. When every device opts out, `sendToUser` returns `devicesNotified: 0` without calling FCM, and `ActivationReminderService` treats that as a genuine zero-device result and marks the reminder complete rather than retrying forever.
 
 ## ANTI-PATTERNS
