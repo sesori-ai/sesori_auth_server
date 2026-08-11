@@ -200,7 +200,7 @@ If you need the gap closed immediately rather than by attrition, delete the rema
 
 A device whose app is never opened again does not self-heal, and the loss there is real rather than theoretical: its token is live and still receiving push today, precisely because an unmatched token fails open. Deleting that row stops notifications the device would otherwise have kept getting, permanently until the app is next opened.
 
-So the choice is between leaving a filtering gap open while it drains by attrition, and closing it immediately at the cost of silencing installs that are still reachable but no longer launched. Run the deletion where registrations recovering can be observed, and prefer attrition when they cannot.
+So the choice is between leaving a filtering gap open while it drains by attrition, and closing it immediately at the cost of silencing installs that are still reachable but no longer launched. Run the deletion only where recovering registrations can be observed, and prefer attrition when that recovery cannot be confirmed.
 
 ## Environment variables
 
