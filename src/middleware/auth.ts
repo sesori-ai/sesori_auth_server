@@ -9,45 +9,61 @@ declare module "fastify" {
   }
 }
 
-export function createAuthMiddleware(tokenService: TokenService) {
+// All-zero suffix marks this as an obvious sentinel rather than a plausible
+// real account id, so a bypassed request is recognisable in logs and data.
+const DEVELOPMENT_USER: AccessTokenPayload = {
+  tokenType: "access",
+  userId: "69b2aeaa1755fd6c00000000",
+  provider: "github",
+  providerUserId: "123",
+  iss: "auth-backend",
+  aud: "mobile",
+  exp: 999999999999999,
+  iat: 1000000000000000,
+};
+
+export type AuthMiddlewareOptions = {
+  devBypassEnabled?: boolean;
+};
+
+// devBypassEnabled must stay an injected, default-off decision. Reading the
+// environment here previously meant NODE_ENV=development silently disabled
+// authentication for every route in whatever process happened to carry it.
+export function createAuthMiddleware(tokenService: TokenService, options: AuthMiddlewareOptions = {}) {
+  const devBypassEnabled = options.devBypassEnabled ?? false;
+
   return async function requireAuth(request: FastifyRequest, _reply: FastifyReply): Promise<void> {
-    if (process.env.NODE_ENV === "development") {
-      request.user = {
-        tokenType: "access",
-        userId: "69b2aeaa1755fd6c00000000",
-        provider: "github",
-        providerUserId: "123",
-        iss: "auth-backend",
-        aud: "mobile",
-        exp: 999999999999999,
-        iat: 1000000000000000,
-      };
-    } else {
-      const authHeader = request.headers.authorization;
+    if (devBypassEnabled) {
+      request.user = { ...DEVELOPMENT_USER };
+      return;
+    }
 
-      if (!authHeader || !authHeader.startsWith("Bearer ")) {
-        throw new UnauthenticatedError();
-      }
+    const authHeader = request.headers.authorization;
 
-      const token = authHeader.slice(7);
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      throw new UnauthenticatedError();
+    }
 
-      try {
-        const raw = tokenService.verifyAccessToken(token);
-        const result = accessTokenPayloadSchema.safeParse(raw);
-        if (!result.success) {
-          throw new UnauthenticatedError({
-            debugMessage: "Auth token payload validation failed",
-            nestedError: result.error.issues,
-          });
-        }
-        request.user = result.data;
-      } catch (error) {
-        if (error instanceof UnauthenticatedError) throw error;
+    const token = authHeader.slice(7);
+
+    try {
+      const raw = tokenService.verifyAccessToken(token);
+      const result = accessTokenPayloadSchema.safeParse(raw);
+      if (!result.success) {
         throw new UnauthenticatedError({
-          debugMessage: "Auth token verification failed",
-          nestedError: error,
+          debugMessage: "Auth token payload validation failed",
+          nestedError: result.error.issues,
         });
       }
+
+      request.user = result.data;
+    } catch (error) {
+      if (error instanceof UnauthenticatedError) throw error;
+
+      throw new UnauthenticatedError({
+        debugMessage: "Auth token verification failed",
+        nestedError: error,
+      });
     }
   };
 }

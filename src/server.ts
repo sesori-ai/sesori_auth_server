@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import type { OAuthClient } from "./clients/auth/oauth-client.js";
 import type { Config } from "./config.js";
+import { createClientIpResolver, isLoopbackSocket } from "./lib/client-ip.js";
 import { ApiError } from "./lib/errors.js";
 import type { StateStore } from "./lib/state-store.js";
 import { createAuthMiddleware } from "./middleware/auth.js";
@@ -66,6 +67,11 @@ export type AppServices = {
 };
 
 export async function buildApp(services: AppServices): Promise<FastifyInstance> {
+  const resolveClientIp = createClientIpResolver({
+    source: services.config.CLIENT_IP_SOURCE,
+    cloudflareIngressCidrs: services.config.CLOUDFLARE_INGRESS_CIDRS,
+  });
+
   const app = Fastify({
     disableRequestLogging: true,
   });
@@ -77,7 +83,8 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
   await app.register(rateLimit, {
     max: 100,
     timeWindow: "1 minute",
-    allowList: ["127.0.0.1", "::1"],
+    allowList: (request) => isLoopbackSocket(request),
+    keyGenerator: resolveClientIp,
   });
 
   app.decorateRequest("user", null);
@@ -102,7 +109,7 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
     return reply.status(500).send({ error: "internal_server_error" });
   });
 
-  app.get<{ Reply: HealthReply }>("/health", async () => {
+  app.get<{ Reply: HealthReply }>("/health", { config: { rateLimit: false } }, async () => {
     return { status: "ok" };
   });
 
@@ -114,7 +121,9 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
     legalDocumentService: services.legalDocumentService,
   });
 
-  const requireAuth = createAuthMiddleware(services.tokenService);
+  const requireAuth = createAuthMiddleware(services.tokenService, {
+    devBypassEnabled: services.config.AUTH_DEV_BYPASS_ENABLED,
+  });
   const requireRelayAuth = createRelayAuthMiddleware(services.config.RELAY_WEBHOOK_SECRET);
 
   await app.register(tokenRoutes, {
@@ -187,6 +196,7 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
   await app.register(settingsRoutes, {
     settingsService: services.settingsService,
     tokenService: services.tokenService,
+    resolveClientIp,
     requireAuth,
   });
   await app.register(sessionRoutes, {

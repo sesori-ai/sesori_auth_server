@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { clientIpSourceSchema, ClientIpSource, trustedIngressCidrsSchema } from "./types/client-ip.js";
 import { productAnalyticsPseudonymizationKeySchema } from "./types/product-analytics.js";
 
 const appleConfigSchema = z.object({
@@ -9,8 +10,17 @@ const appleConfigSchema = z.object({
   APPLE_PRIVATE_KEY: z.string().min(1, "APPLE_PRIVATE_KEY is required"),
 });
 
-const configSchema = z.object({
+const baseConfigSchema = z.object({
   PORT: z.coerce.number().default(3001),
+  // Left unconstrained on purpose: deployments using values like "staging" must
+  // still boot. It only gates AUTH_DEV_BYPASS_ENABLED below.
+  NODE_ENV: z.string().optional(),
+  // Skips JWT verification and serves every request as a fixed local user.
+  // The refinement below keeps it unreachable outside NODE_ENV=development.
+  AUTH_DEV_BYPASS_ENABLED: z
+    .union([z.literal("true"), z.literal("false"), z.literal("1"), z.literal("0")])
+    .optional()
+    .transform((v) => v === "true" || v === "1"),
   // Public base URL of this auth service. Used to construct the redirect_uri
   // passed to OAuth providers (GitHub/Google/Apple) in the pending-confirmation
   // flow. MUST EXACTLY match the URI registered in each provider's OAuth app
@@ -39,6 +49,8 @@ const configSchema = z.object({
     .pipe(z.array(z.string().min(1)).min(1)),
   RELAY_URL: z.string().min(1, "RELAY_URL is required"),
   RELAY_WEBHOOK_SECRET: z.string().optional(),
+  CLIENT_IP_SOURCE: clientIpSourceSchema.default(ClientIpSource.Socket),
+  CLOUDFLARE_INGRESS_CIDRS: trustedIngressCidrsSchema,
   PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY: productAnalyticsPseudonymizationKeySchema,
   // Transition gate for per-device notification filtering. Default false so the
   // shipped client, which does not send deviceId yet, keeps registering its push
@@ -85,6 +97,16 @@ const configSchema = z.object({
 
   // App-wide limits (hardcoded defaults, not sourced from env)
   DAILY_TRANSCRIPTION_LIMIT_SECONDS: z.coerce.number().default(3600),
+});
+
+export const configSchema = baseConfigSchema.superRefine((config, ctx) => {
+  if (config.AUTH_DEV_BYPASS_ENABLED && config.NODE_ENV !== "development") {
+    ctx.addIssue({
+      code: "custom",
+      path: ["AUTH_DEV_BYPASS_ENABLED"],
+      message: "AUTH_DEV_BYPASS_ENABLED disables authentication and requires NODE_ENV=development",
+    });
+  }
 });
 
 export type Config = z.infer<typeof configSchema>;

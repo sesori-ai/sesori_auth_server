@@ -112,7 +112,7 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
   // single trusted relay is assumed. A multi-relay topology must revisit this.
   fastify.post<{ Body: BridgeStatusBody; Reply: { ok: true } }>(
     "/internal/bridge-status",
-    { preHandler: requireRelayAuth },
+    { preHandler: requireRelayAuth, config: { rateLimit: false } },
     async (request) => {
       const bodyResult = bridgeStatusBodySchema.safeParse(request.body);
       if (!bodyResult.success) {
