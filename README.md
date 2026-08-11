@@ -198,7 +198,9 @@ If you need the gap closed immediately rather than by attrition, delete the rema
 - **App start.** The client registers on launch for a signed-in user, so a device that is opened again recovers on that launch. This is the normal case and bounds the outage to the user's next session.
 - **Sign-in or FCM token refresh.** Also triggers registration, but neither is time-bounded on its own.
 
-A device whose app is never opened again stays unregistered — it would receive nothing anyway, but it will not self-heal. Run the deletion when you can watch registrations recover rather than immediately before a quiet period, and prefer attrition if you are not in a position to confirm that.
+A device whose app is never opened again does not self-heal, and the loss there is real rather than theoretical: its token is live and still receiving push today, precisely because an unmatched token fails open. Deleting that row stops notifications the device would otherwise have kept getting, permanently until the app is next opened.
+
+So the choice is between leaving a filtering gap open while it drains by attrition, and closing it immediately at the cost of silencing installs that are still reachable but no longer launched. Run the deletion where registrations recovering can be observed, and prefer attrition when they cannot.
 
 ## Environment variables
 
