@@ -52,6 +52,15 @@ const baseConfigSchema = z.object({
   CLIENT_IP_SOURCE: clientIpSourceSchema.default(ClientIpSource.Socket),
   CLOUDFLARE_INGRESS_CIDRS: trustedIngressCidrsSchema,
   PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY: productAnalyticsPseudonymizationKeySchema,
+  // Transition gate for per-device notification filtering. Default false so the
+  // shipped client, which does not send deviceId yet, keeps registering its push
+  // token. Flipping this before clients roll over returns 400 on every token
+  // registration, which removes those users from push entirely rather than
+  // merely leaving them unfiltered.
+  AUTH_REQUIRE_DEVICE_ID_IN_TOKEN_REGISTRATION: z
+    .union([z.literal("true"), z.literal("false"), z.literal("1"), z.literal("0")])
+    .optional()
+    .transform((v) => v === "true" || v === "1"),
   ACTIVATION_REMINDERS_ENABLED: z
     .union([z.literal("true"), z.literal("false"), z.literal("1"), z.literal("0")])
     .optional()

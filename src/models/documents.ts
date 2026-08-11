@@ -91,6 +91,9 @@ export const deviceTokenSchema = z.object({
   userId: z.instanceof(ObjectId),
   token: z.string(),
   platform: devicePlatformSchema,
+  // Joins a push token to its settingsConfiguration document. Null for tokens
+  // registered before clients started sending it; those deliver unfiltered.
+  deviceId: deviceIdSchema.nullable().optional(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });

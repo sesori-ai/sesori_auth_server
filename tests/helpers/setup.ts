@@ -184,7 +184,9 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
       iosClientId: config.APPLE_IOS_CLIENT_ID,
     });
 
-  const notificationService = overrides?.notificationService ?? new NotificationService(deviceTokenRepo, null);
+  const settingsService = overrides?.settingsService ?? new SettingsService({ settingsRepo });
+  const notificationService =
+    overrides?.notificationService ?? new NotificationService(deviceTokenRepo, null, settingsService);
   const bridgeStateTracker = overrides?.bridgeStateTracker ?? new BridgeStateTracker(notificationService);
   const bridgeService = overrides?.bridgeService ?? new BridgeService({ bridgeRepo, bridgeStateTracker });
   const activationService =
@@ -196,7 +198,6 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     userRepo,
     pseudonymizationKey: testProductAnalyticsPseudonymizationKey,
   });
-  const settingsService = overrides?.settingsService ?? new SettingsService({ settingsRepo });
   const authService = new AuthService({ tokenService, userRepo, oauthAccountRepo, passwordAccountRepo, bridgeService });
   const glossaryService = overrides?.glossaryService ?? new GlossaryService({ glossaryRepo });
   const voiceService = overrides?.voiceService ?? new VoiceService({ openai, glossaryService, dailyUsageRepo });
