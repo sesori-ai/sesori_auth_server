@@ -28,6 +28,30 @@ describe("SettingsConfigurationRepository", () => {
     assert.equal(compoundIndex.unique, true);
   });
 
+  it("findByUserId returns only the calling user's devices", async () => {
+    const owner = await ctx.createUser();
+    const other = await ctx.createUser();
+    const repo = new SettingsConfigurationRepository(ctx.dbAccessor);
+    const firstDevice = randomUUID();
+    const secondDevice = randomUUID();
+
+    await repo.upsert(owner.userId, firstDevice, { notifications: { aiInteraction: false } });
+    await repo.upsert(owner.userId, secondDevice, { notifications: { systemUpdate: false } });
+    await repo.upsert(other.userId, randomUUID(), { notifications: { aiInteraction: false } });
+
+    const documents = await repo.findByUserId(owner.userId);
+
+    assert.deepEqual(documents.map((document) => document.deviceId).sort(), [firstDevice, secondDevice].sort());
+    assert.ok(documents.every((document) => document.userId.toHexString() === owner.userId));
+  });
+
+  it("findByUserId returns an empty list for an invalid or unknown user", async () => {
+    const repo = new SettingsConfigurationRepository(ctx.dbAccessor);
+
+    assert.deepEqual(await repo.findByUserId("not-an-object-id"), []);
+    assert.deepEqual(await repo.findByUserId("69b2aeaa1755fd6c00000000"), []);
+  });
+
   it("upsert creates a sparse document scoped to the user and device", async () => {
     const user = await ctx.createUser();
     const repo = new SettingsConfigurationRepository(ctx.dbAccessor);

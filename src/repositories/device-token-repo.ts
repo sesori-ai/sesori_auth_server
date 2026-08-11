@@ -12,7 +12,7 @@ export class DeviceTokenRepository {
     this.#collection = accessor.getCollection<DeviceToken>(MongoDbDatabase.Auth, AuthDbCollection.DeviceTokens);
   }
 
-  async upsertToken(userId: string, token: string, platform: DevicePlatform): Promise<void> {
+  async upsertToken(userId: string, token: string, platform: DevicePlatform, deviceId?: string): Promise<void> {
     if (!ObjectId.isValid(userId)) {
       throw new InternalServerError({ debugMessage: "Invalid device token userId" });
     }
@@ -29,6 +29,9 @@ export class DeviceTokenRepository {
           $set: {
             userId: objectUserId,
             platform,
+            // A client that omits deviceId must not erase a previously learned
+            // one, but a new owner must not inherit the old owner's device.
+            deviceId: deviceId ?? { $cond: [sameOwner, { $ifNull: ["$deviceId", null] }, null] },
             createdAt: {
               $cond: [sameOwner, { $ifNull: ["$createdAt", now] }, now],
             },

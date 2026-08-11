@@ -156,6 +156,45 @@ Both endpoints return the complete resolved shape:
 
 `updatedAt` is `null` until the device stores its first override, then an ISO 8601 timestamp. Missing or invalid bearer authentication returns 401. A malformed/non-v4 `deviceId`, an empty PATCH, unknown groups or toggles, and non-boolean toggle values return 400.
 
+`PATCH` is additionally limited to **30 writes per minute per account**, returning 429 beyond that. `deviceId` is client-generated, so each write for an unseen device inserts a row; the limit bounds how fast one client can grow the collection. It is deliberately well above real use — a settings screen has four toggles — so normal clients never reach it. `GET` creates nothing and is not limited beyond the global allowance. This bounds growth rather than capping total devices: an earlier per-user cap was removed in `2e370cb` because the count-then-write pre-check it needed was a persistent source of races.
+
+The allowance is keyed on the access token's `userId` claim rather than the token string, so refreshing does not hand out a new allowance. The signature is verified before that claim is trusted; a request whose token cannot be verified is keyed on the caller's address instead, so forged traffic carrying someone else's `userId` consumes only its own bucket and cannot deny a real account its writes.
+
+Counters live in the process, so this is a bound on sustained abuse rather than a hard guarantee: multiple instances would each grant the full allowance, and the route's LRU holds 5000 keys, after which an evicted key starts a fresh window. That is adequate for the storage-growth concern it exists to address, but do not treat it as a correctness control.
+
+### Notifications
+
+Push notifications are forwarded to Firebase Cloud Messaging. Every notification carries a `category`, and the server **drops it per device** when that device has switched the matching toggle off in `/auth/settings/:deviceId`.
+
+| Wire category      | Settings toggle    | Origin                                        |
+| ------------------ | ------------------ | --------------------------------------------- |
+| `ai_interaction`   | `aiInteraction`    | Bridge, via `POST /notifications/send`        |
+| `session_message`  | `sessionMessage`   | Bridge, via `POST /notifications/send`        |
+| `system_update`    | `systemUpdate`     | Bridge, plus activation reminders             |
+| `connection_status`| `connectionStatus` | Server, on bridge connect/disconnect          |
+
+`connection_status` is server-originated and is rejected on `POST /notifications/send`.
+
+| Method   | Path                            | Auth   | Description                                                                                     |
+| -------- | ------------------------------- | ------ | ----------------------------------------------------------------------------------------------- |
+| `POST`   | `/notifications/register-token`  | Bearer | Register an FCM token. Body `{ token, platform, deviceId? }`                                     |
+| `DELETE` | `/notifications/tokens/:token`   | Bearer | Unregister an FCM token                                                                          |
+| `POST`   | `/notifications/send`            | Bearer | Forward a notification to the user's opted-in devices. Body `{ category, title, body, collapseKey, data? }` |
+
+Filtering is applied to every producer, since they all funnel through `NotificationService.sendToUser` — including activation reminders, which a user can silence via the `systemUpdate` toggle.
+
+**`deviceId` rollout.** `deviceId` on `register-token` is the join key between a push token and its settings document, and it is optional while clients roll it out. A token registered without one cannot be matched to a stored preference, so it **keeps delivering unfiltered** rather than going silent. Per-device filtering only takes full effect once clients send `deviceId`; until then those devices behave exactly as before. A token that changes owner has its `deviceId` cleared, so a recycled token is never filtered against the previous account's settings.
+
+`/notifications/register-token` is not a new endpoint — every shipped client already calls it on sign-in and on FCM token refresh, currently sending only `{ token, platform }`. That is why `deviceId` starts optional: requiring it before clients send it would return 400 on every registration and leave those users with **no push notifications at all**, which is worse than leaving them unfiltered.
+
+Sequence the cutover with `AUTH_REQUIRE_DEVICE_ID_IN_TOKEN_REGISTRATION`:
+
+1. **Deploy this version** with the flag unset. The server stores `deviceId` when a client sends one and filters only those devices.
+2. **Ship the client** that includes its existing `deviceId` in the `register-token` body, and wait for the install base to roll over. Tokens still arriving without one remain unfiltered in the meantime.
+3. **Flip the flag to `true`.** Registrations without a `deviceId` are then rejected with 400, so every push token is filterable.
+
+Do not flip it before step 2 completes. Registration failures do not degrade filtering — they remove the client from push entirely until it updates, because the token never reaches the server. Flipping back to unset restores the previous behaviour immediately; no data migration is involved either way.
+
 ## Environment variables
 
 Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configuration.
@@ -186,7 +225,11 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 | `SONIOX_ASYNC_MODEL`           | Soniox async model. Default `stt-async-v5`. |
 | `SONIOX_ASYNC_TIMEOUT_MS`      | Budget covering upload, processing, and transcript fetch. Default `100000` (range 1,000-110,000). |
 | `SONIOX_CLEANUP_TIMEOUT_MS`    | Independent budget for deleting provider-side audio. Default `10000` (range 1,000-30,000). |
+| `CLIENT_IP_SOURCE`             | Source used for per-client rate-limit keys. `socket` (default) ignores proxy headers; `cloudflare` uses `CF-Connecting-IP` only when syntactically valid.                                  |
+| `CLOUDFLARE_INGRESS_CIDRS`     | Optional comma-separated Cloudflare ingress CIDRs/IPs. In `cloudflare` mode, `CF-Connecting-IP` is honored only when the socket peer matches this list; otherwise the socket IP is used.       |
+| `AUTH_DEV_BYPASS_ENABLED`      | **Local development only — disables JWT verification on every authenticated route.** Default `false`. Accepted values: `false`, `0`, `true`, `1`. Startup fails unless `NODE_ENV=development`. See "Development auth bypass" below. |
 | `PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY` | Canonical base64 for at least 32 random bytes. The web/export/suppression runtimes must use the same long-lived key to derive stable HMAC user keys. |
+| `AUTH_REQUIRE_DEVICE_ID_IN_TOKEN_REGISTRATION` | Transition gate for per-device notification filtering. When `true`, `POST /notifications/register-token` rejects a body without `deviceId` (400). Default `false`. Flip only after clients send `deviceId`; doing so earlier drops those clients from push entirely. See the Notifications section. |
 | `ACTIVATION_REMINDERS_ENABLED` | Master switch for activation reminder polling. Default `false`. Enable on only one server instance until distributed leasing exists.                                                         |
 | `ACTIVATION_SWEEP_INTERVAL_MS` | Reminder polling interval in milliseconds. Default `900000` (15 minutes).                                                                                                                    |
 | `ACTIVATION_BRIDGE_REMINDER_1_DELAY_MS` | Delay from the bridge reminder baseline to the first bridge reminder. Default `7200000` (2 hours).                                                                                           |
@@ -195,6 +238,67 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 | `ACTIVATION_SWEEP_BATCH_LIMIT` | Maximum candidates queried per reminder kind per sweep. Default `100`; delivery is sequential, so raise only after measuring FCM latency.                                                    |
 
 Relay reports to `POST /internal/bridge-status` must include the registered `bridgeId`; missing or malformed IDs are rejected with `400`.
+
+### Client IP source and rate limiting
+
+Global rate limiting keys clients by the socket peer by default. This preserves
+the historical behavior and ignores all proxy-supplied headers.
+
+Set `CLIENT_IP_SOURCE=cloudflare` only when the service is reached through
+Cloudflare. In that mode, the limiter reads `CF-Connecting-IP` as the client IP
+when it is exactly one valid IPv4 or IPv6 address. Missing, empty, malformed, or
+comma-separated values fall back to the socket address. The server does not set
+Fastify's global `trustProxy`; `X-Forwarded-For`, `request.host`,
+`request.hostname`, `request.protocol`, and `request.ips` keep their normal
+socket-derived behavior.
+
+> **Warning:** Enabling `cloudflare` mode without restricting origin ingress to
+> Cloudflare (firewall or `CLOUDFLARE_INGRESS_CIDRS`) makes rate limiting
+> *weaker* than leaving it on `socket`, because a direct-to-origin attacker can
+> forge the header for unlimited fresh buckets.
+
+For defense in depth, set `CLOUDFLARE_INGRESS_CIDRS` to the current Cloudflare
+ingress CIDR list, published at <https://www.cloudflare.com/ips/>. When
+configured, `CF-Connecting-IP` is honored only if the socket peer matches one of
+those ranges; direct-origin traffic falls back to the unspoofable socket
+address. Cloudflare changes these ranges occasionally, so treat the value as
+operational config to re-check rather than a constant.
+
+`/health` and `POST /internal/bridge-status` are exempt from the global limiter.
+A throttled liveness probe can get a container restart-looped, and the relay
+reports every bridge connect/disconnect from a single source IP, so a reconnect
+storm would otherwise exceed the limit and stall bridge status updates.
+`/internal/bridge-status` remains authenticated by `RELAY_WEBHOOK_SECRET`.
+
+The loopback exemption (`127.0.0.1`, `::1`) is evaluated against the socket
+address, never the resolved client IP, so it cannot be claimed by sending
+`CF-Connecting-IP: 127.0.0.1`.
+
+Post-deploy verification: send repeated requests through Cloudflare from two
+different client networks and confirm they receive independent rate-limit
+budgets, then send a direct-origin request with a forged `CF-Connecting-IP` and
+confirm it shares the socket-IP budget rather than the forged header value.
+
+### Development auth bypass
+
+> **Warning:** `AUTH_DEV_BYPASS_ENABLED=true` turns off authentication for the
+> entire service. Every route that normally requires a bearer token skips JWT
+> verification and runs as one fixed local user, across bridges, voice,
+> sessions, settings, analytics and `/auth/me`. It is not a debug log level or a
+> verbosity switch. Never set it on a deployed instance.
+
+The bypass is an explicitly injected, default-off option on
+`createAuthMiddleware`. The middleware itself reads no environment variable, so
+the only way to enable it is to set `AUTH_DEV_BYPASS_ENABLED` **and** run with
+`NODE_ENV=development`; the server refuses to start otherwise. The match on
+`NODE_ENV` is exact — `Development`, `dev` and `staging` will not enable it.
+
+Earlier revisions of this service bypassed authentication whenever
+`NODE_ENV=development` was present, with no second flag and no startup
+validation. Any process that happened to carry that value served every
+unauthenticated request as a hardcoded user. If you operate a deployment that
+predates this change, audit `NODE_ENV` in its environment before assuming it was
+unaffected.
 
 Activation reminder timers and single-flight state are process-local. Keep `ACTIVATION_REMINDERS_ENABLED=false` on every instance except the single designated sender; multiple enabled instances can duplicate notifications.
 

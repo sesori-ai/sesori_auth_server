@@ -40,7 +40,7 @@ import type { AsyncTranscriptionClient } from "../../src/clients/async-transcrip
 import { AppClientPresenceService } from "../../src/services/app-client-presence-service.js";
 import { ProductAnalyticsPreferenceService } from "../../src/services/product-analytics-preference-service.js";
 import { SettingsService } from "../../src/services/settings-service.js";
-import { loadConfig } from "../../src/config.js";
+import { loadConfig, type Config } from "../../src/config.js";
 import { ProductAnalyticsPreference } from "../../src/types/product-analytics.js";
 
 export type TestUser = {
@@ -64,7 +64,7 @@ export type TestContext = {
   appClientPresenceService: AppClientPresenceService;
   glossaryService: GlossaryService;
   cleanup: () => Promise<void>;
-  createUser: (opts?: { provider?: string; providerUserId?: string }) => Promise<TestUser>;
+  createUser: (opts?: { provider?: string; providerUserId?: string; createdAt?: Date }) => Promise<TestUser>;
   createExpiredRefreshToken: (userId: string) => string;
   createExpiredAccessToken: (opts: { userId: string; provider: string; providerUserId: string }) => string;
 };
@@ -86,6 +86,7 @@ export type TestAppOverrides = {
   glossaryService?: GlossaryService;
   voiceService?: VoiceService;
   asyncTranscriptionClient?: AsyncTranscriptionClient;
+  configOverrides?: Partial<Config>;
 };
 
 export type { OAuthClient };
@@ -186,19 +187,20 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
       iosClientId: config.APPLE_IOS_CLIENT_ID,
     });
 
-  const notificationService = overrides?.notificationService ?? new NotificationService(deviceTokenRepo, null);
+  const settingsService = overrides?.settingsService ?? new SettingsService({ settingsRepo });
+  const notificationService =
+    overrides?.notificationService ?? new NotificationService(deviceTokenRepo, null, settingsService);
   const bridgeStateTracker = overrides?.bridgeStateTracker ?? new BridgeStateTracker(notificationService);
   const bridgeService = overrides?.bridgeService ?? new BridgeService({ bridgeRepo, bridgeStateTracker });
   const activationService =
     overrides?.activationService ??
-    new ActivationService({ activationStateRepo, bridgeRepo, dailyUsageRepo, deviceTokenRepo });
+    new ActivationService({ activationStateRepo, bridgeRepo, dailyUsageRepo, deviceTokenRepo, userRepo });
   const appClientPresenceService =
     overrides?.appClientPresenceService ?? new AppClientPresenceService({ deviceTokenRepo });
   const productAnalyticsPreferenceService = new ProductAnalyticsPreferenceService({
     userRepo,
     pseudonymizationKey: testProductAnalyticsPseudonymizationKey,
   });
-  const settingsService = overrides?.settingsService ?? new SettingsService({ settingsRepo });
   const authService = new AuthService({ tokenService, userRepo, oauthAccountRepo, passwordAccountRepo, bridgeService });
   const glossaryService = overrides?.glossaryService ?? new GlossaryService({ glossaryRepo });
   const voiceService =
@@ -216,7 +218,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     overrides?.legalDocumentService ?? new LegalDocumentService("# Test Terms\n", "# Test Privacy\n");
 
   const app = await buildApp({
-    config,
+    config: { ...config, ...overrides?.configOverrides },
     authService,
     bridgeService,
     tokenService,
@@ -240,11 +242,13 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   });
   await app.ready();
 
-  async function createUser(opts: { provider?: string; providerUserId?: string } = {}): Promise<TestUser> {
+  async function createUser(
+    opts: { provider?: string; providerUserId?: string; createdAt?: Date } = {},
+  ): Promise<TestUser> {
     const provider = opts.provider ?? "github";
     const providerUserId = opts.providerUserId ?? new ObjectId().toHexString();
     const userId = new ObjectId();
-    const now = new Date();
+    const now = opts.createdAt ?? new Date();
 
     await dbAccessor.getCollection<User>(MongoDbDatabase.Auth, AuthDbCollection.Users).insertOne({
       _id: userId,

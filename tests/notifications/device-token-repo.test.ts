@@ -32,6 +32,51 @@ describe("DeviceTokenRepository", () => {
     assert.equal(tokens[0]?.platform, "ios");
   });
 
+  it("upsertToken stores the deviceId that scopes notification settings", async () => {
+    const user = await ctx.createUser();
+    const deviceId = "550e8400-e29b-41d4-a716-446655440000";
+
+    await repo.upsertToken(user.userId, "token-with-device", DevicePlatform.ios, deviceId);
+
+    const tokens = await repo.findByUserId(user.userId);
+    assert.equal(tokens[0]?.deviceId, deviceId);
+  });
+
+  it("upsertToken defaults deviceId to null when the client omits it", async () => {
+    const user = await ctx.createUser();
+
+    await repo.upsertToken(user.userId, "token-no-device", DevicePlatform.ios);
+
+    const tokens = await repo.findByUserId(user.userId);
+    assert.equal(tokens[0]?.deviceId, null);
+  });
+
+  it("upsertToken keeps a known deviceId when a later registration omits it", async () => {
+    const user = await ctx.createUser();
+    const deviceId = "6ba7b810-9dad-41d1-80b4-00c04fd430c8";
+
+    await repo.upsertToken(user.userId, "token-sticky-device", DevicePlatform.ios, deviceId);
+    await repo.upsertToken(user.userId, "token-sticky-device", DevicePlatform.android);
+
+    const tokens = await repo.findByUserId(user.userId);
+    assert.equal(tokens[0]?.deviceId, deviceId);
+  });
+
+  // A recycled token must never inherit the previous owner's deviceId, or the
+  // new owner would be filtered against another account's settings.
+  it("upsertToken clears the deviceId when the token changes owner", async () => {
+    const first = await ctx.createUser();
+    const second = await ctx.createUser();
+
+    await repo.upsertToken(first.userId, "token-recycled", DevicePlatform.ios, "550e8400-e29b-41d4-a716-446655440000");
+    await repo.upsertToken(second.userId, "token-recycled", DevicePlatform.ios);
+
+    assert.deepEqual(await repo.findByUserId(first.userId), []);
+    const tokens = await repo.findByUserId(second.userId);
+    assert.equal(tokens.length, 1);
+    assert.equal(tokens[0]?.deviceId, null);
+  });
+
   it("upsertToken preserves createdAt for a same-owner mobile-to-mobile update", async () => {
     const user = await ctx.createUser();
 

@@ -15,6 +15,16 @@ export class SettingsConfigurationRepository {
     );
   }
 
+  // Served by the (userId, deviceId) unique index as a prefix scan, so one
+  // notification send costs a single lookup instead of one per device.
+  async findByUserId(userId: string): Promise<SettingsConfiguration[]> {
+    if (!ObjectId.isValid(userId)) {
+      return [];
+    }
+
+    return this.#collection.find({ userId: new ObjectId(userId) }).toArray();
+  }
+
   async findByUserAndDevice(userId: string, deviceId: string): Promise<SettingsConfiguration | null> {
     if (!ObjectId.isValid(userId)) {
       return null;

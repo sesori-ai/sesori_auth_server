@@ -4,6 +4,7 @@ import {
   type DueActivationReminder,
 } from "../repositories/activation-state-repo.js";
 import type { NotificationPayload, NotificationService } from "./notification-service.js";
+import { NotificationCategory } from "../models/notification.js";
 
 export const ACTIVATION_REMINDER_DISPOSE_TIMEOUT_MS = 15_000;
 
@@ -17,19 +18,19 @@ const REMINDER_KINDS = [
 
 const REMINDER_PAYLOADS: Record<ActivationReminderKind, NotificationPayload> = {
   [ActivationReminderKind.Bridge1]: {
-    category: "system_update",
+    category: NotificationCategory.SystemUpdate,
     title: "Finish setting up Sesori",
     body: "Install the Sesori bridge on your computer to connect your coding agents.",
     collapseKey: "activation_bridge_1",
   },
   [ActivationReminderKind.Bridge2]: {
-    category: "system_update",
+    category: NotificationCategory.SystemUpdate,
     title: "Your Sesori setup is unfinished",
     body: "You haven't connected your computer yet. Install the Sesori bridge to unlock Sesori.",
     collapseKey: "activation_bridge_2",
   },
   [ActivationReminderKind.Session]: {
-    category: "system_update",
+    category: NotificationCategory.SystemUpdate,
     title: "Start your first session",
     body: "You're all set up! You haven't started a new session yet - create one to put Sesori to work.",
     collapseKey: "activation_first_session",

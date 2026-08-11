@@ -14,6 +14,7 @@ import type { BridgeService } from "../services/bridge-service.js";
 import type { NotificationService } from "../services/notification-service.js";
 import type { ActivationService } from "../services/activation-service.js";
 import type { AppClientPresenceService } from "../services/app-client-presence-service.js";
+import type { Config } from "../config.js";
 
 // Allow up to 5 minutes of NTP clock skew between the relay and this server
 // before rejecting a status timestamp as "from the future".
@@ -24,6 +25,7 @@ function isTooFarInFuture(at: Date, now: Date = new Date()): boolean {
 }
 
 export type NotificationRouteOptions = {
+  config: Config;
   deviceTokenRepo: DeviceTokenRepository;
   appClientPresenceService: AppClientPresenceService;
   notificationService: NotificationService;
@@ -40,6 +42,7 @@ function getUserId(request: FastifyRequest): string {
 
 export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = async (fastify, opts) => {
   const {
+    config,
     deviceTokenRepo,
     appClientPresenceService,
     notificationService,
@@ -58,11 +61,16 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
         throw new BadRequestError({ debugMessage: "Invalid request body", nestedError: bodyResult.error.issues });
       }
 
+      if (config.AUTH_REQUIRE_DEVICE_ID_IN_TOKEN_REGISTRATION && !bodyResult.data.deviceId) {
+        throw new BadRequestError({ debugMessage: "deviceId is required" });
+      }
+
       const userId = getUserId(request);
       await appClientPresenceService.registerToken({
         userId,
         token: bodyResult.data.token,
         platform: bodyResult.data.platform,
+        deviceId: bodyResult.data.deviceId,
       });
       try {
         await activationService.recordAppSetup(userId);
@@ -104,7 +112,7 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
   // single trusted relay is assumed. A multi-relay topology must revisit this.
   fastify.post<{ Body: BridgeStatusBody; Reply: { ok: true } }>(
     "/internal/bridge-status",
-    { preHandler: requireRelayAuth },
+    { preHandler: requireRelayAuth, config: { rateLimit: false } },
     async (request) => {
       const bodyResult = bridgeStatusBodySchema.safeParse(request.body);
       if (!bodyResult.success) {

@@ -47,12 +47,13 @@ src/
 | Add API endpoint           | `src/routes/`                                                                                                                           | Register as Fastify plugin in `server.ts`, add to AppServices if deps needed                |
 | Change DB schema           | `src/models/documents.ts` + `src/repositories/`                                                                                         | Zod document schemas, raw MongoDB driver                                                    |
 | Add DB collection          | `src/types/mongo.ts` + `src/db/mongo-db-accessor.ts`                                                                                    | Add to AuthDbCollection enum + DATABASE_CONFIG                                              |
-| Auth middleware            | `src/middleware/auth.ts`                                                                                                                | `createAuthMiddleware(tokenService)` factory                                                |
+| Auth middleware            | `src/middleware/auth.ts`                                                                                                                | `createAuthMiddleware(tokenService, { devBypassEnabled })` factory; the bypass is injected, never read from the environment |
 | Manage bridges             | `src/routes/bridges.ts` + `src/services/bridge-service.ts` + `src/repositories/bridge-repo.ts` + `src/services/bridge-state-tracker.ts` | Per-bridge registry behind `/auth/me bridges[]`; see BRIDGE SUBSYSTEM below                 |
 | Product analytics preference/export/deletion | `src/types/product-analytics.ts`, `src/models/{documents,api,product-analytics-export}.ts`, `src/clients/bigquery-product-analytics-*.ts`, `src/api/product-analytics-*.ts`, `src/repositories/{user-repo,product-analytics-*}.ts`, `src/services/product-analytics-*.ts`, `src/routes/product-analytics.ts`, `src/scripts/{backfill-product-analytics-preference,export-product-analytics,suppress-product-analytics-export}.ts` | Required revisioned preference, isolated auth-private export, and separately permissioned privacy-target handoff; see README rollout and IAM boundaries |
 | Activation reminders       | `.plans/activation-reminders/` + `src/services/activation-reminder-service.ts` + `src/repositories/activation-state-repo.ts`            | Read `PLAN.md` and `CONSIDERATIONS.md` before continuing the staged implementation          |
 | Per-device settings        | `src/routes/settings/settings.ts` + `src/services/settings-service.ts` + `src/repositories/settings-configuration-repo.ts` + `src/models/settings.ts` | Settings keyed by `{userId, deviceId}`; toggle registry + server-resolved defaults live in `models/settings.ts` |
 | Async transcription providers | `src/types/transcription.ts` + `src/clients/{async-transcription-client,openai-client,soniox-transcription-client}.ts` + `src/api/soniox-transcription-api.ts` + `src/services/voice-service.ts` + `src/routes/voice.ts` + `src/scripts/purge-soniox-transcription.ts` | One provider chosen at startup, no fallback; OpenAI default, Soniox EU-pinned. See ASYNC TRANSCRIPTION below |
+| Push notification filtering | `src/models/notification.ts` + `src/services/notification-service.ts` | `NotificationCategory` is the wire contract; `NOTIFICATION_CATEGORY_SETTING_KEYS` maps each category to the toggle that silences it |
 | Wire dependencies          | `src/index.ts`                                                                                                                          | Composition root — all instantiation happens here                                           |
 
 ## CONVENTIONS
@@ -75,6 +76,7 @@ src/
 - **App-client presence waiters are in-process only.** `AppClientPresenceService` wakes long polls on the instance that commits a device-token registration. Keep auth single-instance until app-presence signaling is distributed.
 - **Bridge notification debounce is in-process only.** `BridgeStateTracker` keeps per-(userId, bridgeId) debounce timers and last-notified state in a process-local Map: pending notifications are lost on restart, the map is unbounded for the process lifetime (acceptable under the 50-bridges-per-user registration cap), and multiple instances would double-notify. Same single-instance constraint as above.
 - **Activation reminder polling is in-process only.** `ActivationReminderService` has a process-local interval and single-flight guard. Multiple enabled instances can send the same reminder before either writes its MongoDB marker. Keep `ACTIVATION_REMINDERS_ENABLED=false` on all but one instance unless a distributed lease or claim is added.
+- **Rate-limit counters are in-process only.** `@fastify/rate-limit` keeps every allowance — the global one and the per-route settings-write one — in a process-local LRU, so N instances grant N times the intended allowance. The route store also defaults to 5000 keys, and an evicted key starts a fresh window, so a limit is a bound on sustained abuse rather than a hard guarantee once distinct keys exceed that. Raise `cache` or move to a shared store before scaling out or before treating any limit as a correctness control. Route limits are compile-time constants (`SETTINGS_WRITE_MAX_PER_MINUTE`, and the voice/session equivalents), so retuning one is a deploy, not an env flip.
 
 ## ACTIVATION REMINDERS
 
@@ -107,6 +109,16 @@ Four invariants in `SonioxTranscriptionClient` are load-bearing and easy to undo
 
 Retryable failures carry `Retry-After`: a provider-stated cooldown when present (clamped to 300s), 5s for an unquantified capacity rejection, 1s otherwise.
 
+## NOTIFICATION CATEGORY FILTERING
+
+Every push producer funnels through `NotificationService.sendToUser`, so that is the only place category filtering belongs — adding a second filter at a route or producer would double-apply it. `NotificationCategory` values are the wire contract shared with the client's own enum; changing a value breaks the bridge and the apps. `NOTIFICATION_CATEGORY_SETTING_KEYS` is typed `Record<NotificationCategory, NotificationSettingKey>` so a new category cannot compile until it is mapped to a toggle.
+
+`deviceTokens.deviceId` is the join key to `settingsConfiguration`. It is optional while clients roll it out: a token without one **fails open** and keeps delivering, because it cannot be matched to a stored preference and silently muting it would be worse than an unwanted notification. Do not invert that default until clients reliably send `deviceId`. A token that changes owner has its `deviceId` cleared so it is never filtered against the previous account's settings.
+
+`register-token` predates this feature and every shipped client already calls it with only `{ token, platform }`, so requiring `deviceId` outright would 400 every existing install and remove it from push entirely — a registration failure is not a degraded filter, it is no notifications at all. `AUTH_REQUIRE_DEVICE_ID_IN_TOKEN_REGISTRATION` gates that cutover: ship with it unset, ship the client that sends `deviceId`, then flip it once the install base has rolled over. Same shape as the retired `AUTH_REQUIRE_BRIDGE_ID_IN_STATUS` gate; delete it the same way once every client sends the field.
+
+Filtering applies to activation reminders too — they send `system_update`, so a user who disables that toggle stops receiving them. When every device opts out, `sendToUser` returns `devicesNotified: 0` without calling FCM, and `ActivationReminderService` treats that as a genuine zero-device result and marks the reminder complete rather than retrying forever.
+
 ## ANTI-PATTERNS
 
 - **No Mongoose / ODM** — raw MongoDB driver only
@@ -114,6 +126,7 @@ Retryable failures carry `Retry-After`: a provider-stated cooldown when present 
 - **No unvalidated input** — every request body/param goes through Zod
 - **No plaintext secrets** — `env/app/prod.env` is the SOPS-encrypted production environment. Use `npm run env:edit` to modify it and `npm run start:prod` only when production-backed local execution is explicitly intended.
 - **No ObjectId in services/routes** — string IDs above repository layer, repos convert at boundary
+- **No environment-driven auth decisions** — `requireAuth` takes `devBypassEnabled` by injection. Never reintroduce a `process.env` check inside the middleware, and never set `AUTH_DEV_BYPASS_ENABLED` on a deployed instance; it disables JWT verification for every route
 - **Never amend commits** — always create new follow-up commits. Amending erases audit trail and makes PR reviews impossible. Force-push is only acceptable for fixing sensitive data leaks.
 
 ## PASSWORD ACCOUNTS
