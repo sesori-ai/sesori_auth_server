@@ -195,6 +195,19 @@ Sequence the cutover with `AUTH_REQUIRE_DEVICE_ID_IN_TOKEN_REGISTRATION`:
 
 Do not flip it before step 2 completes. Registration failures do not degrade filtering — they remove the client from push entirely until it updates, because the token never reaches the server. Flipping back to unset restores the previous behaviour immediately; no data migration is involved either way.
 
+**Known gap while `deviceId` is still optional.** `deviceTokens` is unique on `token`, not on `deviceId`, so one device can hold more than one row. When FCM rotates a token the client registers the new one, and the previous row survives until FCM reports it unregistered on a later send. A row registered before the client sent `deviceId` therefore still has `deviceId: null`, fails open, and can deliver a category that device has switched off. It resolves itself once the stale token is cleaned up, but it is a real window in which an opt-out is not honoured.
+
+Step 3 stops new rows from being created without a `deviceId`; it does **not** retroactively fix rows that already have `deviceId: null`. Those keep failing open until FCM disowns them.
+
+If you need the gap closed immediately rather than by attrition, delete the remaining `deviceId: null` rows after step 3. Deleting a row that is still a live token does remove push for that install until it registers again, so the cost depends on what triggers re-registration:
+
+- **App start.** The client registers on launch for a signed-in user, so a device that is opened again recovers on that launch. This is the normal case and bounds the outage to the user's next session.
+- **Sign-in or FCM token refresh.** Also triggers registration, but neither is time-bounded on its own.
+
+A device whose app is never opened again does not self-heal, and the loss there is real rather than theoretical: its token is live and still receiving push today, precisely because an unmatched token fails open. Deleting that row stops notifications the device would otherwise have kept getting, permanently until the app is next opened.
+
+So the choice is between leaving a filtering gap open while it drains by attrition, and closing it immediately at the cost of silencing installs that are still reachable but no longer launched. Run the deletion only where recovering registrations can be observed, and prefer attrition when that recovery cannot be confirmed.
+
 ## Environment variables
 
 Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configuration.

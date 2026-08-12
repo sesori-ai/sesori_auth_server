@@ -99,6 +99,8 @@ Every push producer funnels through `NotificationService.sendToUser`, so that is
 
 `register-token` predates this feature and every shipped client already calls it with only `{ token, platform }`, so requiring `deviceId` outright would 400 every existing install and remove it from push entirely — a registration failure is not a degraded filter, it is no notifications at all. `AUTH_REQUIRE_DEVICE_ID_IN_TOKEN_REGISTRATION` gates that cutover: ship with it unset, ship the client that sends `deviceId`, then flip it once the install base has rolled over. Same shape as the retired `AUTH_REQUIRE_BRIDGE_ID_IN_STATUS` gate; delete it the same way once every client sends the field.
 
+Fail-open has a cost worth stating: `deviceTokens` is unique on `token`, not `deviceId`, so a device can hold several rows and a token rotation leaves the previous one behind until FCM reports it unregistered. A row predating the client change still has `deviceId: null` and delivers a category that device switched off. Enabling the gate stops new null rows but does not rewrite existing ones, so the window closes by attrition unless the remaining `deviceId: null` rows are deleted deliberately. Do not "fix" this by inverting the fail-open default while clients are mid-rollout — that mutes every install that has not updated.
+
 Filtering applies to activation reminders too — they send `system_update`, so a user who disables that toggle stops receiving them. When every device opts out, `sendToUser` returns `devicesNotified: 0` without calling FCM, and `ActivationReminderService` treats that as a genuine zero-device result and marks the reminder complete rather than retrying forever.
 
 ## ANTI-PATTERNS
