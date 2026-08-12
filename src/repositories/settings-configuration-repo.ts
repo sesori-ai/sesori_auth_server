@@ -66,4 +66,16 @@ export class SettingsConfigurationRepository {
 
     return document;
   }
+
+  // For account deletion: every device's record goes, which the (userId,
+  // deviceId) unique index serves as a prefix scan. Deliberately NOT wired into
+  // logout, even though deviceTokens are cleared there. Settings are a
+  // preference the same user expects to still have after signing back in.
+  async deleteAllForUser(userId: string): Promise<void> {
+    if (!ObjectId.isValid(userId)) {
+      throw new InternalServerError({ debugMessage: "Invalid settings userId" });
+    }
+
+    await this.#collection.deleteMany({ userId: new ObjectId(userId) });
+  }
 }

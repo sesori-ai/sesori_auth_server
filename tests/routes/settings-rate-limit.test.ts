@@ -6,7 +6,17 @@ import { createTestApp, type TestContext } from "../helpers/setup.js";
 // The global limiter exempts loopback, and app.inject reports 127.0.0.1 by
 // default, so every request here comes from a routable address to make the
 // per-route limit actually engage.
-const CLIENT_ADDRESS = "203.0.113.9";
+//
+// Each test takes its OWN address. The global limiter allows 100/min per
+// resolved IP while this file sends several hundred requests in total, so a
+// shared address would let a global 429 masquerade as the per-route limit under
+// test, and would make the result depend on where the one-minute windows happen
+// to fall rather than on the behaviour being pinned.
+let addressCounter = 0;
+function nextClientAddress(): string {
+  addressCounter += 1;
+  return `203.0.113.${addressCounter}`;
+}
 
 describe("settings write rate limit", () => {
   let ctx: TestContext;
@@ -22,6 +32,7 @@ describe("settings write rate limit", () => {
   it("throttles a client that floods writes with fresh device ids", async () => {
     const user = await ctx.createUser();
     const headers = { authorization: `Bearer ${user.accessToken}` };
+    const clientAddress = nextClientAddress();
 
     const statuses: number[] = [];
     for (let attempt = 0; attempt < 40; attempt += 1) {
@@ -29,7 +40,7 @@ describe("settings write rate limit", () => {
         method: "PATCH",
         url: `/auth/settings/${randomUUID()}`,
         headers,
-        remoteAddress: CLIENT_ADDRESS,
+        remoteAddress: clientAddress,
         payload: { notifications: { aiInteraction: false } },
       });
       statuses.push(response.statusCode);
@@ -49,13 +60,14 @@ describe("settings write rate limit", () => {
   // would hand the same account a fresh allowance on demand.
   it("keeps throttling after the client refreshes its access token", async () => {
     const user = await ctx.createUser();
+    const clientAddress = nextClientAddress();
 
     for (let attempt = 0; attempt < 40; attempt += 1) {
       await ctx.app.inject({
         method: "PATCH",
         url: `/auth/settings/${randomUUID()}`,
         headers: { authorization: `Bearer ${user.accessToken}` },
-        remoteAddress: CLIENT_ADDRESS,
+        remoteAddress: clientAddress,
         payload: { notifications: { aiInteraction: false } },
       });
     }
@@ -77,7 +89,7 @@ describe("settings write rate limit", () => {
       method: "PATCH",
       url: `/auth/settings/${randomUUID()}`,
       headers: { authorization: `Bearer ${rotatedToken}` },
-      remoteAddress: CLIENT_ADDRESS,
+      remoteAddress: clientAddress,
       payload: { notifications: { aiInteraction: false } },
     });
 
@@ -88,6 +100,7 @@ describe("settings write rate limit", () => {
   // known userId and exhaust that account's allowance without authenticating.
   it("cannot be filled for another account with a forged bearer token", async () => {
     const victim = await ctx.createUser();
+    const clientAddress = nextClientAddress();
     const forgedHeader = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" }), "utf8").toString("base64url");
     const forgedClaims = Buffer.from(
       JSON.stringify({ tokenType: "access", userId: victim.userId, provider: "github", providerUserId: "1" }),
@@ -113,7 +126,7 @@ describe("settings write rate limit", () => {
       method: "PATCH",
       url: `/auth/settings/${randomUUID()}`,
       headers: { authorization: `Bearer ${victim.accessToken}` },
-      remoteAddress: CLIENT_ADDRESS,
+      remoteAddress: clientAddress,
       payload: { notifications: { aiInteraction: false } },
     });
 
@@ -124,13 +137,14 @@ describe("settings write rate limit", () => {
     const user = await ctx.createUser();
     const headers = { authorization: `Bearer ${user.accessToken}` };
     const deviceId = randomUUID();
+    const clientAddress = nextClientAddress();
 
     for (let attempt = 0; attempt < 40; attempt += 1) {
       await ctx.app.inject({
         method: "PATCH",
         url: `/auth/settings/${randomUUID()}`,
         headers,
-        remoteAddress: CLIENT_ADDRESS,
+        remoteAddress: clientAddress,
         payload: { notifications: { aiInteraction: false } },
       });
     }
@@ -139,10 +153,74 @@ describe("settings write rate limit", () => {
       method: "GET",
       url: `/auth/settings/${deviceId}`,
       headers,
-      remoteAddress: CLIENT_ADDRESS,
+      remoteAddress: clientAddress,
     });
 
     assert.equal(read.statusCode, 200);
     assert.equal(read.json().notifications.aiInteraction, true);
+  });
+
+  it("throttles a client that floods deletes", async () => {
+    const user = await ctx.createUser();
+    const headers = { authorization: `Bearer ${user.accessToken}` };
+    const clientAddress = nextClientAddress();
+
+    const statuses: number[] = [];
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const response = await ctx.app.inject({
+        method: "DELETE",
+        url: "/auth/settings",
+        headers,
+        remoteAddress: clientAddress,
+      });
+      statuses.push(response.statusCode);
+    }
+
+    assert.ok(
+      statuses.includes(429),
+      `expected the burst to be throttled, saw ${JSON.stringify([...new Set(statuses)])}`,
+    );
+    assert.equal(statuses[0], 200, "the first delete must still succeed");
+
+    const accepted = statuses.filter((status) => status === 200).length;
+    assert.ok(accepted <= 30, `expected at most the configured allowance, got ${accepted}`);
+  });
+
+  // The plugin counts per route, so exhausting one verb must not spend the
+  // other's allowance. This pins that behaviour: the documented budget is 30 per
+  // verb, and a change that pooled them would halve what clients may do.
+  it("keeps the delete and patch allowances independent", async () => {
+    const user = await ctx.createUser();
+    const headers = { authorization: `Bearer ${user.accessToken}` };
+    const clientAddress = nextClientAddress();
+
+    const patchStatuses: number[] = [];
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const response = await ctx.app.inject({
+        method: "PATCH",
+        url: `/auth/settings/${randomUUID()}`,
+        headers,
+        remoteAddress: clientAddress,
+        payload: { notifications: { aiInteraction: false } },
+      });
+      patchStatuses.push(response.statusCode);
+    }
+
+    // Without this the test proves nothing: if PATCH limiting were broken the
+    // flood would never exhaust anything, and the DELETE below would pass for
+    // the trivial reason that no budget was ever spent.
+    assert.ok(
+      patchStatuses.includes(429),
+      `the PATCH budget must actually be exhausted first, saw ${JSON.stringify([...new Set(patchStatuses)])}`,
+    );
+
+    const removed = await ctx.app.inject({
+      method: "DELETE",
+      url: "/auth/settings",
+      headers,
+      remoteAddress: clientAddress,
+    });
+
+    assert.equal(removed.statusCode, 200, "an exhausted PATCH budget must not throttle DELETE");
   });
 });

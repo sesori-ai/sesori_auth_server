@@ -61,6 +61,14 @@ describe("/auth/settings routes", () => {
     });
   }
 
+  function deleteAllSettings(accessToken: string | null) {
+    return ctx.app.inject({
+      method: "DELETE",
+      url: "/auth/settings",
+      headers: accessToken ? { authorization: `Bearer ${accessToken}` } : {},
+    });
+  }
+
   it("GET returns all-enabled defaults for a device with no stored settings", async () => {
     const user = await ctx.createUser();
     const deviceId = randomUUID();
@@ -120,14 +128,16 @@ describe("/auth/settings routes", () => {
     assert.equal(nonBoolean.statusCode, 400);
   });
 
-  it("requires a Bearer token on both routes", async () => {
+  it("requires a Bearer token on every route", async () => {
     const deviceId = randomUUID();
 
     const get = await getSettings(null, deviceId);
     const patch = await patchSettings(null, deviceId, { notifications: { aiInteraction: false } });
+    const removed = await deleteAllSettings(null);
 
     assert.equal(get.statusCode, 401);
     assert.equal(patch.statusCode, 401);
+    assert.equal(removed.statusCode, 401);
   });
 
   it("rejects a deviceId that is not a UUIDv4", async () => {
@@ -192,5 +202,63 @@ describe("/auth/settings routes", () => {
     const body = res.json<SettingsBody>();
     assert.deepEqual(body.notifications, { ...ALL_ENABLED, sessionMessage: false });
     assert.ok(!("retiredToggle" in body.notifications));
+  });
+
+  it("DELETE clears every device the account configured, not just one", async () => {
+    const user = await ctx.createUser();
+    const firstDevice = randomUUID();
+    const secondDevice = randomUUID();
+
+    await patchSettings(user.accessToken, firstDevice, {
+      notifications: { aiInteraction: false, systemUpdate: false },
+    });
+    await patchSettings(user.accessToken, secondDevice, { notifications: { sessionMessage: false } });
+
+    const removed = await deleteAllSettings(user.accessToken);
+    assert.equal(removed.statusCode, 200);
+    assert.deepEqual(removed.json(), { ok: true });
+
+    // A null updatedAt is only reachable when no document exists, so this
+    // distinguishes deleted records from ones reset to all-true values.
+    for (const deviceId of [firstDevice, secondDevice]) {
+      const body = (await getSettings(user.accessToken, deviceId)).json<SettingsBody>();
+      assert.deepEqual(body.notifications, ALL_ENABLED);
+      assert.equal(body.updatedAt, null);
+    }
+  });
+
+  it("DELETE is idempotent for an account that stored nothing", async () => {
+    const user = await ctx.createUser();
+    const deviceId = randomUUID();
+
+    const first = await deleteAllSettings(user.accessToken);
+    const second = await deleteAllSettings(user.accessToken);
+
+    assert.equal(first.statusCode, 200);
+    assert.equal(second.statusCode, 200);
+
+    const res = await getSettings(user.accessToken, deviceId);
+    assert.deepEqual(res.json<SettingsBody>().notifications, ALL_ENABLED);
+  });
+
+  // The account is taken from the verified token, so one account deleting its
+  // settings must never reach another's, including on a shared deviceId.
+  it("scopes DELETE to the calling account and leaves other accounts intact", async () => {
+    const userA = await ctx.createUser();
+    const userB = await ctx.createUser();
+    const sharedDeviceId = randomUUID();
+
+    await patchSettings(userA.accessToken, sharedDeviceId, { notifications: { aiInteraction: false } });
+    await patchSettings(userA.accessToken, randomUUID(), { notifications: { systemUpdate: false } });
+    await patchSettings(userB.accessToken, sharedDeviceId, { notifications: { systemUpdate: false } });
+
+    const removed = await deleteAllSettings(userB.accessToken);
+    assert.equal(removed.statusCode, 200);
+
+    const aStillOwnsItsDoc = await getSettings(userA.accessToken, sharedDeviceId);
+    assert.deepEqual(aStillOwnsItsDoc.json<SettingsBody>().notifications, { ...ALL_ENABLED, aiInteraction: false });
+
+    const bWasCleared = await getSettings(userB.accessToken, sharedDeviceId);
+    assert.deepEqual(bWasCleared.json<SettingsBody>().notifications, ALL_ENABLED);
   });
 });

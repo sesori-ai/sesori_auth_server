@@ -75,4 +75,45 @@ describe("SettingsConfigurationRepository", () => {
 
     assert.deepEqual(merged.notifications, { aiInteraction: false, sessionMessage: false });
   });
+
+  it("deleteAllForUser removes every device the account registered", async () => {
+    const owner = await ctx.createUser();
+    const other = await ctx.createUser();
+    const repo = new SettingsConfigurationRepository(ctx.dbAccessor);
+    const sharedDeviceId = randomUUID();
+
+    await repo.upsert(owner.userId, randomUUID(), { notifications: { aiInteraction: false } });
+    await repo.upsert(owner.userId, randomUUID(), { notifications: { systemUpdate: false } });
+    await repo.upsert(owner.userId, sharedDeviceId, { notifications: { sessionMessage: false } });
+    await repo.upsert(other.userId, sharedDeviceId, { notifications: { aiInteraction: false } });
+
+    await repo.deleteAllForUser(owner.userId);
+
+    assert.deepEqual(await repo.findByUserId(owner.userId), []);
+
+    // The shared deviceId proves the delete is scoped by account rather than by
+    // device: another user's record for the same id must survive.
+    const survivors = await repo.findByUserId(other.userId);
+    assert.equal(survivors.length, 1);
+    assert.equal(survivors[0]?.deviceId, sharedDeviceId);
+  });
+
+  // A malformed id means the caller is broken. Returning quietly would report a
+  // purge that never happened on the account-deletion path this method exists to
+  // serve, so it fails loudly like upsert does.
+  it("deleteAllForUser rejects a malformed user id rather than reporting a silent success", async () => {
+    const repo = new SettingsConfigurationRepository(ctx.dbAccessor);
+
+    await assert.rejects(() => repo.deleteAllForUser("not-an-object-id"));
+  });
+
+  it("deleteAllForUser is a no-op for a well-formed but unknown user", async () => {
+    const user = await ctx.createUser();
+    const repo = new SettingsConfigurationRepository(ctx.dbAccessor);
+    await repo.upsert(user.userId, randomUUID(), { notifications: { aiInteraction: false } });
+
+    await repo.deleteAllForUser("69b2aeaa1755fd6c00000000");
+
+    assert.equal((await repo.findByUserId(user.userId)).length, 1);
+  });
 });
