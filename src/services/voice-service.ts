@@ -184,19 +184,25 @@ function redactProviderCause(input: { cause: unknown }): unknown {
     return input.cause;
   }
 
-  const headers = Reflect.get(input.cause, "headers");
-  if (headers === null || typeof headers !== "object") {
-    return input.cause;
-  }
-
   if (input.cause instanceof Error) {
     const redactedCause = redactProviderCause({ cause: input.cause.cause });
     const redactedError = new Error(input.cause.message, { cause: redactedCause });
     redactedError.name = input.cause.name;
     redactedError.stack = input.cause.stack;
-    Object.assign(redactedError, input.cause, { headers: redactHeaders({ headers }) });
+    Object.assign(redactedError, input.cause);
+
+    const headers = Reflect.get(input.cause, "headers");
+    if (headers !== null && typeof headers === "object") {
+      Object.assign(redactedError, { headers: redactHeaders({ headers }) });
+    }
+
     Object.defineProperty(redactedError, "cause", { value: redactedCause, configurable: true, writable: true });
     return redactedError;
+  }
+
+  const headers = Reflect.get(input.cause, "headers");
+  if (headers === null || typeof headers !== "object") {
+    return input.cause;
   }
 
   return { ...input.cause, headers: redactHeaders({ headers }) };
