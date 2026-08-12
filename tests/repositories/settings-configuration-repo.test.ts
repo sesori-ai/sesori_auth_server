@@ -75,4 +75,55 @@ describe("SettingsConfigurationRepository", () => {
 
     assert.deepEqual(merged.notifications, { aiInteraction: false, sessionMessage: false });
   });
+
+  it("deleteByUserAndDevice removes one device without touching the account's others", async () => {
+    const user = await ctx.createUser();
+    const repo = new SettingsConfigurationRepository(ctx.dbAccessor);
+    const target = randomUUID();
+    const survivor = randomUUID();
+
+    await repo.upsert(user.userId, target, { notifications: { aiInteraction: false } });
+    await repo.upsert(user.userId, survivor, { notifications: { systemUpdate: false } });
+
+    await repo.deleteByUserAndDevice(user.userId, target);
+
+    const remaining = await repo.findByUserId(user.userId);
+    assert.deepEqual(
+      remaining.map((document) => document.deviceId),
+      [survivor],
+    );
+  });
+
+  it("deleteAllForUser removes every device the account registered", async () => {
+    const owner = await ctx.createUser();
+    const other = await ctx.createUser();
+    const repo = new SettingsConfigurationRepository(ctx.dbAccessor);
+    const sharedDeviceId = randomUUID();
+
+    await repo.upsert(owner.userId, randomUUID(), { notifications: { aiInteraction: false } });
+    await repo.upsert(owner.userId, randomUUID(), { notifications: { systemUpdate: false } });
+    await repo.upsert(owner.userId, sharedDeviceId, { notifications: { sessionMessage: false } });
+    await repo.upsert(other.userId, sharedDeviceId, { notifications: { aiInteraction: false } });
+
+    await repo.deleteAllForUser(owner.userId);
+
+    assert.deepEqual(await repo.findByUserId(owner.userId), []);
+
+    // The shared deviceId proves the delete is scoped by account rather than by
+    // device: another user's record for the same id must survive.
+    const survivors = await repo.findByUserId(other.userId);
+    assert.equal(survivors.length, 1);
+    assert.equal(survivors[0]?.deviceId, sharedDeviceId);
+  });
+
+  it("deleteAllForUser is a no-op for an invalid or unknown user", async () => {
+    const user = await ctx.createUser();
+    const repo = new SettingsConfigurationRepository(ctx.dbAccessor);
+    await repo.upsert(user.userId, randomUUID(), { notifications: { aiInteraction: false } });
+
+    await repo.deleteAllForUser("not-an-object-id");
+    await repo.deleteAllForUser("69b2aeaa1755fd6c00000000");
+
+    assert.equal((await repo.findByUserId(user.userId)).length, 1);
+  });
 });
