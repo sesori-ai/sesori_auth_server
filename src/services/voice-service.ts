@@ -190,10 +190,12 @@ function redactProviderCause(input: { cause: unknown }): unknown {
   }
 
   if (input.cause instanceof Error) {
-    const redactedError = new Error(input.cause.message, { cause: input.cause.cause });
+    const redactedCause = redactProviderCause({ cause: input.cause.cause });
+    const redactedError = new Error(input.cause.message, { cause: redactedCause });
     redactedError.name = input.cause.name;
     redactedError.stack = input.cause.stack;
     Object.assign(redactedError, input.cause, { headers: redactHeaders({ headers }) });
+    Object.defineProperty(redactedError, "cause", { value: redactedCause, configurable: true, writable: true });
     return redactedError;
   }
 

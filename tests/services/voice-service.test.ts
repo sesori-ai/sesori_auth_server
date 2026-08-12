@@ -130,8 +130,12 @@ describe("VoiceService provider failure mapping", () => {
     const providerPropertySentinel = "voice-provider-request-id-72aa31";
     const providerAuthorizationSentinel = "voice-provider-authorization-secret-b80f21";
     const providerCookieSentinel = "voice-provider-cookie-secret-734dab";
+    const nestedAuthorizationSentinel = "voice-provider-nested-authorization-secret-5df8ab";
     const providerCause = Object.assign(new Error(providerMessageSentinel), {
       name: "SensitiveProviderError",
+      cause: Object.assign(new Error("nested provider failure"), {
+        headers: { authorization: nestedAuthorizationSentinel },
+      }),
       providerRequestId: providerPropertySentinel,
       headers: {
         authorization: providerAuthorizationSentinel,
@@ -160,6 +164,7 @@ describe("VoiceService provider failure mapping", () => {
       assert.match(logs, new RegExp(providerPropertySentinel));
       assert.doesNotMatch(logs, new RegExp(providerAuthorizationSentinel));
       assert.doesNotMatch(logs, new RegExp(providerCookieSentinel));
+      assert.doesNotMatch(logs, new RegExp(nestedAuthorizationSentinel));
       assert.match(logs, /\[redacted\]/);
     } finally {
       console.error = originalConsoleError;
