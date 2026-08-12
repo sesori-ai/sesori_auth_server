@@ -13,7 +13,7 @@
 
 - **Stage:** S01
 - **Wave:** W02
-- **Next action:** After S01-W01-P01 merges, pin the S01/W02 auth `master` baseline after drift assessment, then begin S01-W02-P01.
+- **Next action:** S01-W02-P01 is implemented and open as PR #64, refreshed onto `master` tip `c2323b8` and back to a mergeable/clean state, awaiting human approval and merge. After it merges, record the merged auth artifact SHA, complete the S02/W01 drift assessment recorded below, and begin S02-W01-P01.
 
 ## Plan Review
 
@@ -28,7 +28,7 @@
 | Stage | Wave | Repository | Base | Pinned SHA | Drift Decision |
 |---|---|---|---|---|---|
 | S01 | W01 | `sesori-ai/sesori_auth_server` | `master` | `287abb307f1e1cbd77c19bb81030b11749ff351b` | Assessed 2026-08-06: drift from the audited `9cc4953` tip is the merged plan-definition PR #59 only, which adds `.plan/active/real-time-transcription/` documentation and no runtime, schema, route, or composition change. Audited baseline remains valid. |
-| S01 | W02 | `sesori-ai/sesori_auth_server` | `master` | — | Not started |
+| S01 | W02 | `sesori-ai/sesori_auth_server` | `master` | `1f1138be21fdbbd6a93ab256303307d5a766443f` | Assessed 2026-08-06: drift from the S01/W01 baseline is the merged S01-W01-P01 PR #61 plus the agent-config commit `65b1173`. Both are expected; no third-party change touched the voice, client, or config seams this step edits. |
 | S02 | W01 | `sesori-ai/sesori_auth_server` | `master` | — | Not started |
 | S03 | W01 | `sesori-ai/sesori_apps_monorepo` | `main` | — | Not started |
 
@@ -36,10 +36,11 @@
 
 | Done | ID | Stage | Wave | PR | Branch | Notes |
 |---|---|---|---|---|---|---|
-| [ ] | S01-W01-P01 | S01 | W01 | — | `real-time-config-next-step` | Auth: scoped glossary runtime and migration-ready index config. Implemented on the session-provided worktree branch instead of the planned branch name. |
-| [ ] | S01-W02-P01 | S01 | W02 | — | `plan/real-time-transcription/s01-w02-p01-provider-neutral-async-soniox` | Auth: provider boundary, Soniox async, legal/config/cleanup |
+| [x] | S01-W01-P01 | S01 | W01 | [#61](https://github.com/sesori-ai/sesori_auth_server/pull/61) | `real-time-config-next-step` | Merged `1f1138b`. Production index migration applied and verified before merge: documentCount 0, legacy absent, target exact. Implemented on the session-provided worktree branch instead of the planned branch name. |
+| [ ] | S01-W02-P01 | S01 | W02 | [#64](https://github.com/sesori-ai/sesori_auth_server/pull/64) | `real-time-config-next-step` | Auth: provider boundary, Soniox async, legal/config/cleanup. Implemented at `4cc58a1`, which merges `master` tip `c2323b8` into the branch to clear five drift conflicts; CI green and all inline review threads answered. PR is open and unmerged, so this row stays unchecked until the merge SHA exists. Implemented on the session-provided worktree branch instead of the planned branch name. |
 | [ ] | S02-W01-P01 | S02 | W01 | — | `plan/real-time-transcription/s02-w01-p01-realtime-voice-proxy` | Auth: protocol v1 proxy and minimal shutdown |
 | [ ] | S03-W01-P01 | S03 | W01 | — | `plan/real-time-transcription/s03-w01-p01-stream-mobile-voice` | Apps: PCM streaming, preview, commit, async fallback |
+| [ ] | S05-W01-P01 | S05 | W01 | — | `plan/real-time-transcription/s05-w01-p01-remove-scaffolding` | Auth: delete compatibility/migration scaffolding whose trigger has fired; runs after S04 and may run more than once |
 
 ## Manual Checkpoints
 
@@ -55,6 +56,12 @@
 - Production enablement requires Soniox contractual approval, dedicated EU project configuration, and the glossary migration gate.
 
 ## Findings and Plan Deltas
+
+- 2026-08-11 — S02/W01 drift input recorded while refreshing PR #64. `master` advanced five commits past the pinned S01/W02 baseline `1f1138b` (#57, #66, #65, #56, #63), so PR #64 was merged forward to `c2323b8`; the five conflicts (`src/config.ts`, `tests/config.test.ts`, `tests/helpers/setup.ts`, `AGENTS.md`, `README.md`) were additive and both sides were retained. Three of those commits land directly on seams S02-W01-P01 edits and must be reconciled in its drift assessment rather than assumed compatible. #66 added `src/lib/client-ip.ts` and `src/types/client-ip.ts` and keys rate limiting by Cloudflare-verified IP, while the step file specifies a pre-auth realtime upgrade limiter that is "deliberately independent of headers, peer IP, and forwarding trust" and requires tests proving spoofed forwarding headers cannot change either limit — the shipped client-IP helper and that independence claim need an explicit decision. #57 introduced per-route write rate limiting with compile-time constants, which is the pattern the planned post-auth 12/user/minute start limiter should follow. #65 changed `src/middleware/auth.ts` to require an explicit opt-in for the development auth bypass, and S02 reuses that middleware for WebSocket upgrade authentication. The S02/W01 pinned SHA is still unset because it must be the `master` SHA produced by merging PR #64, which does not exist yet.
+
+- 2026-08-07 — S01-W02-P01 implemented. Deltas from the step file: retryable failures no longer emit a fixed `Retry-After: 1`, because a provider that states its own cooldown on a 429 is better guidance than a constant — the shipped rule honors that value clamped to 300 s, falls back to 5 s for a capacity rejection the provider did not quantify, and uses 1 s otherwise. The step file described `durationSeconds` as positive whole seconds rounded up; the shipped `AsyncTranscriptionClient` contract instead permits fractional metadata precision, since the OpenAI adapter returns the parsed `music-metadata` duration and only its size-based fallback rounds up. The rule that an absent, non-positive, or absurd provider duration is `malformed_output` rather than a free request is unchanged, and the 24-hour ceiling is inclusive. The purge command was hardened past its step-file description: deletes run in bounded batches of five, the file sweep is held back whenever any transcription list item or delete is uncertain, and a list iterator that throws after yielding still flushes the IDs it already produced. Work used the session-provided worktree branch pushed to `real-time-config-next-step`.
+
+- 2026-08-06 — Added stage S05 to own removal of compatibility and migration scaffolding. The plan previously required retaining glossary rollback tooling and several `COMPATIBILITY` markers but never scheduled their deletion, so the debt was orphaned. S05-W01-P01 carries a per-item trigger inventory and an explicit retention list; legacy index *detection* and the startup guard are permanent, only *reversal* paths are in scope. Triggers are evidence-based, so the glossary rollback removal waits until a project-scoped document actually exists.
 
 - 2026-08-06 — S01-W01-P01 implementation review found one blocking defect and it was fixed before the PR: rewriting the multipart reader initially caught `FST_REQ_FILE_TOO_LARGE` inside the route and reported an oversized upload as HTTP 400 instead of the shipped 413. The reader now rethrows that framework error and a regression test asserts the preserved 413.
 - 2026-08-06 — S01-W01-P01 implemented. Deltas from the step file: the live `GlossaryEntry` schema is now strict and the migration-only project-scoped schema aliases it rather than re-extending a non-strict base, so one shape owns scoped documents; `src/db/glossary-index-migration.ts` needed no change; and the work uses the session-provided worktree branch. The repository fails closed on malformed persisted documents through `glossaryEntrySchema.safeParse` and returns `InternalServerError` without document content. Legacy unscoped rows are unreachable through scoped reads rather than erroring, so a stale row cannot break a valid project read.

@@ -7,6 +7,7 @@ import { GlossaryService, glossaryPolicy } from "../../src/services/glossary-ser
 import type { GlossaryEntry } from "../../src/models/documents.js";
 import { projectKeySchema } from "../../src/models/voice.js";
 import { BadRequestError } from "../../src/lib/errors.js";
+import { renderTranscriptionPrompt } from "../../src/types/transcription.js";
 import { MongoDbDatabase, AuthDbCollection } from "../../src/types/mongo.js";
 
 const projectA = projectKeySchema.parse(`prj_v1_${"A".repeat(43)}`);
@@ -167,7 +168,7 @@ describe("GlossaryService", () => {
       words: Array.from({ length: 90 }, (_, index) => `${String(index).padStart(3, "0")}${term}`),
     });
 
-    const prompt = await service.buildTranscriptionPrompt({ userId, projectKey: projectA });
+    const prompt = renderTranscriptionPrompt(await service.getContextWords({ userId, projectKey: projectA }));
 
     assert.ok(prompt);
     assert.ok(
@@ -177,8 +178,8 @@ describe("GlossaryService", () => {
   });
 
   it("builds no prompt without project context or terms", async () => {
-    assert.equal(await service.buildTranscriptionPrompt({ userId, projectKey: null }), null);
-    assert.equal(await service.buildTranscriptionPrompt({ userId, projectKey: projectA }), null);
+    assert.equal(renderTranscriptionPrompt(await service.getContextWords({ userId, projectKey: null })), null);
+    assert.equal(renderTranscriptionPrompt(await service.getContextWords({ userId, projectKey: projectA })), null);
   });
 
   it("lists and removes only within one project", async () => {

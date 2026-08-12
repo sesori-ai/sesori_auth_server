@@ -248,17 +248,18 @@ describe("POST /voice/transcribe", () => {
     assert.equal(res.statusCode, 200);
   }
 
+  /**
+   * Captures the glossary terms handed to the provider. Prompt rendering now
+   * lives in the adapter, so the observable contract at this seam is the terms
+   * list the service selected for the request's project.
+   */
   function capturePrompt(text: string, durationSeconds: number): { read: () => string | undefined } {
-    let capturedPrompt: string | undefined;
-    mock.method(
-      OpenAIClient.prototype,
-      "transcribe",
-      async (args: { fileBuffer: Buffer; filename: string; mimetype: string; prompt?: string }) => {
-        capturedPrompt = args.prompt;
-        return { text, durationSeconds };
-      },
-    );
-    return { read: () => capturedPrompt };
+    let capturedTerms: string[] | undefined;
+    mock.method(OpenAIClient.prototype, "transcribe", async (request: { terms: string[] }) => {
+      capturedTerms = request.terms;
+      return { text, durationSeconds };
+    });
+    return { read: () => (capturedTerms && capturedTerms.length > 0 ? capturedTerms.join(", ") : undefined) };
   }
 
   it("passes the requested project's glossary words in the prompt to OpenAI", async () => {

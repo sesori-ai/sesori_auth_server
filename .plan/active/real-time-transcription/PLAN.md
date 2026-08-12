@@ -182,6 +182,7 @@ The canonical cross-repository vector is project ID `project-123`, digest input 
 - Async provider remains `openai` by default until the new app timeout and rollout checks are complete. Switching to Soniox is configuration, not an automatic fallback.
 - Realtime remains disabled by default. Older apps ignore it; newer apps select async until enabled.
 - Exact cleanup of compatibility branches is authorized only after the minimum supported app always sends project context and all supported auth deployments expose capability protocol 1. Relevant PR files name the mechanical cleanup.
+- Compatibility and migration scaffolding is retained deliberately, not indefinitely. S05 owns its removal so the debt is scheduled rather than orphaned; every marker added by this plan names its trigger, and S05-W01-P01 deletes exactly those whose triggers have fired. Nothing is removed while its rollback path is still the documented recovery route.
 
 ## 8. Rollout and Verification
 
@@ -246,6 +247,7 @@ Deferred systems are not placeholders: receipts, reconcilers, leases, exact cap 
 | S02 | Provider-neutral realtime auth proxy | 1 | 0 |
 | S03 | Mobile realtime adoption | 1 | 0 |
 | S04 | Cross-repository verification and production enablement | 0 | 2 |
+| S05 | Compatibility and migration scaffolding removal | 1 | 0 |
 
 ## 11. Evidence-Based Safeguard Disposition
 

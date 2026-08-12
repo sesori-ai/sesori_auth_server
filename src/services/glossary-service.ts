@@ -1,9 +1,7 @@
 import { BadRequestError } from "../lib/errors.js";
 import type { ProjectKey } from "../models/voice.js";
+import { TRANSCRIPTION_PROMPT_PREFIX, TRANSCRIPTION_PROMPT_SUFFIX } from "../types/transcription.js";
 import { GlossaryEntryRepository } from "../repositories/glossary-entry-repo.js";
-
-const PROMPT_PREFIX = "The following terms may appear in the audio: ";
-const PROMPT_SUFFIX = ".";
 
 export const glossaryPolicy = {
   maxWordsPerRequest: 100,
@@ -51,20 +49,6 @@ export class GlossaryService {
     return this.#glossaryRepo.deleteMany({ ...args, words: this.#uniqueWords(args.words) });
   }
 
-  /**
-   * Builds the provider prompt for one project, or null when there is no
-   * context. The cap is enforced on the rendered prompt, so the wrapper text is
-   * reserved rather than allowed to push the request past the budget.
-   */
-  async buildTranscriptionPrompt(args: { userId: string; projectKey: ProjectKey | null }): Promise<string | null> {
-    const words = await this.getContextWords(args);
-    if (words.length === 0) {
-      return null;
-    }
-
-    return `${PROMPT_PREFIX}${words.join(", ")}${PROMPT_SUFFIX}`;
-  }
-
   async getContextWords(args: { userId: string; projectKey: ProjectKey | null }): Promise<string[]> {
     if (args.projectKey === null) {
       return [];
@@ -72,7 +56,8 @@ export class GlossaryService {
 
     const words = await this.listWords({ userId: args.userId, projectKey: args.projectKey });
     const sorted = [...words].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
-    const budget = this.#policy.maxContextCharacters - PROMPT_PREFIX.length - PROMPT_SUFFIX.length;
+    const budget =
+      this.#policy.maxContextCharacters - TRANSCRIPTION_PROMPT_PREFIX.length - TRANSCRIPTION_PROMPT_SUFFIX.length;
     const context: string[] = [];
     let length = 0;
 
