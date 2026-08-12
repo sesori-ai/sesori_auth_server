@@ -169,7 +169,7 @@ describe("settings write rate limit", () => {
     for (let attempt = 0; attempt < 40; attempt += 1) {
       const response = await ctx.app.inject({
         method: "DELETE",
-        url: `/auth/settings/${randomUUID()}`,
+        url: "/auth/settings",
         headers,
         remoteAddress: clientAddress,
       });
@@ -216,7 +216,7 @@ describe("settings write rate limit", () => {
 
     const removed = await ctx.app.inject({
       method: "DELETE",
-      url: `/auth/settings/${randomUUID()}`,
+      url: "/auth/settings",
       headers,
       remoteAddress: clientAddress,
     });

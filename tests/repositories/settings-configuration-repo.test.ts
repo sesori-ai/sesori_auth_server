@@ -76,24 +76,6 @@ describe("SettingsConfigurationRepository", () => {
     assert.deepEqual(merged.notifications, { aiInteraction: false, sessionMessage: false });
   });
 
-  it("deleteByUserAndDevice removes one device without touching the account's others", async () => {
-    const user = await ctx.createUser();
-    const repo = new SettingsConfigurationRepository(ctx.dbAccessor);
-    const target = randomUUID();
-    const survivor = randomUUID();
-
-    await repo.upsert(user.userId, target, { notifications: { aiInteraction: false } });
-    await repo.upsert(user.userId, survivor, { notifications: { systemUpdate: false } });
-
-    await repo.deleteByUserAndDevice(user.userId, target);
-
-    const remaining = await repo.findByUserId(user.userId);
-    assert.deepEqual(
-      remaining.map((document) => document.deviceId),
-      [survivor],
-    );
-  });
-
   it("deleteAllForUser removes every device the account registered", async () => {
     const owner = await ctx.createUser();
     const other = await ctx.createUser();
@@ -117,13 +99,12 @@ describe("SettingsConfigurationRepository", () => {
   });
 
   // A malformed id means the caller is broken. Returning quietly would report a
-  // purge that never happened, which matters most for the account-deletion path
-  // this method exists to serve, so both deletes fail loudly like upsert does.
-  it("both deletes reject a malformed user id rather than reporting a silent success", async () => {
+  // purge that never happened on the account-deletion path this method exists to
+  // serve, so it fails loudly like upsert does.
+  it("deleteAllForUser rejects a malformed user id rather than reporting a silent success", async () => {
     const repo = new SettingsConfigurationRepository(ctx.dbAccessor);
 
     await assert.rejects(() => repo.deleteAllForUser("not-an-object-id"));
-    await assert.rejects(() => repo.deleteByUserAndDevice("not-an-object-id", randomUUID()));
   });
 
   it("deleteAllForUser is a no-op for a well-formed but unknown user", async () => {

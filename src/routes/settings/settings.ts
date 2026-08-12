@@ -102,13 +102,17 @@ export const settingsRoutes: FastifyPluginAsync<SettingsRouteOptions> = async (f
     },
   );
 
-  fastify.delete<{ Params: { deviceId: string }; Reply: { ok: true } }>(
-    "/auth/settings/:deviceId",
+  // Account-wide, for the account-deletion flow: every device this account
+  // configured goes at once. The account is identified by the verified token
+  // claim and never by a caller-supplied id, so this cannot be aimed at someone
+  // else's settings. It is idempotent for the same reason the reads are: an
+  // account with nothing stored already resolves to the defaults.
+  fastify.delete<{ Reply: { ok: true } }>(
+    "/auth/settings",
     { preHandler: requireAuth, config: { rateLimit: settingsWriteRateLimit } },
     async (request) => {
-      const deviceId = parseDeviceId(request.params.deviceId);
       const userId = getUserId(request);
-      await settingsService.deleteForDevice(userId, deviceId);
+      await settingsService.deleteAllForUser(userId);
       return { ok: true };
     },
   );
