@@ -124,10 +124,10 @@ describe("VoiceService provider failure mapping", () => {
     assert.equal(res.headers["retry-after"], "42");
   });
 
-  it("logs only a bounded provider cause type when provider diagnostics contain sensitive data", async () => {
+  it("keeps provider diagnostics in server logs without exposing them in the client response", async () => {
     const user = await ctx.createUser();
-    const providerMessageSentinel = "voice-provider-message-secret-9f4c2d";
-    const providerPropertySentinel = "voice-provider-property-secret-72aa31";
+    const providerMessageSentinel = "voice-provider-diagnostic-message-9f4c2d";
+    const providerPropertySentinel = "voice-provider-request-id-72aa31";
     const providerCause = Object.assign(new Error(providerMessageSentinel), {
       name: "SensitiveProviderError",
       providerRequestId: providerPropertySentinel,
@@ -147,10 +147,11 @@ describe("VoiceService provider failure mapping", () => {
       const res = await post(user.accessToken);
 
       assert.equal(res.statusCode, 500);
+      assert.deepEqual(res.json(), { error: "transcription_configuration_error", retryable: false });
       const logs = loggedEntries.join("\n");
       assert.match(logs, /SensitiveProviderError/);
-      assert.doesNotMatch(logs, new RegExp(providerMessageSentinel));
-      assert.doesNotMatch(logs, new RegExp(providerPropertySentinel));
+      assert.match(logs, new RegExp(providerMessageSentinel));
+      assert.match(logs, new RegExp(providerPropertySentinel));
     } finally {
       console.error = originalConsoleError;
     }

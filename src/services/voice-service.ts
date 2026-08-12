@@ -4,7 +4,6 @@ import {
   BadRequestError,
   InternalServerError,
   QuotaExceededError,
-  safeErrorType,
   TranscriptionConfigurationError,
   TranscriptionProviderError,
   TranscriptionTimeoutError,
@@ -127,7 +126,7 @@ export class VoiceService {
       return new InternalServerError({ debugMessage: "Transcription failed", nestedError: error });
     }
 
-    const cause = { errorType: safeErrorType({ error: error.cause }) };
+    const cause = error.cause;
 
     switch (error.reason) {
       case TranscriptionFailureReason.InvalidInput:
