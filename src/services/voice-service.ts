@@ -4,6 +4,7 @@ import {
   BadRequestError,
   InternalServerError,
   QuotaExceededError,
+  safeErrorType,
   TranscriptionConfigurationError,
   TranscriptionProviderError,
   TranscriptionTimeoutError,
@@ -126,9 +127,7 @@ export class VoiceService {
       return new InternalServerError({ debugMessage: "Transcription failed", nestedError: error });
     }
 
-    // The cause is retained for server-side diagnosis only. `nestedError` is
-    // logged by the global handler and never included in the response body.
-    const cause = error.cause;
+    const cause = { errorType: safeErrorType({ error: error.cause }) };
 
     switch (error.reason) {
       case TranscriptionFailureReason.InvalidInput:
@@ -167,8 +166,14 @@ export class VoiceService {
         });
       case TranscriptionFailureReason.Cancelled:
         return new TranscriptionCancelledError();
-      default:
+      case TranscriptionFailureReason.Internal:
         return new InternalServerError({ debugMessage: "Transcription failed", nestedError: cause });
+      default:
+        return VoiceService.#assertNeverTranscriptionFailureReason(error.reason);
     }
+  }
+
+  static #assertNeverTranscriptionFailureReason(reason: never): never {
+    throw new InternalServerError({ debugMessage: `Unhandled transcription failure reason: ${reason}` });
   }
 }

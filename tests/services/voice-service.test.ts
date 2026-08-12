@@ -1,5 +1,6 @@
 import { describe, it, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
+import { inspect } from "node:util";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
 import type { AsyncTranscriptionClient } from "../../src/clients/async-transcription-client.js";
 import {
@@ -121,6 +122,38 @@ describe("VoiceService provider failure mapping", () => {
 
     assert.equal(res.statusCode, 503);
     assert.equal(res.headers["retry-after"], "42");
+  });
+
+  it("logs only a bounded provider cause type when provider diagnostics contain sensitive data", async () => {
+    const user = await ctx.createUser();
+    const providerMessageSentinel = "voice-provider-message-secret-9f4c2d";
+    const providerPropertySentinel = "voice-provider-property-secret-72aa31";
+    const providerCause = Object.assign(new Error(providerMessageSentinel), {
+      name: "SensitiveProviderError",
+      providerRequestId: providerPropertySentinel,
+      headers: { authorization: providerPropertySentinel },
+    });
+    const loggedEntries: string[] = [];
+    const originalConsoleError = console.error;
+    console.error = (...args: Parameters<typeof console.error>) => {
+      loggedEntries.push(args.map((arg) => inspect(arg, { depth: null })).join(" "));
+    };
+
+    try {
+      provider.next = async () => {
+        throw new TranscriptionFailure(TranscriptionFailureReason.ProviderRejected, { cause: providerCause });
+      };
+
+      const res = await post(user.accessToken);
+
+      assert.equal(res.statusCode, 500);
+      const logs = loggedEntries.join("\n");
+      assert.match(logs, /SensitiveProviderError/);
+      assert.doesNotMatch(logs, new RegExp(providerMessageSentinel));
+      assert.doesNotMatch(logs, new RegExp(providerPropertySentinel));
+    } finally {
+      console.error = originalConsoleError;
+    }
   });
 
   it("caps an implausible provider cooldown instead of stalling the caller", async () => {
