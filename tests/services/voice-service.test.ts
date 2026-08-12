@@ -128,10 +128,16 @@ describe("VoiceService provider failure mapping", () => {
     const user = await ctx.createUser();
     const providerMessageSentinel = "voice-provider-diagnostic-message-9f4c2d";
     const providerPropertySentinel = "voice-provider-request-id-72aa31";
+    const providerAuthorizationSentinel = "voice-provider-authorization-secret-b80f21";
+    const providerCookieSentinel = "voice-provider-cookie-secret-734dab";
     const providerCause = Object.assign(new Error(providerMessageSentinel), {
       name: "SensitiveProviderError",
       providerRequestId: providerPropertySentinel,
-      headers: { authorization: providerPropertySentinel },
+      headers: {
+        authorization: providerAuthorizationSentinel,
+        cookie: providerCookieSentinel,
+        "x-request-id": providerPropertySentinel,
+      },
     });
     const loggedEntries: string[] = [];
     const originalConsoleError = console.error;
@@ -152,6 +158,9 @@ describe("VoiceService provider failure mapping", () => {
       assert.match(logs, /SensitiveProviderError/);
       assert.match(logs, new RegExp(providerMessageSentinel));
       assert.match(logs, new RegExp(providerPropertySentinel));
+      assert.doesNotMatch(logs, new RegExp(providerAuthorizationSentinel));
+      assert.doesNotMatch(logs, new RegExp(providerCookieSentinel));
+      assert.match(logs, /\[redacted\]/);
     } finally {
       console.error = originalConsoleError;
     }

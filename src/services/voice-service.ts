@@ -18,6 +18,8 @@ import { TranscriptionFailure, TranscriptionFailureReason } from "../types/trans
  * Deliberately longer than the generic 1-second transient default.
  */
 const CAPACITY_FALLBACK_RETRY_AFTER_SECONDS = 5;
+const REDACTED_HEADER_VALUE = "[redacted]";
+const SENSITIVE_HEADER_NAMES = new Set(["authorization", "cookie", "proxy-authorization"]);
 
 /** Raised when the client disconnected, so no response should be written. */
 export class TranscriptionCancelledError extends Error {
@@ -126,7 +128,7 @@ export class VoiceService {
       return new InternalServerError({ debugMessage: "Transcription failed", nestedError: error });
     }
 
-    const cause = error.cause;
+    const cause = redactProviderCause({ cause: error.cause });
 
     switch (error.reason) {
       case TranscriptionFailureReason.InvalidInput:
@@ -175,4 +177,38 @@ export class VoiceService {
   static #assertNeverTranscriptionFailureReason(reason: never): never {
     throw new InternalServerError({ debugMessage: `Unhandled transcription failure reason: ${reason}` });
   }
+}
+
+function redactProviderCause(input: { cause: unknown }): unknown {
+  if (input.cause === null || typeof input.cause !== "object") {
+    return input.cause;
+  }
+
+  const headers = Reflect.get(input.cause, "headers");
+  if (headers === null || typeof headers !== "object") {
+    return input.cause;
+  }
+
+  if (input.cause instanceof Error) {
+    const redactedError = new Error(input.cause.message, { cause: input.cause.cause });
+    redactedError.name = input.cause.name;
+    redactedError.stack = input.cause.stack;
+    Object.assign(redactedError, input.cause, { headers: redactHeaders({ headers }) });
+    return redactedError;
+  }
+
+  return { ...input.cause, headers: redactHeaders({ headers }) };
+}
+
+function redactHeaders(input: { headers: object }): Record<PropertyKey, unknown> {
+  const redactedHeaders: Record<PropertyKey, unknown> = {};
+  for (const key of Reflect.ownKeys(input.headers)) {
+    redactedHeaders[key] = isSensitiveHeaderName({ key }) ? REDACTED_HEADER_VALUE : Reflect.get(input.headers, key);
+  }
+
+  return redactedHeaders;
+}
+
+function isSensitiveHeaderName(input: { key: PropertyKey }): boolean {
+  return typeof input.key === "string" && SENSITIVE_HEADER_NAMES.has(input.key.toLowerCase());
 }
