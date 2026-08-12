@@ -44,4 +44,10 @@ export class SettingsService {
     const document = await this.#repo.upsert(userId, deviceId, patch);
     return toView(deviceId, document);
   }
+
+  // Drops the device's stored overrides, leaving it resolving to the same server
+  // defaults a read returns for a device that never stored anything.
+  async deleteForDevice(userId: string, deviceId: string): Promise<void> {
+    await this.#repo.deleteByUserAndDevice(userId, deviceId);
+  }
 }

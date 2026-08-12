@@ -52,10 +52,12 @@ export function buildSettingsWriteRateLimitKey(
   };
 }
 
-// Each write for an unseen deviceId inserts a settingsConfiguration document,
+// Each PATCH for an unseen deviceId inserts a settingsConfiguration document,
 // and deviceId is client-generated, so this bounds how fast one client can grow
-// that collection. Reads create nothing and are not limited beyond the global
-// allowance.
+// that collection. DELETE cannot grow it but is still a mutation, so it carries
+// the same limit. The plugin counts per route, so the two do not share a bucket:
+// an account gets this allowance on each verb, not across both. Reads create
+// nothing and are not limited beyond the global allowance.
 const SETTINGS_WRITE_MAX_PER_MINUTE = 30;
 
 export type SettingsRouteOptions = {
@@ -97,6 +99,17 @@ export const settingsRoutes: FastifyPluginAsync<SettingsRouteOptions> = async (f
 
       const userId = getUserId(request);
       return settingsService.updateForDevice(userId, deviceId, bodyResult.data);
+    },
+  );
+
+  fastify.delete<{ Params: { deviceId: string }; Reply: { ok: true } }>(
+    "/auth/settings/:deviceId",
+    { preHandler: requireAuth, config: { rateLimit: settingsWriteRateLimit } },
+    async (request) => {
+      const deviceId = parseDeviceId(request.params.deviceId);
+      const userId = getUserId(request);
+      await settingsService.deleteForDevice(userId, deviceId);
+      return { ok: true };
     },
   );
 };

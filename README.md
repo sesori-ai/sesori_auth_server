@@ -138,8 +138,9 @@ Per-device application settings (currently notification toggles), keyed by a cli
 | ------- | -------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET`   | `/auth/settings/:deviceId` | Bearer | Get the device's fully-resolved settings (defaults applied; returns 200 with defaults when nothing is stored)                                                  |
 | `PATCH` | `/auth/settings/:deviceId` | Bearer | Merge-update settings. Body `{ notifications?: { aiInteraction?, sessionMessage?, connectionStatus?, systemUpdate? } }` — all toggles optional, at least one required |
+| `DELETE` | `/auth/settings/:deviceId` | Bearer | Drop the device's stored overrides, returning it to the server defaults. Idempotent — a device that stored nothing returns 200 |
 
-Both endpoints return the complete resolved shape:
+`GET` and `PATCH` return the complete resolved shape:
 
 ```json
 {
@@ -156,7 +157,9 @@ Both endpoints return the complete resolved shape:
 
 `updatedAt` is `null` until the device stores its first override, then an ISO 8601 timestamp. Missing or invalid bearer authentication returns 401. A malformed/non-v4 `deviceId`, an empty PATCH, unknown groups or toggles, and non-boolean toggle values return 400.
 
-`PATCH` is additionally limited to **30 writes per minute per account**, returning 429 beyond that. `deviceId` is client-generated, so each write for an unseen device inserts a row; the limit bounds how fast one client can grow the collection. It is deliberately well above real use — a settings screen has four toggles — so normal clients never reach it. `GET` creates nothing and is not limited beyond the global allowance. This bounds growth rather than capping total devices: an earlier per-user cap was removed in `2e370cb` because the count-then-write pre-check it needed was a persistent source of races.
+`DELETE` responds `{ "ok": true }` and removes the device's document outright rather than rewriting it to all-true, so a subsequent `GET` reads back the defaults with `updatedAt` back to `null`. It never 404s: an absent document already resolves to the defaults, so deleting a device that stored nothing reaches the same end state. Like the other two routes it is scoped by the caller's `userId`, so two accounts sharing a `deviceId` delete only their own record.
+
+`PATCH` and `DELETE` are each additionally limited to **30 writes per minute per account**, returning 429 beyond that. `deviceId` is client-generated, so each `PATCH` for an unseen device inserts a row; the limit bounds how fast one client can grow the collection. `DELETE` only ever shrinks it and carries the limit because it is still a mutation, not because it contributes to that growth. The counters are per route rather than pooled, so an account can spend 30 of each in the same minute — 60 writes combined — rather than 30 across both. It is deliberately well above real use — a settings screen has four toggles — so normal clients never reach it. `GET` creates nothing and is not limited beyond the global allowance. This bounds growth rather than capping total devices: an earlier per-user cap was removed in `2e370cb` because the count-then-write pre-check it needed was a persistent source of races.
 
 The allowance is keyed on the access token's `userId` claim rather than the token string, so refreshing does not hand out a new allowance. The signature is verified before that claim is trusted; a request whose token cannot be verified is keyed on the caller's address instead, so forged traffic carrying someone else's `userId` consumes only its own bucket and cannot deny a real account its writes.
 

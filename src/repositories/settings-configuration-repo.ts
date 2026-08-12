@@ -66,4 +66,16 @@ export class SettingsConfigurationRepository {
 
     return document;
   }
+
+  // Scoped by userId as well as deviceId so a leaked deviceId cannot clear
+  // another account's settings. Deleting a device that stored nothing is a
+  // no-op rather than an error: reads already resolve an absent document to the
+  // defaults, so the caller's end state is identical either way.
+  async deleteByUserAndDevice(userId: string, deviceId: string): Promise<void> {
+    if (!ObjectId.isValid(userId)) {
+      return;
+    }
+
+    await this.#collection.deleteOne({ userId: new ObjectId(userId), deviceId });
+  }
 }

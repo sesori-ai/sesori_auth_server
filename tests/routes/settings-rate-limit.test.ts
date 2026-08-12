@@ -145,4 +145,56 @@ describe("settings write rate limit", () => {
     assert.equal(read.statusCode, 200);
     assert.equal(read.json().notifications.aiInteraction, true);
   });
+
+  it("throttles a client that floods deletes", async () => {
+    const user = await ctx.createUser();
+    const headers = { authorization: `Bearer ${user.accessToken}` };
+
+    const statuses: number[] = [];
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const response = await ctx.app.inject({
+        method: "DELETE",
+        url: `/auth/settings/${randomUUID()}`,
+        headers,
+        remoteAddress: CLIENT_ADDRESS,
+      });
+      statuses.push(response.statusCode);
+    }
+
+    assert.ok(
+      statuses.includes(429),
+      `expected the burst to be throttled, saw ${JSON.stringify([...new Set(statuses)])}`,
+    );
+    assert.equal(statuses[0], 200, "the first delete must still succeed");
+
+    const accepted = statuses.filter((status) => status === 200).length;
+    assert.ok(accepted <= 30, `expected at most the configured allowance, got ${accepted}`);
+  });
+
+  // The plugin counts per route, so exhausting one verb must not spend the
+  // other's allowance. This pins that behaviour: the documented budget is 30 per
+  // verb, and a change that pooled them would halve what clients may do.
+  it("keeps the delete and patch allowances independent", async () => {
+    const user = await ctx.createUser();
+    const headers = { authorization: `Bearer ${user.accessToken}` };
+
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      await ctx.app.inject({
+        method: "PATCH",
+        url: `/auth/settings/${randomUUID()}`,
+        headers,
+        remoteAddress: CLIENT_ADDRESS,
+        payload: { notifications: { aiInteraction: false } },
+      });
+    }
+
+    const removed = await ctx.app.inject({
+      method: "DELETE",
+      url: `/auth/settings/${randomUUID()}`,
+      headers,
+      remoteAddress: CLIENT_ADDRESS,
+    });
+
+    assert.equal(removed.statusCode, 200, "an exhausted PATCH budget must not throttle DELETE");
+  });
 });
