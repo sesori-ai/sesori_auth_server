@@ -73,7 +73,7 @@ export class SettingsConfigurationRepository {
   // defaults, so the caller's end state is identical either way.
   async deleteByUserAndDevice(userId: string, deviceId: string): Promise<void> {
     if (!ObjectId.isValid(userId)) {
-      return;
+      throw new InternalServerError({ debugMessage: "Invalid settings userId" });
     }
 
     await this.#collection.deleteOne({ userId: new ObjectId(userId), deviceId });
@@ -85,7 +85,7 @@ export class SettingsConfigurationRepository {
   // preference the same user expects to still have after signing back in.
   async deleteAllForUser(userId: string): Promise<void> {
     if (!ObjectId.isValid(userId)) {
-      return;
+      throw new InternalServerError({ debugMessage: "Invalid settings userId" });
     }
 
     await this.#collection.deleteMany({ userId: new ObjectId(userId) });

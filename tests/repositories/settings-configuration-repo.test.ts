@@ -116,12 +116,21 @@ describe("SettingsConfigurationRepository", () => {
     assert.equal(survivors[0]?.deviceId, sharedDeviceId);
   });
 
-  it("deleteAllForUser is a no-op for an invalid or unknown user", async () => {
+  // A malformed id means the caller is broken. Returning quietly would report a
+  // purge that never happened, which matters most for the account-deletion path
+  // this method exists to serve, so both deletes fail loudly like upsert does.
+  it("both deletes reject a malformed user id rather than reporting a silent success", async () => {
+    const repo = new SettingsConfigurationRepository(ctx.dbAccessor);
+
+    await assert.rejects(() => repo.deleteAllForUser("not-an-object-id"));
+    await assert.rejects(() => repo.deleteByUserAndDevice("not-an-object-id", randomUUID()));
+  });
+
+  it("deleteAllForUser is a no-op for a well-formed but unknown user", async () => {
     const user = await ctx.createUser();
     const repo = new SettingsConfigurationRepository(ctx.dbAccessor);
     await repo.upsert(user.userId, randomUUID(), { notifications: { aiInteraction: false } });
 
-    await repo.deleteAllForUser("not-an-object-id");
     await repo.deleteAllForUser("69b2aeaa1755fd6c00000000");
 
     assert.equal((await repo.findByUserId(user.userId)).length, 1);
