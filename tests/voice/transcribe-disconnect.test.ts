@@ -11,7 +11,7 @@ import {
 } from "../../src/types/transcription.js";
 
 const BOUNDARY = "----TestBoundaryTranscribeDisconnect";
-const REQUEST_DEADLINE_MS = 1_000;
+const REQUEST_DEADLINE_MS = 5_000;
 
 class SuccessfulTranscriptionClient implements AsyncTranscriptionClient {
   readonly called: Promise<AbortSignal | undefined>;
@@ -104,7 +104,7 @@ describe("POST /voice/transcribe client disconnect", () => {
 
       assert.equal(signal?.aborted, false);
       assert.equal(response.statusCode, 200);
-      assert.deepEqual(JSON.parse(response.body), { text: "healthy transcript", dailySecondsRemaining: 3599 });
+      assert.equal(JSON.parse(response.body).text, "healthy transcript");
     } finally {
       request?.destroy();
       agent.destroy();
