@@ -2,10 +2,12 @@ import { z } from "zod";
 import {
   RealtimeAudioEncoding,
   RealtimeChannelCount,
+  RealtimeClientMessageType,
   RealtimeFinishedReason,
   RealtimeProtocolErrorCode,
   RealtimeProtocolVersion,
   RealtimeSampleRate,
+  RealtimeServerEventType,
 } from "../types/transcription.js";
 
 export const projectKeySchema = z
@@ -73,16 +75,16 @@ export const realtimeAudioFormatSchema = z
 
 export const realtimeStartMessageSchema = z
   .object({
-    type: z.literal("start"),
+    type: z.literal(RealtimeClientMessageType.Start),
     protocolVersion: z.literal(RealtimeProtocolVersion.V1),
     projectKey: projectKeySchema.nullable(),
     audio: realtimeAudioFormatSchema,
   })
   .strict();
 
-export const realtimeFinishMessageSchema = z.object({ type: z.literal("finish") }).strict();
+export const realtimeFinishMessageSchema = z.object({ type: z.literal(RealtimeClientMessageType.Finish) }).strict();
 
-export const realtimeCancelMessageSchema = z.object({ type: z.literal("cancel") }).strict();
+export const realtimeCancelMessageSchema = z.object({ type: z.literal(RealtimeClientMessageType.Cancel) }).strict();
 
 export const realtimeClientMessageSchema = z.discriminatedUnion("type", [
   realtimeStartMessageSchema,
@@ -92,7 +94,7 @@ export const realtimeClientMessageSchema = z.discriminatedUnion("type", [
 
 export const realtimeReadyEventSchema = z
   .object({
-    type: z.literal("ready"),
+    type: z.literal(RealtimeServerEventType.Ready),
     protocolVersion: z.literal(RealtimeProtocolVersion.V1),
     maxSessionSeconds: z.number().int().min(1).max(900),
     dailySecondsRemaining: nonNegativeIntegerSchema,
@@ -101,7 +103,7 @@ export const realtimeReadyEventSchema = z
 
 export const realtimeTranscriptEventSchema = z
   .object({
-    type: z.literal("transcript"),
+    type: z.literal(RealtimeServerEventType.Transcript),
     confirmedDelta: z.string().max(32768),
     provisional: z.string().max(32768),
   })
@@ -110,7 +112,7 @@ export const realtimeTranscriptEventSchema = z
 
 export const realtimeCompleteEventSchema = z
   .object({
-    type: z.literal("complete"),
+    type: z.literal(RealtimeServerEventType.Complete),
     reason: z.enum(RealtimeFinishedReason),
     dailySecondsRemaining: nonNegativeIntegerSchema,
   })
@@ -118,7 +120,7 @@ export const realtimeCompleteEventSchema = z
 
 export const realtimeErrorEventSchema = z
   .object({
-    type: z.literal("error"),
+    type: z.literal(RealtimeServerEventType.Error),
     code: z.enum(RealtimeProtocolErrorCode),
     retryable: z.boolean(),
   })

@@ -9,7 +9,7 @@ import { withTimeout } from "./realtime-session-utils.js";
 export type TerminalDecision =
   | { readonly kind: "complete"; readonly reason: RealtimeFinishedReason }
   | { readonly kind: "silent" }
-  | { readonly kind: "error"; readonly code: RealtimeProtocolErrorCode };
+  | { readonly kind: "error"; readonly code: RealtimeProtocolErrorCode; readonly recordUsage?: boolean };
 
 export type RealtimeAudioFrameResult =
   | { readonly kind: "sent"; readonly attemptedBytes: number; readonly reachedLimit: boolean }

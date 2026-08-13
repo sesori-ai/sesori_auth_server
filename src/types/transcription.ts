@@ -62,6 +62,24 @@ export enum RealtimeProtocolErrorCode {
   ServiceRestarting = "service_restarting",
 }
 
+export enum RealtimeClientMessageType {
+  Start = "start",
+  Finish = "finish",
+  Cancel = "cancel",
+}
+
+export enum RealtimeServerEventType {
+  Ready = "ready",
+  Transcript = "transcript",
+  Complete = "complete",
+  Error = "error",
+}
+
+export enum RealtimeProviderEventType {
+  Transcript = "transcript",
+  Finished = "finished",
+}
+
 export enum RealtimeTranscriptionFailureReason {
   Capacity = "capacity",
   Unavailable = "unavailable",

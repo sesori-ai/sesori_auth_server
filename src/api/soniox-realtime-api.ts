@@ -1,8 +1,17 @@
 import { z } from "zod";
-import { RealtimeTranscriptionFailure, RealtimeTranscriptionFailureReason } from "../types/transcription.js";
+import {
+  RealtimeProviderEventType,
+  RealtimeTranscriptionFailure,
+  RealtimeTranscriptionFailureReason,
+} from "../types/transcription.js";
 import type { RealtimeProviderEvent } from "../clients/realtime-transcription-client.js";
 
 const maxTranscriptCharacters = 1_000_000;
+const maxPublicTranscriptCharacters = 32_768;
+
+export type SonioxRealtimeParseOptions = {
+  readonly maxAudioDurationMs: number;
+};
 
 const tokenSchema = z
   .object({
@@ -64,14 +73,21 @@ function fail(reason: RealtimeTranscriptionFailureReason, cause?: unknown): neve
   throw new RealtimeTranscriptionFailure(reason, { cause });
 }
 
-export function parseSonioxRealtimeResult(value: unknown): RealtimeProviderEvent {
+export function parseSonioxRealtimeResult(value: unknown, options: SonioxRealtimeParseOptions): RealtimeProviderEvent {
   const result = resultSchema.safeParse(value);
   if (!result.success) {
     fail(RealtimeTranscriptionFailureReason.MalformedOutput, result.error.issues);
   }
 
+  if (
+    result.data.final_audio_proc_ms > options.maxAudioDurationMs ||
+    result.data.total_audio_proc_ms > options.maxAudioDurationMs
+  ) {
+    fail(RealtimeTranscriptionFailureReason.MalformedOutput);
+  }
+
   if (result.data.finished === true) {
-    return { type: "finished" };
+    return { type: RealtimeProviderEventType.Finished };
   }
 
   const finalTextDelta = result.data.tokens
@@ -85,8 +101,12 @@ export function parseSonioxRealtimeResult(value: unknown): RealtimeProviderEvent
     .map((token) => token.text)
     .join("");
 
+  if (finalTextDelta.length > maxPublicTranscriptCharacters || provisionalText.length > maxPublicTranscriptCharacters) {
+    fail(RealtimeTranscriptionFailureReason.MalformedOutput);
+  }
+
   return {
-    type: "transcript",
+    type: RealtimeProviderEventType.Transcript,
     confirmedDelta: finalTextDelta,
     provisional: provisionalText,
     finalAudioMs: result.data.final_audio_proc_ms,

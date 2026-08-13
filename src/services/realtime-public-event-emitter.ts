@@ -1,6 +1,17 @@
 import { REALTIME_PROTOCOL_ERROR_RETRYABLE } from "../models/voice.js";
-import { RealtimeFinishedReason, RealtimeProtocolErrorCode, RealtimeProtocolVersion } from "../types/transcription.js";
-import { isPublicEventValid, type RealtimeSessionCallbacks } from "./realtime-transcription-events.js";
+import {
+  RealtimeFinishedReason,
+  RealtimeProtocolErrorCode,
+  RealtimeProtocolVersion,
+  RealtimeServerEventType,
+} from "../types/transcription.js";
+import {
+  isPublicEventValid,
+  type RealtimeErrorEvent,
+  type RealtimeReadyEvent,
+  type RealtimeSessionCallbacks,
+  type RealtimeTranscriptEvent,
+} from "./realtime-transcription-events.js";
 
 export type PublicTerminalDecision =
   | { readonly kind: "complete"; readonly reason: RealtimeFinishedReason }
@@ -12,8 +23,8 @@ export function emitReadyEvent(input: {
   readonly maxSessionSeconds: number;
   readonly dailySecondsRemaining: number;
 }): boolean {
-  const event = {
-    type: "ready" as const,
+  const event: RealtimeReadyEvent = {
+    type: RealtimeServerEventType.Ready,
     protocolVersion: RealtimeProtocolVersion.V1,
     maxSessionSeconds: input.maxSessionSeconds,
     dailySecondsRemaining: input.dailySecondsRemaining,
@@ -30,7 +41,11 @@ export function emitTranscriptEvent(input: {
   readonly confirmedDelta: string;
   readonly provisional: string;
 }): boolean {
-  const event = { type: "transcript" as const, confirmedDelta: input.confirmedDelta, provisional: input.provisional };
+  const event: RealtimeTranscriptEvent = {
+    type: RealtimeServerEventType.Transcript,
+    confirmedDelta: input.confirmedDelta,
+    provisional: input.provisional,
+  };
   if (!isPublicEventValid(event)) {
     return false;
   }
@@ -45,24 +60,55 @@ export function emitTerminalEvent(input: {
 }): void {
   switch (input.decision.kind) {
     case "complete":
-      input.callbacks.onComplete({
-        type: "complete",
+      emitCompleteOrInternalError(input.callbacks, {
+        type: RealtimeServerEventType.Complete,
         reason: input.decision.reason,
         dailySecondsRemaining: input.remaining,
       });
       break;
     case "error":
-      input.callbacks.onError({
-        type: "error",
-        code: input.decision.code,
-        retryable: REALTIME_PROTOCOL_ERROR_RETRYABLE[input.decision.code],
-      });
+      emitErrorOrInternalError(input.callbacks, input.decision.code);
       break;
     case "silent":
       break;
     default:
       assertNeverTerminalDecision(input.decision);
   }
+}
+
+function emitCompleteOrInternalError(
+  callbacks: RealtimeSessionCallbacks,
+  event: Parameters<RealtimeSessionCallbacks["onComplete"]>[0],
+): void {
+  if (isPublicEventValid(event)) {
+    callbacks.onComplete(event);
+    return;
+  }
+
+  emitInternalError(callbacks);
+}
+
+function emitErrorOrInternalError(callbacks: RealtimeSessionCallbacks, code: RealtimeProtocolErrorCode): void {
+  const event: RealtimeErrorEvent = {
+    type: RealtimeServerEventType.Error,
+    code,
+    retryable: REALTIME_PROTOCOL_ERROR_RETRYABLE[code],
+  };
+  if (isPublicEventValid(event)) {
+    callbacks.onError(event);
+    return;
+  }
+
+  emitInternalError(callbacks);
+}
+
+function emitInternalError(callbacks: RealtimeSessionCallbacks): void {
+  const event: RealtimeErrorEvent = {
+    type: RealtimeServerEventType.Error,
+    code: RealtimeProtocolErrorCode.InternalError,
+    retryable: REALTIME_PROTOCOL_ERROR_RETRYABLE[RealtimeProtocolErrorCode.InternalError],
+  };
+  callbacks.onError(event);
 }
 
 function assertNeverTerminalDecision(_decision: never): never {

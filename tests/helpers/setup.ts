@@ -151,10 +151,12 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   ).toString("base64");
 
   const config = loadConfig();
+  const realtimeEnabled =
+    overrides?.configOverrides?.REALTIME_TRANSCRIPTION_ENABLED ?? overrides?.realtimeService !== undefined;
   const effectiveConfig: Config = {
     ...config,
     ...overrides?.configOverrides,
-    REALTIME_TRANSCRIPTION_ENABLED: overrides?.realtimeService !== undefined,
+    REALTIME_TRANSCRIPTION_ENABLED: realtimeEnabled,
   };
 
   const dbConnector = new MongoDbConnector({ connectionString: mongoUri });
@@ -246,17 +248,18 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     appleNativeVerifier,
     pendingAuthStore,
     productAnalyticsPreferenceService,
-    realtime: overrides?.realtimeService
-      ? {
-          realtimeService: overrides.realtimeService,
-          routePolicy: {
-            firstFrameTimeoutMs: effectiveConfig.REALTIME_FIRST_FRAME_TIMEOUT_MS,
-            maxTextFrameBytes: 2_048,
-            maxAudioFrameBytes: 65_536,
-            outboundBufferMaxBytes: effectiveConfig.REALTIME_OUTBOUND_BUFFER_MAX_BYTES,
-          },
-        }
-      : undefined,
+    realtime:
+      overrides?.realtimeService && effectiveConfig.REALTIME_TRANSCRIPTION_ENABLED
+        ? {
+            realtimeService: overrides.realtimeService,
+            routePolicy: {
+              firstFrameTimeoutMs: effectiveConfig.REALTIME_FIRST_FRAME_TIMEOUT_MS,
+              maxTextFrameBytes: 2_048,
+              maxAudioFrameBytes: 65_536,
+              outboundBufferMaxBytes: effectiveConfig.REALTIME_OUTBOUND_BUFFER_MAX_BYTES,
+            },
+          }
+        : undefined,
   });
   await app.ready();
 

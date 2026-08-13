@@ -9,7 +9,13 @@ import {
   realtimeStartMessageSchema,
   realtimeTranscriptEventSchema,
 } from "../../src/models/voice.js";
-import { RealtimeProtocolErrorCode, RealtimeProtocolVersion } from "../../src/types/transcription.js";
+import {
+  RealtimeClientMessageType,
+  RealtimeProtocolErrorCode,
+  RealtimeProtocolVersion,
+  RealtimeProviderEventType,
+  RealtimeServerEventType,
+} from "../../src/types/transcription.js";
 
 const fixturePath = new URL("../fixtures/voice-realtime-protocol-v1.json", import.meta.url);
 const fixtureSource = readFileSync(fixturePath, "utf8");
@@ -62,6 +68,24 @@ describe("realtime protocol v1 schemas", () => {
       }).success,
       false,
     );
+  });
+
+  it("locks realtime message type enum values to the protocol wire strings", () => {
+    assert.deepEqual(RealtimeClientMessageType, {
+      Start: "start",
+      Finish: "finish",
+      Cancel: "cancel",
+    });
+    assert.deepEqual(RealtimeServerEventType, {
+      Ready: "ready",
+      Transcript: "transcript",
+      Complete: "complete",
+      Error: "error",
+    });
+    assert.deepEqual(RealtimeProviderEventType, {
+      Transcript: "transcript",
+      Finished: "finished",
+    });
   });
 
   it("requires transcript content and applies the 32768-character public bounds", () => {

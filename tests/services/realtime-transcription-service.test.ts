@@ -14,10 +14,12 @@ import {
   type RealtimeTranscriptionPolicy,
 } from "../../src/services/realtime-transcription-service.js";
 import { RealtimeSessionController } from "../../src/services/realtime-session-controller.js";
+import { emitTerminalEvent } from "../../src/services/realtime-public-event-emitter.js";
 import type { GlossaryService } from "../../src/services/glossary-service.js";
 import {
   RealtimeAudioEncoding,
   RealtimeFinishedReason,
+  RealtimeProviderEventType,
   RealtimeProtocolErrorCode,
   RealtimeSampleRate,
   RealtimeTranscriptionFailure,
@@ -76,7 +78,7 @@ describe("RealtimeTranscriptionService", () => {
     const session = await harness.start({ sampleRate: RealtimeSampleRate.Rate16000 });
 
     session.sendAudio(Buffer.alloc(64_002));
-    harness.provider.sessions[0]?.emit({ type: "finished" });
+    harness.provider.sessions[0]?.emit({ type: RealtimeProviderEventType.Finished });
     await session.closed;
 
     assert.deepEqual(harness.provider.sessions[0]?.sentBytes, [64_000]);
@@ -98,7 +100,7 @@ describe("RealtimeTranscriptionService", () => {
 
     session.sendAudio(Buffer.alloc(32_000));
     const finishPromise = session.finish();
-    harness.provider.sessions[0]?.emit({ type: "finished" });
+    harness.provider.sessions[0]?.emit({ type: RealtimeProviderEventType.Finished });
     await finishPromise;
 
     const complete = harness.events.at(-1);
@@ -116,21 +118,21 @@ describe("RealtimeTranscriptionService", () => {
     const providerSession = harness.provider.sessions[0];
 
     providerSession?.emit({
-      type: "transcript",
+      type: RealtimeProviderEventType.Transcript,
       confirmedDelta: "hello ",
       provisional: "wor",
       finalAudioMs: 100,
       totalAudioMs: 150,
     });
     providerSession?.emit({
-      type: "transcript",
+      type: RealtimeProviderEventType.Transcript,
       confirmedDelta: "",
       provisional: "world",
       finalAudioMs: 100,
       totalAudioMs: 220,
     });
     providerSession?.emit({
-      type: "transcript",
+      type: RealtimeProviderEventType.Transcript,
       confirmedDelta: "world",
       provisional: "",
       finalAudioMs: 220,
@@ -162,13 +164,13 @@ describe("RealtimeTranscriptionService", () => {
     finishedSession.sendAudio(Buffer.alloc(320));
     const finishPromise = finishedSession.finish();
     finished.provider.sessions[0]?.emit({
-      type: "transcript",
+      type: RealtimeProviderEventType.Transcript,
       confirmedDelta: "late",
       provisional: "",
       finalAudioMs: 11,
       totalAudioMs: 11,
     });
-    finished.provider.sessions[0]?.emit({ type: "finished" });
+    finished.provider.sessions[0]?.emit({ type: RealtimeProviderEventType.Finished });
     await finishPromise;
 
     assert.deepEqual(finished.provider.sessions[0]?.calls, ["sendAudio", "finish"]);
@@ -217,7 +219,7 @@ describe("RealtimeTranscriptionService", () => {
     const providerSession = harness.provider.sessions[0];
 
     providerSession?.emit({
-      type: "transcript",
+      type: RealtimeProviderEventType.Transcript,
       confirmedDelta: "safe",
       provisional: "draft",
       finalAudioMs: 50,
@@ -240,14 +242,14 @@ describe("RealtimeTranscriptionService", () => {
     const providerSession = harness.provider.sessions[0];
 
     providerSession?.emit({
-      type: "transcript",
+      type: RealtimeProviderEventType.Transcript,
       confirmedDelta: "safe",
       provisional: "",
       finalAudioMs: 100,
       totalAudioMs: 100,
     });
     providerSession?.emit({
-      type: "transcript",
+      type: RealtimeProviderEventType.Transcript,
       confirmedDelta: "é".repeat(32_768),
       provisional: "",
       finalAudioMs: 200,
@@ -277,7 +279,7 @@ describe("RealtimeTranscriptionService", () => {
     await delay(1_050);
 
     assert.deepEqual(providerSession.calls, ["sendAudio", "finish"]);
-    providerSession.emit({ type: "finished" });
+    providerSession.emit({ type: RealtimeProviderEventType.Finished });
     await session.closed;
 
     assert.deepEqual(harness.events.at(-1), {
@@ -305,7 +307,7 @@ describe("RealtimeTranscriptionService", () => {
     try {
       const writeFailSession = await writeFail.start();
       writeFail.provider.sessions[0]?.emit({
-        type: "transcript",
+        type: RealtimeProviderEventType.Transcript,
         confirmedDelta: "",
         provisional: "",
         finalAudioMs: 500,
@@ -313,7 +315,7 @@ describe("RealtimeTranscriptionService", () => {
       });
       writeFailSession.sendAudio(Buffer.alloc(320));
       const finishPromise = writeFailSession.finish();
-      writeFail.provider.sessions[0]?.emit({ type: "finished" });
+      writeFail.provider.sessions[0]?.emit({ type: RealtimeProviderEventType.Finished });
       await finishPromise;
     } finally {
       restore();
@@ -325,16 +327,58 @@ describe("RealtimeTranscriptionService", () => {
     const progress = createHarness();
     const progressSession = await progress.start();
     progress.provider.sessions[0]?.emit({
-      type: "transcript",
+      type: RealtimeProviderEventType.Transcript,
       confirmedDelta: "",
       provisional: "",
       finalAudioMs: 1000,
       totalAudioMs: 1000,
     });
     const progressFinish = progressSession.finish();
-    progress.provider.sessions[0]?.emit({ type: "finished" });
+    progress.provider.sessions[0]?.emit({ type: RealtimeProviderEventType.Finished });
     await progressFinish;
     assert.equal(progress.usage.increments[0]?.seconds, 1);
+  });
+
+  it("rejects provider progress beyond the admitted session limit before usage accounting", async () => {
+    const harness = createHarness({ policy: { ...POLICY, maxSessionSeconds: 1 } });
+    const session = await harness.start();
+
+    harness.provider.sessions[0]?.emit({
+      type: RealtimeProviderEventType.Transcript,
+      confirmedDelta: "",
+      provisional: "",
+      finalAudioMs: 1_001,
+      totalAudioMs: 1,
+    });
+    await session.closed;
+
+    assert.deepEqual(harness.events.at(-1), {
+      type: "error",
+      code: RealtimeProtocolErrorCode.InternalError,
+      retryable: true,
+    });
+    assert.equal(harness.usage.increments.length, 0);
+  });
+
+  it("fails closed to a valid internal error when terminal payload validation fails", async () => {
+    const events: ServiceEvent[] = [];
+
+    emitTerminalEvent({
+      callbacks: {
+        onReady: (event) => events.push(event),
+        onTranscript: (event) => events.push(event),
+        onComplete: (event) => events.push(event),
+        onError: (event) => events.push(event),
+      },
+      decision: { kind: "complete", reason: RealtimeFinishedReason.Finished },
+      remaining: Number.NaN,
+    });
+
+    assert.deepEqual(events.at(-1), {
+      type: "error",
+      code: RealtimeProtocolErrorCode.InternalError,
+      retryable: true,
+    });
   });
 
   it("floors fallback complete remaining when usage write fails after fractional admission", async () => {
@@ -345,7 +389,7 @@ describe("RealtimeTranscriptionService", () => {
       const session = await harness.start();
       session.sendAudio(Buffer.alloc(32_000));
       const finishPromise = session.finish();
-      harness.provider.sessions[0]?.emit({ type: "finished" });
+      harness.provider.sessions[0]?.emit({ type: RealtimeProviderEventType.Finished });
       await finishPromise;
     } finally {
       restore();
@@ -538,7 +582,7 @@ describe("RealtimeTranscriptionService", () => {
     const oversized = createHarness();
     const oversizedSession = await oversized.start();
     oversized.provider.sessions[0]?.emit({
-      type: "transcript",
+      type: RealtimeProviderEventType.Transcript,
       confirmedDelta: "é".repeat(40_000),
       provisional: "",
       finalAudioMs: 0,

@@ -6,7 +6,11 @@ import {
   realtimeFinishMessageSchema,
   realtimeStartMessageSchema,
 } from "../models/voice.js";
-import { RealtimeProtocolErrorCode } from "../types/transcription.js";
+import {
+  RealtimeClientMessageType,
+  RealtimeProtocolErrorCode,
+  RealtimeServerEventType,
+} from "../types/transcription.js";
 
 export const FIRST_FRAME_TIMEOUT_MS = 5_000;
 export const MAX_TEXT_BYTES = 2_048;
@@ -27,8 +31,8 @@ export type RealtimeStartFrameResult =
   | { readonly kind: "unsupported" };
 
 export type RealtimeControlFrameResult =
-  | { readonly kind: "finish" }
-  | { readonly kind: "cancel" }
+  | { readonly kind: RealtimeClientMessageType.Finish }
+  | { readonly kind: RealtimeClientMessageType.Cancel }
   | { readonly kind: "invalid" };
 
 export const DEFAULT_REALTIME_ROUTE_POLICY: RealtimeRoutePolicy = {
@@ -52,10 +56,18 @@ export function sendTerminalError(
   code: RealtimeProtocolErrorCode,
   policy: RealtimeRoutePolicy,
 ): boolean {
-  return sendEvent(socket, { type: "error", code, retryable: REALTIME_PROTOCOL_ERROR_RETRYABLE[code] }, policy);
+  return sendEvent(
+    socket,
+    { type: RealtimeServerEventType.Error, code, retryable: REALTIME_PROTOCOL_ERROR_RETRYABLE[code] },
+    policy,
+  );
 }
 
 export function sendEvent(socket: WebSocket, event: object, policy: RealtimeRoutePolicy): boolean {
+  if (socket.readyState !== socket.OPEN) {
+    return false;
+  }
+
   if (socket.bufferedAmount > policy.outboundBufferMaxBytes) {
     sendSlowClientError(socket);
     return false;
@@ -67,20 +79,38 @@ export function sendEvent(socket: WebSocket, event: object, policy: RealtimeRout
     return false;
   }
 
-  socket.send(serialized);
-  return true;
+  try {
+    socket.send(serialized);
+    return true;
+  } catch {
+    closeSocket(socket, CLOSE_CODE.unavailable);
+    return false;
+  }
 }
 
 function sendSlowClientError(socket: WebSocket): void {
   const serialized = JSON.stringify({
-    type: "error",
+    type: RealtimeServerEventType.Error,
     code: RealtimeProtocolErrorCode.SlowClient,
     retryable: REALTIME_PROTOCOL_ERROR_RETRYABLE[RealtimeProtocolErrorCode.SlowClient],
   });
   if (socket.bufferedAmount === 0) {
-    socket.send(serialized);
+    trySend(socket, serialized);
   }
-  socket.close(CLOSE_CODE.unavailable);
+  closeSocket(socket, CLOSE_CODE.unavailable);
+}
+
+function trySend(socket: WebSocket, data: string): boolean {
+  if (socket.readyState !== socket.OPEN) {
+    return false;
+  }
+
+  try {
+    socket.send(data);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function rawDataToBuffer(data: RawData): Buffer {
@@ -142,11 +172,11 @@ export function parseControlFrame(data: RawData, policy: RealtimeRoutePolicy): R
   const decoded = decodeUtf8(raw);
   const parsedJson = decoded.ok ? parseJson(decoded.text) : { ok: false as const };
   if (parsedJson.ok && realtimeFinishMessageSchema.safeParse(parsedJson.value).success) {
-    return { kind: "finish" };
+    return { kind: RealtimeClientMessageType.Finish };
   }
 
   if (parsedJson.ok && realtimeCancelMessageSchema.safeParse(parsedJson.value).success) {
-    return { kind: "cancel" };
+    return { kind: RealtimeClientMessageType.Cancel };
   }
 
   return { kind: "invalid" };
@@ -161,7 +191,7 @@ function isUnsupportedStartProtocol(
 
   return (
     "type" in parsedJson.value &&
-    parsedJson.value.type === "start" &&
+    parsedJson.value.type === RealtimeClientMessageType.Start &&
     "protocolVersion" in parsedJson.value &&
     parsedJson.value.protocolVersion !== 1
   );
@@ -192,7 +222,19 @@ export function closeCodeForError(code: RealtimeProtocolErrorCode): number {
 
 export function closeSocket(socket: WebSocket, code: number): void {
   if (socket.readyState === socket.OPEN) {
-    socket.close(code);
+    try {
+      socket.close(code);
+    } catch {
+      tryTerminate(socket);
+    }
+  }
+}
+
+function tryTerminate(socket: WebSocket): void {
+  try {
+    socket.terminate();
+  } catch {
+    return;
   }
 }
 

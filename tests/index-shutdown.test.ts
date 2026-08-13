@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { afterEach, describe, it, mock } from "node:test";
 import { createShutdownHandler, type ShutdownWaiterOwner } from "../src/shutdown.js";
 
 type Deferred<T> = {
@@ -9,6 +9,10 @@ type Deferred<T> = {
 };
 
 describe("shutdown coordinator", () => {
+  afterEach(() => {
+    mock.timers.reset();
+  });
+
   it("runs one ordered shutdown path and closes Mongo after waiter drains", async () => {
     const calls: string[] = [];
     const waiter = createWaiter(calls);
@@ -121,6 +125,54 @@ describe("shutdown coordinator", () => {
     assert.equal(calls.at(-1), "exit:1");
   });
 
+  it("starts all producer disposals and app close when one disposal throws synchronously", async () => {
+    const calls: string[] = [];
+    const shutdown = createShutdownHandler({
+      app: {
+        close: async (): Promise<void> => {
+          calls.push("app.close");
+        },
+      },
+      mongo: {
+        close: async () => {
+          calls.push("mongo.close");
+        },
+      },
+      waiters: [createWaiter(calls)],
+      producers: [
+        {
+          dispose: async () => {
+            calls.push("producer.reject");
+            throw new Error("reject failed");
+          },
+        },
+        {
+          dispose: () => {
+            calls.push("producer.throw");
+            throw new Error("throw failed");
+          },
+        },
+      ],
+      realtimeService: {
+        beginShutdown: () => calls.push("realtime.begin"),
+        dispose: () => {
+          calls.push("realtime.dispose");
+        },
+      },
+      exit: (code) => calls.push(`exit:${code}`),
+      log: () => undefined,
+    });
+
+    await shutdown("SIGTERM");
+
+    assert.equal(calls.includes("producer.reject"), true);
+    assert.equal(calls.includes("producer.throw"), true);
+    assert.equal(calls.includes("realtime.dispose"), true);
+    assert.equal(calls.includes("app.close"), true);
+    assert.equal(calls.includes("mongo.close"), false);
+    assert.equal(calls.at(-1), "exit:1");
+  });
+
   it("hard deadline exits 1 once and skips Mongo while work remains pending", async () => {
     const calls: string[] = [];
     const pending = deferred<undefined>();
@@ -149,6 +201,34 @@ describe("shutdown coordinator", () => {
       calls.filter((call) => call.startsWith("exit:")),
       ["exit:1"],
     );
+  });
+
+  it("hard deadline uses a referenced timeout and clears it after successful completion", async () => {
+    mock.timers.enable({ apis: ["setTimeout"] });
+    const calls: string[] = [];
+    const shutdown = createShutdownHandler({
+      app: {
+        close: async (): Promise<void> => {
+          calls.push("app.close");
+        },
+      },
+      mongo: {
+        close: async () => {
+          calls.push("mongo.close");
+        },
+      },
+      waiters: [createWaiter(calls)],
+      producers: [],
+      realtimeService: null,
+      exit: (code) => calls.push(`exit:${code}`),
+      deadlineMs: 5,
+      log: () => undefined,
+    });
+
+    await shutdown("SIGTERM");
+    mock.timers.tick(5);
+
+    assert.deepEqual(calls, ["waiter.release", "app.close", "waiter.drain", "mongo.close", "exit:0"]);
   });
 });
 

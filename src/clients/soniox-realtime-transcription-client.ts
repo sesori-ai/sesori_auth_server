@@ -3,7 +3,7 @@ import {
   parseSonioxRealtimeResult,
   toRealtimeFailureReason,
 } from "../api/soniox-realtime-api.js";
-import { RealtimeAudioEncoding } from "../types/transcription.js";
+import { RealtimeAudioEncoding, RealtimeProviderEventType } from "../types/transcription.js";
 import type {
   RealtimeConnectRequest,
   RealtimeProviderEvent,
@@ -71,7 +71,7 @@ export class SonioxRealtimeClient implements RealtimeTranscriptionClient {
       signal,
       connect_timeout_ms: this.#connectTimeoutMs,
     });
-    const session = new SonioxRealtimeSessionAdapter(sdkSession, request.onEvent);
+    const session = new SonioxRealtimeSessionAdapter(sdkSession, request.onEvent, request.maxAudioDurationMs);
 
     try {
       await waitForConnect(sdkSession.connect(), timeoutSignal, this.#connectTimeoutMs);
@@ -109,12 +109,19 @@ export class SonioxRealtimeClient implements RealtimeTranscriptionClient {
 class SonioxRealtimeSessionAdapter implements RealtimeTranscriptionSession {
   readonly #sdkSession: SonioxRealtimeSdkSession;
   readonly #onEvent: (event: RealtimeProviderEvent) => void;
+  readonly #maxAudioDurationMs: number;
   readonly #closedController = new Deferred<void>();
   #closed = false;
+  #settled = false;
 
-  constructor(sdkSession: SonioxRealtimeSdkSession, onEvent: (event: RealtimeProviderEvent) => void) {
+  constructor(
+    sdkSession: SonioxRealtimeSdkSession,
+    onEvent: (event: RealtimeProviderEvent) => void,
+    maxAudioDurationMs: number,
+  ) {
     this.#sdkSession = sdkSession;
     this.#onEvent = onEvent;
+    this.#maxAudioDurationMs = maxAudioDurationMs;
     this.#sdkSession.on("result", this.#handleResult);
     this.#sdkSession.on("error", this.#handleError);
     this.#sdkSession.on("finished", this.#handleFinished);
@@ -143,16 +150,18 @@ class SonioxRealtimeSessionAdapter implements RealtimeTranscriptionSession {
   cancel(): void {
     this.#sdkSession.close();
     this.#removeListeners();
+    this.#succeed();
   }
 
   close(): void {
     this.#sdkSession.close();
     this.#removeListeners();
+    this.#succeed();
   }
 
   readonly #handleResult = (result: unknown): void => {
     try {
-      this.#onEvent(parseSonioxRealtimeResult(result));
+      this.#onEvent(parseSonioxRealtimeResult(result, { maxAudioDurationMs: this.#maxAudioDurationMs }));
     } catch (error) {
       this.#fail(error);
     }
@@ -167,12 +176,17 @@ class SonioxRealtimeSessionAdapter implements RealtimeTranscriptionSession {
   };
 
   readonly #handleFinished = (): void => {
-    this.#onEvent({ type: "finished" });
+    this.#onEvent({ type: RealtimeProviderEventType.Finished });
     this.#succeed();
   };
 
   #fail(error: unknown): void {
     this.#removeListeners();
+    if (this.#settled) {
+      return;
+    }
+
+    this.#settled = true;
     if (error instanceof RealtimeTranscriptionFailure) {
       this.#closedController.reject(error);
       return;
@@ -185,6 +199,11 @@ class SonioxRealtimeSessionAdapter implements RealtimeTranscriptionSession {
 
   #succeed(): void {
     this.#removeListeners();
+    if (this.#settled) {
+      return;
+    }
+
+    this.#settled = true;
     this.#closedController.resolve();
   }
 

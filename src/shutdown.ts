@@ -70,8 +70,7 @@ async function runShutdown(deps: {
   readonly log: (message: string, fields?: object) => void;
 }): Promise<void> {
   deps.log("[Shutdown] start", { signal: deps.signal });
-  const abort = AbortSignal.timeout(deps.deadlineMs);
-  await runWithDeadline(runOrderedShutdown(deps), abort);
+  await runWithDeadline(runOrderedShutdown(deps), deps.deadlineMs);
 }
 
 async function runOrderedShutdown(deps: {
@@ -89,8 +88,8 @@ async function runOrderedShutdown(deps: {
 
   deps.realtimeService?.beginShutdown();
   const producerDisposals = [
-    ...deps.producers.map((producer) => Promise.resolve(producer.dispose())),
-    deps.realtimeService ? deps.realtimeService.dispose() : Promise.resolve(),
+    ...deps.producers.map((producer) => disposeProducer(producer)),
+    deps.realtimeService ? disposeProducer(deps.realtimeService) : Promise.resolve(),
   ];
 
   await Promise.all([...producerDisposals, deps.app.close()]);
@@ -102,21 +101,24 @@ async function runOrderedShutdown(deps: {
   deps.log("[Shutdown] MongoDB closed");
 }
 
-async function runWithDeadline<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) {
-    throw new ShutdownDeadlineExceeded();
+function disposeProducer(producer: ShutdownProducer): Promise<void> {
+  try {
+    return Promise.resolve(producer.dispose());
+  } catch (error) {
+    return Promise.reject(error);
   }
+}
 
+async function runWithDeadline<T>(promise: Promise<T>, deadlineMs: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const onAbort = (): void => reject(new ShutdownDeadlineExceeded());
-    signal.addEventListener("abort", onAbort, { once: true });
+    const timeout = setTimeout(() => reject(new ShutdownDeadlineExceeded()), deadlineMs);
     promise.then(
       (value) => {
-        signal.removeEventListener("abort", onAbort);
+        clearTimeout(timeout);
         resolve(value);
       },
       (error: unknown) => {
-        signal.removeEventListener("abort", onAbort);
+        clearTimeout(timeout);
         reject(error);
       },
     );

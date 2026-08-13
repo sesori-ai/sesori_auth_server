@@ -47,6 +47,7 @@ export enum PendingAuthStatus {
   Denied = "denied",
   Expired = "expired",
   Error = "error",
+  Shutdown = "shutdown",
 }
 
 export type PendingAuthTokens = {
@@ -440,7 +441,7 @@ export class PendingAuthStore {
     }
 
     if (this.#released) {
-      return Promise.resolve(session);
+      return Promise.resolve({ ...session, status: PendingAuthStatus.Shutdown });
     }
 
     if (timeoutMs <= 0) {
@@ -532,7 +533,10 @@ export class PendingAuthStore {
 
     this.#released = true;
     for (const tokenHash of Array.from(this.#waitersByTokenHash.keys())) {
-      this.#notifyWaiters(tokenHash, this.#getActiveEntry(tokenHash)?.session ?? null, { includeSameStatus: true });
+      const entry = this.#getActiveEntry(tokenHash);
+      this.#notifyWaiters(tokenHash, entry ? { ...entry.session, status: PendingAuthStatus.Shutdown } : null, {
+        includeSameStatus: true,
+      });
     }
   }
 

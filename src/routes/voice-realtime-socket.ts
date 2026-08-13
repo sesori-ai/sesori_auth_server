@@ -3,7 +3,7 @@ import type { RawData, WebSocket } from "ws";
 import type { RealtimeSessionCallbacks } from "../services/realtime-transcription-events.js";
 import { RealtimeAdmissionError } from "../services/realtime-transcription-errors.js";
 import type { RealtimeTranscriptionService } from "../services/realtime-transcription-service.js";
-import { RealtimeProtocolErrorCode } from "../types/transcription.js";
+import { RealtimeClientMessageType, RealtimeProtocolErrorCode } from "../types/transcription.js";
 import {
   CLOSE_CODE,
   closeCodeForError,
@@ -108,12 +108,8 @@ export function startRealtimeSocket(context: SocketContext): void {
 
         context.state = state;
       })
-      .catch((error: unknown) => {
-        const code =
-          error instanceof RealtimeAuthenticatedUserMissing
-            ? RealtimeProtocolErrorCode.InternalError
-            : RealtimeProtocolErrorCode.ProviderUnavailable;
-        beginRouteError(context, code);
+      .catch(() => {
+        beginRouteError(context, RealtimeProtocolErrorCode.ProviderUnavailable);
       });
   });
 }
@@ -137,10 +133,11 @@ async function handleSocketMessage(args: SocketMessageArgs): Promise<RouteState>
 
   const control = parseControlFrame(args.data, args.context.routePolicy);
   switch (control.kind) {
-    case "finish":
+    case RealtimeClientMessageType.Finish:
+      args.context.state = "finishing";
       await args.context.session?.finish();
       return "finishing";
-    case "cancel":
+    case RealtimeClientMessageType.Cancel:
       await args.context.session?.cancel();
       closeSocket(args.context.socket, CLOSE_CODE.normal);
       return "closed";
@@ -207,10 +204,22 @@ async function startSession(args: SocketMessageArgs): Promise<RouteState> {
     if (args.context.state === "closed") {
       return "closed";
     }
-    const code = error instanceof RealtimeAdmissionError ? error.code : RealtimeProtocolErrorCode.ProviderUnavailable;
+    const code = mapStartSessionError(error);
     beginRouteError(args.context, code);
     return "closed";
   }
+}
+
+function mapStartSessionError(error: unknown): RealtimeProtocolErrorCode {
+  if (error instanceof RealtimeAdmissionError) {
+    return error.code;
+  }
+
+  if (error instanceof RealtimeAuthenticatedUserMissing) {
+    return RealtimeProtocolErrorCode.InternalError;
+  }
+
+  return RealtimeProtocolErrorCode.ProviderUnavailable;
 }
 
 function createCallbacks(context: SocketContext): RealtimeSessionCallbacks {
@@ -254,7 +263,7 @@ async function terminateActive(
   context.state = "closed";
   abortStarting(context);
   if (context.session !== null) {
-    await context.session.cancel();
+    await context.session.cancel().catch(() => undefined);
   }
   sendTerminalError(context.socket, code, context.routePolicy);
   closeSocket(context.socket, closeCode);

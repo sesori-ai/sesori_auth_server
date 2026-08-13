@@ -4,29 +4,29 @@ import {
   realtimeReadyEventSchema,
   realtimeTranscriptEventSchema,
 } from "../models/voice.js";
-import { RealtimeFinishedReason, RealtimeProtocolErrorCode } from "../types/transcription.js";
+import { RealtimeFinishedReason, RealtimeProtocolErrorCode, RealtimeServerEventType } from "../types/transcription.js";
 
 export type RealtimeReadyEvent = {
-  readonly type: "ready";
+  readonly type: RealtimeServerEventType.Ready;
   readonly protocolVersion: 1;
   readonly maxSessionSeconds: number;
   readonly dailySecondsRemaining: number;
 };
 
 export type RealtimeTranscriptEvent = {
-  readonly type: "transcript";
+  readonly type: RealtimeServerEventType.Transcript;
   readonly confirmedDelta: string;
   readonly provisional: string;
 };
 
 export type RealtimeCompleteEvent = {
-  readonly type: "complete";
+  readonly type: RealtimeServerEventType.Complete;
   readonly reason: RealtimeFinishedReason;
   readonly dailySecondsRemaining: number;
 };
 
 export type RealtimeErrorEvent = {
-  readonly type: "error";
+  readonly type: RealtimeServerEventType.Error;
   readonly code: RealtimeProtocolErrorCode;
   readonly retryable: boolean;
 };
@@ -46,15 +46,14 @@ export function isPublicEventValid(
   }
 
   switch (event.type) {
-    case "ready":
+    case RealtimeServerEventType.Ready:
       return realtimeReadyEventSchema.safeParse(event).success;
-    case "transcript":
+    case RealtimeServerEventType.Transcript:
       return realtimeTranscriptEventSchema.safeParse(event).success;
-    case "complete":
+    case RealtimeServerEventType.Complete:
       return realtimeCompleteEventSchema.safeParse(event).success;
-    case "error":
-      return realtimeErrorEventSchema.safeParse({ type: event.type, code: event.code, retryable: event.retryable })
-        .success;
+    case RealtimeServerEventType.Error:
+      return realtimeErrorEventSchema.safeParse(event).success;
     default:
       return assertNeverEvent(event);
   }

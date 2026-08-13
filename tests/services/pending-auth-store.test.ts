@@ -361,10 +361,10 @@ describe("PendingAuthStore", () => {
     assert.equal(c?.status, "denied");
   });
 
-  it("releaseWaiters resolves current and future waits as ordinary timeouts", async () => {
+  it("releaseWaiters resolves current and future waits as shutdown", async () => {
     const store = createStore();
     const tokenHash = createSessionTokenHash();
-    const session = store.createSession({
+    store.createSession({
       tokenHash,
       provider: OAuthProviderName.Github,
       pkceVerifier: "pkce-verifier",
@@ -374,8 +374,8 @@ describe("PendingAuthStore", () => {
 
     store.releaseWaiters();
 
-    assert.deepEqual(await waiter, session);
-    assert.deepEqual(await store.waitForStatusChange(tokenHash, 5_000), session);
+    assert.equal((await waiter)?.status, "shutdown");
+    assert.equal((await store.waitForStatusChange(tokenHash, 5_000))?.status, "shutdown");
     await store.drainReleasedReads();
     store.releaseWaiters();
   });

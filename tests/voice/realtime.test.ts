@@ -11,6 +11,7 @@ import {
   RealtimeFinishedReason,
   RealtimeProtocolErrorCode,
   RealtimeProtocolVersion,
+  RealtimeServerEventType,
 } from "../../src/types/transcription.js";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
 
@@ -31,6 +32,7 @@ class FakeRealtimeSession implements StartedSession {
   finished = false;
   cancelled = false;
   disconnected = false;
+  cancelError: unknown = null;
   callbacks: RealtimeStartRequest["callbacks"] | null = null;
 
   sendAudio(data: Buffer): void {
@@ -43,6 +45,9 @@ class FakeRealtimeSession implements StartedSession {
 
   async cancel(): Promise<void> {
     this.cancelled = true;
+    if (this.cancelError !== null) {
+      throw this.cancelError;
+    }
   }
 
   async disconnect(): Promise<void> {
@@ -68,7 +73,7 @@ class FakeRealtimeService {
     this.starts.push(request);
     this.sessions.push(session);
     request.callbacks.onReady({
-      type: "ready",
+      type: RealtimeServerEventType.Ready,
       protocolVersion: RealtimeProtocolVersion.V1,
       maxSessionSeconds: 900,
       dailySecondsRemaining: 3600,
@@ -98,9 +103,14 @@ class FakeSocket extends EventEmitter {
   readonly OPEN = 1;
   readyState = this.OPEN;
   bufferedAmount = 0;
+  sendError: unknown = null;
+  terminateError: unknown = null;
   readonly websocket = this as unknown as WebSocket;
 
   send(data: string): void {
+    if (this.sendError !== null) {
+      throw this.sendError;
+    }
     this.sent.push(data);
   }
 
@@ -111,6 +121,9 @@ class FakeSocket extends EventEmitter {
   }
 
   terminate(): void {
+    if (this.terminateError !== null) {
+      throw this.terminateError;
+    }
     this.readyState = 3;
   }
 
@@ -189,6 +202,25 @@ describe("voice realtime route", () => {
 
       assert.equal(response.statusCode, 404);
     });
+
+    it("keeps realtime disabled when a service is provided with an explicit false config override", async () => {
+      const localRealtimeService = new FakeRealtimeService();
+      const localCtx = await createTestApp({
+        realtimeService: localRealtimeService,
+        configOverrides: { REALTIME_TRANSCRIPTION_ENABLED: false, SONIOX_API_KEY: "test-soniox-key" },
+      });
+
+      try {
+        const capabilities = await localCtx.app.inject({ method: "GET", url: "/voice/capabilities" });
+        const route = await localCtx.app.inject({ method: "GET", url: "/voice/realtime" });
+
+        assert.equal(capabilities.statusCode, 200);
+        assert.deepEqual(capabilities.json(), { realtime: { enabled: false, protocolVersions: [1] } });
+        assert.equal(route.statusCode, 404);
+      } finally {
+        await localCtx.cleanup();
+      }
+    });
   });
 
   describe("when realtime is enabled", () => {
@@ -212,6 +244,23 @@ describe("voice realtime route", () => {
 
       assert.equal(response.statusCode, 200);
       assert.deepEqual(response.json(), { realtime: { enabled: true, protocolVersions: [1] } });
+    });
+
+    it("keeps realtime enabled when a service is provided with an explicit true config override", async () => {
+      const localRealtimeService = new FakeRealtimeService();
+      const localCtx = await createTestApp({
+        realtimeService: localRealtimeService,
+        configOverrides: { REALTIME_TRANSCRIPTION_ENABLED: true, SONIOX_API_KEY: "test-soniox-key" },
+      });
+
+      try {
+        const capabilities = await localCtx.app.inject({ method: "GET", url: "/voice/capabilities" });
+
+        assert.equal(capabilities.statusCode, 200);
+        assert.deepEqual(capabilities.json(), { realtime: { enabled: true, protocolVersions: [1] } });
+      } finally {
+        await localCtx.cleanup();
+      }
     });
 
     it("rejects missing bearer before the websocket handler runs", async () => {
@@ -314,11 +363,36 @@ describe("voice realtime route", () => {
 
       const complete = nextMessage(socket);
       session.callbacks?.onComplete({
-        type: "complete",
+        type: RealtimeServerEventType.Complete,
         reason: RealtimeFinishedReason.Finished,
         dailySecondsRemaining: 3599,
       });
       assert.deepEqual(await complete, { type: "complete", reason: "finished", dailySecondsRemaining: 3599 });
+    });
+
+    it("enters finishing before provider finalization resolves", async () => {
+      const user = await ctx.createUser();
+      const socket = await ctx.app.injectWS("/voice/realtime", {
+        headers: { authorization: `Bearer ${user.accessToken}` },
+      });
+      await sendStartAndWaitForReady(socket);
+      const session = realtimeService.sessions.at(-1);
+      assert.ok(session);
+      const finishGate = deferred<void>();
+      session.finish = async (): Promise<void> => {
+        session.finished = true;
+        await finishGate.promise;
+      };
+
+      socket.send(JSON.stringify({ type: "finish" }));
+      await nextTurn();
+      socket.send(JSON.stringify({ type: "cancel" }));
+      await nextTurn();
+
+      assert.equal(session.cancelled, false);
+      assert.equal(socket.readyState, socket.OPEN);
+      finishGate.resolve(undefined);
+      socket.terminate();
     });
 
     it("accepts differently spaced finish and cancel controls", async () => {
@@ -412,7 +486,7 @@ describe("voice realtime route", () => {
       assert.equal(session.cancelled, true);
 
       session.callbacks?.onComplete({
-        type: "complete",
+        type: RealtimeServerEventType.Complete,
         reason: RealtimeFinishedReason.Finished,
         dailySecondsRemaining: 3599,
       });
@@ -462,6 +536,66 @@ describe("voice realtime route", () => {
       assert.equal(localRealtimeService.starts.length, 0);
     });
 
+    it("keeps send and close races non-throwing", async () => {
+      const localRealtimeService = new FakeRealtimeService();
+      const socket = new FakeSocket();
+      startRealtimeSocket({
+        socket: socket.websocket,
+        request: { user: { userId: "6a7603577dee429b4d11b17a" } } as never,
+        realtimeService: localRealtimeService,
+        routePolicy: {
+          firstFrameTimeoutMs: 5_000,
+          maxTextFrameBytes: 2_048,
+          maxAudioFrameBytes: 65_536,
+          outboundBufferMaxBytes: 65_536,
+        },
+        state: "awaiting_start",
+        session: null,
+        terminalSent: false,
+        startAbortController: null,
+      });
+
+      socket.sendError = "closed race";
+
+      assert.doesNotThrow(() => socket.emitText(Buffer.from(validStartFrame())));
+      assert.equal(socket.closeCodes.at(-1), 1013);
+    });
+
+    it("keeps slow-client close races non-throwing", async () => {
+      const localRealtimeService = new FakeRealtimeService();
+      const socket = new FakeSocket();
+      startRealtimeSocket({
+        socket: socket.websocket,
+        request: { user: { userId: "6a7603577dee429b4d11b17a" } } as never,
+        realtimeService: localRealtimeService,
+        routePolicy: {
+          firstFrameTimeoutMs: 5_000,
+          maxTextFrameBytes: 2_048,
+          maxAudioFrameBytes: 65_536,
+          outboundBufferMaxBytes: 65_536,
+        },
+        state: "awaiting_start",
+        session: null,
+        terminalSent: false,
+        startAbortController: null,
+      });
+      socket.emitText(Buffer.from(validStartFrame()));
+      await nextTurn();
+      socket.sendError = "send race";
+      socket.close = (): void => {
+        throw "close race";
+      };
+      socket.terminateError = "terminate race";
+
+      assert.doesNotThrow(() => {
+        localRealtimeService.sessions.at(-1)?.callbacks?.onTranscript({
+          type: RealtimeServerEventType.Transcript,
+          confirmedDelta: "x".repeat(70_000),
+          provisional: "",
+        });
+      });
+    });
+
     it("closes slow clients without partially sending the oversized event", async () => {
       const localRealtimeService = new FakeRealtimeService();
       const socket = new FakeSocket();
@@ -490,7 +624,7 @@ describe("voice realtime route", () => {
 
       socket.bufferedAmount = 65_537;
       localRealtimeService.sessions.at(-1)?.callbacks?.onTranscript({
-        type: "transcript",
+        type: RealtimeServerEventType.Transcript,
         confirmedDelta: "not sent",
         provisional: "",
       });
@@ -521,7 +655,7 @@ describe("voice realtime route", () => {
         const message = nextMessage(socket);
         const close = nextClose(socket);
         localRealtimeService.sessions.at(-1)?.callbacks?.onTranscript({
-          type: "transcript",
+          type: RealtimeServerEventType.Transcript,
           confirmedDelta: "x".repeat(70_000),
           provisional: "",
         });
@@ -544,6 +678,42 @@ describe("voice realtime route", () => {
       socket.send(Buffer.from([0]));
 
       assert.deepEqual(await message, { type: "error", code: "invalid_audio", retryable: false });
+    });
+
+    it("sends the terminal error even when cancelling active session rejects", async () => {
+      const user = await ctx.createUser();
+      const socket = await ctx.app.injectWS("/voice/realtime", {
+        headers: { authorization: `Bearer ${user.accessToken}` },
+      });
+      await sendStartAndWaitForReady(socket);
+      const session = realtimeService.sessions.at(-1);
+      assert.ok(session);
+      session.cancelError = new Error("cancel failed");
+      const message = nextMessage(socket);
+      const close = nextClose(socket);
+
+      socket.send(Buffer.from([0]));
+
+      assert.deepEqual(await message, { type: "error", code: "invalid_audio", retryable: false });
+      assert.equal((await close).code, 1008);
+    });
+
+    it("sends the terminal error even when cancelling active session rejects a non-Error", async () => {
+      const user = await ctx.createUser();
+      const socket = await ctx.app.injectWS("/voice/realtime", {
+        headers: { authorization: `Bearer ${user.accessToken}` },
+      });
+      await sendStartAndWaitForReady(socket);
+      const session = realtimeService.sessions.at(-1);
+      assert.ok(session);
+      session.cancelError = "cancel failed";
+      const message = nextMessage(socket);
+      const close = nextClose(socket);
+
+      socket.send(Buffer.from([0]));
+
+      assert.deepEqual(await message, { type: "error", code: "invalid_audio", retryable: false });
+      assert.equal((await close).code, 1008);
     });
 
     it("lets the route classify a one-byte oversized binary frame but transport-rejects materially larger frames", async () => {
@@ -573,7 +743,7 @@ describe("voice realtime route", () => {
       assert.equal(await noMessageWithin(hugeSocket, 25), true);
     });
 
-    it("uses injected route text and audio limits", async () => {
+    it("rejects first text frames over the fixed default route cap", async () => {
       const localRealtimeService = new FakeRealtimeService();
       const localCtx = await createTestApp({
         realtimeService: localRealtimeService,
@@ -596,6 +766,33 @@ describe("voice realtime route", () => {
       } finally {
         await localCtx.cleanup();
       }
+    });
+
+    it("maps missing authenticated user at start to internal_error", async () => {
+      const socket = new FakeSocket();
+      startRealtimeSocket({
+        socket: socket.websocket,
+        request: {} as never,
+        realtimeService: new FakeRealtimeService(),
+        routePolicy: {
+          firstFrameTimeoutMs: 5_000,
+          maxTextFrameBytes: 2_048,
+          maxAudioFrameBytes: 65_536,
+          outboundBufferMaxBytes: 65_536,
+        },
+        state: "awaiting_start",
+        session: null,
+        terminalSent: false,
+        startAbortController: null,
+      });
+
+      socket.emitText(Buffer.from(validStartFrame()));
+      await nextTurn();
+
+      assert.deepEqual(
+        socket.sent.map((message) => JSON.parse(message)),
+        [{ type: "error", code: "internal_error", retryable: true }],
+      );
     });
 
     it("rejects malformed first frames without starting service work", async () => {

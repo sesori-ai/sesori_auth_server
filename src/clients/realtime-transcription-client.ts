@@ -1,18 +1,19 @@
-import type { RealtimeAudioFormat } from "../types/transcription.js";
+import { RealtimeProviderEventType, type RealtimeAudioFormat } from "../types/transcription.js";
 
 export type RealtimeProviderEvent =
   | {
-      readonly type: "transcript";
+      readonly type: RealtimeProviderEventType.Transcript;
       readonly confirmedDelta: string;
       readonly provisional: string;
       readonly finalAudioMs: number;
       readonly totalAudioMs: number;
     }
-  | { readonly type: "finished" };
+  | { readonly type: RealtimeProviderEventType.Finished };
 
 export type RealtimeConnectRequest = {
   readonly audio: RealtimeAudioFormat;
   readonly terms: readonly string[];
+  readonly maxAudioDurationMs: number;
   readonly signal?: AbortSignal;
   readonly onEvent: (event: RealtimeProviderEvent) => void;
 };

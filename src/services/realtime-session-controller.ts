@@ -12,7 +12,11 @@ import type {
 import { RealtimeAdmissionError } from "./realtime-transcription-errors.js";
 import { emitTerminalEvent, emitTranscriptEvent } from "./realtime-public-event-emitter.js";
 import { Deferred, RealtimeSessionTimers } from "./realtime-session-utils.js";
-import { RealtimeFinishedReason, RealtimeProtocolErrorCode } from "../types/transcription.js";
+import {
+  RealtimeFinishedReason,
+  RealtimeProtocolErrorCode,
+  RealtimeProviderEventType,
+} from "../types/transcription.js";
 import {
   billableRealtimeSeconds,
   emitRealtimeReady,
@@ -89,6 +93,7 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
       this.#provider = await client.connect({
         audio: this.#request.audio,
         terms,
+        maxAudioDurationMs: this.#providerLimitSeconds * 1_000,
         signal: this.#providerSignal,
         onEvent: (event) => this.#handleProviderEvent(event),
       });
@@ -213,7 +218,19 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
     }
 
     switch (event.type) {
-      case "transcript":
+      case RealtimeProviderEventType.Transcript:
+        if (
+          event.finalAudioMs > this.#providerLimitSeconds * 1_000 ||
+          event.totalAudioMs > this.#providerLimitSeconds * 1_000
+        ) {
+          void this.#beginTerminal({
+            kind: "error",
+            code: RealtimeProtocolErrorCode.InternalError,
+            recordUsage: false,
+          });
+          return;
+        }
+
         this.#providerProgressMs = Math.max(this.#providerProgressMs, event.finalAudioMs, event.totalAudioMs);
         if (event.confirmedDelta.length > 0 || event.provisional.length > 0) {
           if (
@@ -227,7 +244,7 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
           }
         }
         break;
-      case "finished":
+      case RealtimeProviderEventType.Finished:
         if (this.#state === "finishing") {
           void this.#beginTerminal({ kind: "complete", reason: this.#finishReason });
         }
@@ -250,11 +267,14 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
       this.#provider?.cancel();
     }
 
-    const remaining = await this.#service.recordUsage({
-      userId: this.#request.userId,
-      seconds: this.#billableSeconds,
-      remainingAtAdmission: this.#remainingAtAdmission,
-    });
+    const remaining =
+      decision.kind === "error" && decision.recordUsage === false
+        ? this.#remainingAtAdmission
+        : await this.#service.recordUsage({
+            userId: this.#request.userId,
+            seconds: this.#billableSeconds,
+            remainingAtAdmission: this.#remainingAtAdmission,
+          });
     emitTerminalEvent({ callbacks: this.#request.callbacks, decision, remaining });
     this.#service.release(this);
     this.#closed.resolve();

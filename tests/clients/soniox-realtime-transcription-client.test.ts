@@ -89,6 +89,7 @@ describe("SonioxRealtimeClient", () => {
     await client.connect({
       audio: { encoding: RealtimeAudioEncoding.PcmS16Le, sampleRate: 44100, channels: 1 },
       terms: ["Sesori"],
+      maxAudioDurationMs: 1_000,
       signal: undefined,
       onEvent: (event) => events.push(event),
     });
@@ -115,6 +116,7 @@ describe("SonioxRealtimeClient", () => {
     const realtimeSession = await createClient(session).connect({
       audio: { encoding: RealtimeAudioEncoding.PcmS16Le, sampleRate: 16000, channels: 1 },
       terms: [],
+      maxAudioDurationMs: 1_000,
       onEvent: (event) => events.push(event),
     });
 
@@ -132,6 +134,29 @@ describe("SonioxRealtimeClient", () => {
     await assert.rejects(realtimeSession.closed, RealtimeTranscriptionFailure);
   });
 
+  it("settles closed on explicit cancel and close without masking provider errors", async () => {
+    const cancelled = new FakeRealtimeSession(null, null);
+    const cancelledSession = await createClient(cancelled).connect({
+      audio: { encoding: RealtimeAudioEncoding.PcmS16Le, sampleRate: 16000, channels: 1 },
+      terms: [],
+      maxAudioDurationMs: 1_000,
+      onEvent: () => undefined,
+    });
+    cancelledSession.cancel();
+    await cancelledSession.closed;
+
+    const failed = new FakeRealtimeSession(null, null);
+    const failedSession = await createClient(failed).connect({
+      audio: { encoding: RealtimeAudioEncoding.PcmS16Le, sampleRate: 16000, channels: 1 },
+      terms: [],
+      maxAudioDurationMs: 1_000,
+      onEvent: () => undefined,
+    });
+    failed.emit("error", { error_code: 429 });
+    failedSession.close();
+    await assert.rejects(failedSession.closed, RealtimeTranscriptionFailure);
+  });
+
   it("maps caller abort and own connect timeout distinctly", async () => {
     const callerAbort = new AbortController();
     callerAbort.abort();
@@ -139,6 +164,7 @@ describe("SonioxRealtimeClient", () => {
       createClient(new FakeRealtimeSession(null, null)).connect({
         audio: { encoding: RealtimeAudioEncoding.PcmS16Le, sampleRate: 16000, channels: 1 },
         terms: [],
+        maxAudioDurationMs: 1_000,
         signal: callerAbort.signal,
         onEvent: () => undefined,
       }),
@@ -152,6 +178,7 @@ describe("SonioxRealtimeClient", () => {
       createClient(hanging).connect({
         audio: { encoding: RealtimeAudioEncoding.PcmS16Le, sampleRate: 16000, channels: 1 },
         terms: [],
+        maxAudioDurationMs: 1_000,
         onEvent: () => undefined,
       }),
       (error: unknown) =>
@@ -169,6 +196,7 @@ describe("SonioxRealtimeClient", () => {
       createClient(session).connect({
         audio: { encoding: RealtimeAudioEncoding.PcmS16Le, sampleRate: 16000, channels: 1 },
         terms: [],
+        maxAudioDurationMs: 1_000,
         onEvent: () => undefined,
       }),
       (error: unknown) =>
@@ -184,6 +212,7 @@ describe("SonioxRealtimeClient", () => {
     const authSession = await createClient(auth).connect({
       audio: { encoding: RealtimeAudioEncoding.PcmS16Le, sampleRate: 16000, channels: 1 },
       terms: [],
+      maxAudioDurationMs: 1_000,
       onEvent: () => undefined,
     });
 
@@ -201,6 +230,7 @@ describe("SonioxRealtimeClient", () => {
     const capacitySession = await createClient(capacity).connect({
       audio: { encoding: RealtimeAudioEncoding.PcmS16Le, sampleRate: 16000, channels: 1 },
       terms: [],
+      maxAudioDurationMs: 1_000,
       onEvent: () => undefined,
     });
 
@@ -218,6 +248,7 @@ describe("SonioxRealtimeClient", () => {
     const realtimeSession = await createClient(session).connect({
       audio: { encoding: RealtimeAudioEncoding.PcmS16Le, sampleRate: 16000, channels: 1 },
       terms: [],
+      maxAudioDurationMs: 1_000,
       onEvent: () => undefined,
     });
 
@@ -237,6 +268,7 @@ describe("SonioxRealtimeClient", () => {
     const realtimeSession = await createClient(session).connect({
       audio: { encoding: RealtimeAudioEncoding.PcmS16Le, sampleRate: 16000, channels: 1 },
       terms: [],
+      maxAudioDurationMs: 1_000,
       onEvent: () => undefined,
     });
 
