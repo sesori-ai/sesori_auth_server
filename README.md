@@ -213,6 +213,40 @@ A device whose app is never opened again does not self-heal, and the loss there 
 
 So the choice is between leaving a filtering gap open while it drains by attrition, and closing it immediately at the cost of silencing installs that are still reachable but no longer launched. Run the deletion only where recovering registrations can be observed, and prefer attrition when that recovery cannot be confirmed.
 
+### Realtime voice
+
+Realtime transcription is disabled by default during the staged rollout. Public
+`GET /voice/capabilities` is always available, requires no token, and carries no
+account or provider data:
+
+```json
+{"realtime":{"enabled":false,"protocolVersions":[1]}}
+```
+
+When `REALTIME_TRANSCRIPTION_ENABLED=false`, `/voice/realtime` is not registered
+and WebSocket upgrades receive HTTP 404. When enabled, clients connect with the
+standard `Authorization: Bearer <access-token>` upgrade header; tokens are never
+accepted in the URL or in frames. Authentication is fixed at upgrade time, and a
+live socket is not closed merely because its access token later expires. Every
+reconnect requires a fresh valid access token, and one application session is
+capped at 900 seconds.
+
+Protocol v1 accepts one strict JSON `start` control as the first frame, then
+bounded PCM16 binary audio frames, followed by strict `finish` or `cancel`
+controls. Binary frames before `ready`, after finish, empty, odd-sized, or over
+65,536 bytes are rejected as protocol errors. `finish` asks the provider to
+finalize and keeps the socket open until a single `complete` or `error` terminal
+event closes it.
+
+Realtime upgrade admission has two process-local limits: a pre-auth default of
+120 upgrades per minute for the process, and a fixed post-auth limit of 12
+starts per verified user per minute. Forwarding headers, `trustProxy`, and
+socket IP do not affect either realtime limiter; authentication and rate keys
+come only from the verified bearer token after the pre-auth gate. Realtime
+active sessions, first-frame/first-audio timers, and shutdown drains are also
+process-local. Keep auth single-instance while realtime is enabled unless these
+limits and session drains are moved to shared infrastructure.
+
 ## Environment variables
 
 Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configuration.
@@ -243,6 +277,16 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 | `SONIOX_ASYNC_MODEL`           | Soniox async model. Default `stt-async-v5`. |
 | `SONIOX_ASYNC_TIMEOUT_MS`      | Budget covering upload, processing, and transcript fetch. Default `100000` (range 1,000-110,000). |
 | `SONIOX_CLEANUP_TIMEOUT_MS`    | Independent budget for deleting provider-side audio. Default `10000` (range 1,000-30,000). |
+| `SONIOX_REALTIME_MODEL`        | Soniox realtime model. Default `stt-rt-v5`. |
+| `REALTIME_TRANSCRIPTION_ENABLED` | Enables the `/voice/realtime` WebSocket route. Default `false`; disabled deployments still expose protocol 1 capability discovery. |
+| `REALTIME_CONNECT_TIMEOUT_MS`  | Soniox realtime connect timeout. Default `10000` (range 1,000-30,000). |
+| `REALTIME_FINISH_TIMEOUT_MS`   | Provider finalization timeout after client finish/session cap. Default `10000` (range 1,000-30,000). |
+| `REALTIME_DISPOSE_TIMEOUT_MS`  | Realtime service shutdown drain timeout. Default `15000` (range 1,000-20,000). |
+| `REALTIME_SESSION_MAX_SECONDS` | Maximum accepted audio duration per realtime session. Default `900` (range 1-900). |
+| `REALTIME_FIRST_FRAME_TIMEOUT_MS` | Deadline for the first WebSocket `start` frame. Default `5000` (range 1,000-15,000). |
+| `REALTIME_FIRST_AUDIO_TIMEOUT_MS` | Deadline for first audio after provider ready. Default `5000` (range 1,000-15,000). |
+| `REALTIME_OUTBOUND_BUFFER_MAX_BYTES` | Slow-client outbound buffer threshold. Default `1048576` (range 65,536-8,388,608). |
+| `REALTIME_UPGRADE_MAX_PER_MINUTE` | Process-wide pre-auth realtime upgrade allowance. Default `120` (range 12-1000). |
 | `CLIENT_IP_SOURCE`             | Source used for per-client rate-limit keys. `socket` (default) ignores proxy headers; `cloudflare` uses `CF-Connecting-IP` only when syntactically valid.                                  |
 | `CLOUDFLARE_INGRESS_CIDRS`     | Optional comma-separated Cloudflare ingress CIDRs/IPs. In `cloudflare` mode, `CF-Connecting-IP` is honored only when the socket peer matches this list; otherwise the socket IP is used.       |
 | `AUTH_DEV_BYPASS_ENABLED`      | **Local development only — disables JWT verification on every authenticated route.** Default `false`. Accepted values: `false`, `0`, `true`, `1`. Startup fails unless `NODE_ENV=development`. See "Development auth bypass" below. |
