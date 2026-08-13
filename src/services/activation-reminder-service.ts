@@ -159,24 +159,27 @@ export class ActivationReminderService {
 
     let timedOut = false;
     let timeout: ReturnType<typeof setTimeout> | null = null;
-    const timeoutPromise = new Promise<void>((resolve) => {
+    const timeoutPromise = new Promise<void>((_resolve, reject) => {
       timeout = setTimeout(() => {
         timedOut = true;
         this.#disposeTimedOut = true;
         this.#disposalAbortController.abort();
-        resolve();
+        reject(new ActivationReminderDrainTimeout());
       }, ACTIVATION_REMINDER_DISPOSE_TIMEOUT_MS);
       timeout.unref?.();
     });
-    await Promise.race([inFlight.then(() => undefined), timeoutPromise]);
-    if (timeout) {
-      clearTimeout(timeout);
-    }
+    try {
+      await Promise.race([inFlight.then(() => undefined), timeoutPromise]);
+    } finally {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
 
-    if (timedOut) {
-      console.warn("[ActivationReminderService] Disposal timed out with reminder delivery still in flight", {
-        timeoutMs: ACTIVATION_REMINDER_DISPOSE_TIMEOUT_MS,
-      });
+      if (timedOut) {
+        console.warn("[ActivationReminderService] Disposal timed out with reminder delivery still in flight", {
+          timeoutMs: ACTIVATION_REMINDER_DISPOSE_TIMEOUT_MS,
+        });
+      }
     }
   }
 
@@ -298,5 +301,12 @@ export class ActivationReminderService {
       case ActivationReminderKind.Session:
         return this.#options.sessionReminderDelayMs;
     }
+  }
+}
+
+export class ActivationReminderDrainTimeout extends Error {
+  constructor() {
+    super("activation reminder drain timed out");
+    this.name = "ActivationReminderDrainTimeout";
   }
 }

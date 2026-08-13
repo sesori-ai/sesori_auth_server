@@ -410,7 +410,7 @@ describe("ActivationReminderService", () => {
     await flushMicrotasks();
     const disposing = service.dispose();
     t.mock.timers.tick(ACTIVATION_REMINDER_DISPOSE_TIMEOUT_MS);
-    await disposing;
+    await assert.rejects(disposing, /activation reminder drain timed out/);
 
     assert.equal(repo.markCalls.length, 0);
     assert.equal(notification.sendCalls[0]?.abortSignal?.aborted, true);
