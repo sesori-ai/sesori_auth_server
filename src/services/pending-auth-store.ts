@@ -103,6 +103,7 @@ export class PendingAuthStore {
   readonly #sessionTtlMs: number;
   readonly #userCodeGenerator: () => string;
   readonly #now: () => Date;
+  #released = false;
 
   constructor(deps?: {
     sessionTtlMs?: number;
@@ -438,6 +439,10 @@ export class PendingAuthStore {
       return Promise.resolve(null);
     }
 
+    if (this.#released) {
+      return Promise.resolve(session);
+    }
+
     if (timeoutMs <= 0) {
       return Promise.resolve(session);
     }
@@ -518,6 +523,21 @@ export class PendingAuthStore {
         this.#expireSession(tokenHash, entry);
       }
     }
+  }
+
+  releaseWaiters(): void {
+    if (this.#released) {
+      return;
+    }
+
+    this.#released = true;
+    for (const tokenHash of Array.from(this.#waitersByTokenHash.keys())) {
+      this.#notifyWaiters(tokenHash, this.#getActiveEntry(tokenHash)?.session ?? null, { includeSameStatus: true });
+    }
+  }
+
+  drainReleasedReads(): Promise<void> {
+    return Promise.resolve();
   }
 
   #updateSession(params: {

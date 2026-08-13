@@ -360,4 +360,23 @@ describe("PendingAuthStore", () => {
     assert.equal(b?.status, "denied");
     assert.equal(c?.status, "denied");
   });
+
+  it("releaseWaiters resolves current and future waits as ordinary timeouts", async () => {
+    const store = createStore();
+    const tokenHash = createSessionTokenHash();
+    const session = store.createSession({
+      tokenHash,
+      provider: OAuthProviderName.Github,
+      pkceVerifier: "pkce-verifier",
+      state: "oauth-state",
+    });
+    const waiter = store.waitForStatusChange(tokenHash, 5_000);
+
+    store.releaseWaiters();
+
+    assert.deepEqual(await waiter, session);
+    assert.deepEqual(await store.waitForStatusChange(tokenHash, 5_000), session);
+    await store.drainReleasedReads();
+    store.releaseWaiters();
+  });
 });
