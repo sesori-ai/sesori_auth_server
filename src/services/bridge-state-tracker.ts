@@ -16,6 +16,7 @@ import { NotificationCategory } from "../models/notification.js";
 // 120s: long enough to swallow relay restarts and flapping reconnects,
 // short enough that a real offline event still notifies promptly.
 const DEFAULT_BRIDGE_NOTIFICATION_DEBOUNCE_MS = 120_000;
+const BRIDGE_STATE_TRACKER_DISPOSE_TIMEOUT_MS = 15_000;
 
 type BridgeStateEntry = {
   pendingStatus: BridgeStatus | null;
@@ -32,6 +33,9 @@ export class BridgeStateTracker {
   readonly #notificationService: NotificationService;
   readonly #debounceMs: number;
   readonly #state = new Map<string, BridgeStateEntry>();
+  readonly #inFlight = new Set<Promise<void>>();
+  #accepting = true;
+  #disposePromise: Promise<void> | null = null;
 
   constructor(notificationService: NotificationService, debounceMs: number = DEFAULT_BRIDGE_NOTIFICATION_DEBOUNCE_MS) {
     this.#notificationService = notificationService;
@@ -39,10 +43,18 @@ export class BridgeStateTracker {
   }
 
   handleStatusChangeForBridge(userId: string, bridgeId: string, status: BridgeStatus): void {
+    if (!this.#accepting) {
+      return;
+    }
+
     this.#dispatch(userId, instanceKey(userId, bridgeId), status);
   }
 
   cancelPendingForBridge(userId: string, bridgeId: string): void {
+    if (!this.#accepting) {
+      return;
+    }
+
     const key = instanceKey(userId, bridgeId);
     this.#cancelPendingForKey(key);
   }
@@ -89,8 +101,32 @@ export class BridgeStateTracker {
     entry.generation += 1;
     const capturedGeneration = entry.generation;
     entry.pendingStatus = status;
-    entry.timer = setTimeout(async () => {
+    entry.timer = setTimeout(() => {
       if (entry.generation !== capturedGeneration) {
+        return;
+      }
+
+      const callback = this.#runCallback({ entry, capturedGeneration, userId, status });
+      this.#inFlight.add(callback);
+      void callback.finally(() => {
+        this.#inFlight.delete(callback);
+      });
+    }, this.#debounceMs);
+    // A pending debounce must not keep the process alive on shutdown
+    // (dispose() is not on every exit path). Optional call: the mocked
+    // timers used in tests do not implement unref.
+    entry.timer.unref?.();
+  }
+
+  async #runCallback(args: {
+    readonly entry: BridgeStateEntry;
+    readonly capturedGeneration: number;
+    readonly userId: string;
+    readonly status: BridgeStatus;
+  }): Promise<void> {
+    const { entry, capturedGeneration, userId, status } = args;
+    try {
+      if (!this.#accepting) {
         return;
       }
 
@@ -105,21 +141,37 @@ export class BridgeStateTracker {
           entry.timer = null;
         }
       }
-    }, this.#debounceMs);
-    // A pending debounce must not keep the process alive on shutdown
-    // (dispose() is not on every exit path). Optional call: the mocked
-    // timers used in tests do not implement unref.
-    entry.timer.unref?.();
+    } finally {
+      if (!this.#accepting) {
+        this.#state.clear();
+      }
+    }
   }
 
-  dispose(): void {
+  dispose(): Promise<void> {
+    this.#accepting = false;
+    this.#disposePromise ??= this.#disposeOnce();
+    return this.#disposePromise;
+  }
+
+  async #disposeOnce(): Promise<void> {
     for (const entry of this.#state.values()) {
       if (entry.timer) {
         clearTimeout(entry.timer);
+        entry.timer = null;
       }
     }
 
     this.#state.clear();
+    const callbacks = Array.from(this.#inFlight);
+    if (callbacks.length === 0) {
+      return;
+    }
+
+    await withDisposeTimeout(Promise.allSettled(callbacks).then(() => undefined));
+    if (this.#inFlight.size > 0) {
+      throw new BridgeStateTrackerDrainTimeout();
+    }
   }
 
   #getOrCreateEntry(key: string): BridgeStateEntry {
@@ -155,4 +207,31 @@ export class BridgeStateTracker {
       collapseKey: "connection_status",
     };
   }
+}
+
+export class BridgeStateTrackerDrainTimeout extends Error {
+  constructor() {
+    super("bridge state tracker drain timed out");
+    this.name = "BridgeStateTrackerDrainTimeout";
+  }
+}
+
+async function withDisposeTimeout(promise: Promise<void>): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(
+      () => reject(new BridgeStateTrackerDrainTimeout()),
+      BRIDGE_STATE_TRACKER_DISPOSE_TIMEOUT_MS,
+    );
+    timeout.unref?.();
+    promise.then(
+      () => {
+        clearTimeout(timeout);
+        resolve();
+      },
+      (error: unknown) => {
+        clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
 }
