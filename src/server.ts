@@ -1,12 +1,14 @@
 import Fastify, { FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
+import websocket from "@fastify/websocket";
 import type { OAuthClient } from "./clients/auth/oauth-client.js";
 import type { Config } from "./config.js";
 import { createClientIpResolver, isLoopbackSocket } from "./lib/client-ip.js";
 import { ApiError } from "./lib/errors.js";
 import type { StateStore } from "./lib/state-store.js";
 import { createAuthMiddleware } from "./middleware/auth.js";
+import { createRealtimeUpgradeRateLimit } from "./middleware/realtime-upgrade-rate-limit.js";
 import { createRelayAuthMiddleware } from "./middleware/relay-auth.js";
 import type { HealthReply } from "./models/api.js";
 import type { DeviceTokenRepository } from "./repositories/device-token-repo.js";
@@ -41,6 +43,8 @@ import { sessionStatusRoutes } from "./routes/auth/session-status.js";
 import { appClientRoutes } from "./routes/app-clients.js";
 import { productAnalyticsRoutes } from "./routes/product-analytics.js";
 import { settingsRoutes } from "./routes/settings/settings.js";
+import { voiceRealtimeRoutes, type VoiceRealtimeRouteOptions } from "./routes/voice-realtime.js";
+import { MAX_TRANSPORT_PAYLOAD_BYTES } from "./routes/voice-realtime-support.js";
 
 export type AppServices = {
   config: Config;
@@ -64,6 +68,7 @@ export type AppServices = {
   appleNativeVerifier: AppleNativeVerifier;
   pendingAuthStore: PendingAuthStore;
   productAnalyticsPreferenceService: ProductAnalyticsPreferenceService;
+  realtime?: Omit<VoiceRealtimeRouteOptions, "preAuthRateLimit" | "requireAuth">;
 };
 
 export async function buildApp(services: AppServices): Promise<FastifyInstance> {
@@ -79,6 +84,16 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
   await app.register(cors, {
     origin: true,
   });
+
+  if (services.config.REALTIME_TRANSCRIPTION_ENABLED !== Boolean(services.realtime)) {
+    throw new Error("RealtimeConfigBundleMismatch");
+  }
+
+  if (services.realtime) {
+    await app.register(websocket, {
+      options: { maxPayload: MAX_TRANSPORT_PAYLOAD_BYTES, perMessageDeflate: false },
+    });
+  }
 
   await app.register(rateLimit, {
     max: 100,
@@ -121,6 +136,12 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
     return { status: "ok" };
   });
 
+  app.get<{ Reply: { realtime: { enabled: boolean; protocolVersions: [1] } } }>(
+    "/voice/capabilities",
+    { config: { rateLimit: false } },
+    async () => ({ realtime: { enabled: services.config.REALTIME_TRANSCRIPTION_ENABLED, protocolVersions: [1] } }),
+  );
+
   await app.register(installRoutes, {
     installScriptService: services.installScriptService,
   });
@@ -133,6 +154,21 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
     devBypassEnabled: services.config.AUTH_DEV_BYPASS_ENABLED,
   });
   const requireRelayAuth = createRelayAuthMiddleware(services.config.RELAY_WEBHOOK_SECRET);
+
+  if (services.realtime) {
+    let realtimeDisposePromise: Promise<void> | null = null;
+    await app.register(voiceRealtimeRoutes, {
+      ...services.realtime,
+      preAuthRateLimit: createRealtimeUpgradeRateLimit({
+        maxUpgradesPerMinute: services.config.REALTIME_UPGRADE_MAX_PER_MINUTE,
+      }),
+      requireAuth,
+    });
+    app.addHook("onClose", async () => {
+      realtimeDisposePromise ??= services.realtime?.realtimeService.dispose() ?? Promise.resolve();
+      await realtimeDisposePromise;
+    });
+  }
 
   await app.register(tokenRoutes, {
     authService: services.authService,

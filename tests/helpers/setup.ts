@@ -37,6 +37,7 @@ import { TokenService } from "../../src/services/token-service.js";
 import { GlossaryService } from "../../src/services/glossary-service.js";
 import { VoiceService } from "../../src/services/voice-service.js";
 import type { AsyncTranscriptionClient } from "../../src/clients/async-transcription-client.js";
+import type { RealtimeRouteService } from "../../src/routes/voice-realtime-socket.js";
 import { AppClientPresenceService } from "../../src/services/app-client-presence-service.js";
 import { ProductAnalyticsPreferenceService } from "../../src/services/product-analytics-preference-service.js";
 import { SettingsService } from "../../src/services/settings-service.js";
@@ -85,6 +86,7 @@ export type TestAppOverrides = {
   settingsService?: SettingsService;
   glossaryService?: GlossaryService;
   voiceService?: VoiceService;
+  realtimeService?: RealtimeRouteService;
   asyncTranscriptionClient?: AsyncTranscriptionClient;
   configOverrides?: Partial<Config>;
 };
@@ -149,6 +151,11 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   ).toString("base64");
 
   const config = loadConfig();
+  const effectiveConfig: Config = {
+    ...config,
+    ...overrides?.configOverrides,
+    REALTIME_TRANSCRIPTION_ENABLED: overrides?.realtimeService !== undefined,
+  };
 
   const dbConnector = new MongoDbConnector({ connectionString: mongoUri });
   const dbAccessor = new MongoDbAccessor(dbConnector);
@@ -176,15 +183,15 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   const appleClient =
     overrides?.appleClient ??
     new AppleClient({
-      teamId: config.APPLE_TEAM_ID,
-      keyId: config.APPLE_KEY_ID,
-      privateKey: config.APPLE_PRIVATE_KEY,
+      teamId: effectiveConfig.APPLE_TEAM_ID,
+      keyId: effectiveConfig.APPLE_KEY_ID,
+      privateKey: effectiveConfig.APPLE_PRIVATE_KEY,
     });
   const appleNativeVerifier =
     overrides?.appleNativeVerifier ??
     new AppleNativeVerifier({
-      clientId: config.APPLE_CLIENT_ID,
-      iosClientId: config.APPLE_IOS_CLIENT_ID,
+      clientId: effectiveConfig.APPLE_CLIENT_ID,
+      iosClientId: effectiveConfig.APPLE_IOS_CLIENT_ID,
     });
 
   const settingsService = overrides?.settingsService ?? new SettingsService({ settingsRepo });
@@ -209,7 +216,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
       transcriptionClient: overrides?.asyncTranscriptionClient ?? openai,
       glossaryService,
       dailyUsageRepo,
-      dailyLimitSeconds: config.DAILY_TRANSCRIPTION_LIMIT_SECONDS,
+      dailyLimitSeconds: effectiveConfig.DAILY_TRANSCRIPTION_LIMIT_SECONDS,
     });
   const sessionMetadataService =
     overrides?.sessionMetadataService ?? new SessionMetadataService({ openai, dailyUsageRepo, model: "gpt-4o-mini" });
@@ -218,7 +225,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     overrides?.legalDocumentService ?? new LegalDocumentService("# Test Terms\n", "# Test Privacy\n");
 
   const app = await buildApp({
-    config: { ...config, ...overrides?.configOverrides },
+    config: effectiveConfig,
     authService,
     bridgeService,
     tokenService,
@@ -239,6 +246,17 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     appleNativeVerifier,
     pendingAuthStore,
     productAnalyticsPreferenceService,
+    realtime: overrides?.realtimeService
+      ? {
+          realtimeService: overrides.realtimeService,
+          routePolicy: {
+            firstFrameTimeoutMs: effectiveConfig.REALTIME_FIRST_FRAME_TIMEOUT_MS,
+            maxTextFrameBytes: 2_048,
+            maxAudioFrameBytes: 65_536,
+            outboundBufferMaxBytes: effectiveConfig.REALTIME_OUTBOUND_BUFFER_MAX_BYTES,
+          },
+        }
+      : undefined,
   });
   await app.ready();
 
@@ -326,7 +344,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   }
 
   async function cleanup(): Promise<void> {
-    bridgeStateTracker.dispose();
+    await bridgeStateTracker.dispose();
     await app.close();
     await dbAccessor.getDb(MongoDbDatabase.Auth).dropDatabase();
     await dbConnector.close();
