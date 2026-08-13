@@ -102,6 +102,20 @@ const baseConfigSchema = z.object({
   SONIOX_ASYNC_MODEL: z.string().min(1).default("stt-async-v5"),
   SONIOX_ASYNC_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(110_000).default(100_000),
   SONIOX_CLEANUP_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(30_000).default(10_000),
+  SONIOX_REALTIME_MODEL: z.string().min(1).default("stt-rt-v5"),
+  SONIOX_BASE_DOMAIN: z.string().optional(),
+  REALTIME_TRANSCRIPTION_ENABLED: z
+    .union([z.literal("true"), z.literal("false"), z.literal("1"), z.literal("0")])
+    .optional()
+    .transform((v) => v === "true" || v === "1"),
+  REALTIME_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(30_000).default(10_000),
+  REALTIME_FINISH_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(30_000).default(10_000),
+  REALTIME_DISPOSE_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(20_000).default(15_000),
+  REALTIME_SESSION_MAX_SECONDS: z.coerce.number().int().min(1).max(900).default(900),
+  REALTIME_FIRST_FRAME_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(15_000).default(5_000),
+  REALTIME_FIRST_AUDIO_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(15_000).default(5_000),
+  REALTIME_OUTBOUND_BUFFER_MAX_BYTES: z.coerce.number().int().min(65_536).max(8_388_608).default(1_048_576),
+  REALTIME_UPGRADE_MAX_PER_MINUTE: z.coerce.number().int().min(12).max(1_000).default(120),
 
   // App-wide limits (hardcoded defaults, not sourced from env)
   DAILY_TRANSCRIPTION_LIMIT_SECONDS: z.coerce.number().default(3600),
@@ -122,6 +136,14 @@ export const configSchema = baseConfigSchema.superRefine((config, ctx) => {
       path: ["SONIOX_API_KEY"],
       message: "SONIOX_API_KEY is required when ASYNC_TRANSCRIPTION_PROVIDER is soniox",
     });
+  }
+
+  if (config.SONIOX_BASE_DOMAIN !== undefined) {
+    ctx.addIssue({ code: "custom", path: ["SONIOX_BASE_DOMAIN"], message: "SONIOX_BASE_DOMAIN is forbidden" });
+  }
+
+  if (config.REALTIME_TRANSCRIPTION_ENABLED && !config.SONIOX_API_KEY) {
+    ctx.addIssue({ code: "custom", path: ["SONIOX_API_KEY"], message: "SONIOX_API_KEY is required for realtime" });
   }
 });
 

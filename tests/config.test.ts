@@ -6,8 +6,9 @@ import {
   loadGlossaryMigrationConfig,
   loadSonioxPurgeConfig,
 } from "../src/config.js";
+import { createSonioxRealtimeSdkOptions } from "../src/clients/soniox-realtime-sdk-factory.js";
 import { ClientIpSource } from "../src/types/client-ip.js";
-import { SONIOX_REST_URL_BY_REGION } from "../src/types/transcription.js";
+import { SONIOX_REALTIME_WS_URL_BY_REGION, SONIOX_REST_URL_BY_REGION } from "../src/types/transcription.js";
 
 const serviceAccount = {
   type: "service_account",
@@ -148,6 +149,34 @@ describe("async transcription provider configuration", () => {
     assert.equal(configSchemaForTest.safeParse({ ...base, SONIOX_ASYNC_TIMEOUT_MS: "999" }).success, false);
     assert.equal(configSchemaForTest.safeParse({ ...base, SONIOX_ASYNC_TIMEOUT_MS: "120000" }).success, false);
     assert.equal(configSchemaForTest.safeParse({ ...base, SONIOX_CLEANUP_TIMEOUT_MS: "40000" }).success, false);
+  });
+
+  it("ignores hostile realtime websocket endpoint environment in parsed config", () => {
+    const result = configSchemaForTest.safeParse({
+      ...base,
+      REALTIME_TRANSCRIPTION_ENABLED: "true",
+      SONIOX_API_KEY: "soniox-key",
+      SONIOX_WS_URL: "wss://attacker.example.com/transcribe",
+    });
+
+    assert.equal(result.success, true);
+    if (!result.success) {
+      throw new Error("expected config parse success");
+    }
+
+    assert.equal("SONIOX_WS_URL" in result.data, false);
+    const sonioxApiKey = result.data.SONIOX_API_KEY;
+    if (sonioxApiKey === undefined) {
+      throw new Error("expected Soniox API key in parsed config");
+    }
+
+    assert.deepEqual(
+      createSonioxRealtimeSdkOptions({
+        apiKey: sonioxApiKey,
+        region: result.data.SONIOX_REGION,
+      }).realtime,
+      { ws_base_url: SONIOX_REALTIME_WS_URL_BY_REGION.eu },
+    );
   });
 });
 
