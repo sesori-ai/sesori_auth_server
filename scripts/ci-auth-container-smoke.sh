@@ -109,5 +109,5 @@ exit_code="$(docker inspect "$auth" --format '{{.State.ExitCode}}')"
 
 test "$exit_code" = "0"
 test "$elapsed" -lt 10
-node -e 'const fs=require("node:fs"); const parsed=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.exit(parsed.status === "pending" ? 0 : 1);' "$poll_file"
+node -e 'const fs=require("node:fs"); const parsed=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); if (parsed.status !== "error" || parsed.message !== "service_restarting") { console.error("unexpected shutdown poll response", parsed); process.exit(1); }' "$poll_file"
 node -e 'const fs=require("node:fs"); const log=fs.readFileSync(process.argv[1], "utf8"); const order=["[Shutdown] start","[Shutdown] waiters released","[Shutdown] MongoDB closed"]; let last=-1; for (const marker of order) { const idx=log.indexOf(marker); if (idx < 0 || idx < last) process.exit(1); last=idx; }' "$log_file"
