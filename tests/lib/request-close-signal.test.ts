@@ -26,11 +26,16 @@ describe("createRequestCloseSignal", () => {
     assertNoListeners(fixture);
   });
 
-  it("returns an already-aborted signal without listeners for a closed request", () => {
+  it("keeps listening after the request body stream is consumed", () => {
     const fixture = createFixture();
     fixture.requestRaw.destroyed = true;
 
     const signal = createRequestCloseSignal(fixture.params);
+
+    assert.equal(isClientConnectionOpen(fixture.params), true);
+    assert.equal(signal.aborted, false);
+
+    fixture.socket.emit("close");
 
     assert.equal(signal.aborted, true);
     assertNoListeners(fixture);
