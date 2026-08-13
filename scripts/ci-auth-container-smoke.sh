@@ -6,6 +6,7 @@ mongo="auth-ci-smoke-mongo"
 auth="auth-ci-smoke-auth"
 poll_file="$(mktemp)"
 log_file="$(mktemp)"
+health_file="$(mktemp)"
 private_key=""
 public_key=""
 
@@ -19,7 +20,7 @@ dump_logs() {
 cleanup() {
   docker rm -f "$auth" "$mongo" >/dev/null 2>&1 || true
   docker network rm "$network" >/dev/null 2>&1 || true
-  rm -f "$poll_file" "$log_file" "$private_key" "$public_key"
+  rm -f "$poll_file" "$log_file" "$health_file" "$private_key" "$public_key"
 }
 
 finish() {
@@ -78,7 +79,8 @@ docker run -d --name "$auth" --network "$network" -p 3001:3001 \
   auth-backend:ci >/dev/null
 
 for _ in {1..60}; do
-  if curl -fsS http://localhost:3001/health | node -e 'let data=""; process.stdin.on("data", c => data += c); process.stdin.on("end", () => { const parsed = JSON.parse(data); process.exit(parsed.status === "ok" ? 0 : 1); });'; then
+  if curl -fsS -o "$health_file" http://localhost:3001/health 2>/dev/null &&
+    node -e 'const fs=require("node:fs"); const parsed=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.exit(parsed.status === "ok" ? 0 : 1);' "$health_file"; then
     break
   fi
   sleep 1
@@ -88,6 +90,12 @@ curl -fsS http://localhost:3001/health | node -e 'let data=""; process.stdin.on(
 curl -fsS http://localhost:3001/voice/capabilities | node -e 'let data=""; process.stdin.on("data", c => data += c); process.stdin.on("end", () => { const parsed = JSON.parse(data); if (parsed.realtime?.enabled !== false || parsed.realtime?.protocolVersions?.[0] !== 1) process.exit(1); });'
 status="$(curl -sS -o /dev/null -w '%{http_code}' -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H 'Sec-WebSocket-Version: 13' http://localhost:3001/voice/realtime)"
 test "$status" = "404"
+
+curl -fsS -X POST \
+  -H 'Content-Type: application/json' \
+  -H "X-Sesori-Session-Token: $session_token" \
+  --data '{"clientType":"app"}' \
+  http://localhost:3001/auth/github/init >/dev/null
 
 (curl -sS -H "X-Sesori-Session-Token: $session_token" http://localhost:3001/auth/session/status >"$poll_file" || true) &
 poll_pid="$!"
