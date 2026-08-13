@@ -21,9 +21,80 @@ export enum AsyncTranscriptionProvider {
   Soniox = "soniox",
 }
 
+export enum RealtimeProtocolVersion {
+  V1 = 1,
+}
+
+export enum RealtimeAudioEncoding {
+  PcmS16Le = "pcm_s16le",
+}
+
+export enum RealtimeSampleRate {
+  Rate16000 = 16000,
+  Rate24000 = 24000,
+  Rate44100 = 44100,
+  Rate48000 = 48000,
+}
+
+export enum RealtimeChannelCount {
+  Mono = 1,
+}
+
+export enum RealtimeFinishedReason {
+  Finished = "finished",
+  SessionLimit = "session_limit",
+  QuotaLimit = "quota_limit",
+}
+
+export enum RealtimeProtocolErrorCode {
+  StartTimeout = "start_timeout",
+  InvalidMessage = "invalid_message",
+  UnsupportedProtocol = "unsupported_protocol",
+  InvalidAudio = "invalid_audio",
+  ProviderRejected = "provider_rejected",
+  AudioTimeout = "audio_timeout",
+  ProviderTimeout = "provider_timeout",
+  InternalError = "internal_error",
+  ProviderCapacity = "provider_capacity",
+  QuotaExhausted = "quota_exhausted",
+  ProviderUnavailable = "provider_unavailable",
+  SlowClient = "slow_client",
+  ServiceRestarting = "service_restarting",
+}
+
+export enum RealtimeTranscriptionFailureReason {
+  Capacity = "capacity",
+  Unavailable = "unavailable",
+  Timeout = "timeout",
+  Configuration = "configuration",
+  MalformedOutput = "malformed_output",
+  Cancelled = "cancelled",
+  Internal = "internal",
+}
+
+export type RealtimeAudioFormat = {
+  readonly encoding: RealtimeAudioEncoding;
+  readonly sampleRate: RealtimeSampleRate;
+  readonly channels: RealtimeChannelCount;
+};
+
+export class RealtimeTranscriptionFailure extends Error {
+  readonly reason: RealtimeTranscriptionFailureReason;
+
+  constructor(reason: RealtimeTranscriptionFailureReason, options?: { cause?: unknown }) {
+    super(reason, options);
+    this.name = "RealtimeTranscriptionFailure";
+    this.reason = reason;
+  }
+}
+
 /** Explicit regional REST endpoints. Resolved locally so SDK environment precedence can never redirect audio or credentials. */
 export const SONIOX_REST_URL_BY_REGION = {
   eu: "https://api.eu.soniox.com",
+} as const satisfies Record<string, string>;
+
+export const SONIOX_REALTIME_WS_URL_BY_REGION = {
+  eu: "wss://stt-rt.eu.soniox.com/transcribe-websocket",
 } as const satisfies Record<string, string>;
 
 /**
