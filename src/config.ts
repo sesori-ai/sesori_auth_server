@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AsyncTranscriptionProvider } from "./types/transcription.js";
 import { clientIpSourceSchema, ClientIpSource, trustedIngressCidrsSchema } from "./types/client-ip.js";
 import { productAnalyticsPseudonymizationKeySchema } from "./types/product-analytics.js";
 
@@ -95,6 +96,13 @@ const baseConfigSchema = z.object({
       }),
     ),
 
+  ASYNC_TRANSCRIPTION_PROVIDER: z.nativeEnum(AsyncTranscriptionProvider).default(AsyncTranscriptionProvider.OpenAI),
+  SONIOX_API_KEY: z.string().min(1).optional(),
+  SONIOX_REGION: z.literal("eu").default("eu"),
+  SONIOX_ASYNC_MODEL: z.string().min(1).default("stt-async-v5"),
+  SONIOX_ASYNC_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(110_000).default(100_000),
+  SONIOX_CLEANUP_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(30_000).default(10_000),
+
   // App-wide limits (hardcoded defaults, not sourced from env)
   DAILY_TRANSCRIPTION_LIMIT_SECONDS: z.coerce.number().default(3600),
 });
@@ -107,13 +115,42 @@ export const configSchema = baseConfigSchema.superRefine((config, ctx) => {
       message: "AUTH_DEV_BYPASS_ENABLED disables authentication and requires NODE_ENV=development",
     });
   }
+
+  if (config.ASYNC_TRANSCRIPTION_PROVIDER === AsyncTranscriptionProvider.Soniox && !config.SONIOX_API_KEY) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["SONIOX_API_KEY"],
+      message: "SONIOX_API_KEY is required when ASYNC_TRANSCRIPTION_PROVIDER is soniox",
+    });
+  }
 });
 
 export type Config = z.infer<typeof configSchema>;
 
+/** Exposed so configuration rules can be asserted without mutating process env. */
+export const configSchemaForTest = configSchema;
+
 const glossaryMigrationConfigSchema = z.object({
   MONGODB_URI: z.string().regex(/^mongodb(?:\+srv)?:\/\/\S+$/),
 });
+
+const sonioxPurgeConfigSchema = z.object({
+  SONIOX_API_KEY: z.string().min(1),
+  SONIOX_REGION: z.literal("eu").default("eu"),
+});
+
+/**
+ * Narrow config for the operator purge script: it reads only the Soniox
+ * credentials it needs, never the full web configuration.
+ */
+export function loadSonioxPurgeConfig(env: NodeJS.ProcessEnv): { apiKey: string; region: "eu" } {
+  const result = sonioxPurgeConfigSchema.safeParse(env);
+  if (!result.success) {
+    throw new Error("SonioxPurgeConfigError");
+  }
+
+  return { apiKey: result.data.SONIOX_API_KEY, region: result.data.SONIOX_REGION };
+}
 
 export function loadGlossaryMigrationConfig(env: NodeJS.ProcessEnv): { mongodbUri: string } {
   const result = glossaryMigrationConfigSchema.safeParse(env);
@@ -127,7 +164,9 @@ export function loadGlossaryMigrationConfig(env: NodeJS.ProcessEnv): { mongodbUr
 let cached: Config | null = null;
 
 export function loadConfig(): Config {
-  if (cached) return cached;
+  if (cached) {
+    return cached;
+  }
 
   try {
     cached = configSchema.parse(process.env);

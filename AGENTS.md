@@ -52,6 +52,7 @@ src/
 | Product analytics preference/export/deletion | `src/types/product-analytics.ts`, `src/models/{documents,api,product-analytics-export}.ts`, `src/clients/bigquery-product-analytics-*.ts`, `src/api/product-analytics-*.ts`, `src/repositories/{user-repo,product-analytics-*}.ts`, `src/services/product-analytics-*.ts`, `src/routes/product-analytics.ts`, `src/scripts/{backfill-product-analytics-preference,export-product-analytics,suppress-product-analytics-export}.ts` | Required revisioned preference, isolated auth-private export, and separately permissioned privacy-target handoff; see README rollout and IAM boundaries |
 | Activation reminders       | `.plans/activation-reminders/` + `src/services/activation-reminder-service.ts` + `src/repositories/activation-state-repo.ts`            | Read `PLAN.md` and `CONSIDERATIONS.md` before continuing the staged implementation          |
 | Per-device settings        | `src/routes/settings/settings.ts` + `src/services/settings-service.ts` + `src/repositories/settings-configuration-repo.ts` + `src/models/settings.ts` | Settings keyed by `{userId, deviceId}`; toggle registry + server-resolved defaults live in `models/settings.ts` |
+| Async transcription providers | `src/types/transcription.ts` + `src/clients/{async-transcription-client,openai-client,soniox-transcription-client}.ts` + `src/api/soniox-transcription-api.ts` + `src/services/voice-service.ts` + `src/routes/voice.ts` + `src/scripts/purge-soniox-transcription.ts` | One provider chosen at startup, no fallback; OpenAI default, Soniox EU-pinned. See ASYNC TRANSCRIPTION below |
 | Push notification filtering | `src/models/notification.ts` + `src/services/notification-service.ts` | `NotificationCategory` is the wire contract; `NOTIFICATION_CATEGORY_SETTING_KEYS` maps each category to the toggle that silences it |
 | Wire dependencies          | `src/index.ts`                                                                                                                          | Composition root — all instantiation happens here                                           |
 
@@ -90,6 +91,23 @@ The activation-reminder feature is intentionally split into independently deploy
 Desktop bridge instances register via `POST /auth/bridges` (idempotent: clients resend their `bridgeId`; an owned non-revoked id updates in place, anything else mints a new `br_` id). `GET /auth/me` returns `bridges[]` (id, name, platform, addedAt, lastSeenAt — no live status; clients get live connectivity from the relay). The relay reports per-bridge connect/disconnect to `POST /internal/bridge-status`, which requires `bridgeId`; missing or malformed IDs get a 400. Unknown/revoked bridgeIds get a 404, which the relay turns into a WS close 4006 so the bridge re-registers. Bridges authenticate to the relay with the **user access token** — there is no bridge-scoped token. Bridge-scoped JWTs were prototyped and dropped (`8b600dd`): they added a second credential lifecycle (24h TTL, no re-issue path) and a synchronous relay→auth call per connect without buying real revocation, since the bridge host holds the user refresh token regardless. Re-evaluate only if bridge auth must outlive user sessions.
 
 Push notifications debounce through `BridgeStateTracker` (120s), keyed per bridge by `(userId, bridgeId)`.
+
+## ASYNC TRANSCRIPTION
+
+`POST /voice/transcribe` runs on exactly one provider, selected at startup by `ASYNC_TRANSCRIPTION_PROVIDER` and injected as an `AsyncTranscriptionClient`. There is no automatic fallback and no per-request provider choice; switching is a config change plus a restart. OpenAI is the default and deliberately collapses every non-cancellation failure to `internal` behind a `COMPATIBILITY` marker, because released apps expect HTTP 500 for any provider failure. Soniox uses the detailed failure enum.
+
+`src/api/soniox-transcription-api.ts` is a mandatory validation boundary: every SDK status, ID, duration, transcript, and error payload passes through a `safeParse` helper before it reaches the client or the service. Do not consume a raw `@soniox/node` value anywhere else.
+
+Four invariants in `SonioxTranscriptionClient` are load-bearing and easy to undo:
+
+1. **EU residency** is pinned with an explicit `base_url` in `src/index.ts`. `region` alone is insufficient — it resolves below `SONIOX_BASE_DOMAIN` and `SONIOX_API_BASE_URL`, so an env var could otherwise redirect audio and the API key.
+2. **Cancellation and timeout are decided from the signals we own**, never from an SDK error shape. `toFailureReason` deliberately maps abort shapes to `unavailable`, not `cancelled`.
+3. **Job identity is correlated.** `wait` and `getTranscript` address the job by the ID we created, and a record echoing a different ID is `malformed_output` — otherwise another job's transcript could be returned and billed.
+4. **Cleanup deletes the transcription before the file**, and skips the file entirely when a job delete fails or when a create attempt returned no usable ID. Leaving both for the purge command is the safe state; deleting the file alone strands a job against the provider's cap.
+
+`npm run purge-soniox-transcription` audits residue and only deletes with `--apply`. It reports counts and a closed outcome enum, never IDs or transcript content. Deletes use bounded concurrency, and the file sweep is held back whenever any job delete or list item failed.
+
+Retryable failures carry `Retry-After`: a provider-stated cooldown when present (clamped to 300s), 5s for an unquantified capacity rejection, 1s otherwise.
 
 ## NOTIFICATION CATEGORY FILTERING
 
