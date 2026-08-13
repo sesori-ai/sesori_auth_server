@@ -247,6 +247,53 @@ describe("AppClientPresenceService", () => {
     );
     assert.equal(getEventListeners(controller.signal, "abort").length, 0);
   });
+
+  it("releaseWaiters resolves active and future waits as ordinary timeouts", async () => {
+    const repo = new FakeDeviceTokenRepository();
+    repo.reads.push(false, false);
+    const service = createService(repo);
+    const controller = new AbortController();
+    const waiting = service.waitForRegistration({
+      userId: "user-release",
+      timeoutMs: 1_000,
+      abortSignal: controller.signal,
+    });
+    await waitFor(() => repo.readCount === 2);
+
+    service.releaseWaiters();
+
+    assert.equal(await waiting, false);
+    assert.equal(
+      await service.waitForRegistration({ userId: "user-release", timeoutMs: 1_000, abortSignal: controller.signal }),
+      false,
+    );
+  });
+
+  it("drainReleasedReads waits for reads registered during shutdown", async () => {
+    const repo = new FakeDeviceTokenRepository();
+    const initialRead = deferred<boolean>();
+    const concurrentRead = deferred<boolean>();
+    repo.reads.push(initialRead.promise, concurrentRead.promise);
+    const service = createService(repo);
+    const waiting = service.waitForRegistration({
+      userId: "user-drain",
+      timeoutMs: 1_000,
+      abortSignal: new AbortController().signal,
+    });
+    await waitFor(() => repo.readCount === 1);
+
+    service.releaseWaiters();
+    const directRead = service.hasRegisteredClient({ userId: "user-drain" });
+    const draining = service.drainReleasedReads().then(() => "drained");
+    await delay(0);
+    assert.equal(await Promise.race([draining, delayResult("pending", 5)]), "pending");
+
+    initialRead.resolve(false);
+    concurrentRead.resolve(true);
+    assert.equal(await directRead, true);
+    assert.equal(await draining, "drained");
+    assert.equal(await waiting, false);
+  });
 });
 
 function createService(repo: FakeDeviceTokenRepository): AppClientPresenceService {
