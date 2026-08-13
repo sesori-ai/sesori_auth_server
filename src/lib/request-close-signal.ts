@@ -49,10 +49,5 @@ export function createRequestCloseSignal(params: { request: FastifyRequest; repl
  * ever having ended cleanly.
  */
 export function isClientConnectionOpen(params: { request: FastifyRequest; reply: FastifyReply }): boolean {
-  return (
-    !params.request.raw.destroyed &&
-    !params.request.socket.destroyed &&
-    !params.reply.raw.destroyed &&
-    !params.reply.raw.writableEnded
-  );
+  return !params.request.socket.destroyed && !params.reply.raw.destroyed && !params.reply.raw.writableEnded;
 }
