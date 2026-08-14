@@ -107,7 +107,7 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
     onProviderClosed({
       provider: this.#provider,
       isClosed: () => this.#state === "closed",
-      beginError: (code) => void this.#beginTerminal({ kind: "error", code }),
+      beginTerminal: (decision) => void this.#beginTerminal(decision),
     });
     emitRealtimeReady({
       request: this.#request,

@@ -1,4 +1,9 @@
-import { RealtimeFinishedReason, RealtimeProtocolErrorCode } from "../types/transcription.js";
+import {
+  RealtimeFinishedReason,
+  RealtimeProtocolErrorCode,
+  RealtimeTranscriptionFailure,
+  RealtimeTranscriptionFailureReason,
+} from "../types/transcription.js";
 import type { RealtimeTranscriptionSession as ProviderSession } from "../clients/realtime-transcription-client.js";
 import type { RealtimeStartRequest } from "./realtime-transcription-contracts.js";
 import { acceptedFrameBytes, billableSeconds, isAlignedPcm, reachedAudioLimit } from "./realtime-audio-accounting.js";
@@ -38,13 +43,24 @@ export function forceCloseProvider(args: {
 export function onProviderClosed(args: {
   readonly provider: ProviderSession;
   readonly isClosed: () => boolean;
-  readonly beginError: (code: RealtimeProtocolErrorCode) => void;
+  readonly beginTerminal: (decision: TerminalDecision) => void;
 }): void {
   args.provider.closed.catch((error: unknown) => {
     if (!args.isClosed()) {
-      args.beginError(toProviderErrorCode(error));
+      args.beginTerminal(toProviderClosedTerminalDecision(error));
     }
   });
+}
+
+function toProviderClosedTerminalDecision(error: unknown): TerminalDecision {
+  if (
+    error instanceof RealtimeTranscriptionFailure &&
+    error.reason === RealtimeTranscriptionFailureReason.MalformedOutput
+  ) {
+    return { kind: "error", code: RealtimeProtocolErrorCode.InternalError, recordUsage: false };
+  }
+
+  return { kind: "error", code: toProviderErrorCode(error) };
 }
 
 export function sendRealtimeAudioFrame(args: {

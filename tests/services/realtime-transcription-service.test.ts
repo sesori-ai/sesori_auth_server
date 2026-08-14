@@ -236,6 +236,40 @@ describe("RealtimeTranscriptionService", () => {
     });
   });
 
+  it("skips usage when provider boundary malformed output closes after accepted audio", async () => {
+    const harness = createHarness();
+    const session = await harness.start();
+    const providerSession = harness.provider.sessions[0];
+
+    session.sendAudio(Buffer.alloc(320));
+    providerSession?.fail(new RealtimeTranscriptionFailure(RealtimeTranscriptionFailureReason.MalformedOutput));
+    await session.closed;
+
+    assert.deepEqual(harness.events.at(-1), {
+      type: "error",
+      code: RealtimeProtocolErrorCode.InternalError,
+      retryable: true,
+    });
+    assert.equal(harness.usage.increments.length, 0);
+  });
+
+  it("records accepted audio when other provider errors close the session", async () => {
+    const harness = createHarness();
+    const session = await harness.start();
+    const providerSession = harness.provider.sessions[0];
+
+    session.sendAudio(Buffer.alloc(320));
+    providerSession?.fail(new RealtimeTranscriptionFailure(RealtimeTranscriptionFailureReason.Unavailable));
+    await session.closed;
+
+    assert.deepEqual(harness.events.at(-1), {
+      type: "error",
+      code: RealtimeProtocolErrorCode.ProviderUnavailable,
+      retryable: true,
+    });
+    assert.equal(harness.usage.increments[0]?.seconds, 1);
+  });
+
   it("rejects schema-valid multibyte transcript events over the serialized byte cap before callbacks", async () => {
     const harness = createHarness();
     const session = await harness.start();
