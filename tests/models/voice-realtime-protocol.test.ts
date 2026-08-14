@@ -29,6 +29,8 @@ describe("realtime protocol v1 schemas", () => {
     assert.equal(fixtureSource.includes("soniox"), false);
     assert.equal(fixtureSource.includes("user_"), false);
     assert.equal(fixtureSource.includes("sk-"), false);
+    assert.equal(fixtureSource.includes("project-123"), false);
+    assert.equal(/\bproject-[A-Za-z0-9_-]+\b/.test(fixtureSource), false);
   });
 
   it("accepts every valid canonical protocol case", () => {
