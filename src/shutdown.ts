@@ -1,5 +1,13 @@
 const SHUTDOWN_HARD_DEADLINE_MS = 22_000;
 
+export type ShutdownDeadlineTimer = {
+  clear(): void;
+};
+
+export type ShutdownDeadlineTimers = {
+  readonly setTimeout: (callback: () => void, milliseconds: number) => ShutdownDeadlineTimer;
+};
+
 export type ShutdownWaiterOwner = {
   releaseWaiters(): void;
   drainReleasedReads(): Promise<void>;
@@ -31,11 +39,18 @@ export function createShutdownHandler(deps: {
   readonly realtimeService: ShutdownRealtimeService | null;
   readonly exit: (code: 0 | 1) => void;
   readonly deadlineMs?: number;
+  readonly deadlineTimers?: ShutdownDeadlineTimers;
   readonly log?: (message: string, fields?: object) => void;
 }): ShutdownHandler {
   let shutdownPromise: Promise<void> | null = null;
   let exited = false;
   const deadlineMs = deps.deadlineMs ?? SHUTDOWN_HARD_DEADLINE_MS;
+  const deadlineTimers = deps.deadlineTimers ?? {
+    setTimeout: (callback: () => void, milliseconds: number): ShutdownDeadlineTimer => {
+      const timeout = setTimeout(callback, milliseconds);
+      return { clear: () => clearTimeout(timeout) };
+    },
+  };
   const log = deps.log ?? ((message, fields) => console.log(message, fields ?? ""));
 
   const exitOnce = (code: 0 | 1): void => {
@@ -48,7 +63,7 @@ export function createShutdownHandler(deps: {
   };
 
   return (signal) => {
-    shutdownPromise ??= runShutdown({ ...deps, deadlineMs, log, signal }).then(
+    shutdownPromise ??= runShutdown({ ...deps, deadlineMs, deadlineTimers, log, signal }).then(
       () => exitOnce(0),
       (error: unknown) => {
         log("[Shutdown] failed", { errorType: error instanceof Error ? error.name : typeof error });
@@ -66,11 +81,12 @@ async function runShutdown(deps: {
   readonly producers: readonly ShutdownProducer[];
   readonly realtimeService: ShutdownRealtimeService | null;
   readonly deadlineMs: number;
+  readonly deadlineTimers: ShutdownDeadlineTimers;
   readonly signal: NodeJS.Signals | string;
   readonly log: (message: string, fields?: object) => void;
 }): Promise<void> {
   deps.log("[Shutdown] start", { signal: deps.signal });
-  await runWithDeadline(runOrderedShutdown(deps), deps.deadlineMs);
+  await runWithDeadline(runOrderedShutdown(deps), deps.deadlineMs, deps.deadlineTimers);
 }
 
 async function runOrderedShutdown(deps: {
@@ -109,16 +125,20 @@ function disposeProducer(producer: ShutdownProducer): Promise<void> {
   }
 }
 
-async function runWithDeadline<T>(promise: Promise<T>, deadlineMs: number): Promise<T> {
+async function runWithDeadline<T>(
+  promise: Promise<T>,
+  deadlineMs: number,
+  deadlineTimers: ShutdownDeadlineTimers,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new ShutdownDeadlineExceeded()), deadlineMs);
+    const timeout = deadlineTimers.setTimeout(() => reject(new ShutdownDeadlineExceeded()), deadlineMs);
     promise.then(
       (value) => {
-        clearTimeout(timeout);
+        timeout.clear();
         resolve(value);
       },
       (error: unknown) => {
-        clearTimeout(timeout);
+        timeout.clear();
         reject(error);
       },
     );

@@ -203,9 +203,9 @@ describe("shutdown coordinator", () => {
     );
   });
 
-  it("hard deadline uses a referenced timeout and clears it after successful completion", async () => {
-    mock.timers.enable({ apis: ["setTimeout"] });
+  it("clears the hard deadline timer after successful completion", async () => {
     const calls: string[] = [];
+    const deadlineTimers = createDeadlineTimers(calls);
     const shutdown = createShutdownHandler({
       app: {
         close: async (): Promise<void> => {
@@ -222,13 +222,22 @@ describe("shutdown coordinator", () => {
       realtimeService: null,
       exit: (code) => calls.push(`exit:${code}`),
       deadlineMs: 5,
+      deadlineTimers,
       log: () => undefined,
     });
 
     await shutdown("SIGTERM");
-    mock.timers.tick(5);
 
-    assert.deepEqual(calls, ["waiter.release", "app.close", "waiter.drain", "mongo.close", "exit:0"]);
+    assert.deepEqual(calls, [
+      "waiter.release",
+      "app.close",
+      "deadline.set:5",
+      "waiter.drain",
+      "mongo.close",
+      "deadline.clear",
+      "exit:0",
+    ]);
+    assert.equal(deadlineTimers.activeCount(), 0);
   });
 });
 
@@ -258,4 +267,32 @@ function deferred<T>(): Deferred<T> {
     reject = rejectPromise;
   });
   return { promise, resolve, reject };
+}
+
+type TestDeadlineTimer = {
+  readonly callback: () => void;
+  readonly milliseconds: number;
+  active: boolean;
+  clear(): void;
+};
+
+function createDeadlineTimers(calls: string[]) {
+  const timers: TestDeadlineTimer[] = [];
+  return {
+    setTimeout: (callback: () => void, milliseconds: number): TestDeadlineTimer => {
+      const timer = {
+        callback,
+        milliseconds,
+        active: true,
+        clear: (): void => {
+          timer.active = false;
+          calls.push("deadline.clear");
+        },
+      };
+      timers.push(timer);
+      calls.push(`deadline.set:${milliseconds}`);
+      return timer;
+    },
+    activeCount: (): number => timers.filter((timer) => timer.active).length,
+  };
 }
