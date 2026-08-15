@@ -13,6 +13,7 @@
 
 - **Stage:** S03
 - **Wave:** W01
+- **Merge barrier (binding):** S03-W01-P01 (apps #918) **must not merge before** S02-W01-P01 (auth #70). S03 was opened for review only, ahead of its stated `S02-W01-P01 merged` dependency, at explicit user direction. This is a deliberate, recorded exception to the plan-worker rule that waves are strict merge barriers and implementation PRs are never stacked (`.opencode/agents/sesori-plan-worker.md:88`); the exception relaxes *review* ordering only and does not relax *merge* ordering. No further S03 or S04 work starts until #70 merges.
 - **Next action:** Merge S02-W01-P01 (auth PR #70: approved, CI green, zero unresolved threads) first, per the auth-first order this stack depends on. Then resolve the S03 review feedback on apps PR #918 — the Codex reviewer raises P1 layering objections that contradict the approved plan's explicit ownership design, so answer them against the plan rather than complying by default — and merge S03-W01-P01. Record each merge SHA in the artifact fields above as it lands. S05-W01-P01 stays blocked behind the S04 rollout checkpoints, and every one of its six removal triggers is still unfired.
 
 ## Plan Review
