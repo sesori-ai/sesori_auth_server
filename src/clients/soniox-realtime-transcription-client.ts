@@ -277,7 +277,10 @@ class Deferred<T> {
  */
 function isProviderErrorPayload(value: unknown): boolean {
   return (
-    typeof value === "object" && value !== null && !(value instanceof Error) && ("error_code" in value || "error_message" in value)
+    typeof value === "object" &&
+    value !== null &&
+    !(value instanceof Error) &&
+    ("error_code" in value || "error_message" in value)
   );
 }
 

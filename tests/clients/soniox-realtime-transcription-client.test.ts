@@ -214,8 +214,7 @@ describe("SonioxRealtimeClient", () => {
 
       await assert.rejects(
         realtimeSession.closed,
-        (error: unknown) =>
-          error instanceof RealtimeTranscriptionFailure && error.reason === expected,
+        (error: unknown) => error instanceof RealtimeTranscriptionFailure && error.reason === expected,
         `expected ${expected} for ${String((emitted as { code?: string }).code)}`,
       );
     }
