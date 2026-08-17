@@ -45,7 +45,12 @@ type SonioxRealtimeConfig = {
 };
 
 type SonioxRealtimeSessionOptions = {
-  readonly signal: AbortSignal;
+  /**
+   * The caller's cancellation only, and optional because a caller need not
+   * supply one. Never a timeout signal: the SDK registers this for the whole
+   * session and tears the session down when it aborts.
+   */
+  readonly signal: AbortSignal | undefined;
   readonly connect_timeout_ms: number;
 };
 
@@ -66,9 +71,15 @@ export class SonioxRealtimeClient implements RealtimeTranscriptionClient {
     }
 
     const timeoutSignal = AbortSignal.timeout(this.#connectTimeoutMs);
-    const signal = request.signal ? AbortSignal.any([request.signal, timeoutSignal]) : timeoutSignal;
     const sdkSession = this.#sdk.realtime.stt(this.#toConfig(request), {
-      signal,
+      // Only the caller's cancellation may live for the session's lifetime. The
+      // SDK keeps this signal registered for the whole session and tears the
+      // session down when it aborts, and `AbortSignal.timeout` cannot be
+      // cancelled — folding the connect deadline in here would abort every
+      // session `connectTimeoutMs` after it started, making the session cap,
+      // the wall clock, and the byte cap all unreachable. The connect deadline
+      // is enforced by `connect_timeout_ms` and the `waitForConnect` race below.
+      signal: request.signal,
       connect_timeout_ms: this.#connectTimeoutMs,
     });
     const session = new SonioxRealtimeSessionAdapter(sdkSession, request.onEvent, request.maxAudioDurationMs);
@@ -168,11 +179,25 @@ class SonioxRealtimeSessionAdapter implements RealtimeTranscriptionSession {
   };
 
   readonly #handleError = (error: unknown): void => {
-    try {
-      parseSonioxRealtimeError(error);
-    } catch (failure) {
-      this.#fail(failure);
+    // `{ error_code }` is the documented provider message shape, but the SDK
+    // consumes it internally and emits Error subclasses (AuthError, QuotaError,
+    // ConnectionError, NetworkError…) carrying `code`/`statusCode` on this
+    // channel instead. Classifying solely with the payload parser reported every
+    // real provider failure as malformed output, which both mis-reported the
+    // client-facing code (an expired key retried forever as internal_error) and
+    // skipped usage recording, because MalformedOutput carries recordUsage:false.
+    // Prefer the payload mapping when the shape genuinely matches, and fall back
+    // to SDK-error classification otherwise.
+    if (isProviderErrorPayload(error)) {
+      try {
+        parseSonioxRealtimeError(error);
+      } catch (failure) {
+        this.#fail(failure);
+        return;
+      }
     }
+
+    this.#fail(new RealtimeTranscriptionFailure(toRealtimeFailureReason(error)));
   };
 
   readonly #handleFinished = (): void => {
@@ -242,6 +267,18 @@ class Deferred<T> {
     this.#resolve = null;
     this.#reject = null;
   }
+}
+
+/**
+ * Whether a value claims to be the provider's raw `{ error_code }` message
+ * rather than an SDK `Error`. A value that claims that shape is validated
+ * strictly, so a malformed one still reports as malformed output instead of
+ * being silently reclassified as a transport failure.
+ */
+function isProviderErrorPayload(value: unknown): boolean {
+  return (
+    typeof value === "object" && value !== null && !(value instanceof Error) && ("error_code" in value || "error_message" in value)
+  );
 }
 
 function isSignalAborted(signal: AbortSignal | undefined): boolean {

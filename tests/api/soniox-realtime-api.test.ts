@@ -5,7 +5,11 @@ import {
   parseSonioxRealtimeResult,
   toRealtimeFailureReason,
 } from "../../src/api/soniox-realtime-api.js";
-import { RealtimeTranscriptionFailure, RealtimeTranscriptionFailureReason } from "../../src/types/transcription.js";
+import {
+  RealtimeProviderEventType,
+  RealtimeTranscriptionFailure,
+  RealtimeTranscriptionFailureReason,
+} from "../../src/types/transcription.js";
 
 function expectReason(run: () => unknown, reason: RealtimeTranscriptionFailureReason): void {
   assert.throws(run, (error: unknown) => {
@@ -131,9 +135,38 @@ describe("soniox realtime api boundary", () => {
     );
   });
 
+  it("accepts the provider echo field the SDK always emits without propagating it", () => {
+    // @soniox/node's parseResultMessage returns `raw` unconditionally and
+    // handleMessage spreads it into every emitted result. Rejecting it would
+    // fail the first transcript of every session. It carries the untrimmed
+    // provider payload, so it must be accepted and then dropped, never echoed.
+    const event = parseSonioxRealtimeResult(
+      {
+        tokens: [{ text: "hello", confidence: 0.9, is_final: true }],
+        final_audio_proc_ms: 10,
+        total_audio_proc_ms: 20,
+        finished: false,
+        raw: { tokens: [{ text: "hello", speaker: "s1" }], secret_provider_field: "must not surface" },
+      },
+      { maxAudioDurationMs: 1_000 },
+    );
+
+    assert.deepEqual(event, {
+      type: RealtimeProviderEventType.Transcript,
+      confirmedDelta: "hello",
+      provisional: "",
+      finalAudioMs: 10,
+      totalAudioMs: 20,
+    });
+    assert.ok(!JSON.stringify(event).includes("secret_provider_field"));
+  });
+
   it("rejects malformed or unknown Soniox result fields", () => {
     for (const value of [
-      { tokens: [], final_audio_proc_ms: 0, total_audio_proc_ms: 0, raw: "leak" },
+      // `raw` is deliberately absent here: the SDK emits it on every result, so
+      // it is accepted and dropped (covered above). Any OTHER unknown key must
+      // still fail, which is what keeps `.strict()` load-bearing.
+      { tokens: [], final_audio_proc_ms: 0, total_audio_proc_ms: 0, unexpected_provider_field: "x" },
       {
         tokens: [{ text: "x", confidence: 0, is_final: false, extra: true }],
         final_audio_proc_ms: 0,

@@ -51,6 +51,13 @@ const resultSchema = z
       .min(0)
       .refine((value) => Number.isFinite(value)),
     finished: z.boolean().optional(),
+    // `@soniox/node` returns the untrimmed provider payload as `raw` on every
+    // result and spreads it into the emitted event, so rejecting it would fail
+    // the first transcript of every session. It is declared here purely so
+    // `.strict()` keeps rejecting genuinely unexpected provider fields, and is
+    // never read: the returned event below is built from named fields only, so
+    // the provider echo cannot reach a client, a log, or an error cause.
+    raw: z.unknown().optional(),
   })
   .strict();
 
