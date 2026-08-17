@@ -3,10 +3,21 @@ import { EventEmitter } from "node:events";
 import { after, before, describe, it } from "node:test";
 import type { FastifyInstance } from "fastify";
 import { WebSocket, type RawData } from "ws";
+import type {
+  RealtimeTranscriptionClient,
+  RealtimeTranscriptionSession as ProviderSession,
+} from "../../src/clients/realtime-transcription-client.js";
 import { REALTIME_PROTOCOL_ERROR_RETRYABLE } from "../../src/models/voice.js";
+import type { DailyUsageRepository } from "../../src/repositories/daily-usage-repo.js";
 import { startRealtimeSocket } from "../../src/routes/voice-realtime-socket.js";
+import { createShutdownHandler } from "../../src/shutdown.js";
+import type { GlossaryService } from "../../src/services/glossary-service.js";
 import { RealtimeAdmissionError } from "../../src/services/realtime-transcription-errors.js";
-import type { RealtimeStartRequest } from "../../src/services/realtime-transcription-service.js";
+import {
+  RealtimeTranscriptionService,
+  type RealtimeStartRequest,
+  type RealtimeTranscriptionPolicy,
+} from "../../src/services/realtime-transcription-service.js";
 import {
   RealtimeFinishedReason,
   RealtimeProtocolErrorCode,
@@ -142,6 +153,84 @@ class SlowStartRealtimeService extends FakeRealtimeService {
       throw new RealtimeAdmissionError(RealtimeProtocolErrorCode.ServiceRestarting);
     }
     return super.start(request);
+  }
+}
+
+const SHUTDOWN_POLICY: RealtimeTranscriptionPolicy = {
+  dailyLimitSeconds: 3_600,
+  maxSessionSeconds: 900,
+  firstAudioTimeoutMs: 30_000,
+  finishTimeoutMs: 5_000,
+  disposeTimeoutMs: 5_000,
+  maxConcurrentSessionsPerUser: 4,
+  maxConcurrentSessions: 16,
+  audioPaceBurstSeconds: 5,
+};
+
+class FailingDisposeRealtimeService extends FakeRealtimeService {
+  override async dispose(): Promise<void> {
+    this.disposed = true;
+    throw new Error("dispose_timeout");
+  }
+
+  beginShutdown(): void {}
+}
+
+class ShutdownProviderSession implements ProviderSession {
+  receivedBytes = 0;
+  readonly #closed = deferred<void>();
+
+  get closed(): Promise<void> {
+    return this.#closed.promise;
+  }
+
+  sendAudio(data: Buffer): void {
+    this.receivedBytes += data.byteLength;
+  }
+
+  async finish(): Promise<void> {}
+
+  cancel(): void {
+    this.#closed.resolve(undefined);
+  }
+
+  close(): void {
+    this.#closed.resolve(undefined);
+  }
+}
+
+class ShutdownProviderClient implements RealtimeTranscriptionClient {
+  readonly sessions: ShutdownProviderSession[] = [];
+
+  async connect(): Promise<ProviderSession> {
+    const session = new ShutdownProviderSession();
+    this.sessions.push(session);
+    return session;
+  }
+}
+
+class EmptyGlossaryService {
+  async getContextWords(): Promise<readonly string[]> {
+    return [];
+  }
+}
+
+/**
+ * Stands in for the MongoDB usage write the terminal path awaits. The delay is
+ * what makes the ordering observable: the frame can only reach the client if
+ * disposal is sequenced ahead of app.close() rather than racing it.
+ */
+class RoundTripDailyUsageRepository {
+  async getDailyTranscriptionSeconds(): Promise<number> {
+    return 0;
+  }
+
+  async incrementTranscriptionSeconds(
+    _userId: string,
+    seconds: number,
+  ): Promise<{ previousTotal: number; newTotal: number }> {
+    await delay(50);
+    return { previousTotal: 0, newTotal: seconds };
   }
 }
 
@@ -1056,6 +1145,95 @@ describe("voice realtime route", () => {
       }
     });
 
+    // Regression guard for the disposal/app.close() race: @fastify/websocket's
+    // preClose closes every client socket, and a session emits its terminal
+    // frame only after an awaited usage write. Running the two concurrently
+    // dropped the frame and left the client with a bare close.
+    it("delivers service_restarting and close 1013 to a live socket during shutdown", async () => {
+      const provider = new ShutdownProviderClient();
+      const realtimeService = new RealtimeTranscriptionService({
+        realtimeClient: provider,
+        glossaryService: new EmptyGlossaryService() as unknown as GlossaryService,
+        dailyUsageRepo: new RoundTripDailyUsageRepository() as unknown as DailyUsageRepository,
+        policy: SHUTDOWN_POLICY,
+      });
+      const localCtx = await createTestApp({
+        realtimeService,
+        configOverrides: { REALTIME_TRANSCRIPTION_ENABLED: true, SONIOX_API_KEY: "test-soniox-key" },
+      });
+      const exitCodes: number[] = [];
+
+      try {
+        const user = await localCtx.createUser();
+        const baseUrl = await localCtx.app.listen({ port: 0, host: "127.0.0.1" });
+        const socket = new WebSocket(`${baseUrl.replace(/^http/, "ws")}/voice/realtime`, {
+          headers: { authorization: `Bearer ${user.accessToken}` },
+        });
+        await new Promise((resolve) => socket.once("open", resolve));
+        await sendStartAndWaitForReady(socket);
+
+        // 20 ms of aligned PCM, so the terminal path bills a second and has to
+        // await the usage write before it can emit anything.
+        socket.send(Buffer.alloc(640));
+        await waitFor(() => provider.sessions[0] !== undefined && provider.sessions[0].receivedBytes > 0);
+
+        const terminal = nextMessageWithin(socket, 5_000);
+        const closed = nextClose(socket);
+        const shutdown = createShutdownHandler({
+          app: localCtx.app,
+          mongo: { close: async () => undefined },
+          waiters: [],
+          producers: [],
+          realtimeService,
+          exit: (code) => exitCodes.push(code),
+          log: () => undefined,
+        });
+
+        await shutdown("SIGTERM");
+
+        assert.deepEqual(await terminal, { type: "error", code: "service_restarting", retryable: true });
+        assert.equal((await closed).code, 1013);
+        assert.deepEqual(exitCodes, [0]);
+      } finally {
+        await localCtx.cleanup();
+      }
+    });
+
+    // A drain that fails is degraded, not a failed termination. The onClose
+    // safety net re-awaits the same rejected disposal, so it must not turn
+    // app.close() into a rejection and take the exit code with it.
+    it("keeps a failed realtime drain out of the shutdown exit code", async () => {
+      const localCtx = await createTestApp({
+        realtimeService: new FailingDisposeRealtimeService(),
+        configOverrides: { REALTIME_TRANSCRIPTION_ENABLED: true, SONIOX_API_KEY: "test-soniox-key" },
+      });
+      const exitCodes: number[] = [];
+      let mongoClosed = false;
+
+      try {
+        const shutdown = createShutdownHandler({
+          app: localCtx.app,
+          mongo: {
+            close: async () => {
+              mongoClosed = true;
+            },
+          },
+          waiters: [],
+          producers: [],
+          realtimeService: new FailingDisposeRealtimeService(),
+          exit: (code) => exitCodes.push(code),
+          log: () => undefined,
+        });
+
+        await shutdown("SIGTERM");
+
+        assert.deepEqual(exitCodes, [0]);
+        assert.equal(mongoClosed, true);
+      } finally {
+        await localCtx.cleanup();
+      }
+    });
+
     it("enforces the process-wide pre-auth limit before JWT validation", async () => {
       const localRealtimeService = new FakeRealtimeService();
       const localCtx = await createTestApp({
@@ -1285,6 +1463,16 @@ function noMessageWithin(socket: WebSocket, timeoutMs: number): Promise<boolean>
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  const deadline = Date.now() + 1_000;
+  while (!predicate()) {
+    if (Date.now() >= deadline) {
+      throw new Error("Condition was not reached before deadline");
+    }
+    await delay(1);
+  }
 }
 
 const UPGRADE_REJECTION_STATUS = /Unexpected server response: (\d+)/;

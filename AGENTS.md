@@ -55,6 +55,7 @@ src/
 | Async transcription providers | `src/types/transcription.ts` + `src/clients/{async-transcription-client,openai-client,soniox-transcription-client}.ts` + `src/api/soniox-transcription-api.ts` + `src/services/voice-service.ts` + `src/routes/voice.ts` + `src/scripts/purge-soniox-transcription.ts` | One provider chosen at startup, no fallback; OpenAI default, Soniox EU-pinned. See ASYNC TRANSCRIPTION below |
 | Realtime transcription proxy | `src/routes/voice-realtime.ts`, `src/routes/voice-realtime-support.ts`, `src/services/realtime-transcription-service.ts`, `src/services/realtime-session-controller.ts`, `src/clients/soniox-realtime-transcription-client.ts`, `src/api/soniox-realtime-api.ts`, `src/middleware/realtime-upgrade-rate-limit.ts`, `src/shutdown.ts`, `scripts/ci-auth-container-smoke.sh` | Disabled by default; provider-neutral protocol v1 over WebSocket. See REALTIME TRANSCRIPTION below |
 | Push notification filtering | `src/models/notification.ts` + `src/services/notification-service.ts` | `NotificationCategory` is the wire contract; `NOTIFICATION_CATEGORY_SETTING_KEYS` maps each category to the toggle that silences it |
+| Ordered shutdown           | `src/shutdown.ts` + the `onClose` hook in `src/server.ts`                                                                                | Waiter release, drain ordering, and which failures are fatal; see SHUTDOWN below            |
 | Wire dependencies          | `src/index.ts`                                                                                                                          | Composition root — all instantiation happens here                                           |
 
 ## CONVENTIONS
@@ -86,7 +87,7 @@ The activation-reminder feature is intentionally split into independently deploy
 
 `activationStates` stores one document per user. Milestones are real event timestamps, reminder baselines are campaign scheduling timestamps that may diverge during backfill, and sent markers independently suppress each reminder. Do not conflate these categories. `ActivationService` records milestones from device-token registration, bridge registration, and accepted metadata requests; these secondary writes are failure-isolated from the existing endpoint response. Logout/revoke does not erase lifetime activation history.
 
-`ActivationReminderService` is disabled by default. Its delivery order is due query, immediate eligibility recheck, FCM send, then conditional sent-marker write. Genuine zero-device results are marked complete; FCM-unavailable, thrown sends, and zero-success results with retryable token failures remain eligible. Disposal stops queued candidates and waits up to 15 seconds for the current candidate through its marker write before MongoDB closes; a late FCM result cannot start stale-token cleanup or a marker after that timeout. Later backfill behavior must follow the staged acceptance criteria in the plan.
+`ActivationReminderService` is disabled by default. Its delivery order is due query, immediate eligibility recheck, FCM send, then conditional sent-marker write. Genuine zero-device results are marked complete; FCM-unavailable, thrown sends, and zero-success results with retryable token failures remain eligible. Disposal stops queued candidates and waits up to 15 seconds for the current candidate through its marker write before MongoDB closes; a late FCM result cannot start stale-token cleanup or a marker after that timeout. `dispose()` rejects on that timeout because the drain genuinely did not finish, but the shutdown coordinator treats it as degraded rather than fatal — see SHUTDOWN. Later backfill behavior must follow the staged acceptance criteria in the plan.
 
 ## BRIDGE SUBSYSTEM
 
@@ -153,11 +154,45 @@ realtime adapter remains the only place that consumes raw `@soniox/node`
 realtime values; every SDK result/error crosses `src/api/soniox-realtime-api.ts`
 before reaching the service.
 
-Shutdown is coordinated by `src/shutdown.ts`: release pending OAuth and
-app-client waiters first, dispose producers and realtime sessions before MongoDB
-close, run `app.close()`, drain app-presence repository reads quiescently, then
-close MongoDB. Disposal timeouts reject and keep MongoDB open rather than
-claiming success while database-capable work may still be running.
+Shutdown ordering is load-bearing for the realtime terminal frame — see
+SHUTDOWN below.
+
+## SHUTDOWN
+
+`src/shutdown.ts` runs one ordered path: release pending-OAuth and app-client
+waiters, `beginShutdown()` on realtime, start the producer drains, **await
+realtime disposal to completion**, `app.close()`, await the producer drains,
+drain app-presence repository reads quiescently, then close MongoDB.
+
+Realtime disposal must finish *before* `app.close()`. `@fastify/websocket`
+registers a `preClose` hook that closes every client socket and Fastify runs
+`preClose` ahead of `onClose`, while a session emits its terminal frame only
+after an awaited usage write. Running the two concurrently loses that race and
+the client gets a bare close instead of `service_restarting` + 1013, which is
+the entire reason `ServiceRestarting` and `beginShutdown()` exist. The `onClose`
+hook in `src/server.ts` is only a safety net for closes that bypass the
+coordinator; it cannot substitute for this ordering, because by the time it runs
+the sockets are already gone.
+
+**A failed or timed-out disposal is degraded, not fatal.** Producer and realtime
+drains are logged as `[Shutdown] disposal degraded` and the ordered shutdown
+continues to `mongo.close()` and exit 0. Keeping MongoDB open bought nothing:
+the handler's own `process.exit(1)` killed the in-flight work the connection was
+supposedly protecting, while turning a routine SIGTERM that landed mid-sweep
+into a failed container termination. Failures of the steps that actually own
+resources and ordering — `app.close()`, `drainReleasedReads()`, `mongo.close()`
+— remain fatal, as does the 22-second hard deadline, which is the real backstop
+for "could not stop cleanly". For that reason `app.close()` must never reject
+merely because a drain did.
+
+Waiters are released before `app.close()`, so the server keeps serving in-flight
+and newly-arrived requests through that window. Anything that cannot answer
+truthfully in it must refuse rather than guess: `/auth/session/status` returns
+`503 service_restarting` for `PendingAuthStatus.Shutdown`, and
+`/auth/app-clients/status?wait=true` returns the same signal via
+`AppClientPresenceShuttingDown`. An *immediate* app-client read still answers
+normally — its result is a confirmed database read, so shutdown never turns it
+into a false `{ registered: false }`.
 
 ## NOTIFICATION CATEGORY FILTERING
 

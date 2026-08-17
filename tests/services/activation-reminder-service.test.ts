@@ -16,6 +16,7 @@ import type {
   NotificationPayload,
   NotificationService,
 } from "../../src/services/notification-service.js";
+import { createShutdownHandler } from "../../src/shutdown.js";
 
 type SendCall = { userId: string; payload: NotificationPayload; abortSignal?: AbortSignal };
 type MarkCall = { userId: string; kind: ActivationReminderKind; cutoff: Date; sentAt: Date };
@@ -424,6 +425,53 @@ describe("ActivationReminderService", () => {
     const result = await sweep;
     assert.equal(repo.markCalls.length, 0);
     assert.equal(result.reminders[ActivationReminderKind.Bridge1].failed, 1);
+  });
+
+  // The drain timeout used to reject through the shutdown coordinator, which
+  // skipped mongo.close() and exited 1 — turning a routine container stop that
+  // happened to land mid-sweep into a failed termination, while the handler's
+  // own process.exit(1) killed the in-flight work the open connection was
+  // supposedly protecting.
+  it("does not turn a drain timeout into a failed shutdown", async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const sendDeferred = createDeferred<NotificationDeliveryResult>();
+    const repo = createRepo({ due: { [ActivationReminderKind.Bridge1]: [candidate("stuck-user")] } });
+    const notification = createNotification({ send: async () => sendDeferred.promise });
+    const service = new ActivationReminderService({
+      activationStateRepo: repo.repo,
+      notificationService: notification.service,
+      options: DEFAULT_OPTIONS,
+    });
+    const calls: string[] = [];
+    const shutdown = createShutdownHandler({
+      app: {
+        close: async (): Promise<void> => {
+          calls.push("app.close");
+        },
+      },
+      mongo: {
+        close: async () => {
+          calls.push("mongo.close");
+        },
+      },
+      waiters: [],
+      producers: [service],
+      realtimeService: null,
+      exit: (code) => calls.push(`exit:${code}`),
+      log: () => undefined,
+    });
+
+    const sweep = service.sweepOnce(NOW);
+    await flushMicrotasks();
+    const shuttingDown = shutdown("SIGTERM");
+    t.mock.timers.tick(ACTIVATION_REMINDER_DISPOSE_TIMEOUT_MS);
+    await shuttingDown;
+
+    assert.deepEqual(calls, ["app.close", "mongo.close", "exit:0"]);
+    // The drain still refused to claim success: the marker was never written.
+    sendDeferred.resolve({ devicesNotified: 1, retryableFailures: 0 });
+    await sweep;
+    assert.equal(repo.markCalls.length, 0);
   });
 
   it("starts only when enabled and stops interval sweeps on dispose", async (t) => {

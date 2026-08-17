@@ -111,7 +111,7 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
     onProviderClosed({
       provider: this.#provider,
       isClosed: () => this.#state === "closed",
-      beginTerminal: (decision) => void this.#beginTerminal(decision),
+      beginTerminal: (decision) => this.#beginTerminalDetached(decision),
     });
     emitRealtimeReady({
       request: this.#request,
@@ -120,7 +120,7 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
     });
     this.#streamStartedAtMs = this.#now();
     this.#timers.startWallClock(
-      () => void this.#beginFinish(this.readyLimitReason),
+      () => this.#beginFinishDetached(this.readyLimitReason),
       this.#providerLimitSeconds * 1_000,
     );
     this.#armAudioDeadline();
@@ -155,18 +155,18 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
         // holding both sockets until the wall clock expires.
         this.#armAudioDeadline();
         if (result.reachedLimit) {
-          void this.#beginFinish(this.readyLimitReason);
+          this.#beginFinishDetached(this.readyLimitReason);
         }
         break;
       case "limit":
-        void this.#beginFinish(this.readyLimitReason);
+        this.#beginFinishDetached(this.readyLimitReason);
         break;
       case "pace":
       case "invalid":
-        void this.#beginTerminal({ kind: "error", code: RealtimeProtocolErrorCode.InvalidAudio });
+        this.#beginTerminalDetached({ kind: "error", code: RealtimeProtocolErrorCode.InvalidAudio });
         break;
       case "error":
-        void this.#beginTerminal({ kind: "error", code: result.code });
+        this.#beginTerminalDetached({ kind: "error", code: result.code });
         break;
       default:
         throw new RealtimeAdmissionError(RealtimeProtocolErrorCode.InternalError);
@@ -175,7 +175,7 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
 
   #armAudioDeadline(): void {
     this.#timers.startAudioDeadline(
-      () => void this.#beginTerminal({ kind: "error", code: RealtimeProtocolErrorCode.AudioTimeout }),
+      () => this.#beginTerminalDetached({ kind: "error", code: RealtimeProtocolErrorCode.AudioTimeout }),
       this.#policy.firstAudioTimeoutMs,
     );
   }
@@ -204,6 +204,11 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
       provider: this.#provider,
       resolveClosed: () => this.#closed.resolve(),
     });
+  }
+
+  /** Fire-and-forget finish entry; see `#beginTerminalDetached` for why. */
+  #beginFinishDetached(reason: RealtimeFinishedReason): void {
+    void this.#beginFinish(reason).catch(() => undefined);
   }
 
   #beginFinish(reason: RealtimeFinishedReason): Promise<void> {
@@ -244,7 +249,7 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
           event.finalAudioMs > this.#providerLimitSeconds * 1_000 ||
           event.totalAudioMs > this.#providerLimitSeconds * 1_000
         ) {
-          void this.#beginTerminal({
+          this.#beginTerminalDetached({
             kind: "error",
             code: RealtimeProtocolErrorCode.InternalError,
             recordUsage: false,
@@ -261,13 +266,13 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
               provisional: event.provisional,
             })
           ) {
-            void this.#beginTerminal({ kind: "error", code: RealtimeProtocolErrorCode.InternalError });
+            this.#beginTerminalDetached({ kind: "error", code: RealtimeProtocolErrorCode.InternalError });
           }
         }
         break;
       case RealtimeProviderEventType.Finished:
         if (this.#state === "finishing") {
-          void this.#beginTerminal({ kind: "complete", reason: this.#finishReason });
+          this.#beginTerminalDetached({ kind: "complete", reason: this.#finishReason });
         }
         break;
       default:
@@ -280,6 +285,17 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
     return this.#terminalPromise;
   }
 
+  /**
+   * Fire-and-forget terminal entry. `#runTerminal` still rejects so awaiting
+   * callers (`finish`, `cancel`, `shutdown`) see the failure, but these call
+   * sites have nobody to report to: leaving the rejection unhandled would turn
+   * a throwing client callback into a process-level unhandled rejection, which
+   * is a worse outcome than the terminal the session already completed.
+   */
+  #beginTerminalDetached(decision: TerminalDecision): void {
+    void this.#beginTerminal(decision).catch(() => undefined);
+  }
+
   async #runTerminal(decision: TerminalDecision): Promise<void> {
     this.#timers.clearAll();
     this.#abortController.abort();
@@ -288,17 +304,25 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
       this.#provider?.cancel();
     }
 
-    const remaining =
-      decision.kind === "error" && decision.recordUsage === false
-        ? this.#remainingAtAdmission
-        : await this.#service.recordUsage({
-            userId: this.#request.userId,
-            seconds: this.#billableSeconds,
-            remainingAtAdmission: this.#remainingAtAdmission,
-          });
-    emitTerminalEvent({ callbacks: this.#request.callbacks, decision, remaining });
-    this.#service.release(this);
-    this.#closed.resolve();
+    try {
+      const remaining =
+        decision.kind === "error" && decision.recordUsage === false
+          ? this.#remainingAtAdmission
+          : await this.#service.recordUsage({
+              userId: this.#request.userId,
+              seconds: this.#billableSeconds,
+              remainingAtAdmission: this.#remainingAtAdmission,
+            });
+      emitTerminalEvent({ callbacks: this.#request.callbacks, decision, remaining });
+    } finally {
+      // Ordering is deliberate: the usage write and the terminal emit run
+      // first, so a successful terminal still reports before the slot frees.
+      // But neither may gate cleanup — a rejected usage write or a throwing
+      // client callback would otherwise strand a concurrency slot for the
+      // process lifetime and leave `closed` pending, which hangs dispose().
+      this.#service.release(this);
+      this.#closed.resolve();
+    }
   }
 
   get #billableSeconds(): number {

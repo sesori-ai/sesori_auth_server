@@ -766,6 +766,46 @@ describe("RealtimeTranscriptionService", () => {
     });
   });
 
+  // The concurrency ceilings make a leaked slot durable: a session that never
+  // releases holds one for the process lifetime, and enough of them lock the
+  // user out of realtime entirely.
+  it("releases the slot and resolves closed even when a terminal callback throws", async () => {
+    const harness = createHarness({ onTerminalEvent: () => raise("terminal callback exploded") });
+    const session = await harness.start();
+    session.sendAudio(Buffer.alloc(320));
+
+    await assert.rejects(session.shutdown(), /terminal callback exploded/);
+
+    assert.equal(harness.service.activeSessionCount, 0);
+    // A slot released but a `closed` left pending would still hang dispose().
+    await session.closed;
+    // The usage write is ordered before the emit attempt, so it still happened.
+    assert.equal(harness.usage.increments.length, 1);
+  });
+
+  it("releases the slot and resolves closed when the usage write rejects outright", async () => {
+    const released: RealtimeTranscriptionSession[] = [];
+    const controller = new RealtimeSessionController({
+      service: {
+        release: (session) => released.push(session),
+        recordUsage: () => Promise.reject(new Error("usage write exploded")),
+      },
+      request: startRequest(() => undefined),
+      policy: POLICY,
+      providerLimitSeconds: 5,
+      readyLimitReason: RealtimeFinishedReason.SessionLimit,
+      remainingAtAdmission: 5,
+    });
+    const provider = new FakeRealtimeClient(undefined, 0, undefined);
+    await controller.connect(provider, []);
+    controller.sendAudio(Buffer.alloc(320));
+
+    await assert.rejects(controller.cancel(), /usage write exploded/);
+
+    assert.deepEqual(released, [controller]);
+    await controller.closed;
+  });
+
   it("releases pace budget as the session clock advances", async () => {
     const clock = { nowMs: 1_000 };
     const harness = createHarness({
@@ -796,6 +836,8 @@ function createHarness(
     termsGate?: TestDeferred<readonly string[]>;
     connectGate?: TestDeferred<RealtimeTranscriptionSession>;
     now?: () => number;
+    /** Runs on every terminal callback, so a test can make the client-facing emit throw. */
+    onTerminalEvent?: () => void;
   } = {},
 ) {
   const provider = new FakeRealtimeClient(options.connectError, options.finishDelayMs ?? 0, options.connectGate);
@@ -832,12 +874,32 @@ function createHarness(
         callbacks: {
           onReady: (event) => events.push(event),
           onTranscript: (event) => events.push(event),
-          onComplete: (event) => events.push(event),
-          onError: (event) => events.push(event),
+          onComplete: (event) => {
+            events.push(event);
+            options.onTerminalEvent?.();
+          },
+          onError: (event) => {
+            events.push(event);
+            options.onTerminalEvent?.();
+          },
         },
         signal: startOptions.signal ?? new AbortController().signal,
       }),
   };
+}
+
+function startRequest(onEvent: () => void): RealtimeStartRequest {
+  return {
+    userId: USER_ID,
+    projectKey: null,
+    audio: { encoding: RealtimeAudioEncoding.PcmS16Le, sampleRate: RealtimeSampleRate.Rate16000, channels: 1 },
+    callbacks: { onReady: onEvent, onTranscript: onEvent, onComplete: onEvent, onError: onEvent },
+    signal: new AbortController().signal,
+  };
+}
+
+function raise(message: string): never {
+  throw new Error(message);
 }
 
 type StartOptions = {

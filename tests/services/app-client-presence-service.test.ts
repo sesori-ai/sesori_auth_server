@@ -6,6 +6,7 @@ import type { DeviceTokenRepository } from "../../src/repositories/device-token-
 import {
   AppClientPresenceInitialReadTimeout,
   AppClientPresenceService,
+  AppClientPresenceShuttingDown,
 } from "../../src/services/app-client-presence-service.js";
 
 type Deferred<T> = {
@@ -248,7 +249,7 @@ describe("AppClientPresenceService", () => {
     assert.equal(getEventListeners(controller.signal, "abort").length, 0);
   });
 
-  it("releaseWaiters resolves active and future waits as ordinary timeouts", async () => {
+  it("releaseWaiters resolves a wait whose read already confirmed absence as false", async () => {
     const repo = new FakeDeviceTokenRepository();
     repo.reads.push(false, false);
     const service = createService(repo);
@@ -262,11 +263,26 @@ describe("AppClientPresenceService", () => {
 
     service.releaseWaiters();
 
+    // Both reads returned false before the release, so `false` here is a
+    // confirmed absence rather than an unverified one.
     assert.equal(await waiting, false);
-    assert.equal(
-      await service.waitForRegistration({ userId: "user-release", timeoutMs: 1_000, abortSignal: controller.signal }),
-      false,
+  });
+
+  it("refuses a wait that starts after release instead of reporting unconfirmed absence", async () => {
+    const repo = new FakeDeviceTokenRepository();
+    const service = createService(repo);
+    service.releaseWaiters();
+
+    await assert.rejects(
+      service.waitForRegistration({
+        userId: "user-post-release",
+        timeoutMs: 1_000,
+        abortSignal: new AbortController().signal,
+      }),
+      AppClientPresenceShuttingDown,
     );
+    // Refusing must not be mistaken for a read: nothing was asked of the database.
+    assert.equal(repo.readCount, 0);
   });
 
   it("drainReleasedReads waits for reads registered during shutdown", async () => {
