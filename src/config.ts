@@ -116,6 +116,9 @@ const baseConfigSchema = z.object({
   REALTIME_FIRST_AUDIO_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(15_000).default(5_000),
   REALTIME_OUTBOUND_BUFFER_MAX_BYTES: z.coerce.number().int().min(65_536).max(8_388_608).default(1_048_576),
   REALTIME_UPGRADE_MAX_PER_MINUTE: z.coerce.number().int().min(12).max(1_000).default(120),
+  REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER: z.coerce.number().int().min(1).max(50).default(3),
+  REALTIME_MAX_CONCURRENT_SESSIONS: z.coerce.number().int().min(1).max(10_000).default(200),
+  REALTIME_AUDIO_PACE_BURST_SECONDS: z.coerce.number().int().min(1).max(60).default(5),
 
   // App-wide limits (hardcoded defaults, not sourced from env)
   DAILY_TRANSCRIPTION_LIMIT_SECONDS: z.coerce.number().default(3600),
@@ -144,6 +147,14 @@ export const configSchema = baseConfigSchema.superRefine((config, ctx) => {
 
   if (config.REALTIME_TRANSCRIPTION_ENABLED && !config.SONIOX_API_KEY) {
     ctx.addIssue({ code: "custom", path: ["SONIOX_API_KEY"], message: "SONIOX_API_KEY is required for realtime" });
+  }
+
+  if (config.REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER > config.REALTIME_MAX_CONCURRENT_SESSIONS) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER"],
+      message: "REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER cannot exceed REALTIME_MAX_CONCURRENT_SESSIONS",
+    });
   }
 });
 

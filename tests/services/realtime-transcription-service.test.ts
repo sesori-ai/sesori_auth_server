@@ -14,6 +14,7 @@ import {
   type RealtimeTranscriptionPolicy,
 } from "../../src/services/realtime-transcription-service.js";
 import { RealtimeSessionController } from "../../src/services/realtime-session-controller.js";
+import { RealtimeAdmissionError } from "../../src/services/realtime-transcription-errors.js";
 import { emitTerminalEvent } from "../../src/services/realtime-public-event-emitter.js";
 import type { GlossaryService } from "../../src/services/glossary-service.js";
 import {
@@ -34,6 +35,9 @@ const POLICY: RealtimeTranscriptionPolicy = {
   firstAudioTimeoutMs: 25,
   finishTimeoutMs: 25,
   disposeTimeoutMs: 50,
+  maxConcurrentSessionsPerUser: 20,
+  maxConcurrentSessions: 100,
+  audioPaceBurstSeconds: 5,
 };
 
 type TestDeferred<T> = {
@@ -599,7 +603,7 @@ describe("RealtimeTranscriptionService", () => {
     assert.equal(harness.provider.requests.length, 0);
   });
 
-  it("does not enforce custom user/start caps and still handles serialized event size", async () => {
+  it("keeps distinct users and released slots below the ceilings independent and still handles serialized event size", async () => {
     const serviceCaps = createHarness({ policy: { ...POLICY, firstAudioTimeoutMs: 1_000 } });
     const sessions = await Promise.all(
       Array.from({ length: 11 }, (_, index) => serviceCaps.start({ userId: `${USER_ID}${index}` })),
@@ -645,6 +649,138 @@ describe("RealtimeTranscriptionService", () => {
       retryable: false,
     });
   });
+
+  it("caps concurrent sessions per user before any budget read or provider connect", async () => {
+    const harness = createHarness({
+      policy: { ...POLICY, firstAudioTimeoutMs: 1_000, maxConcurrentSessionsPerUser: 2 },
+    });
+
+    const first = await harness.start();
+    const second = await harness.start();
+    const readsBeforeRejection = harness.usage.reads;
+
+    await assert.rejects(harness.start(), { code: RealtimeProtocolErrorCode.ProviderCapacity });
+
+    assert.equal(harness.usage.reads, readsBeforeRejection);
+    assert.equal(harness.provider.sessions.length, 2);
+
+    await first.cancel();
+    const third = await harness.start();
+
+    assert.equal(harness.provider.sessions.length, 3);
+    await Promise.all([second.cancel(), third.cancel()]);
+  });
+
+  it("caps process-wide concurrent sessions across distinct users", async () => {
+    const harness = createHarness({
+      policy: { ...POLICY, firstAudioTimeoutMs: 1_000, maxConcurrentSessions: 2, maxConcurrentSessionsPerUser: 2 },
+    });
+
+    const first = await harness.start({ userId: `${USER_ID}a` });
+    const second = await harness.start({ userId: `${USER_ID}b` });
+
+    await assert.rejects(harness.start({ userId: `${USER_ID}c` }), {
+      code: RealtimeProtocolErrorCode.ProviderCapacity,
+    });
+    assert.equal(harness.provider.sessions.length, 2);
+
+    await first.cancel();
+    const third = await harness.start({ userId: `${USER_ID}c` });
+
+    assert.equal(harness.provider.sessions.length, 3);
+    await Promise.all([second.cancel(), third.cancel()]);
+  });
+
+  it("counts in-flight admissions so a start burst cannot exceed the per-user cap", async () => {
+    const quotaGate = deferred<number>();
+    const harness = createHarness({
+      policy: { ...POLICY, firstAudioTimeoutMs: 1_000, maxConcurrentSessionsPerUser: 3 },
+      usedSecondsGate: quotaGate,
+    });
+
+    const burst = Promise.allSettled(Array.from({ length: 12 }, () => harness.start()));
+    await nextTurn();
+    quotaGate.resolve(0);
+    const settled = await burst;
+
+    const admitted: { cancel(): Promise<void> }[] = [];
+    const rejectedCodes: unknown[] = [];
+    for (const result of settled) {
+      if (result.status === "fulfilled") {
+        admitted.push(result.value);
+      } else {
+        rejectedCodes.push(result.reason instanceof RealtimeAdmissionError ? result.reason.code : result.reason);
+      }
+    }
+
+    assert.equal(admitted.length, 3);
+    assert.equal(harness.provider.sessions.length, 3);
+    assert.equal(rejectedCodes.length, 9);
+    assert.deepEqual(new Set(rejectedCodes), new Set([RealtimeProtocolErrorCode.ProviderCapacity]));
+
+    await Promise.all(admitted.map((session) => session.cancel()));
+  });
+
+  it("rearms the audio deadline on every accepted frame and terminates a silent session", async () => {
+    const harness = createHarness({ policy: { ...POLICY, firstAudioTimeoutMs: 120 } });
+    const session = await harness.start();
+
+    session.sendAudio(Buffer.alloc(320));
+    await delay(40);
+    session.sendAudio(Buffer.alloc(320));
+    await delay(40);
+
+    assert.equal(harness.events.at(-1)?.type, "ready");
+
+    const terminated = await Promise.race([session.closed.then(() => true), delay(1_000).then(() => false)]);
+
+    assert.equal(terminated, true);
+    assert.deepEqual(harness.events.at(-1), {
+      type: "error",
+      code: RealtimeProtocolErrorCode.AudioTimeout,
+      retryable: true,
+    });
+  });
+
+  it("terminates audio delivered faster than real time beyond the burst allowance", async () => {
+    const clock = { nowMs: 1_000 };
+    const harness = createHarness({
+      now: () => clock.nowMs,
+      policy: { ...POLICY, firstAudioTimeoutMs: 1_000, audioPaceBurstSeconds: 1 },
+    });
+    const session = await harness.start();
+
+    session.sendAudio(Buffer.alloc(32_000));
+    assert.deepEqual(harness.provider.sessions[0]?.sentBytes, [32_000]);
+
+    session.sendAudio(Buffer.alloc(320));
+    assert.deepEqual(harness.provider.sessions[0]?.sentBytes, [32_000]);
+
+    const terminated = await Promise.race([session.closed.then(() => true), delay(1_000).then(() => false)]);
+
+    assert.equal(terminated, true);
+    assert.deepEqual(harness.events.at(-1), {
+      type: "error",
+      code: RealtimeProtocolErrorCode.InvalidAudio,
+      retryable: false,
+    });
+  });
+
+  it("releases pace budget as the session clock advances", async () => {
+    const clock = { nowMs: 1_000 };
+    const harness = createHarness({
+      now: () => clock.nowMs,
+      policy: { ...POLICY, firstAudioTimeoutMs: 1_000, audioPaceBurstSeconds: 1 },
+    });
+    const session = await harness.start();
+
+    session.sendAudio(Buffer.alloc(32_000));
+    clock.nowMs += 1_000;
+    session.sendAudio(Buffer.alloc(32_000));
+
+    assert.deepEqual(harness.provider.sessions[0]?.sentBytes, [32_000, 32_000]);
+    await session.cancel();
+  });
 });
 
 function createHarness(
@@ -659,6 +795,7 @@ function createHarness(
     usedSecondsGate?: TestDeferred<number>;
     termsGate?: TestDeferred<readonly string[]>;
     connectGate?: TestDeferred<RealtimeTranscriptionSession>;
+    now?: () => number;
   } = {},
 ) {
   const provider = new FakeRealtimeClient(options.connectError, options.finishDelayMs ?? 0, options.connectGate);
@@ -675,6 +812,7 @@ function createHarness(
     glossaryService: glossary as unknown as GlossaryService,
     dailyUsageRepo: usage as unknown as DailyUsageRepository,
     policy: options.policy ?? POLICY,
+    now: options.now,
   });
   return {
     provider,
@@ -745,6 +883,7 @@ class FakeGlossaryService {
 
 class FakeDailyUsageRepository {
   readonly increments: { readonly seconds: number }[] = [];
+  reads = 0;
   readonly #usedSeconds: number;
   readonly #incrementError: Error | null;
   readonly #incrementDelayMs: number;
@@ -763,6 +902,7 @@ class FakeDailyUsageRepository {
   }
 
   async getDailyTranscriptionSeconds(): Promise<number> {
+    this.reads += 1;
     if (this.#usedSecondsGate !== undefined) {
       return this.#usedSecondsGate.promise;
     }

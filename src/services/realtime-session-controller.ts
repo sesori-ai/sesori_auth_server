@@ -37,6 +37,7 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
   readonly #providerSignal: AbortSignal;
   readonly #closed = new Deferred<void>();
   readonly #timers = new RealtimeSessionTimers();
+  readonly #now: () => number;
   #providerLimitSeconds: number;
   #remainingAtAdmission: number;
   #readyLimitReason: RealtimeFinishedReason;
@@ -47,6 +48,7 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
   #state: SessionState = "streaming";
   #attemptedBytes = 0;
   #providerProgressMs = 0;
+  #streamStartedAtMs = 0;
 
   constructor(args: {
     readonly service: RealtimeSessionOwner;
@@ -55,10 +57,12 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
     readonly providerLimitSeconds: number;
     readonly readyLimitReason: RealtimeFinishedReason;
     readonly remainingAtAdmission: number;
+    readonly now?: () => number;
   }) {
     this.#service = args.service;
     this.#request = args.request;
     this.#policy = args.policy;
+    this.#now = args.now ?? (() => Date.now());
     this.#providerSignal = AbortSignal.any([this.#abortController.signal, args.request.signal]);
     this.#providerLimitSeconds = args.providerLimitSeconds;
     this.#readyLimitReason = args.readyLimitReason;
@@ -114,14 +118,12 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
       providerLimitSeconds: this.#providerLimitSeconds,
       remainingAtAdmission: this.#remainingAtAdmission,
     });
+    this.#streamStartedAtMs = this.#now();
     this.#timers.startWallClock(
       () => void this.#beginFinish(this.readyLimitReason),
       this.#providerLimitSeconds * 1_000,
     );
-    this.#timers.startFirstAudio(
-      () => void this.#beginTerminal({ kind: "error", code: RealtimeProtocolErrorCode.AudioTimeout }),
-      this.#policy.firstAudioTimeoutMs,
-    );
+    this.#armAudioDeadline();
   }
 
   sendAudio(data: Buffer): void {
@@ -129,18 +131,29 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
       return;
     }
 
-    this.#timers.clearFirstAudio();
+    // Inbound flow control is a pacing budget rather than socket pause/resume plus a provider-side
+    // bufferedAmount watermark. Pacing needs no transport detail on the provider-neutral session
+    // contract, and it bounds what can ever be in flight: a client may not run more than the burst
+    // allowance ahead of real time, so the provider send queue stays bounded no matter how fast the
+    // client uplink is or how hard the provider applies backpressure. The cumulative session cap
+    // alone permits the whole session's audio to arrive at once.
     const result = sendRealtimeAudioFrame({
       provider: this.#provider,
       request: this.#request,
       data,
       attemptedBytes: this.#attemptedBytes,
       limitSeconds: this.#providerLimitSeconds,
+      elapsedMs: this.#now() - this.#streamStartedAtMs,
+      paceBurstSeconds: this.#policy.audioPaceBurstSeconds,
     });
 
     switch (result.kind) {
       case "sent":
         this.#attemptedBytes = result.attemptedBytes;
+        // Rearm only once the frame is accepted. Clearing before validation would let one junk
+        // frame retire the deadline permanently, and never rearming leaves a silent session
+        // holding both sockets until the wall clock expires.
+        this.#armAudioDeadline();
         if (result.reachedLimit) {
           void this.#beginFinish(this.readyLimitReason);
         }
@@ -148,6 +161,7 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
       case "limit":
         void this.#beginFinish(this.readyLimitReason);
         break;
+      case "pace":
       case "invalid":
         void this.#beginTerminal({ kind: "error", code: RealtimeProtocolErrorCode.InvalidAudio });
         break;
@@ -157,6 +171,13 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
       default:
         throw new RealtimeAdmissionError(RealtimeProtocolErrorCode.InternalError);
     }
+  }
+
+  #armAudioDeadline(): void {
+    this.#timers.startAudioDeadline(
+      () => void this.#beginTerminal({ kind: "error", code: RealtimeProtocolErrorCode.AudioTimeout }),
+      this.#policy.firstAudioTimeoutMs,
+    );
   }
 
   finish(): Promise<void> {
@@ -194,7 +215,7 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
       return this.#finishPromise;
     }
 
-    this.#timers.clearFirstAudio();
+    this.#timers.clearAudioDeadline();
     this.#state = "finishing";
     this.#finishReason = reason;
     this.#timers.clearWallClock();

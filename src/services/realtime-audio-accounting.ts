@@ -23,6 +23,24 @@ export function reachedAudioLimit(input: Omit<PcmAccountingInput, "byteLength">)
   return input.attemptedBytes >= Math.floor(input.limitSeconds * bytesPerSecond(input));
 }
 
+/**
+ * True when accepting this frame would put the session further ahead of real time than the burst
+ * allowance permits. Live capture yields one second of audio per elapsed second, so a client that
+ * buffers during a network stall stays within budget: the stall advances the elapsed clock by the
+ * same amount it buffered.
+ */
+export function exceedsRealtimePace(input: {
+  readonly byteLength: number;
+  readonly sampleRate: number;
+  readonly channels: number;
+  readonly attemptedBytes: number;
+  readonly elapsedMs: number;
+  readonly burstSeconds: number;
+}): boolean {
+  const allowedSeconds = Math.max(0, input.elapsedMs) / 1000 + input.burstSeconds;
+  return input.attemptedBytes + input.byteLength > Math.floor(allowedSeconds * bytesPerSecond(input));
+}
+
 export function billableSeconds(input: {
   readonly attemptedBytes: number;
   readonly sampleRate: number;

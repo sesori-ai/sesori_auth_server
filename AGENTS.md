@@ -78,7 +78,7 @@ src/
 - **Bridge notification debounce is in-process only.** `BridgeStateTracker` keeps per-(userId, bridgeId) debounce timers and last-notified state in a process-local Map: pending notifications are lost on restart, the map is unbounded for the process lifetime (acceptable under the 50-bridges-per-user registration cap), and multiple instances would double-notify. Same single-instance constraint as above.
 - **Activation reminder polling is in-process only.** `ActivationReminderService` has a process-local interval and single-flight guard. Multiple enabled instances can send the same reminder before either writes its MongoDB marker. Keep `ACTIVATION_REMINDERS_ENABLED=false` on all but one instance unless a distributed lease or claim is added.
 - **Rate-limit counters are in-process only.** `@fastify/rate-limit` keeps every allowance — the global one and the per-route settings-write one — in a process-local LRU, so N instances grant N times the intended allowance. The route store also defaults to 5000 keys, and an evicted key starts a fresh window, so a limit is a bound on sustained abuse rather than a hard guarantee once distinct keys exceed that. Raise `cache` or move to a shared store before scaling out or before treating any limit as a correctness control. Route limits are compile-time constants (`SETTINGS_WRITE_MAX_PER_MINUTE`, and the voice/session equivalents), so retuning one is a deploy, not an env flip.
-- **Realtime admission and sessions are in-process only.** The realtime pre-auth upgrade limiter grants 120 attempts/minute by default for the process, the post-auth start limiter grants a fixed 12 starts/minute per verified user in that process, and both ignore forwarding headers. Realtime active sessions, timers, and shutdown drains also live in memory. Keep auth single-instance while realtime is enabled unless these limits and drains are moved to shared infrastructure.
+- **Realtime admission and sessions are in-process only.** The realtime pre-auth upgrade limiter grants 120 attempts/minute by default for the process, the post-auth start limiter grants a fixed 12 starts/minute per verified user in that process, and both ignore forwarding headers. The concurrent-session ceilings (`REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER`, `REALTIME_MAX_CONCURRENT_SESSIONS`) are counted from the same process-local `#active` set, so N instances admit N times the intended concurrency. Realtime active sessions, timers, and shutdown drains also live in memory. Keep auth single-instance while realtime is enabled unless these limits and drains are moved to shared infrastructure.
 
 ## ACTIVATION REMINDERS
 
@@ -128,6 +128,23 @@ It has no general audio queue: a second frame while `start` is still resolving i
 invalid, binary-before-ready is `invalid_audio`, duplicate start/control frames
 are rejected or ignored according to the state machine, and `finish` keeps the
 socket open until the service emits one terminal `complete` or `error`.
+
+Admission enforces concurrency ceilings before it reads the daily budget,
+synchronously and including sessions still resolving `start`, because the start
+limiter bounds starts per minute and not sessions held at once. Over-ceiling
+admissions are refused with retryable `provider_capacity`; a new wire code would
+break protocol v1 clients. Budget is read but never reserved, so per-user
+overshoot is bounded by the per-user ceiling times the session cap rather than
+eliminated.
+
+Each admitted session is bounded twice more. The audio deadline is armed at
+provider ready and rearmed on every *accepted* frame — never cleared before the
+frame validates — so silence ends the session with `audio_timeout` instead of
+holding both sockets to the wall clock. Inbound audio is paced against elapsed
+session time plus a burst allowance rather than paused via socket watermarks;
+pacing keeps transport detail off the provider-neutral session contract and
+bounds what can ever be in flight. Do not replace it with the cumulative cap
+alone, which permits a whole session of audio to arrive at once.
 
 Route limits come from the injected immutable `RealtimeRoutePolicy`; service
 limits come from the injected immutable `RealtimeTranscriptionPolicy`. Do not

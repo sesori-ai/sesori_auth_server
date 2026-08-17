@@ -211,6 +211,9 @@ async function main() {
             firstAudioTimeoutMs: config.REALTIME_FIRST_AUDIO_TIMEOUT_MS,
             finishTimeoutMs: config.REALTIME_FINISH_TIMEOUT_MS,
             disposeTimeoutMs: config.REALTIME_DISPOSE_TIMEOUT_MS,
+            maxConcurrentSessionsPerUser: config.REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER,
+            maxConcurrentSessions: config.REALTIME_MAX_CONCURRENT_SESSIONS,
+            audioPaceBurstSeconds: config.REALTIME_AUDIO_PACE_BURST_SECONDS,
           },
         }),
         routePolicy: {

@@ -6,7 +6,13 @@ import {
 } from "../types/transcription.js";
 import type { RealtimeTranscriptionSession as ProviderSession } from "../clients/realtime-transcription-client.js";
 import type { RealtimeStartRequest } from "./realtime-transcription-contracts.js";
-import { acceptedFrameBytes, billableSeconds, isAlignedPcm, reachedAudioLimit } from "./realtime-audio-accounting.js";
+import {
+  acceptedFrameBytes,
+  billableSeconds,
+  exceedsRealtimePace,
+  isAlignedPcm,
+  reachedAudioLimit,
+} from "./realtime-audio-accounting.js";
 import { emitReadyEvent } from "./realtime-public-event-emitter.js";
 import { RealtimeAdmissionError, toProviderErrorCode } from "./realtime-transcription-errors.js";
 import { withTimeout } from "./realtime-session-utils.js";
@@ -20,6 +26,7 @@ export type RealtimeAudioFrameResult =
   | { readonly kind: "sent"; readonly attemptedBytes: number; readonly reachedLimit: boolean }
   | { readonly kind: "limit" }
   | { readonly kind: "invalid" }
+  | { readonly kind: "pace" }
   | { readonly kind: "error"; readonly code: RealtimeProtocolErrorCode };
 
 export function toProviderTimeoutCode(error: unknown): RealtimeProtocolErrorCode {
@@ -69,10 +76,26 @@ export function sendRealtimeAudioFrame(args: {
   readonly data: Buffer;
   readonly attemptedBytes: number;
   readonly limitSeconds: number;
+  readonly elapsedMs: number;
+  readonly paceBurstSeconds: number;
 }): RealtimeAudioFrameResult {
   const { audio } = args.request;
   if (!isAlignedPcm({ byteLength: args.data.byteLength, channels: audio.channels })) {
     return { kind: "invalid" };
+  }
+
+  // Checked before the cumulative cap so excess audio is refused rather than queued at the provider.
+  if (
+    exceedsRealtimePace({
+      byteLength: args.data.byteLength,
+      sampleRate: audio.sampleRate,
+      channels: audio.channels,
+      attemptedBytes: args.attemptedBytes,
+      elapsedMs: args.elapsedMs,
+      burstSeconds: args.paceBurstSeconds,
+    })
+  ) {
+    return { kind: "pace" };
   }
 
   const alignedBytes = acceptedFrameBytes({

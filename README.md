@@ -247,6 +247,32 @@ active sessions, first-frame/first-audio timers, and shutdown drains are also
 process-local. Keep auth single-instance while realtime is enabled unless these
 limits and session drains are moved to shared infrastructure.
 
+Rate limits bound how often a session may be *started*, not how many may be held
+at once, so admission also enforces concurrency ceilings
+(`REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER`, `REALTIME_MAX_CONCURRENT_SESSIONS`)
+before it reads the daily budget. Both are counted synchronously, including
+sessions still resolving `start`, and a session over either ceiling is refused
+with a retryable `provider_capacity`. The daily budget is read but never
+reserved, so concurrent sessions still each observe the same remaining seconds:
+a user can overshoot the daily limit by at most
+`REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER × REALTIME_SESSION_MAX_SECONDS`
+before the terminal usage writes land. That overshoot is bounded and accepted;
+closing it fully requires reserving budget at admission and reconciling at
+terminal, which changes daily-usage accounting and its crash semantics.
+
+Two per-session limits bound what one admitted session can hold. The audio
+deadline (`REALTIME_FIRST_AUDIO_TIMEOUT_MS`) is armed when the provider becomes
+ready and rearmed on every accepted frame, so a session that goes silent ends
+with `audio_timeout` instead of pinning both sockets until the wall-clock cap.
+Inbound audio is additionally paced: accepted bytes must stay within
+`elapsed session seconds + REALTIME_AUDIO_PACE_BURST_SECONDS` of audio, and a
+client beyond that is terminated with `invalid_audio`. Live capture produces one
+second of audio per elapsed second, so a client that buffers during a network
+stall stays within budget — the stall advances the elapsed clock by the same
+amount it buffered. Without pacing the cumulative session cap alone allows an
+entire session of audio to be delivered as fast as the client uplink permits,
+which queues on this process's heap once the provider applies backpressure.
+
 ## Environment variables
 
 Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configuration.
@@ -287,6 +313,9 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 | `REALTIME_FIRST_AUDIO_TIMEOUT_MS` | Deadline for first audio after provider ready. Default `5000` (range 1,000-15,000). |
 | `REALTIME_OUTBOUND_BUFFER_MAX_BYTES` | Slow-client outbound buffer threshold. Default `1048576` (range 65,536-8,388,608). |
 | `REALTIME_UPGRADE_MAX_PER_MINUTE` | Process-wide pre-auth realtime upgrade allowance. Default `120` (range 12-1000). |
+| `REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER` | Concurrent realtime sessions one user may hold in this process, counting sessions still resolving `start`. Default `3` (range 1-50). Exceeding it is refused with `provider_capacity`. Must not exceed `REALTIME_MAX_CONCURRENT_SESSIONS`. |
+| `REALTIME_MAX_CONCURRENT_SESSIONS` | Concurrent realtime sessions this process will hold across all users. Default `200` (range 1-10,000). Each session holds a client socket, a provider socket, and timers. |
+| `REALTIME_AUDIO_PACE_BURST_SECONDS` | How many seconds of audio a client may deliver ahead of real time before the session is terminated with `invalid_audio`. Default `5` (range 1-60). |
 | `CLIENT_IP_SOURCE`             | Source used for per-client rate-limit keys. `socket` (default) ignores proxy headers; `cloudflare` uses `CF-Connecting-IP` only when syntactically valid.                                  |
 | `CLOUDFLARE_INGRESS_CIDRS`     | Optional comma-separated Cloudflare ingress CIDRs/IPs. In `cloudflare` mode, `CF-Connecting-IP` is honored only when the socket peer matches this list; otherwise the socket IP is used.       |
 | `AUTH_DEV_BYPASS_ENABLED`      | **Local development only — disables JWT verification on every authenticated route.** Default `false`. Accepted values: `false`, `0`, `true`, `1`. Startup fails unless `NODE_ENV=development`. See "Development auth bypass" below. |
