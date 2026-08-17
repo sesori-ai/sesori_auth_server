@@ -38,6 +38,7 @@ import { GlossaryService } from "../../src/services/glossary-service.js";
 import { VoiceService } from "../../src/services/voice-service.js";
 import type { AsyncTranscriptionClient } from "../../src/clients/async-transcription-client.js";
 import type { RealtimeRouteService } from "../../src/routes/voice-realtime-socket.js";
+import { MAX_BINARY_BYTES, MAX_TEXT_BYTES } from "../../src/routes/voice-realtime-support.js";
 import { AppClientPresenceService } from "../../src/services/app-client-presence-service.js";
 import { ProductAnalyticsPreferenceService } from "../../src/services/product-analytics-preference-service.js";
 import { SettingsService } from "../../src/services/settings-service.js";
@@ -254,8 +255,8 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
             realtimeService: overrides.realtimeService,
             routePolicy: {
               firstFrameTimeoutMs: effectiveConfig.REALTIME_FIRST_FRAME_TIMEOUT_MS,
-              maxTextFrameBytes: 2_048,
-              maxAudioFrameBytes: 65_536,
+              maxTextFrameBytes: MAX_TEXT_BYTES,
+              maxAudioFrameBytes: MAX_BINARY_BYTES,
               outboundBufferMaxBytes: effectiveConfig.REALTIME_OUTBOUND_BUFFER_MAX_BYTES,
             },
           }

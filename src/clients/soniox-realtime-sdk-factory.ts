@@ -15,6 +15,22 @@ type SonioxRealtimeConstructor = new (options: SonioxRealtimeClientOptions) => S
 
 const SonioxRealtimeNodeClient: SonioxRealtimeConstructor = SonioxNodeClient;
 
+/**
+ * EU residency pinning. The three endpoint fields are NOT redundant, so do not
+ * "simplify" this to `region` alone:
+ *
+ * - `region` only picks the base the SDK *derives* defaults from, and it loses
+ *   to `SONIOX_BASE_DOMAIN`, which the SDK reads straight from the environment.
+ * - `base_url` is the highest-precedence REST endpoint and outranks
+ *   `SONIOX_API_BASE_URL`.
+ * - `realtime.ws_base_url` is the highest-precedence realtime endpoint and
+ *   outranks `SONIOX_WS_URL`.
+ *
+ * Without the two explicit URLs an environment variable could redirect audio
+ * and the API key off the approved EU project. `src/index.ts` carries the same
+ * warning for the async client, and `SONIOX_BASE_DOMAIN` is rejected outright
+ * in `src/config.ts`.
+ */
 export function createSonioxRealtimeSdkOptions(deps: {
   readonly apiKey: string;
   readonly region: "eu";

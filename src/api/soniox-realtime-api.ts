@@ -137,6 +137,11 @@ export function toRealtimeFailureReason(error: unknown): RealtimeTranscriptionFa
 
   const metadata = parseSdkErrorMetadata(error);
   const code = metadata.code;
+  // Deliberately Unavailable, NOT Cancelled. Cancellation is decided from the
+  // signals we own (`request.signal`, our own timeout race in the client), never
+  // from an SDK error shape. A provider that aborts our socket for its own
+  // reasons would otherwise be reported as a user cancellation and silently
+  // swallowed. Mirrors `toFailureReason` on the async path — do not "fix" it.
   if (code === "aborted") {
     return RealtimeTranscriptionFailureReason.Unavailable;
   }
@@ -159,6 +164,9 @@ export function toRealtimeFailureReason(error: unknown): RealtimeTranscriptionFa
   }
 
   const name = metadata.name;
+  // Same invariant as `code === "aborted"` above: an abort shape reaching this
+  // function came from the provider or the transport, not from our cancellation,
+  // so it maps to Unavailable rather than Cancelled.
   if (name === "AbortError") {
     return RealtimeTranscriptionFailureReason.Unavailable;
   }

@@ -1,3 +1,26 @@
+/**
+ * Outer budget for the whole ordered shutdown, and the only backstop that
+ * genuinely reports "could not stop cleanly" (exit 1) — individual drain
+ * failures are degraded, not fatal.
+ *
+ * It is bounded on both sides:
+ *
+ * - **Above** by the platform's SIGTERM grace period. If the deadline is longer
+ *   than the grace period it never fires, because the platform SIGKILLs first.
+ *   `scripts/ci-auth-container-smoke.sh` stops the container with `--time 25`,
+ *   so 22s leaves 3s of headroom for process exit. Any deployment target must
+ *   allow at least as long; see the README shutdown section.
+ * - **Below** by the component drains that must fit inside it. Realtime
+ *   disposal (`REALTIME_DISPOSE_TIMEOUT_MS`, default 15s, max 20s) is awaited to
+ *   completion before `app.close()`, while the producer drains — bridge state
+ *   tracker (15s) and activation reminders (15s) — run concurrently with it and
+ *   are awaited after. Worst case is therefore roughly the realtime maximum plus
+ *   `app.close()`, the released-read drain, and `mongo.close()`.
+ *
+ * Raising `REALTIME_DISPOSE_TIMEOUT_MS` to its 20s ceiling leaves only ~2s for
+ * those remaining steps. Retune this constant and the platform grace period
+ * together, never one alone.
+ */
 const SHUTDOWN_HARD_DEADLINE_MS = 22_000;
 
 export type ShutdownDeadlineTimer = {

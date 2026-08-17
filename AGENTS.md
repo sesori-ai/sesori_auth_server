@@ -5,35 +5,56 @@ Node.js/TypeScript authentication service. Social login (GitHub, Google) via OAu
 ## STRUCTURE
 
 ```
+.plan/
+└── active/real-time-transcription/ # Staged realtime plan; TRACKER.md is the authoritative checkpoint
 .plans/
 └── activation-reminders/ # Resumable multi-PR plan + design considerations for the activation funnel
 src/
-├── types/             # Enums + shared types (mongo.ts, oauth.ts)
+├── types/             # Enums + shared types (mongo.ts, oauth.ts, transcription.ts — realtime protocol enums + pinned Soniox URLs)
 ├── clients/
 │   ├── auth/          # OAuth provider abstraction
 │   │   ├── oauth-client.ts   # Abstract base — template method: exchangeCode → resolveIdentity
 │   │   ├── github-client.ts  # GithubClient extends OAuthClient
 │   │   └── google-client.ts  # GoogleClient extends OAuthClient (JWKS verification)
-│   └── openai-client.ts      # OpenAI transcription client
+│   ├── openai-client.ts      # OpenAI transcription client
+│   ├── realtime-transcription-client.ts       # Provider-neutral realtime client/session contracts
+│   ├── soniox-realtime-transcription-client.ts # Soniox realtime adapter (only consumer of raw SDK realtime values)
+│   └── soniox-realtime-sdk-factory.ts         # EU-pinned SDK options (region + base_url + realtime.ws_base_url)
 ├── api/               # Typed adapters translating external SDK values/errors into local models
+│   └── soniox-realtime-api.ts # Mandatory realtime validation boundary (safeParse + toRealtimeFailureReason)
 ├── db/
 │   ├── mongo-db-connector.ts  # MongoDbConnector — connection lifecycle, health check
 │   └── mongo-db-accessor.ts   # MongoDbAccessor — generic DB access + config-driven ensureIndexes
 ├── lib/               # Utilities (state-store.ts — LRU singleton, errors.ts — ApiError hierarchy)
 ├── middleware/         # createAuthMiddleware factory → requireAuth preHandler hook
+│   └── realtime-upgrade-rate-limit.ts # Pre-auth, process-wide WebSocket upgrade limiter
 ├── models/            # Zod schemas — api.ts, bridge.ts (shared bridge enums/schemas), documents.ts, jwt.ts
+│   └── voice.ts       # Realtime protocol v1 frame/event schemas + REALTIME_PROTOCOL_ERROR_RETRYABLE
 ├── repositories/      # Data access — user-repo.ts, oauth-account-repo.ts, bridge-repo.ts, activation-state-repo.ts, …
 ├── routes/
-│   └── auth/          # OAuth + pending-confirmation flow
-│       ├── github.ts             # GET /auth/github, POST /auth/github/init, POST/GET callbacks
-│       ├── google.ts             # mirror of github.ts for Google
-│       ├── init.ts               # Shared helpers: parseSessionTokenHeader, createPendingOAuthInit, …
-│       ├── provider-callback.ts  # GET interstitial + POST confirm/deny (HTML responses)
-│       └── session-status.ts     # GET /auth/session/status long-poll
+│   ├── auth/          # OAuth + pending-confirmation flow
+│   │   ├── github.ts             # GET /auth/github, POST /auth/github/init, POST/GET callbacks
+│   │   ├── google.ts             # mirror of github.ts for Google
+│   │   ├── init.ts               # Shared helpers: parseSessionTokenHeader, createPendingOAuthInit, …
+│   │   ├── provider-callback.ts  # GET interstitial + POST confirm/deny (HTML responses)
+│   │   └── session-status.ts     # GET /auth/session/status long-poll
+│   ├── voice-realtime.ts         # GET /voice/realtime registration + post-auth start limiter
+│   ├── voice-realtime-socket.ts  # Frame state machine and session handoff
+│   └── voice-realtime-support.ts # Frame parsing/validation, wire ceilings, closeCodeForError
 ├── services/          # Business logic - auth, activation, reminders, tokens, voice, etc.
-│   └── pending-auth-store.ts     # In-memory LRU of pending OAuth sessions (anti-phishing flow)
+│   ├── pending-auth-store.ts     # In-memory LRU of pending OAuth sessions (anti-phishing flow)
+│   ├── realtime-transcription-service.ts   # Admission, concurrency ceilings, budget read, dispose
+│   ├── realtime-transcription-contracts.ts # Injected RealtimeTranscriptionPolicy + session contracts
+│   ├── realtime-transcription-errors.ts    # RealtimeAdmissionError + provider→protocol code mapping
+│   ├── realtime-transcription-events.ts    # Session callback types + public event validation
+│   ├── realtime-public-event-emitter.ts    # Ready/transcript/terminal emission, validated before send
+│   ├── realtime-session-controller.ts      # Per-session state, timers, pacing, terminal ordering
+│   ├── realtime-session-terminal.ts        # Ready/finish/force-close helpers + billable seconds
+│   ├── realtime-session-utils.ts           # Deferred, timers, withTimeout
+│   └── realtime-audio-accounting.ts        # Frame validation, cumulative cap, pace budget
 ├── config.ts          # Zod-validated env config
 ├── index.ts           # Composition root (wires all dependencies)
+├── shutdown.ts        # Ordered shutdown coordinator + hard deadline (see SHUTDOWN)
 └── server.ts          # Fastify app factory (buildApp receives typed AppServices)
 ```
 
@@ -53,7 +74,7 @@ src/
 | Activation reminders       | `.plans/activation-reminders/` + `src/services/activation-reminder-service.ts` + `src/repositories/activation-state-repo.ts`            | Read `PLAN.md` and `CONSIDERATIONS.md` before continuing the staged implementation          |
 | Per-device settings        | `src/routes/settings/settings.ts` + `src/services/settings-service.ts` + `src/repositories/settings-configuration-repo.ts` + `src/models/settings.ts` | Settings keyed by `{userId, deviceId}`; toggle registry + server-resolved defaults live in `models/settings.ts` |
 | Async transcription providers | `src/types/transcription.ts` + `src/clients/{async-transcription-client,openai-client,soniox-transcription-client}.ts` + `src/api/soniox-transcription-api.ts` + `src/services/voice-service.ts` + `src/routes/voice.ts` + `src/scripts/purge-soniox-transcription.ts` | One provider chosen at startup, no fallback; OpenAI default, Soniox EU-pinned. See ASYNC TRANSCRIPTION below |
-| Realtime transcription proxy | `src/routes/voice-realtime.ts`, `src/routes/voice-realtime-support.ts`, `src/services/realtime-transcription-service.ts`, `src/services/realtime-session-controller.ts`, `src/clients/soniox-realtime-transcription-client.ts`, `src/api/soniox-realtime-api.ts`, `src/middleware/realtime-upgrade-rate-limit.ts`, `src/shutdown.ts`, `scripts/ci-auth-container-smoke.sh` | Disabled by default; provider-neutral protocol v1 over WebSocket. See REALTIME TRANSCRIPTION below |
+| Realtime transcription proxy | `.plan/active/real-time-transcription/` + `src/routes/voice-realtime.ts`, `src/routes/voice-realtime-support.ts`, `src/services/realtime-transcription-service.ts`, `src/services/realtime-session-controller.ts`, `src/clients/soniox-realtime-transcription-client.ts`, `src/api/soniox-realtime-api.ts`, `src/middleware/realtime-upgrade-rate-limit.ts`, `src/shutdown.ts`, `scripts/ci-auth-container-smoke.sh` | Disabled by default; provider-neutral protocol v1 over WebSocket. Read `TRACKER.md` for the staged checkpoint before continuing. See REALTIME TRANSCRIPTION below |
 | Push notification filtering | `src/models/notification.ts` + `src/services/notification-service.ts` | `NotificationCategory` is the wire contract; `NOTIFICATION_CATEGORY_SETTING_KEYS` maps each category to the toggle that silences it |
 | Ordered shutdown           | `src/shutdown.ts` + the `onClose` hook in `src/server.ts`                                                                                | Waiter release, drain ordering, and which failures are fatal; see SHUTDOWN below            |
 | Wire dependencies          | `src/index.ts`                                                                                                                          | Composition root — all instantiation happens here                                           |
@@ -78,7 +99,7 @@ src/
 - **App-client presence waiters are in-process only.** `AppClientPresenceService` wakes long polls on the instance that commits a device-token registration. Keep auth single-instance until app-presence signaling is distributed.
 - **Bridge notification debounce is in-process only.** `BridgeStateTracker` keeps per-(userId, bridgeId) debounce timers and last-notified state in a process-local Map: pending notifications are lost on restart, the map is unbounded for the process lifetime (acceptable under the 50-bridges-per-user registration cap), and multiple instances would double-notify. Same single-instance constraint as above.
 - **Activation reminder polling is in-process only.** `ActivationReminderService` has a process-local interval and single-flight guard. Multiple enabled instances can send the same reminder before either writes its MongoDB marker. Keep `ACTIVATION_REMINDERS_ENABLED=false` on all but one instance unless a distributed lease or claim is added.
-- **Rate-limit counters are in-process only.** `@fastify/rate-limit` keeps every allowance — the global one and the per-route settings-write one — in a process-local LRU, so N instances grant N times the intended allowance. The route store also defaults to 5000 keys, and an evicted key starts a fresh window, so a limit is a bound on sustained abuse rather than a hard guarantee once distinct keys exceed that. Raise `cache` or move to a shared store before scaling out or before treating any limit as a correctness control. Route limits are compile-time constants (`SETTINGS_WRITE_MAX_PER_MINUTE`, and the voice/session equivalents), so retuning one is a deploy, not an env flip.
+- **Rate-limit counters are in-process only.** `@fastify/rate-limit` keeps every allowance — the global one and the per-route settings-write one — in a process-local LRU, so N instances grant N times the intended allowance. The route store also defaults to 5000 keys, and an evicted key starts a fresh window, so a limit is a bound on sustained abuse rather than a hard guarantee once distinct keys exceed that. Raise `cache` or move to a shared store before scaling out or before treating any limit as a correctness control. Route limits are compile-time constants (`SETTINGS_WRITE_MAX_PER_MINUTE`, `REALTIME_START_MAX_PER_MINUTE`, and the voice/session equivalents), so retuning one is a deploy, not an env flip.
 - **Realtime admission and sessions are in-process only.** The realtime pre-auth upgrade limiter grants 120 attempts/minute by default for the process, the post-auth start limiter grants a fixed 12 starts/minute per verified user in that process, and both ignore forwarding headers. The concurrent-session ceilings (`REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER`, `REALTIME_MAX_CONCURRENT_SESSIONS`) are counted from the same process-local `#active` set, so N instances admit N times the intended concurrency. Realtime active sessions, timers, and shutdown drains also live in memory. Keep auth single-instance while realtime is enabled unless these limits and drains are moved to shared infrastructure.
 
 ## ACTIVATION REMINDERS
@@ -101,10 +122,12 @@ Push notifications debounce through `BridgeStateTracker` (120s), keyed per bridg
 
 `src/api/soniox-transcription-api.ts` is a mandatory validation boundary: every SDK status, ID, duration, transcript, and error payload passes through a `safeParse` helper before it reaches the client or the service. Do not consume a raw `@soniox/node` value anywhere else.
 
+`SONIOX_BASE_DOMAIN` is declared in the config schema **only so that setting it fails startup**. It is not a setting, and it is not dead code: the SDK reads it from the environment itself, and it outranks `region` when deriving the default host for *every* Soniox service. Its narrower siblings `SONIOX_API_BASE_URL` and `SONIOX_WS_URL` are deliberately **not** rejected, because each targets exactly one endpoint and our explicit `base_url` / `realtime.ws_base_url` options outrank both — `tests/config.test.ts` proves both cases against the real SDK. `SONIOX_BASE_DOMAIN` is rejected instead of pinned because it moves whatever we have *not* pinned, so refusing it keeps that residual surface closed without depending on every future SDK call site remembering to pass a URL.
+
 Four invariants in `SonioxTranscriptionClient` are load-bearing and easy to undo:
 
 1. **EU residency** is pinned with an explicit `base_url` in `src/index.ts`. `region` alone is insufficient — it resolves below `SONIOX_BASE_DOMAIN` and `SONIOX_API_BASE_URL`, so an env var could otherwise redirect audio and the API key.
-2. **Cancellation and timeout are decided from the signals we own**, never from an SDK error shape. `toFailureReason` deliberately maps abort shapes to `unavailable`, not `cancelled`.
+2. **Cancellation and timeout are decided from the signals we own**, never from an SDK error shape. `toFailureReason` deliberately maps abort shapes to `unavailable`, not `cancelled`. `toRealtimeFailureReason` in `src/api/soniox-realtime-api.ts` reproduces this exactly; both must move together.
 3. **Job identity is correlated.** `wait` and `getTranscript` address the job by the ID we created, and a record echoing a different ID is `malformed_output` — otherwise another job's transcript could be returned and billed.
 4. **Cleanup deletes the transcription before the file**, and skips the file entirely when a job delete fails or when a create attempt returned no usable ID. Leaving both for the purge command is the safe state; deleting the file alone strands a job against the provider's cap.
 
@@ -148,11 +171,37 @@ bounds what can ever be in flight. Do not replace it with the cumulative cap
 alone, which permits a whole session of audio to arrive at once.
 
 Route limits come from the injected immutable `RealtimeRoutePolicy`; service
-limits come from the injected immutable `RealtimeTranscriptionPolicy`. Do not
-import config or hardcode runtime policy in route/service internals. The Soniox
-realtime adapter remains the only place that consumes raw `@soniox/node`
-realtime values; every SDK result/error crosses `src/api/soniox-realtime-api.ts`
-before reaching the service.
+limits come from the injected immutable `RealtimeTranscriptionPolicy`. Every
+field of both is required, so there is no defaults layer beneath them — the
+composition root is the single source of runtime policy. Do not import config or
+hardcode runtime policy in route/service internals, and do not reintroduce a
+`DEFAULT_*_POLICY` object: an unreachable default that drifts from the config
+schema is worse than a compile error. The frame ceilings in
+`voice-realtime-support.ts` (`MAX_TEXT_BYTES`, `MAX_BINARY_BYTES`,
+`MAX_TRANSPORT_PAYLOAD_BYTES`) are the exception because they are protocol v1
+wire contract rather than tuning, and `MAX_TRANSPORT_PAYLOAD_BYTES` must stay one
+byte above the audio cap so an oversized frame fails our validation as
+`invalid_audio` instead of being dropped by `ws` first. The Soniox realtime
+adapter remains the only place that consumes raw `@soniox/node` realtime values;
+every SDK result/error crosses `src/api/soniox-realtime-api.ts` before reaching
+the service.
+
+The two async-Soniox invariants below apply verbatim to the realtime path, and
+both look like cleanups to a reader who does not know why they exist:
+
+1. **EU residency is pinned three times over.** `createSonioxRealtimeSdkOptions`
+   passes `region`, `base_url` *and* `realtime.ws_base_url`. The URL fields are
+   not redundant: `region` only selects the base the SDK derives defaults from
+   and loses to `SONIOX_BASE_DOMAIN`, while `base_url` and `realtime.ws_base_url`
+   are the highest-precedence REST and realtime endpoints and outrank
+   `SONIOX_API_BASE_URL` and `SONIOX_WS_URL` respectively. Deleting either URL
+   lets an environment variable redirect audio and the API key.
+2. **An abort is not a cancellation.** `toRealtimeFailureReason` maps
+   `code === "aborted"` and `name === "AbortError"` to `Unavailable`, exactly as
+   `toFailureReason` does on the async path. Cancellation is decided from the
+   signals we own, never from an SDK error shape; mapping these to `Cancelled`
+   would let a provider-initiated teardown be silently swallowed as a user
+   cancellation.
 
 Shutdown ordering is load-bearing for the realtime terminal frame — see
 SHUTDOWN below.

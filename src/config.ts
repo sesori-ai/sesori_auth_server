@@ -103,6 +103,10 @@ const baseConfigSchema = z.object({
   SONIOX_ASYNC_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(110_000).default(100_000),
   SONIOX_CLEANUP_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(30_000).default(10_000),
   SONIOX_REALTIME_MODEL: z.string().min(1).default("stt-rt-v5"),
+  // NOT a setting. Declared only so the refinement below can hard-fail startup:
+  // the SDK reads this variable itself, and it outranks `region` when deriving
+  // every default service URL. See the refinement for why it is rejected while
+  // its siblings are not.
   SONIOX_BASE_DOMAIN: z.string().optional(),
   REALTIME_TRANSCRIPTION_ENABLED: z
     .union([z.literal("true"), z.literal("false"), z.literal("1"), z.literal("0")])
@@ -141,10 +145,20 @@ export const configSchema = baseConfigSchema.superRefine((config, ctx) => {
     });
   }
 
+  // `SONIOX_BASE_DOMAIN` rewrites the base every default Soniox service URL is
+  // derived from, so it moves any endpoint we have not pinned explicitly. We
+  // pin the two we use (`base_url`, `realtime.ws_base_url`), which is why the
+  // narrower `SONIOX_API_BASE_URL` and `SONIOX_WS_URL` are deliberately NOT
+  // rejected — an explicit option outranks each of them, and there are tests
+  // proving it. Failing startup here keeps that residual surface closed rather
+  // than depending on every future SDK call site remembering to pin.
   if (config.SONIOX_BASE_DOMAIN !== undefined) {
     ctx.addIssue({ code: "custom", path: ["SONIOX_BASE_DOMAIN"], message: "SONIOX_BASE_DOMAIN is forbidden" });
   }
 
+  // Realtime needs the key regardless of which async provider is selected: the
+  // realtime proxy always runs on Soniox, so enabling it on the default OpenAI
+  // async provider still requires the credential.
   if (config.REALTIME_TRANSCRIPTION_ENABLED && !config.SONIOX_API_KEY) {
     ctx.addIssue({ code: "custom", path: ["SONIOX_API_KEY"], message: "SONIOX_API_KEY is required for realtime" });
   }

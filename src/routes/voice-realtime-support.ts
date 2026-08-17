@@ -12,12 +12,24 @@ import {
   RealtimeServerEventType,
 } from "../types/transcription.js";
 
-export const FIRST_FRAME_TIMEOUT_MS = 5_000;
+/**
+ * Protocol v1 frame ceilings. These are wire contract, not tunables: a client
+ * built against protocol 1 may send audio frames up to `MAX_BINARY_BYTES`, so
+ * they are compile-time constants rather than config. The transport cap is one
+ * byte above the audio cap so an over-sized frame is rejected by our own
+ * validation with `invalid_audio` instead of being dropped by `ws` as a
+ * protocol violation before the route ever sees it.
+ */
 export const MAX_TEXT_BYTES = 2_048;
 export const MAX_BINARY_BYTES = 65_536;
 export const MAX_TRANSPORT_PAYLOAD_BYTES = MAX_BINARY_BYTES + 1;
-export const SLOW_CLIENT_BUFFERED_BYTES = 256 * 1024;
 
+/**
+ * Per-connection route limits, injected from config by the composition root.
+ * Every field is required, so there is deliberately no defaults object to merge
+ * under it: an incomplete policy is a compile error rather than a silent
+ * fallback that could disagree with the documented config defaults.
+ */
 export type RealtimeRoutePolicy = {
   readonly firstFrameTimeoutMs: number;
   readonly maxTextFrameBytes: number;
@@ -34,13 +46,6 @@ export type RealtimeControlFrameResult =
   | { readonly kind: RealtimeClientMessageType.Finish }
   | { readonly kind: RealtimeClientMessageType.Cancel }
   | { readonly kind: "invalid" };
-
-export const DEFAULT_REALTIME_ROUTE_POLICY: RealtimeRoutePolicy = {
-  firstFrameTimeoutMs: FIRST_FRAME_TIMEOUT_MS,
-  maxTextFrameBytes: MAX_TEXT_BYTES,
-  maxAudioFrameBytes: MAX_BINARY_BYTES,
-  outboundBufferMaxBytes: SLOW_CLIENT_BUFFERED_BYTES,
-};
 
 export const CLOSE_CODE = {
   normal: 1000,

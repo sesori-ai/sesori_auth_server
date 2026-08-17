@@ -111,6 +111,13 @@ export const SONIOX_REST_URL_BY_REGION = {
   eu: "https://api.eu.soniox.com",
 } as const satisfies Record<string, string>;
 
+/**
+ * Explicit regional realtime WebSocket endpoints, for the same reason as the
+ * REST table above: passed as `realtime.ws_base_url`, they outrank the SDK's
+ * `SONIOX_WS_URL` environment fallback and the `SONIOX_BASE_DOMAIN`-derived
+ * default. Leaving the realtime endpoint to `region` alone would let an
+ * environment variable stream audio and the API key to another host.
+ */
 export const SONIOX_REALTIME_WS_URL_BY_REGION = {
   eu: "wss://stt-rt.eu.soniox.com/transcribe-websocket",
 } as const satisfies Record<string, string>;
