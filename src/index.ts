@@ -26,6 +26,7 @@ import { UserRepository } from "./repositories/user-repo.js";
 import { ActivationStateRepository } from "./repositories/activation-state-repo.js";
 import { SettingsConfigurationRepository } from "./repositories/settings-configuration-repo.js";
 import { buildApp } from "./server.js";
+import { MAX_REALTIME_EVENT_BYTES } from "./models/voice.js";
 import { MAX_BINARY_BYTES, MAX_TEXT_BYTES } from "./routes/voice-realtime-support.js";
 import { AuthService } from "./services/auth-service.js";
 import { ActivationReminderService } from "./services/activation-reminder-service.js";
@@ -221,6 +222,7 @@ async function main() {
           firstFrameTimeoutMs: config.REALTIME_FIRST_FRAME_TIMEOUT_MS,
           maxTextFrameBytes: MAX_TEXT_BYTES,
           maxAudioFrameBytes: MAX_BINARY_BYTES,
+          maxOutboundEventBytes: MAX_REALTIME_EVENT_BYTES,
           outboundBufferMaxBytes: config.REALTIME_OUTBOUND_BUFFER_MAX_BYTES,
         },
       }
@@ -271,6 +273,7 @@ async function main() {
     app,
     mongo: dbConnector,
     waiters: [pendingAuthStore, appClientPresenceService],
+    readDrainers: [appClientPresenceService],
     producers: [bridgeStateTracker, activationReminderService],
     realtimeService: realtime?.realtimeService ?? null,
     exit: (code) => process.exit(code),

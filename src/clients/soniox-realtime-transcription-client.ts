@@ -3,10 +3,13 @@ import {
   parseSonioxRealtimeResult,
   toRealtimeFailureReason,
 } from "../api/soniox-realtime-api.js";
-import { RealtimeAudioEncoding, RealtimeProviderEventType } from "../types/transcription.js";
+import {
+  RealtimeAudioEncoding,
+  RealtimeProviderEventType,
+  type RealtimeProviderEvent,
+} from "../types/transcription.js";
 import type {
   RealtimeConnectRequest,
-  RealtimeProviderEvent,
   RealtimeTranscriptionClient,
   RealtimeTranscriptionSession,
 } from "./realtime-transcription-client.js";

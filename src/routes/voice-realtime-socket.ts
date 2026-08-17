@@ -84,11 +84,10 @@ export function startRealtimeSocket(context: SocketContext): void {
     }
 
     if (context.state === "starting") {
-      abortStarting(context);
-      context.state = "closed";
-      const code = isBinary ? RealtimeProtocolErrorCode.InvalidAudio : RealtimeProtocolErrorCode.InvalidMessage;
-      sendTerminalError(context.socket, code, context.routePolicy);
-      closeSocket(context.socket, CLOSE_CODE.policy);
+      beginRouteError(
+        context,
+        isBinary ? RealtimeProtocolErrorCode.InvalidAudio : RealtimeProtocolErrorCode.InvalidMessage,
+      );
       return;
     }
 
@@ -97,20 +96,14 @@ export function startRealtimeSocket(context: SocketContext): void {
       context.state = "starting";
     }
 
-    void handleSocketMessage({ context, data, isBinary })
-      .then((state) => {
-        if (context.state === "closed") {
-          if (context.session !== null) {
-            void context.session.disconnect().catch(() => undefined);
-          }
-          return;
-        }
-
-        context.state = state;
-      })
-      .catch(() => {
-        beginRouteError(context, RealtimeProtocolErrorCode.ProviderUnavailable);
-      });
+    // `context.state` has exactly one owner: the handler that performs the
+    // transition. It used to be written both here from a returned value and
+    // directly inside the handlers, which meant the eager write the `finish`
+    // path depends on — a frame arriving mid-`finish()` must not be seen as
+    // `streaming` — silently disagreed with the deferred one.
+    void handleSocketMessage({ context, data, isBinary }).catch(() => {
+      beginRouteError(context, RealtimeProtocolErrorCode.ProviderUnavailable);
+    });
   });
 }
 
@@ -122,13 +115,15 @@ export function getAuthenticatedUserId(request: FastifyRequest): string {
   return userId;
 }
 
-async function handleSocketMessage(args: SocketMessageArgs): Promise<RouteState> {
+async function handleSocketMessage(args: SocketMessageArgs): Promise<void> {
   if (args.context.state === "starting") {
-    return startSession(args);
+    await startSession(args);
+    return;
   }
 
   if (args.isBinary) {
-    return handleAudio(args);
+    handleAudio(args);
+    return;
   }
 
   const control = parseControlFrame(args.data, args.context.routePolicy);
@@ -136,18 +131,19 @@ async function handleSocketMessage(args: SocketMessageArgs): Promise<RouteState>
     case RealtimeClientMessageType.Finish:
       args.context.state = "finishing";
       await args.context.session?.finish();
-      return "finishing";
+      return;
     case RealtimeClientMessageType.Cancel:
       await args.context.session?.cancel();
+      args.context.state = "closed";
       closeSocket(args.context.socket, CLOSE_CODE.normal);
-      return "closed";
+      return;
     case "invalid":
       await terminateActive(args, RealtimeProtocolErrorCode.InvalidMessage, CLOSE_CODE.policy);
-      return "closed";
+      return;
   }
 }
 
-function handleAudio(args: SocketMessageArgs): RouteState {
+function handleAudio(args: SocketMessageArgs): void {
   const frame = rawDataToBuffer(args.data);
   if (
     frame.byteLength < 2 ||
@@ -155,31 +151,37 @@ function handleAudio(args: SocketMessageArgs): RouteState {
     frame.byteLength % 2 !== 0
   ) {
     void terminateActive(args, RealtimeProtocolErrorCode.InvalidAudio, CLOSE_CODE.policy);
-    return "closed";
+    return;
   }
 
-  args.context.session?.sendAudio(frame);
-  return args.context.state;
+  const { session } = args.context;
+  if (session === null) {
+    // `streaming` is only reachable once `start` resolved with a session, so a
+    // null here is a state-machine defect. Optional chaining used to swallow it
+    // and drop audio the client believed we had accepted; failing loudly means
+    // the bug surfaces instead of turning into a silently truncated transcript.
+    beginRouteError(args.context, RealtimeProtocolErrorCode.InternalError);
+    return;
+  }
+
+  session.sendAudio(frame);
 }
 
-async function startSession(args: SocketMessageArgs): Promise<RouteState> {
+async function startSession(args: SocketMessageArgs): Promise<void> {
   if (args.isBinary) {
-    sendTerminalError(args.context.socket, RealtimeProtocolErrorCode.InvalidAudio, args.context.routePolicy);
-    closeSocket(args.context.socket, CLOSE_CODE.policy);
-    return "closed";
+    beginRouteError(args.context, RealtimeProtocolErrorCode.InvalidAudio);
+    return;
   }
 
   const startFrame = parseStartFrame(args.data, args.context.routePolicy);
   if (startFrame.kind === "unsupported") {
-    sendTerminalError(args.context.socket, RealtimeProtocolErrorCode.UnsupportedProtocol, args.context.routePolicy);
-    closeSocket(args.context.socket, CLOSE_CODE.policy);
-    return "closed";
+    beginRouteError(args.context, RealtimeProtocolErrorCode.UnsupportedProtocol);
+    return;
   }
 
   if (startFrame.kind === "invalid") {
-    sendTerminalError(args.context.socket, RealtimeProtocolErrorCode.InvalidMessage, args.context.routePolicy);
-    closeSocket(args.context.socket, CLOSE_CODE.policy);
-    return "closed";
+    beginRouteError(args.context, RealtimeProtocolErrorCode.InvalidMessage);
+    return;
   }
 
   try {
@@ -196,17 +198,17 @@ async function startSession(args: SocketMessageArgs): Promise<RouteState> {
     if (args.context.state === "closed") {
       await args.context.session.disconnect();
       args.context.session = null;
-      return "closed";
+      return;
     }
-    return "streaming";
+
+    args.context.state = "streaming";
   } catch (error) {
     args.context.startAbortController = null;
     if (args.context.state === "closed") {
-      return "closed";
+      return;
     }
-    const code = mapStartSessionError(error);
-    beginRouteError(args.context, code);
-    return "closed";
+
+    beginRouteError(args.context, mapStartSessionError(error));
   }
 }
 
@@ -223,17 +225,19 @@ function mapStartSessionError(error: unknown): RealtimeProtocolErrorCode {
 }
 
 function createCallbacks(context: SocketContext): RealtimeSessionCallbacks {
+  const forwardOrAbandon = (event: object): void => {
+    if (context.state === "closed") {
+      return;
+    }
+
+    if (!sendEvent(context.socket, event, context.routePolicy)) {
+      abandonUnreachableClient(context);
+    }
+  };
+
   return {
-    onReady: (event) => {
-      if (context.state !== "closed") {
-        sendEvent(context.socket, event, context.routePolicy);
-      }
-    },
-    onTranscript: (event) => {
-      if (context.state !== "closed") {
-        sendEvent(context.socket, event, context.routePolicy);
-      }
-    },
+    onReady: forwardOrAbandon,
+    onTranscript: forwardOrAbandon,
     onComplete: (event) => {
       if (!context.terminalSent) {
         context.terminalSent = true;
@@ -267,6 +271,29 @@ async function terminateActive(
   }
   sendTerminalError(context.socket, code, context.routePolicy);
   closeSocket(context.socket, closeCode);
+}
+
+/**
+ * Tears the session down when an event could not be handed to the client.
+ *
+ * `sendEvent` has already emitted whatever terminal it could and closed the
+ * socket, but a `ws` close is a handshake with a 30 second timeout and a peer
+ * too slow to drain is precisely the one that will not answer it. Leaving
+ * provider teardown to the socket `close` event therefore kept the Soniox
+ * session streaming — and billing — for up to that long after we had decided
+ * the client was unreachable.
+ *
+ * `session` is still null when `ready` fails this way, because the callback
+ * fires while `start` is in flight; `startSession` observes the closed state on
+ * resume and disconnects the session it was handed.
+ */
+function abandonUnreachableClient(context: SocketContext): void {
+  context.terminalSent = true;
+  context.state = "closed";
+  abortStarting(context);
+  if (context.session !== null) {
+    void context.session.cancel().catch(() => undefined);
+  }
 }
 
 function beginRouteError(context: SocketContext, code: RealtimeProtocolErrorCode): void {

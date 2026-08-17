@@ -31,8 +31,19 @@ export type ShutdownDeadlineTimers = {
   readonly setTimeout: (callback: () => void, milliseconds: number) => ShutdownDeadlineTimer;
 };
 
+/** Owns long polls that must be answered before the listener stops accepting work. */
 export type ShutdownWaiterOwner = {
   releaseWaiters(): void;
+};
+
+/**
+ * Owns reads that were admitted during the release window and must go quiescent
+ * before MongoDB closes. Split from `ShutdownWaiterOwner` because only some
+ * waiter owners have such reads: folding both into one interface forced
+ * `PendingAuthStore` — whose sessions are entirely in memory — to carry a no-op
+ * `drainReleasedReads` that read as a real drain at every call site.
+ */
+export type ShutdownReadDrainer = {
   drainReleasedReads(): Promise<void>;
 };
 
@@ -58,6 +69,7 @@ export function createShutdownHandler(deps: {
   readonly app: ShutdownApp;
   readonly mongo: ShutdownMongo;
   readonly waiters: readonly ShutdownWaiterOwner[];
+  readonly readDrainers: readonly ShutdownReadDrainer[];
   readonly producers: readonly ShutdownProducer[];
   readonly realtimeService: ShutdownRealtimeService | null;
   readonly exit: (code: 0 | 1) => void;
@@ -101,6 +113,7 @@ async function runShutdown(deps: {
   readonly app: ShutdownApp;
   readonly mongo: ShutdownMongo;
   readonly waiters: readonly ShutdownWaiterOwner[];
+  readonly readDrainers: readonly ShutdownReadDrainer[];
   readonly producers: readonly ShutdownProducer[];
   readonly realtimeService: ShutdownRealtimeService | null;
   readonly deadlineMs: number;
@@ -116,6 +129,7 @@ async function runOrderedShutdown(deps: {
   readonly app: ShutdownApp;
   readonly mongo: ShutdownMongo;
   readonly waiters: readonly ShutdownWaiterOwner[];
+  readonly readDrainers: readonly ShutdownReadDrainer[];
   readonly producers: readonly ShutdownProducer[];
   readonly realtimeService: ShutdownRealtimeService | null;
   readonly log: (message: string, fields?: object) => void;
@@ -143,8 +157,8 @@ async function runOrderedShutdown(deps: {
 
   await deps.app.close();
   await Promise.all(producerDisposals);
-  for (const waiter of deps.waiters) {
-    await waiter.drainReleasedReads();
+  for (const drainer of deps.readDrainers) {
+    await drainer.drainReleasedReads();
   }
 
   await deps.mongo.close();

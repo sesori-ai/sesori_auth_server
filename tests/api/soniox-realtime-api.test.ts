@@ -5,8 +5,11 @@ import {
   parseSonioxRealtimeResult,
   toRealtimeFailureReason,
 } from "../../src/api/soniox-realtime-api.js";
+import { MAX_REALTIME_TRANSCRIPT_CHARACTERS } from "../../src/models/voice.js";
+import { isPublicEventValid } from "../../src/services/realtime-transcription-events.js";
 import {
   RealtimeProviderEventType,
+  RealtimeServerEventType,
   RealtimeTranscriptionFailure,
   RealtimeTranscriptionFailureReason,
 } from "../../src/types/transcription.js";
@@ -91,38 +94,92 @@ describe("soniox realtime api boundary", () => {
     assert.equal(event.provisional.length, 20_000);
   });
 
-  it("rejects assembled transcript fields individually beyond the schema max", () => {
-    expectReason(
-      () =>
-        parseSonioxRealtimeResult(
-          {
-            tokens: [
-              { text: "x".repeat(32_769), confidence: 1, is_final: true },
-              { text: "y", confidence: 1, is_final: false },
-            ],
-            final_audio_proc_ms: 1,
-            total_audio_proc_ms: 1,
-          },
-          { maxAudioDurationMs: 1_000 },
-        ),
-      RealtimeTranscriptionFailureReason.MalformedOutput,
+  it("bounds assembled transcript fields individually to the schema max instead of failing", () => {
+    const overConfirmed = parseSonioxRealtimeResult(
+      {
+        tokens: [
+          { text: "x".repeat(32_769), confidence: 1, is_final: true },
+          { text: "y", confidence: 1, is_final: false },
+        ],
+        final_audio_proc_ms: 1,
+        total_audio_proc_ms: 1,
+      },
+      { maxAudioDurationMs: 1_000 },
     );
-    expectReason(
-      () =>
-        parseSonioxRealtimeResult(
-          {
-            tokens: [
-              { text: "x", confidence: 1, is_final: true },
-              { text: "y".repeat(32_769), confidence: 1, is_final: false },
-            ],
-            final_audio_proc_ms: 1,
-            total_audio_proc_ms: 1,
-          },
-          { maxAudioDurationMs: 1_000 },
-        ),
-      RealtimeTranscriptionFailureReason.MalformedOutput,
+
+    assert.equal(overConfirmed.type, "transcript");
+    assert.equal(overConfirmed.confirmedDelta.length, MAX_REALTIME_TRANSCRIPT_CHARACTERS);
+    assert.equal(overConfirmed.provisional, "y");
+
+    const overProvisional = parseSonioxRealtimeResult(
+      {
+        tokens: [
+          { text: "x", confidence: 1, is_final: true },
+          { text: "y".repeat(32_769), confidence: 1, is_final: false },
+        ],
+        final_audio_proc_ms: 1,
+        total_audio_proc_ms: 1,
+      },
+      { maxAudioDurationMs: 1_000 },
     );
+
+    assert.equal(overProvisional.type, "transcript");
+    assert.equal(overProvisional.confirmedDelta, "x");
+    assert.equal(overProvisional.provisional.length, MAX_REALTIME_TRANSCRIPT_CHARACTERS);
   });
+
+  /**
+   * CQ-8/PF-5 regression. The parser used to admit two full-width fields and a
+   * single multi-byte field of the same character length, both of which the
+   * public emitter then rejected on serialized size — and the session
+   * controller turned that rejection into an `internal_error` terminal. Every
+   * transcript this boundary produces must now be emittable.
+   */
+  for (const [name, tokens] of [
+    [
+      "two ASCII fields at the character cap",
+      [
+        { text: "x".repeat(32_768), confidence: 1, is_final: true },
+        { text: "y".repeat(32_768), confidence: 1, is_final: false },
+      ],
+    ],
+    [
+      "one two-byte-per-code-point field at the character cap",
+      [{ text: "д".repeat(32_768), confidence: 1, is_final: true }],
+    ],
+    [
+      "one field of characters JSON escapes to six bytes each",
+      [{ text: "\u0001".repeat(32_768), confidence: 1, is_final: true }],
+    ],
+    [
+      "one field of astral code points at the character cap",
+      [{ text: "😀".repeat(16_384), confidence: 1, is_final: true }],
+    ],
+  ] as const) {
+    it(`keeps ${name} emittable rather than terminating the session`, () => {
+      const event = parseSonioxRealtimeResult(
+        { tokens, final_audio_proc_ms: 1, total_audio_proc_ms: 1 },
+        { maxAudioDurationMs: 1_000 },
+      );
+
+      assert.equal(event.type, RealtimeProviderEventType.Transcript);
+      assert.ok(event.type === RealtimeProviderEventType.Transcript);
+      assert.ok(event.confirmedDelta.length > 0 || event.provisional.length > 0);
+      // Never a lone surrogate: bounding must cut on code-point boundaries.
+      assert.equal(
+        /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(event.confirmedDelta),
+        false,
+      );
+      assert.equal(
+        isPublicEventValid({
+          type: RealtimeServerEventType.Transcript,
+          confirmedDelta: event.confirmedDelta,
+          provisional: event.provisional,
+        }),
+        true,
+      );
+    });
+  }
 
   it("rejects provider-reported durations beyond the session contract", () => {
     expectReason(

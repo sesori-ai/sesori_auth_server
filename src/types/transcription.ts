@@ -96,6 +96,22 @@ export type RealtimeAudioFormat = {
   readonly channels: RealtimeChannelCount;
 };
 
+/**
+ * Provider-neutral realtime event, produced by an API boundary and consumed by
+ * the client and session layers. It lives here rather than beside the client
+ * interface so `src/api/` — which must not depend on `src/clients/` — can name
+ * the shape it returns, matching the async adapter's direction of dependency.
+ */
+export type RealtimeProviderEvent =
+  | {
+      readonly type: RealtimeProviderEventType.Transcript;
+      readonly confirmedDelta: string;
+      readonly provisional: string;
+      readonly finalAudioMs: number;
+      readonly totalAudioMs: number;
+    }
+  | { readonly type: RealtimeProviderEventType.Finished };
+
 export class RealtimeTranscriptionFailure extends Error {
   readonly reason: RealtimeTranscriptionFailureReason;
 

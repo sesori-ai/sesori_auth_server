@@ -455,6 +455,7 @@ describe("ActivationReminderService", () => {
         },
       },
       waiters: [],
+      readDrainers: [],
       producers: [service],
       realtimeService: null,
       exit: (code) => calls.push(`exit:${code}`),

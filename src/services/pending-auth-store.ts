@@ -540,10 +540,6 @@ export class PendingAuthStore {
     }
   }
 
-  drainReleasedReads(): Promise<void> {
-    return Promise.resolve();
-  }
-
   #updateSession(params: {
     tokenHash: string;
     status: PendingAuthStatus;

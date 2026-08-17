@@ -33,7 +33,10 @@ export const MAX_TRANSPORT_PAYLOAD_BYTES = MAX_BINARY_BYTES + 1;
 export type RealtimeRoutePolicy = {
   readonly firstFrameTimeoutMs: number;
   readonly maxTextFrameBytes: number;
+  /** Inbound PCM frame ceiling. Never reuse it for outbound events: the two bound different things. */
   readonly maxAudioFrameBytes: number;
+  /** Serialized ceiling for a single outbound server event (`MAX_REALTIME_EVENT_BYTES`). */
+  readonly maxOutboundEventBytes: number;
   readonly outboundBufferMaxBytes: number;
 };
 
@@ -79,8 +82,8 @@ export function sendEvent(socket: WebSocket, event: object, policy: RealtimeRout
   }
 
   const serialized = JSON.stringify(event);
-  if (Buffer.byteLength(serialized, "utf8") > policy.maxAudioFrameBytes) {
-    sendSlowClientError(socket);
+  if (Buffer.byteLength(serialized, "utf8") > policy.maxOutboundEventBytes) {
+    sendOversizedEventError(socket);
     return false;
   }
 
@@ -94,15 +97,31 @@ export function sendEvent(socket: WebSocket, event: object, policy: RealtimeRout
 }
 
 function sendSlowClientError(socket: WebSocket): void {
-  const serialized = JSON.stringify({
-    type: RealtimeServerEventType.Error,
-    code: RealtimeProtocolErrorCode.SlowClient,
-    retryable: REALTIME_PROTOCOL_ERROR_RETRYABLE[RealtimeProtocolErrorCode.SlowClient],
-  });
+  const serialized = errorFrame(RealtimeProtocolErrorCode.SlowClient);
   if (socket.bufferedAmount === 0) {
     trySend(socket, serialized);
   }
   closeSocket(socket, CLOSE_CODE.unavailable);
+}
+
+/**
+ * An outbound event we built ourselves that does not fit the wire budget is our
+ * defect, not evidence that the peer stopped reading — `bufferedAmount` was
+ * provably clear on the branch that reaches here. Reporting `slow_client` blamed
+ * the client for a server-side bug and told it to back off for a reason that
+ * would not change on retry.
+ */
+function sendOversizedEventError(socket: WebSocket): void {
+  trySend(socket, errorFrame(RealtimeProtocolErrorCode.InternalError));
+  closeSocket(socket, closeCodeForError(RealtimeProtocolErrorCode.InternalError));
+}
+
+function errorFrame(code: RealtimeProtocolErrorCode): string {
+  return JSON.stringify({
+    type: RealtimeServerEventType.Error,
+    code,
+    retryable: REALTIME_PROTOCOL_ERROR_RETRYABLE[code],
+  });
 }
 
 function trySend(socket: WebSocket, data: string): boolean {

@@ -1,14 +1,4 @@
-import { RealtimeProviderEventType, type RealtimeAudioFormat } from "../types/transcription.js";
-
-export type RealtimeProviderEvent =
-  | {
-      readonly type: RealtimeProviderEventType.Transcript;
-      readonly confirmedDelta: string;
-      readonly provisional: string;
-      readonly finalAudioMs: number;
-      readonly totalAudioMs: number;
-    }
-  | { readonly type: RealtimeProviderEventType.Finished };
+import type { RealtimeAudioFormat, RealtimeProviderEvent } from "../types/transcription.js";
 
 export type RealtimeConnectRequest = {
   readonly audio: RealtimeAudioFormat;

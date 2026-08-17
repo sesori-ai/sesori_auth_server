@@ -85,9 +85,12 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
     origin: true,
   });
 
-  if (services.config.REALTIME_TRANSCRIPTION_ENABLED !== Boolean(services.realtime)) {
-    throw new Error("RealtimeConfigBundleMismatch");
-  }
+  // Whether realtime is enabled is defined by whether the composition root
+  // built the bundle, and nothing else. It used to be asserted at runtime
+  // against the config flag as well, which meant three sources of truth kept in
+  // step by a throw. `/voice/capabilities` below reports this same fact, so it
+  // can no longer advertise a protocol whose route was never registered.
+  const realtimeEnabled = Boolean(services.realtime);
 
   if (services.realtime) {
     await app.register(websocket, {
@@ -136,11 +139,11 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
     return { status: "ok" };
   });
 
-  app.get<{ Reply: { realtime: { enabled: boolean; protocolVersions: [1] } } }>(
-    "/voice/capabilities",
-    { config: { rateLimit: false } },
-    async () => ({ realtime: { enabled: services.config.REALTIME_TRANSCRIPTION_ENABLED, protocolVersions: [1] } }),
-  );
+  // Public and unauthenticated, so it carries no reason to sit outside the
+  // global limiter: an exemption here is a free unauthenticated endpoint.
+  app.get<{ Reply: { realtime: { enabled: boolean; protocolVersions: [1] } } }>("/voice/capabilities", async () => ({
+    realtime: { enabled: realtimeEnabled, protocolVersions: [1] },
+  }));
 
   await app.register(installRoutes, {
     installScriptService: services.installScriptService,

@@ -7,9 +7,10 @@ import type {
   RealtimeTranscriptionClient,
   RealtimeTranscriptionSession as ProviderSession,
 } from "../../src/clients/realtime-transcription-client.js";
-import { REALTIME_PROTOCOL_ERROR_RETRYABLE } from "../../src/models/voice.js";
+import { MAX_REALTIME_EVENT_BYTES, REALTIME_PROTOCOL_ERROR_RETRYABLE } from "../../src/models/voice.js";
 import type { DailyUsageRepository } from "../../src/repositories/daily-usage-repo.js";
 import { startRealtimeSocket } from "../../src/routes/voice-realtime-socket.js";
+import type { RealtimeRoutePolicy } from "../../src/routes/voice-realtime-support.js";
 import { createShutdownHandler } from "../../src/shutdown.js";
 import type { GlossaryService } from "../../src/services/glossary-service.js";
 import { RealtimeAdmissionError } from "../../src/services/realtime-transcription-errors.js";
@@ -234,6 +235,17 @@ class RoundTripDailyUsageRepository {
   }
 }
 
+function testRoutePolicy(overrides: Partial<RealtimeRoutePolicy> = {}): RealtimeRoutePolicy {
+  return {
+    firstFrameTimeoutMs: 5_000,
+    maxTextFrameBytes: 2_048,
+    maxAudioFrameBytes: 65_536,
+    maxOutboundEventBytes: MAX_REALTIME_EVENT_BYTES,
+    outboundBufferMaxBytes: 65_536,
+    ...overrides,
+  };
+}
+
 function validStartFrame(): string {
   return JSON.stringify({
     type: "start",
@@ -378,6 +390,95 @@ describe("voice realtime route", () => {
       await nextTurn();
       assert.equal(realtimeService.sessions.at(-1)?.audioFrames.length, 1);
       socket.terminate();
+    });
+
+    // QA-6: the onClose hook is the safety net for closes that bypass the
+    // shutdown coordinator. Nothing observed `disposed`, so deleting the hook
+    // outright failed no test.
+    it("disposes the realtime service when the app closes", async () => {
+      const localRealtimeService = new FakeRealtimeService();
+      const localCtx = await createTestApp({
+        realtimeService: localRealtimeService,
+        configOverrides: { REALTIME_TRANSCRIPTION_ENABLED: true, SONIOX_API_KEY: "test-soniox-key" },
+      });
+
+      assert.equal(localRealtimeService.disposed, false);
+      await localCtx.cleanup();
+
+      assert.equal(localRealtimeService.disposed, true);
+    });
+
+    it("rejects a second text frame while start is still resolving", async () => {
+      const localRealtimeService = new SlowStartRealtimeService();
+      const localCtx = await createTestApp({
+        realtimeService: localRealtimeService,
+        configOverrides: { REALTIME_TRANSCRIPTION_ENABLED: true, SONIOX_API_KEY: "test-soniox-key" },
+      });
+      const user = await localCtx.createUser();
+      try {
+        const socket = await localCtx.app.injectWS("/voice/realtime", {
+          headers: { authorization: `Bearer ${user.accessToken}` },
+        });
+        const message = nextMessage(socket);
+        const close = nextClose(socket);
+
+        socket.send(validStartFrame());
+        socket.send(JSON.stringify({ type: "finish" }));
+
+        assert.deepEqual(await message, { type: "error", code: "invalid_message", retryable: false });
+        assert.equal((await close).code, 1008);
+        assert.equal(localRealtimeService.starts.length, 1);
+        assert.equal(localRealtimeService.starts[0]?.signal.aborted, true);
+        localRealtimeService.startGate.resolve();
+        await nextTurn();
+        assert.equal(localRealtimeService.sessions.length, 0);
+      } finally {
+        await localCtx.cleanup();
+      }
+    });
+
+    // CQ-6: terminating out of `starting` sent a terminal error but never set
+    // `terminalSent`, so a late service callback passed the only guard
+    // `createCallbacks` has. It was harmless purely because `sendEvent` bails on
+    // a non-OPEN socket — a property of the transport, not of this state
+    // machine. The socket here stays OPEN so the guard itself is under test.
+    it("suppresses a late service terminal after terminating from starting", async () => {
+      const localRealtimeService = new SlowStartRealtimeService();
+      const socket = new FakeSocket();
+      socket.close = (code?: number): void => {
+        socket.closeCodes.push(code ?? 1005);
+      };
+      startRealtimeSocket({
+        socket: socket.websocket,
+        request: { user: { userId: "6a7603577dee429b4d11b17a" } } as never,
+        realtimeService: localRealtimeService,
+        routePolicy: testRoutePolicy(),
+        state: "awaiting_start",
+        session: null,
+        terminalSent: false,
+        startAbortController: null,
+      });
+
+      socket.emitText(Buffer.from(validStartFrame()));
+      await nextTurn();
+      socket.emitText(Buffer.from(JSON.stringify({ type: "finish" })));
+      await nextTurn();
+
+      const afterTerminal = socket.sent.map((message) => JSON.parse(message));
+      assert.deepEqual(afterTerminal, [{ type: "error", code: "invalid_message", retryable: false }]);
+      assert.equal(socket.readyState, socket.OPEN);
+
+      localRealtimeService.starts[0]?.callbacks.onError({
+        type: RealtimeServerEventType.Error,
+        code: RealtimeProtocolErrorCode.ProviderUnavailable,
+        retryable: true,
+      });
+
+      assert.deepEqual(
+        socket.sent.map((message) => JSON.parse(message)),
+        afterTerminal,
+      );
+      localRealtimeService.startGate.resolve();
     });
 
     it("rejects binary before ready without queueing frames behind async start", async () => {
@@ -603,12 +704,7 @@ describe("voice realtime route", () => {
         socket: socket.websocket,
         request: { user: { userId: "6a7603577dee429b4d11b17a" } } as never,
         realtimeService: localRealtimeService,
-        routePolicy: {
-          firstFrameTimeoutMs: 5_000,
-          maxTextFrameBytes: 2_048,
-          maxAudioFrameBytes: 65_536,
-          outboundBufferMaxBytes: 65_536,
-        },
+        routePolicy: testRoutePolicy(),
         state: "awaiting_start",
         session: null,
         terminalSent: false,
@@ -632,12 +728,7 @@ describe("voice realtime route", () => {
         socket: socket.websocket,
         request: { user: { userId: "6a7603577dee429b4d11b17a" } } as never,
         realtimeService: localRealtimeService,
-        routePolicy: {
-          firstFrameTimeoutMs: 5,
-          maxTextFrameBytes: 2_048,
-          maxAudioFrameBytes: 65_536,
-          outboundBufferMaxBytes: 65_536,
-        },
+        routePolicy: testRoutePolicy({ firstFrameTimeoutMs: 5 }),
         state: "awaiting_start",
         session: null,
         terminalSent: false,
@@ -661,12 +752,7 @@ describe("voice realtime route", () => {
         socket: socket.websocket,
         request: { user: { userId: "6a7603577dee429b4d11b17a" } } as never,
         realtimeService: localRealtimeService,
-        routePolicy: {
-          firstFrameTimeoutMs: 5,
-          maxTextFrameBytes: 2_048,
-          maxAudioFrameBytes: 65_536,
-          outboundBufferMaxBytes: 65_536,
-        },
+        routePolicy: testRoutePolicy({ firstFrameTimeoutMs: 5 }),
         state: "awaiting_start",
         session: null,
         terminalSent: false,
@@ -691,12 +777,7 @@ describe("voice realtime route", () => {
         socket: socket.websocket,
         request: { user: { userId: "6a7603577dee429b4d11b17a" } } as never,
         realtimeService: localRealtimeService,
-        routePolicy: {
-          firstFrameTimeoutMs: 5_000,
-          maxTextFrameBytes: 2_048,
-          maxAudioFrameBytes: 65_536,
-          outboundBufferMaxBytes: 65_536,
-        },
+        routePolicy: testRoutePolicy(),
         state: "awaiting_start",
         session: null,
         terminalSent: false,
@@ -709,19 +790,14 @@ describe("voice realtime route", () => {
       assert.equal(socket.closeCodes.at(-1), 1013);
     });
 
-    it("keeps slow-client close races non-throwing", async () => {
+    it("keeps oversized-event close races non-throwing", async () => {
       const localRealtimeService = new FakeRealtimeService();
       const socket = new FakeSocket();
       startRealtimeSocket({
         socket: socket.websocket,
         request: { user: { userId: "6a7603577dee429b4d11b17a" } } as never,
         realtimeService: localRealtimeService,
-        routePolicy: {
-          firstFrameTimeoutMs: 5_000,
-          maxTextFrameBytes: 2_048,
-          maxAudioFrameBytes: 65_536,
-          outboundBufferMaxBytes: 65_536,
-        },
+        routePolicy: testRoutePolicy(),
         state: "awaiting_start",
         session: null,
         terminalSent: false,
@@ -751,12 +827,7 @@ describe("voice realtime route", () => {
         socket: socket.websocket,
         request: { user: { userId: "6a7603577dee429b4d11b17a" } } as never,
         realtimeService: localRealtimeService,
-        routePolicy: {
-          firstFrameTimeoutMs: 5_000,
-          maxTextFrameBytes: 2_048,
-          maxAudioFrameBytes: 65_536,
-          outboundBufferMaxBytes: 65_536,
-        },
+        routePolicy: testRoutePolicy(),
         state: "awaiting_start",
         session: null,
         terminalSent: false,
@@ -784,7 +855,11 @@ describe("voice realtime route", () => {
       );
     });
 
-    it("emits slow_client when the write buffer is still clear but the event exceeds the outbound byte cap", async () => {
+    // An event we built ourselves that will not fit the wire budget is a server
+    // defect, and `bufferedAmount` is provably clear on this branch. Reporting
+    // slow_client blamed the peer for our bug and advised a retry that could not
+    // help, so this pins internal_error and its 1011 close instead.
+    it("emits internal_error when the write buffer is clear but the event exceeds the outbound byte cap", async () => {
       const localRealtimeService = new FakeRealtimeService();
       const localCtx = await createTestApp({
         realtimeService: localRealtimeService,
@@ -808,11 +883,49 @@ describe("voice realtime route", () => {
           provisional: "",
         });
 
-        assert.deepEqual(await message, { type: "error", code: "slow_client", retryable: true });
-        assert.equal((await close).code, 1013);
+        assert.deepEqual(await message, { type: "error", code: "internal_error", retryable: true });
+        assert.equal((await close).code, 1011);
       } finally {
         await localCtx.cleanup();
       }
+    });
+
+    // PF-7: `sendEvent` returning false must tear the provider session down now.
+    // Waiting for the socket `close` event meant a peer that never answers the
+    // close handshake kept Soniox streaming, and billing, for up to 30 seconds.
+    it("cancels the provider session immediately when an event cannot be delivered", async () => {
+      const localRealtimeService = new FakeRealtimeService();
+      const socket = new FakeSocket();
+      startRealtimeSocket({
+        socket: socket.websocket,
+        request: { user: { userId: "6a7603577dee429b4d11b17a" } } as never,
+        realtimeService: localRealtimeService,
+        routePolicy: testRoutePolicy(),
+        state: "awaiting_start",
+        session: null,
+        terminalSent: false,
+        startAbortController: null,
+      });
+      socket.emitText(Buffer.from(validStartFrame()));
+      await nextTurn();
+      const session = localRealtimeService.sessions.at(-1);
+      assert.ok(session);
+      assert.equal(session.cancelled, false);
+
+      // Slow peer: the buffer is over the watermark, so the event cannot be
+      // handed over and `close` will not be acknowledged either.
+      socket.bufferedAmount = 65_537;
+      socket.close = (): void => {
+        throw "peer never answers the close handshake";
+      };
+      session.callbacks?.onTranscript({
+        type: RealtimeServerEventType.Transcript,
+        confirmedDelta: "undeliverable",
+        provisional: "",
+      });
+      await nextTurn();
+
+      assert.equal(session.cancelled, true);
     });
 
     it("classifies malformed binary while streaming as invalid_audio", async () => {
@@ -827,6 +940,31 @@ describe("voice realtime route", () => {
 
       assert.deepEqual(await message, { type: "error", code: "invalid_audio", retryable: false });
     });
+
+    // The one-byte case above trips the minimum-length and the odd-length checks
+    // at once, so either could be deleted without failing a test. These two
+    // frames each trip exactly one: 0 bytes is even, and 3 bytes is long enough.
+    for (const [name, frame] of [
+      ["zero-length", Buffer.alloc(0)],
+      ["odd-length", Buffer.alloc(3)],
+    ] as const) {
+      it(`rejects a ${name} audio frame as invalid_audio`, async () => {
+        const user = await ctx.createUser();
+        const socket = await ctx.app.injectWS("/voice/realtime", {
+          headers: { authorization: `Bearer ${user.accessToken}` },
+        });
+        await sendStartAndWaitForReady(socket);
+        const session = realtimeService.sessions.at(-1);
+        assert.ok(session);
+        // Bounded wait: a deleted predicate must fail this test, not hang it.
+        const message = nextMessageWithin(socket, 2_000);
+
+        socket.send(frame);
+
+        assert.deepEqual(await message, { type: "error", code: "invalid_audio", retryable: false });
+        assert.equal(session.audioFrames.length, 0);
+      });
+    }
 
     it("sends the terminal error even when cancelling active session rejects", async () => {
       const user = await ctx.createUser();
@@ -922,12 +1060,7 @@ describe("voice realtime route", () => {
         socket: socket.websocket,
         request: {} as never,
         realtimeService: new FakeRealtimeService(),
-        routePolicy: {
-          firstFrameTimeoutMs: 5_000,
-          maxTextFrameBytes: 2_048,
-          maxAudioFrameBytes: 65_536,
-          outboundBufferMaxBytes: 65_536,
-        },
+        routePolicy: testRoutePolicy(),
         state: "awaiting_start",
         session: null,
         terminalSent: false,
@@ -1071,12 +1204,7 @@ describe("voice realtime route", () => {
         socket: socket.websocket,
         request: { user: { userId: "6a7603577dee429b4d11b17a" } } as never,
         realtimeService: localRealtimeService,
-        routePolicy: {
-          firstFrameTimeoutMs: 5_000,
-          maxTextFrameBytes: 2_048,
-          maxAudioFrameBytes: 65_536,
-          outboundBufferMaxBytes: 65_536,
-        },
+        routePolicy: testRoutePolicy(),
         state: "awaiting_start",
         session: null,
         terminalSent: false,
@@ -1183,6 +1311,7 @@ describe("voice realtime route", () => {
           app: localCtx.app,
           mongo: { close: async () => undefined },
           waiters: [],
+          readDrainers: [],
           producers: [],
           realtimeService,
           exit: (code) => exitCodes.push(code),
@@ -1219,6 +1348,7 @@ describe("voice realtime route", () => {
             },
           },
           waiters: [],
+          readDrainers: [],
           producers: [],
           realtimeService: new FailingDisposeRealtimeService(),
           exit: (code) => exitCodes.push(code),

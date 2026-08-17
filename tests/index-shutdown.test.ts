@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it, mock } from "node:test";
-import { createShutdownHandler, type ShutdownWaiterOwner } from "../src/shutdown.js";
+import { createShutdownHandler, type ShutdownReadDrainer, type ShutdownWaiterOwner } from "../src/shutdown.js";
 
 type Deferred<T> = {
   readonly promise: Promise<T>;
@@ -28,6 +28,7 @@ describe("shutdown coordinator", () => {
         },
       },
       waiters: [waiter],
+      readDrainers: [createReadDrainer(calls)],
       producers: [
         {
           dispose: async () => {
@@ -75,6 +76,7 @@ describe("shutdown coordinator", () => {
         },
       },
       waiters: [createWaiter(calls)],
+      readDrainers: [createReadDrainer(calls)],
       producers: [],
       realtimeService: null,
       exit: (code) => calls.push(`exit:${code}`),
@@ -107,6 +109,7 @@ describe("shutdown coordinator", () => {
         },
       },
       waiters: [createWaiter(calls)],
+      readDrainers: [createReadDrainer(calls)],
       producers: [],
       realtimeService: {
         beginShutdown: () => calls.push("realtime.begin"),
@@ -156,6 +159,7 @@ describe("shutdown coordinator", () => {
         },
       },
       waiters: [createWaiter(calls)],
+      readDrainers: [createReadDrainer(calls)],
       producers: [
         {
           dispose: async () => {
@@ -210,6 +214,7 @@ describe("shutdown coordinator", () => {
         },
       },
       waiters: [createWaiter(calls)],
+      readDrainers: [createReadDrainer(calls)],
       producers: [],
       realtimeService: null,
       exit: (code) => calls.push(`exit:${code}`),
@@ -233,6 +238,7 @@ describe("shutdown coordinator", () => {
         },
       },
       waiters: [createWaiter(calls)],
+      readDrainers: [createReadDrainer(calls)],
       producers: [],
       realtimeService: null,
       exit: (code) => calls.push(`exit:${code}`),
@@ -267,6 +273,7 @@ describe("shutdown coordinator", () => {
         },
       },
       waiters: [createWaiter(calls)],
+      readDrainers: [createReadDrainer(calls)],
       producers: [],
       realtimeService: null,
       exit: (code) => calls.push(`exit:${code}`),
@@ -293,6 +300,11 @@ describe("shutdown coordinator", () => {
 function createWaiter(calls: string[]): ShutdownWaiterOwner {
   return {
     releaseWaiters: () => calls.push("waiter.release"),
+  };
+}
+
+function createReadDrainer(calls: string[]): ShutdownReadDrainer {
+  return {
     drainReleasedReads: async () => {
       calls.push("waiter.drain");
     },

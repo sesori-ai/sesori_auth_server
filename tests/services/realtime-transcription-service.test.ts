@@ -3,7 +3,6 @@ import { describe, it } from "node:test";
 import type {
   RealtimeTranscriptionClient,
   RealtimeTranscriptionSession,
-  RealtimeProviderEvent,
   RealtimeConnectRequest,
 } from "../../src/clients/realtime-transcription-client.js";
 import type { ProjectKey } from "../../src/models/voice.js";
@@ -25,6 +24,7 @@ import {
   RealtimeSampleRate,
   RealtimeTranscriptionFailure,
   RealtimeTranscriptionFailureReason,
+  type RealtimeProviderEvent,
 } from "../../src/types/transcription.js";
 
 const USER_ID = "6a7603577dee429b4d11b17a";

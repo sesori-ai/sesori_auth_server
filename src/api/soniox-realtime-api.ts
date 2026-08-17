@@ -3,11 +3,11 @@ import {
   RealtimeProviderEventType,
   RealtimeTranscriptionFailure,
   RealtimeTranscriptionFailureReason,
+  type RealtimeProviderEvent,
 } from "../types/transcription.js";
-import type { RealtimeProviderEvent } from "../clients/realtime-transcription-client.js";
+import { boundRealtimeTranscript } from "../models/voice.js";
 
 const maxTranscriptCharacters = 1_000_000;
-const maxPublicTranscriptCharacters = 32_768;
 
 export type SonioxRealtimeParseOptions = {
   readonly maxAudioDurationMs: number;
@@ -108,14 +108,17 @@ export function parseSonioxRealtimeResult(value: unknown, options: SonioxRealtim
     .map((token) => token.text)
     .join("");
 
-  if (finalTextDelta.length > maxPublicTranscriptCharacters || provisionalText.length > maxPublicTranscriptCharacters) {
-    fail(RealtimeTranscriptionFailureReason.MalformedOutput);
-  }
+  // Bounded, not rejected. An over-long transcript is not evidence of a
+  // malformed provider payload, and failing here would terminate a session over
+  // text we could simply have trimmed. Bounding against the shared public
+  // budget is also what guarantees the emitter can never refuse what this
+  // boundary admitted.
+  const bounded = boundRealtimeTranscript({ confirmedDelta: finalTextDelta, provisional: provisionalText });
 
   return {
     type: RealtimeProviderEventType.Transcript,
-    confirmedDelta: finalTextDelta,
-    provisional: provisionalText,
+    confirmedDelta: bounded.confirmedDelta,
+    provisional: bounded.provisional,
     finalAudioMs: result.data.final_audio_proc_ms,
     totalAudioMs: result.data.total_audio_proc_ms,
   };

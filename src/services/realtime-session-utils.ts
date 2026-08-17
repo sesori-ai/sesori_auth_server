@@ -44,8 +44,10 @@ export async function withTimeout<T>(operation: Promise<T>, timeoutMs: number, m
   try {
     return await Promise.race([
       operation,
+      // Unref'd like every other realtime timer: a disposal race that is still
+      // pending must not be the reason the process refuses to exit.
       new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+        timer = setSessionTimer(() => reject(new Error(message)), timeoutMs);
       }),
     ]);
   } finally {

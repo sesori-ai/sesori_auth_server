@@ -1,5 +1,4 @@
 import type {
-  RealtimeProviderEvent,
   RealtimeTranscriptionClient,
   RealtimeTranscriptionSession as ProviderSession,
 } from "../clients/realtime-transcription-client.js";
@@ -16,6 +15,7 @@ import {
   RealtimeFinishedReason,
   RealtimeProtocolErrorCode,
   RealtimeProviderEventType,
+  type RealtimeProviderEvent,
 } from "../types/transcription.js";
 import {
   billableRealtimeSeconds,
