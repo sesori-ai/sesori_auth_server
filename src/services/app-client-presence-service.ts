@@ -40,6 +40,20 @@ export class AppClientPresenceInitialReadTimeout extends Error {
 }
 
 /**
+ * Thrown by `waitForRegistration` when the wait begins after `releaseWaiters`
+ * has run. Shutdown releases waiters before `app.close()`, so the server keeps
+ * serving requests through this window; answering them `false` would report an
+ * absence nothing ever read. The route surfaces it as a retryable 503, the same
+ * signal `PendingAuthStatus.Shutdown` gives the OAuth long poll.
+ */
+export class AppClientPresenceShuttingDown extends Error {
+  constructor() {
+    super("App-client presence waits are released for shutdown");
+    this.name = "AppClientPresenceShuttingDown";
+  }
+}
+
+/**
  * Tracks whether a user has at least one registered app-client device token
  * and lets in-flight HTTP long polls wait for the first registration.
  *
@@ -110,7 +124,8 @@ export class AppClientPresenceService {
    *               hijack the reply rather than serialize a response
    *
    * Throws `AppClientPresenceInitialReadTimeout` when the deadline elapses
-   * before the initial read settles, so unconfirmed absence is never reported
+   * before the initial read settles, and `AppClientPresenceShuttingDown` when
+   * the wait starts after release — so unconfirmed absence is never reported
    * as `false`.
    */
   async waitForRegistration(params: {
@@ -122,8 +137,11 @@ export class AppClientPresenceService {
       return null;
     }
 
+    // No read has happened yet on this call, so there is no absence to report.
+    // Refuse instead: shutdown releases waiters before `app.close()`, and the
+    // server answers requests throughout that window.
     if (this.#released) {
-      return false;
+      throw new AppClientPresenceShuttingDown();
     }
 
     if (params.timeoutMs <= 0) {
@@ -154,6 +172,8 @@ export class AppClientPresenceService {
         throw initialRead.error;
     }
 
+    // Unlike the pre-read guard above, the initial read completed and returned
+    // false, so this absence was verified against the database.
     if (this.#released) {
       return false;
     }

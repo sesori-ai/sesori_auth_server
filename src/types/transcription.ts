@@ -96,6 +96,22 @@ export type RealtimeAudioFormat = {
   readonly channels: RealtimeChannelCount;
 };
 
+/**
+ * Provider-neutral realtime event, produced by an API boundary and consumed by
+ * the client and session layers. It lives here rather than beside the client
+ * interface so `src/api/` — which must not depend on `src/clients/` — can name
+ * the shape it returns, matching the async adapter's direction of dependency.
+ */
+export type RealtimeProviderEvent =
+  | {
+      readonly type: RealtimeProviderEventType.Transcript;
+      readonly confirmedDelta: string;
+      readonly provisional: string;
+      readonly finalAudioMs: number;
+      readonly totalAudioMs: number;
+    }
+  | { readonly type: RealtimeProviderEventType.Finished };
+
 export class RealtimeTranscriptionFailure extends Error {
   readonly reason: RealtimeTranscriptionFailureReason;
 
@@ -111,6 +127,13 @@ export const SONIOX_REST_URL_BY_REGION = {
   eu: "https://api.eu.soniox.com",
 } as const satisfies Record<string, string>;
 
+/**
+ * Explicit regional realtime WebSocket endpoints, for the same reason as the
+ * REST table above: passed as `realtime.ws_base_url`, they outrank the SDK's
+ * `SONIOX_WS_URL` environment fallback and the `SONIOX_BASE_DOMAIN`-derived
+ * default. Leaving the realtime endpoint to `region` alone would let an
+ * environment variable stream audio and the API key to another host.
+ */
 export const SONIOX_REALTIME_WS_URL_BY_REGION = {
   eu: "wss://stt-rt.eu.soniox.com/transcribe-websocket",
 } as const satisfies Record<string, string>;

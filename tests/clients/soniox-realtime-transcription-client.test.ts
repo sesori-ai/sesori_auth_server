@@ -110,6 +110,34 @@ describe("SonioxRealtimeClient", () => {
     assert.deepEqual(events, []);
   });
 
+  it("does not arm the session-lifetime signal with the connect deadline", async () => {
+    // The SDK registers options.signal for the whole session and tears the
+    // session down when it aborts. AbortSignal.timeout cannot be cancelled, so
+    // folding the connect deadline into it would kill every session
+    // connectTimeoutMs after it started, making the session cap unreachable.
+    const session = new FakeRealtimeSession(null, null);
+    const caller = new AbortController();
+    const realtimeSession = await createClient(session).connect({
+      audio: { encoding: RealtimeAudioEncoding.PcmS16Le, sampleRate: 16000, channels: 1 },
+      terms: [],
+      maxAudioDurationMs: 60_000,
+      signal: caller.signal,
+      onEvent: () => {},
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    const handed = (session.options as { signal?: AbortSignal } | null)?.signal;
+    assert.equal(handed?.aborted ?? false, false, "session-lifetime signal aborted after the connect deadline");
+
+    realtimeSession.sendAudio(Buffer.from([0, 0]));
+    assert.ok(session.calls.includes("sendAudio"));
+
+    // The caller's own cancellation must still reach the session.
+    caller.abort();
+    assert.equal(handed?.aborted, true);
+  });
+
   it("validates provider events before invoking callbacks", async () => {
     const session = new FakeRealtimeSession(null, null);
     const events: unknown[] = [];
@@ -155,6 +183,41 @@ describe("SonioxRealtimeClient", () => {
     failed.emit("error", { error_code: 429 });
     failedSession.close();
     await assert.rejects(failedSession.closed, RealtimeTranscriptionFailure);
+  });
+
+  it("classifies the Error shapes the SDK actually emits on the error channel", async () => {
+    // @soniox/node consumes the raw `{error_code}` payload internally and emits
+    // Error subclasses (AuthError, QuotaError, ConnectionError…) carrying
+    // `code`/`statusCode`. Treating those as malformed output reported every
+    // provider failure as internal_error and skipped usage recording.
+    const cases: ReadonlyArray<readonly [Error, RealtimeTranscriptionFailureReason]> = [
+      [
+        Object.assign(new Error("quota"), { code: "quota_exceeded", statusCode: 429 }),
+        RealtimeTranscriptionFailureReason.Capacity,
+      ],
+      [
+        Object.assign(new Error("auth"), { code: "auth_error", statusCode: 401 }),
+        RealtimeTranscriptionFailureReason.Configuration,
+      ],
+    ];
+
+    for (const [emitted, expected] of cases) {
+      const session = new FakeRealtimeSession(null, null);
+      const realtimeSession = await createClient(session).connect({
+        audio: { encoding: RealtimeAudioEncoding.PcmS16Le, sampleRate: 16000, channels: 1 },
+        terms: [],
+        maxAudioDurationMs: 1_000,
+        onEvent: () => undefined,
+      });
+
+      session.emit("error", emitted);
+
+      await assert.rejects(
+        realtimeSession.closed,
+        (error: unknown) => error instanceof RealtimeTranscriptionFailure && error.reason === expected,
+        `expected ${expected} for ${String((emitted as { code?: string }).code)}`,
+      );
+    }
   });
 
   it("maps caller abort and own connect timeout distinctly", async () => {
@@ -297,7 +360,10 @@ function isSessionOptions(value: unknown): boolean {
     value !== null &&
     "signal" in value &&
     "connect_timeout_ms" in value &&
-    value.signal instanceof AbortSignal &&
+    // The session signal is the caller's cancellation and nothing else, so it is
+    // absent when the caller supplied none. It must never be a timeout signal:
+    // the SDK holds it for the session's lifetime.
+    (value.signal === undefined || value.signal instanceof AbortSignal) &&
     value.connect_timeout_ms === 10
   );
 }

@@ -12,16 +12,31 @@ import {
   RealtimeServerEventType,
 } from "../types/transcription.js";
 
-export const FIRST_FRAME_TIMEOUT_MS = 5_000;
+/**
+ * Protocol v1 frame ceilings. These are wire contract, not tunables: a client
+ * built against protocol 1 may send audio frames up to `MAX_BINARY_BYTES`, so
+ * they are compile-time constants rather than config. The transport cap is one
+ * byte above the audio cap so an over-sized frame is rejected by our own
+ * validation with `invalid_audio` instead of being dropped by `ws` as a
+ * protocol violation before the route ever sees it.
+ */
 export const MAX_TEXT_BYTES = 2_048;
 export const MAX_BINARY_BYTES = 65_536;
 export const MAX_TRANSPORT_PAYLOAD_BYTES = MAX_BINARY_BYTES + 1;
-export const SLOW_CLIENT_BUFFERED_BYTES = 256 * 1024;
 
+/**
+ * Per-connection route limits, injected from config by the composition root.
+ * Every field is required, so there is deliberately no defaults object to merge
+ * under it: an incomplete policy is a compile error rather than a silent
+ * fallback that could disagree with the documented config defaults.
+ */
 export type RealtimeRoutePolicy = {
   readonly firstFrameTimeoutMs: number;
   readonly maxTextFrameBytes: number;
+  /** Inbound PCM frame ceiling. Never reuse it for outbound events: the two bound different things. */
   readonly maxAudioFrameBytes: number;
+  /** Serialized ceiling for a single outbound server event (`MAX_REALTIME_EVENT_BYTES`). */
+  readonly maxOutboundEventBytes: number;
   readonly outboundBufferMaxBytes: number;
 };
 
@@ -34,13 +49,6 @@ export type RealtimeControlFrameResult =
   | { readonly kind: RealtimeClientMessageType.Finish }
   | { readonly kind: RealtimeClientMessageType.Cancel }
   | { readonly kind: "invalid" };
-
-export const DEFAULT_REALTIME_ROUTE_POLICY: RealtimeRoutePolicy = {
-  firstFrameTimeoutMs: FIRST_FRAME_TIMEOUT_MS,
-  maxTextFrameBytes: MAX_TEXT_BYTES,
-  maxAudioFrameBytes: MAX_BINARY_BYTES,
-  outboundBufferMaxBytes: SLOW_CLIENT_BUFFERED_BYTES,
-};
 
 export const CLOSE_CODE = {
   normal: 1000,
@@ -74,8 +82,8 @@ export function sendEvent(socket: WebSocket, event: object, policy: RealtimeRout
   }
 
   const serialized = JSON.stringify(event);
-  if (Buffer.byteLength(serialized, "utf8") > policy.maxAudioFrameBytes) {
-    sendSlowClientError(socket);
+  if (Buffer.byteLength(serialized, "utf8") > policy.maxOutboundEventBytes) {
+    sendOversizedEventError(socket);
     return false;
   }
 
@@ -89,15 +97,31 @@ export function sendEvent(socket: WebSocket, event: object, policy: RealtimeRout
 }
 
 function sendSlowClientError(socket: WebSocket): void {
-  const serialized = JSON.stringify({
-    type: RealtimeServerEventType.Error,
-    code: RealtimeProtocolErrorCode.SlowClient,
-    retryable: REALTIME_PROTOCOL_ERROR_RETRYABLE[RealtimeProtocolErrorCode.SlowClient],
-  });
+  const serialized = errorFrame(RealtimeProtocolErrorCode.SlowClient);
   if (socket.bufferedAmount === 0) {
     trySend(socket, serialized);
   }
   closeSocket(socket, CLOSE_CODE.unavailable);
+}
+
+/**
+ * An outbound event we built ourselves that does not fit the wire budget is our
+ * defect, not evidence that the peer stopped reading — `bufferedAmount` was
+ * provably clear on the branch that reaches here. Reporting `slow_client` blamed
+ * the client for a server-side bug and told it to back off for a reason that
+ * would not change on retry.
+ */
+function sendOversizedEventError(socket: WebSocket): void {
+  trySend(socket, errorFrame(RealtimeProtocolErrorCode.InternalError));
+  closeSocket(socket, closeCodeForError(RealtimeProtocolErrorCode.InternalError));
+}
+
+function errorFrame(code: RealtimeProtocolErrorCode): string {
+  return JSON.stringify({
+    type: RealtimeServerEventType.Error,
+    code,
+    retryable: REALTIME_PROTOCOL_ERROR_RETRYABLE[code],
+  });
 }
 
 function trySend(socket: WebSocket, data: string): boolean {

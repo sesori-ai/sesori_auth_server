@@ -1,4 +1,5 @@
 import {
+  MAX_REALTIME_EVENT_BYTES,
   realtimeCompleteEventSchema,
   realtimeErrorEventSchema,
   realtimeReadyEventSchema,
@@ -41,9 +42,17 @@ export type RealtimeSessionCallbacks = {
 export function isPublicEventValid(
   event: RealtimeReadyEvent | RealtimeTranscriptEvent | RealtimeCompleteEvent | RealtimeErrorEvent,
 ): boolean {
-  if (Buffer.byteLength(JSON.stringify(event), "utf8") > 65_536) {
+  // Backstop only. Transcripts are bounded against this same budget at the
+  // provider boundary (`boundRealtimeTranscript`), so a legitimate transcript
+  // can no longer fail here and be turned into an `internal_error` terminal.
+  if (Buffer.byteLength(JSON.stringify(event), "utf8") > MAX_REALTIME_EVENT_BYTES) {
     return false;
   }
+
+  // Widened before narrowing so the exhaustiveness guard can report which type
+  // it did not handle without serializing the event itself — the union carries
+  // transcript text, which must never reach an Error message or a log.
+  const eventType: string = event.type;
 
   switch (event.type) {
     case RealtimeServerEventType.Ready:
@@ -55,10 +64,10 @@ export function isPublicEventValid(
     case RealtimeServerEventType.Error:
       return realtimeErrorEventSchema.safeParse(event).success;
     default:
-      return assertNeverEvent(event);
+      return assertNeverEvent(event, eventType);
   }
 }
 
-function assertNeverEvent(event: never): never {
-  throw new Error(`unhandled realtime event ${JSON.stringify(event)}`);
+function assertNeverEvent(_event: never, eventType: string): never {
+  throw new Error(`unhandled realtime event type ${eventType}`);
 }

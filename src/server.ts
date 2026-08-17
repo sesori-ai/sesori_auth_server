@@ -5,7 +5,7 @@ import websocket from "@fastify/websocket";
 import type { OAuthClient } from "./clients/auth/oauth-client.js";
 import type { Config } from "./config.js";
 import { createClientIpResolver, isLoopbackSocket } from "./lib/client-ip.js";
-import { ApiError } from "./lib/errors.js";
+import { ApiError, safeErrorType } from "./lib/errors.js";
 import type { StateStore } from "./lib/state-store.js";
 import { createAuthMiddleware } from "./middleware/auth.js";
 import { createRealtimeUpgradeRateLimit } from "./middleware/realtime-upgrade-rate-limit.js";
@@ -85,9 +85,12 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
     origin: true,
   });
 
-  if (services.config.REALTIME_TRANSCRIPTION_ENABLED !== Boolean(services.realtime)) {
-    throw new Error("RealtimeConfigBundleMismatch");
-  }
+  // Whether realtime is enabled is defined by whether the composition root
+  // built the bundle, and nothing else. It used to be asserted at runtime
+  // against the config flag as well, which meant three sources of truth kept in
+  // step by a throw. `/voice/capabilities` below reports this same fact, so it
+  // can no longer advertise a protocol whose route was never registered.
+  const realtimeEnabled = Boolean(services.realtime);
 
   if (services.realtime) {
     await app.register(websocket, {
@@ -136,11 +139,11 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
     return { status: "ok" };
   });
 
-  app.get<{ Reply: { realtime: { enabled: boolean; protocolVersions: [1] } } }>(
-    "/voice/capabilities",
-    { config: { rateLimit: false } },
-    async () => ({ realtime: { enabled: services.config.REALTIME_TRANSCRIPTION_ENABLED, protocolVersions: [1] } }),
-  );
+  // Public and unauthenticated, so it carries no reason to sit outside the
+  // global limiter: an exemption here is a free unauthenticated endpoint.
+  app.get<{ Reply: { realtime: { enabled: boolean; protocolVersions: [1] } } }>("/voice/capabilities", async () => ({
+    realtime: { enabled: realtimeEnabled, protocolVersions: [1] },
+  }));
 
   await app.register(installRoutes, {
     installScriptService: services.installScriptService,
@@ -164,9 +167,21 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
       }),
       requireAuth,
     });
+    // Safety net for closes that bypass the shutdown coordinator (tests,
+    // embedded use). It cannot substitute for that ordering: onClose runs
+    // after @fastify/websocket's preClose has already closed every client
+    // socket, so a terminal frame emitted from here is written to a dead
+    // socket. `src/shutdown.ts` disposes realtime before calling app.close(),
+    // which leaves this hook awaiting an already-settled disposal.
     app.addHook("onClose", async () => {
       realtimeDisposePromise ??= services.realtime?.realtimeService.dispose() ?? Promise.resolve();
-      await realtimeDisposePromise;
+      // A rejected disposal must not reject app.close(): the shutdown
+      // coordinator treats a failed drain as degraded but a failed app.close()
+      // as fatal, so propagating here would resurrect the exit-1-on-SIGTERM
+      // behaviour this deliberately does not have.
+      await realtimeDisposePromise.catch((error: unknown) => {
+        console.warn("[Server] realtime disposal degraded", { errorType: safeErrorType({ error }) });
+      });
     });
   }
 

@@ -49,6 +49,26 @@ const nonNegativeIntegerSchema = z
   .min(0)
   .refine((value) => Number.isFinite(value));
 
+/**
+ * Protocol v1 outbound ceilings. Both are wire contract rather than tunables,
+ * and they are deliberately expressed as one pair so they cannot drift apart:
+ *
+ * - `MAX_REALTIME_EVENT_BYTES` bounds the serialized JSON of any single server
+ *   event, and is the budget the route enforces before writing to the socket.
+ * - `MAX_REALTIME_TRANSCRIPT_CHARACTERS` bounds each public transcript field.
+ *
+ * The character bound alone does not imply the byte bound: two full fields, or
+ * one full field in any script that costs more than two bytes per code point,
+ * serialize past the byte budget. That gap used to be reachable — the provider
+ * boundary admitted such a transcript and the emitter then rejected it, which
+ * the session controller turned into an `internal_error` terminal. A valid
+ * transcript must never be able to kill a session, so `boundRealtimeTranscript`
+ * below spends the byte budget where the transcript is bounded, and every
+ * later check is a backstop that cannot fire for a bounded transcript.
+ */
+export const MAX_REALTIME_EVENT_BYTES = 65_536;
+export const MAX_REALTIME_TRANSCRIPT_CHARACTERS = 32_768;
+
 export const REALTIME_PROTOCOL_ERROR_RETRYABLE = {
   [RealtimeProtocolErrorCode.InvalidMessage]: false,
   [RealtimeProtocolErrorCode.UnsupportedProtocol]: false,
@@ -104,8 +124,8 @@ export const realtimeReadyEventSchema = z
 export const realtimeTranscriptEventSchema = z
   .object({
     type: z.literal(RealtimeServerEventType.Transcript),
-    confirmedDelta: z.string().max(32768),
-    provisional: z.string().max(32768),
+    confirmedDelta: z.string().max(MAX_REALTIME_TRANSCRIPT_CHARACTERS),
+    provisional: z.string().max(MAX_REALTIME_TRANSCRIPT_CHARACTERS),
   })
   .strict()
   .refine((event) => event.confirmedDelta.length > 0 || event.provisional.length > 0);
@@ -134,9 +154,83 @@ export const realtimeServerEventSchema = z.union([
   realtimeErrorEventSchema,
 ]);
 
-export const realtimeProtocolFixtureSchema = z
-  .object({
-    valid: z.record(z.string(), z.unknown()),
-    invalid: z.record(z.string(), z.unknown()),
-  })
-  .strict();
+/**
+ * Exact serialized cost of a transcript event carrying two empty strings, so
+ * the field budget below is derived rather than hand-counted. `JSON.stringify`
+ * emits the same scaffolding regardless of field content, so the full event is
+ * always this plus the escaped body of each field.
+ */
+const TRANSCRIPT_EVENT_SCAFFOLDING_BYTES = Buffer.byteLength(
+  JSON.stringify({ type: RealtimeServerEventType.Transcript, confirmedDelta: "", provisional: "" }),
+  "utf8",
+);
+
+/**
+ * Bounds a provider transcript so the resulting public event is always
+ * emittable: within the per-field character cap AND within the serialized byte
+ * budget. Every provider adapter must route its transcript text through this
+ * before returning it, exactly as each must reproduce the abort-is-not-a-
+ * cancellation mapping — a provider boundary that bounds only characters
+ * reintroduces the band where a legitimate transcript terminates the session.
+ *
+ * `confirmedDelta` is spent first because it is the only text a client never
+ * sees again; `provisional` is superseded by the next result.
+ */
+export function boundRealtimeTranscript(input: { readonly confirmedDelta: string; readonly provisional: string }): {
+  readonly confirmedDelta: string;
+  readonly provisional: string;
+} {
+  const budgetBytes = MAX_REALTIME_EVENT_BYTES - TRANSCRIPT_EVENT_SCAFFOLDING_BYTES;
+  const confirmed = boundToEscapedBytes(input.confirmedDelta, budgetBytes);
+  const provisional = boundToEscapedBytes(input.provisional, budgetBytes - confirmed.bytes);
+  return { confirmedDelta: confirmed.text, provisional: provisional.text };
+}
+
+/**
+ * Longest code-point-aligned prefix that satisfies both the character cap and
+ * `maxBytes` of escaped body, returned with its measured cost so a caller can
+ * spend one shared budget across fields without re-measuring.
+ */
+function boundToEscapedBytes(text: string, maxBytes: number): { readonly text: string; readonly bytes: number } {
+  const capped = sliceToCharacterCap(text, MAX_REALTIME_TRANSCRIPT_CHARACTERS);
+  if (maxBytes <= 0) {
+    return { text: "", bytes: 0 };
+  }
+
+  const cappedBytes = escapedByteLength(capped);
+  if (cappedBytes <= maxBytes) {
+    return { text: capped, bytes: cappedBytes };
+  }
+
+  const codePoints = Array.from(capped);
+  let fitting = 0;
+  let beyond = codePoints.length;
+  while (fitting < beyond) {
+    const candidate = Math.ceil((fitting + beyond) / 2);
+    if (escapedByteLength(codePoints.slice(0, candidate).join("")) <= maxBytes) {
+      fitting = candidate;
+    } else {
+      beyond = candidate - 1;
+    }
+  }
+
+  const bounded = codePoints.slice(0, fitting).join("");
+  return { text: bounded, bytes: escapedByteLength(bounded) };
+}
+
+/** Escaped body cost excluding the surrounding quotes, which the scaffolding already charges. */
+function escapedByteLength(text: string): number {
+  return Buffer.byteLength(JSON.stringify(text), "utf8") - 2;
+}
+
+function sliceToCharacterCap(text: string, maxCharacters: number): string {
+  if (text.length <= maxCharacters) {
+    return text;
+  }
+
+  const sliced = text.slice(0, maxCharacters);
+  const lastUnit = sliced.charCodeAt(sliced.length - 1);
+  // The character cap counts UTF-16 units, so an exact slice can strand a high
+  // surrogate whose pair was just cut. Drop it rather than emit a lone half.
+  return lastUnit >= 0xd800 && lastUnit <= 0xdbff ? sliced.slice(0, -1) : sliced;
+}

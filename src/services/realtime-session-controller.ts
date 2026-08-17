@@ -1,5 +1,4 @@
 import type {
-  RealtimeProviderEvent,
   RealtimeTranscriptionClient,
   RealtimeTranscriptionSession as ProviderSession,
 } from "../clients/realtime-transcription-client.js";
@@ -16,6 +15,7 @@ import {
   RealtimeFinishedReason,
   RealtimeProtocolErrorCode,
   RealtimeProviderEventType,
+  type RealtimeProviderEvent,
 } from "../types/transcription.js";
 import {
   billableRealtimeSeconds,
@@ -37,6 +37,7 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
   readonly #providerSignal: AbortSignal;
   readonly #closed = new Deferred<void>();
   readonly #timers = new RealtimeSessionTimers();
+  readonly #now: () => number;
   #providerLimitSeconds: number;
   #remainingAtAdmission: number;
   #readyLimitReason: RealtimeFinishedReason;
@@ -47,6 +48,7 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
   #state: SessionState = "streaming";
   #attemptedBytes = 0;
   #providerProgressMs = 0;
+  #streamStartedAtMs = 0;
 
   constructor(args: {
     readonly service: RealtimeSessionOwner;
@@ -55,10 +57,12 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
     readonly providerLimitSeconds: number;
     readonly readyLimitReason: RealtimeFinishedReason;
     readonly remainingAtAdmission: number;
+    readonly now?: () => number;
   }) {
     this.#service = args.service;
     this.#request = args.request;
     this.#policy = args.policy;
+    this.#now = args.now ?? (() => Date.now());
     this.#providerSignal = AbortSignal.any([this.#abortController.signal, args.request.signal]);
     this.#providerLimitSeconds = args.providerLimitSeconds;
     this.#readyLimitReason = args.readyLimitReason;
@@ -107,21 +111,19 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
     onProviderClosed({
       provider: this.#provider,
       isClosed: () => this.#state === "closed",
-      beginTerminal: (decision) => void this.#beginTerminal(decision),
+      beginTerminal: (decision) => this.#beginTerminalDetached(decision),
     });
     emitRealtimeReady({
       request: this.#request,
       providerLimitSeconds: this.#providerLimitSeconds,
       remainingAtAdmission: this.#remainingAtAdmission,
     });
+    this.#streamStartedAtMs = this.#now();
     this.#timers.startWallClock(
-      () => void this.#beginFinish(this.readyLimitReason),
+      () => this.#beginFinishDetached(this.readyLimitReason),
       this.#providerLimitSeconds * 1_000,
     );
-    this.#timers.startFirstAudio(
-      () => void this.#beginTerminal({ kind: "error", code: RealtimeProtocolErrorCode.AudioTimeout }),
-      this.#policy.firstAudioTimeoutMs,
-    );
+    this.#armAudioDeadline();
   }
 
   sendAudio(data: Buffer): void {
@@ -129,34 +131,53 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
       return;
     }
 
-    this.#timers.clearFirstAudio();
+    // Inbound flow control is a pacing budget rather than socket pause/resume plus a provider-side
+    // bufferedAmount watermark. Pacing needs no transport detail on the provider-neutral session
+    // contract, and it bounds what can ever be in flight: a client may not run more than the burst
+    // allowance ahead of real time, so the provider send queue stays bounded no matter how fast the
+    // client uplink is or how hard the provider applies backpressure. The cumulative session cap
+    // alone permits the whole session's audio to arrive at once.
     const result = sendRealtimeAudioFrame({
       provider: this.#provider,
       request: this.#request,
       data,
       attemptedBytes: this.#attemptedBytes,
       limitSeconds: this.#providerLimitSeconds,
+      elapsedMs: this.#now() - this.#streamStartedAtMs,
+      paceBurstSeconds: this.#policy.audioPaceBurstSeconds,
     });
 
     switch (result.kind) {
       case "sent":
         this.#attemptedBytes = result.attemptedBytes;
+        // Rearm only once the frame is accepted. Clearing before validation would let one junk
+        // frame retire the deadline permanently, and never rearming leaves a silent session
+        // holding both sockets until the wall clock expires.
+        this.#armAudioDeadline();
         if (result.reachedLimit) {
-          void this.#beginFinish(this.readyLimitReason);
+          this.#beginFinishDetached(this.readyLimitReason);
         }
         break;
       case "limit":
-        void this.#beginFinish(this.readyLimitReason);
+        this.#beginFinishDetached(this.readyLimitReason);
         break;
+      case "pace":
       case "invalid":
-        void this.#beginTerminal({ kind: "error", code: RealtimeProtocolErrorCode.InvalidAudio });
+        this.#beginTerminalDetached({ kind: "error", code: RealtimeProtocolErrorCode.InvalidAudio });
         break;
       case "error":
-        void this.#beginTerminal({ kind: "error", code: result.code });
+        this.#beginTerminalDetached({ kind: "error", code: result.code });
         break;
       default:
         throw new RealtimeAdmissionError(RealtimeProtocolErrorCode.InternalError);
     }
+  }
+
+  #armAudioDeadline(): void {
+    this.#timers.startAudioDeadline(
+      () => this.#beginTerminalDetached({ kind: "error", code: RealtimeProtocolErrorCode.AudioTimeout }),
+      this.#policy.firstAudioTimeoutMs,
+    );
   }
 
   finish(): Promise<void> {
@@ -185,6 +206,11 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
     });
   }
 
+  /** Fire-and-forget finish entry; see `#beginTerminalDetached` for why. */
+  #beginFinishDetached(reason: RealtimeFinishedReason): void {
+    void this.#beginFinish(reason).catch(() => undefined);
+  }
+
   #beginFinish(reason: RealtimeFinishedReason): Promise<void> {
     if (this.#state === "closed") {
       return this.#closed.promise;
@@ -194,7 +220,7 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
       return this.#finishPromise;
     }
 
-    this.#timers.clearFirstAudio();
+    this.#timers.clearAudioDeadline();
     this.#state = "finishing";
     this.#finishReason = reason;
     this.#timers.clearWallClock();
@@ -223,7 +249,7 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
           event.finalAudioMs > this.#providerLimitSeconds * 1_000 ||
           event.totalAudioMs > this.#providerLimitSeconds * 1_000
         ) {
-          void this.#beginTerminal({
+          this.#beginTerminalDetached({
             kind: "error",
             code: RealtimeProtocolErrorCode.InternalError,
             recordUsage: false,
@@ -240,13 +266,13 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
               provisional: event.provisional,
             })
           ) {
-            void this.#beginTerminal({ kind: "error", code: RealtimeProtocolErrorCode.InternalError });
+            this.#beginTerminalDetached({ kind: "error", code: RealtimeProtocolErrorCode.InternalError });
           }
         }
         break;
       case RealtimeProviderEventType.Finished:
         if (this.#state === "finishing") {
-          void this.#beginTerminal({ kind: "complete", reason: this.#finishReason });
+          this.#beginTerminalDetached({ kind: "complete", reason: this.#finishReason });
         }
         break;
       default:
@@ -259,6 +285,17 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
     return this.#terminalPromise;
   }
 
+  /**
+   * Fire-and-forget terminal entry. `#runTerminal` still rejects so awaiting
+   * callers (`finish`, `cancel`, `shutdown`) see the failure, but these call
+   * sites have nobody to report to: leaving the rejection unhandled would turn
+   * a throwing client callback into a process-level unhandled rejection, which
+   * is a worse outcome than the terminal the session already completed.
+   */
+  #beginTerminalDetached(decision: TerminalDecision): void {
+    void this.#beginTerminal(decision).catch(() => undefined);
+  }
+
   async #runTerminal(decision: TerminalDecision): Promise<void> {
     this.#timers.clearAll();
     this.#abortController.abort();
@@ -267,17 +304,25 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
       this.#provider?.cancel();
     }
 
-    const remaining =
-      decision.kind === "error" && decision.recordUsage === false
-        ? this.#remainingAtAdmission
-        : await this.#service.recordUsage({
-            userId: this.#request.userId,
-            seconds: this.#billableSeconds,
-            remainingAtAdmission: this.#remainingAtAdmission,
-          });
-    emitTerminalEvent({ callbacks: this.#request.callbacks, decision, remaining });
-    this.#service.release(this);
-    this.#closed.resolve();
+    try {
+      const remaining =
+        decision.kind === "error" && decision.recordUsage === false
+          ? this.#remainingAtAdmission
+          : await this.#service.recordUsage({
+              userId: this.#request.userId,
+              seconds: this.#billableSeconds,
+              remainingAtAdmission: this.#remainingAtAdmission,
+            });
+      emitTerminalEvent({ callbacks: this.#request.callbacks, decision, remaining });
+    } finally {
+      // Ordering is deliberate: the usage write and the terminal emit run
+      // first, so a successful terminal still reports before the slot frees.
+      // But neither may gate cleanup — a rejected usage write or a throwing
+      // client callback would otherwise strand a concurrency slot for the
+      // process lifetime and leave `closed` pending, which hangs dispose().
+      this.#service.release(this);
+      this.#closed.resolve();
+    }
   }
 
   get #billableSeconds(): number {

@@ -3,11 +3,11 @@ import {
   RealtimeProviderEventType,
   RealtimeTranscriptionFailure,
   RealtimeTranscriptionFailureReason,
+  type RealtimeProviderEvent,
 } from "../types/transcription.js";
-import type { RealtimeProviderEvent } from "../clients/realtime-transcription-client.js";
+import { boundRealtimeTranscript } from "../models/voice.js";
 
 const maxTranscriptCharacters = 1_000_000;
-const maxPublicTranscriptCharacters = 32_768;
 
 export type SonioxRealtimeParseOptions = {
   readonly maxAudioDurationMs: number;
@@ -51,6 +51,13 @@ const resultSchema = z
       .min(0)
       .refine((value) => Number.isFinite(value)),
     finished: z.boolean().optional(),
+    // `@soniox/node` returns the untrimmed provider payload as `raw` on every
+    // result and spreads it into the emitted event, so rejecting it would fail
+    // the first transcript of every session. It is declared here purely so
+    // `.strict()` keeps rejecting genuinely unexpected provider fields, and is
+    // never read: the returned event below is built from named fields only, so
+    // the provider echo cannot reach a client, a log, or an error cause.
+    raw: z.unknown().optional(),
   })
   .strict();
 
@@ -101,14 +108,17 @@ export function parseSonioxRealtimeResult(value: unknown, options: SonioxRealtim
     .map((token) => token.text)
     .join("");
 
-  if (finalTextDelta.length > maxPublicTranscriptCharacters || provisionalText.length > maxPublicTranscriptCharacters) {
-    fail(RealtimeTranscriptionFailureReason.MalformedOutput);
-  }
+  // Bounded, not rejected. An over-long transcript is not evidence of a
+  // malformed provider payload, and failing here would terminate a session over
+  // text we could simply have trimmed. Bounding against the shared public
+  // budget is also what guarantees the emitter can never refuse what this
+  // boundary admitted.
+  const bounded = boundRealtimeTranscript({ confirmedDelta: finalTextDelta, provisional: provisionalText });
 
   return {
     type: RealtimeProviderEventType.Transcript,
-    confirmedDelta: finalTextDelta,
-    provisional: provisionalText,
+    confirmedDelta: bounded.confirmedDelta,
+    provisional: bounded.provisional,
     finalAudioMs: result.data.final_audio_proc_ms,
     totalAudioMs: result.data.total_audio_proc_ms,
   };
@@ -130,6 +140,11 @@ export function toRealtimeFailureReason(error: unknown): RealtimeTranscriptionFa
 
   const metadata = parseSdkErrorMetadata(error);
   const code = metadata.code;
+  // Deliberately Unavailable, NOT Cancelled. Cancellation is decided from the
+  // signals we own (`request.signal`, our own timeout race in the client), never
+  // from an SDK error shape. A provider that aborts our socket for its own
+  // reasons would otherwise be reported as a user cancellation and silently
+  // swallowed. Mirrors `toFailureReason` on the async path — do not "fix" it.
   if (code === "aborted") {
     return RealtimeTranscriptionFailureReason.Unavailable;
   }
@@ -152,6 +167,9 @@ export function toRealtimeFailureReason(error: unknown): RealtimeTranscriptionFa
   }
 
   const name = metadata.name;
+  // Same invariant as `code === "aborted"` above: an abort shape reaching this
+  // function came from the provider or the transport, not from our cancellation,
+  // so it maps to Unavailable rather than Cancelled.
   if (name === "AbortError") {
     return RealtimeTranscriptionFailureReason.Unavailable;
   }

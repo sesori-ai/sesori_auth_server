@@ -376,7 +376,6 @@ describe("PendingAuthStore", () => {
 
     assert.equal((await waiter)?.status, "shutdown");
     assert.equal((await store.waitForStatusChange(tokenHash, 5_000))?.status, "shutdown");
-    await store.drainReleasedReads();
     store.releaseWaiters();
   });
 });

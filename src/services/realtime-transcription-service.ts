@@ -22,6 +22,9 @@ export class RealtimeTranscriptionService {
   readonly #active = new Set<RealtimeTranscriptionSession>();
   readonly #starting = new Set<RealtimeTranscriptionSession>();
   readonly #startingControllers = new Set<RealtimeSessionController>();
+  readonly #sessionUserIds = new Map<RealtimeTranscriptionSession, string>();
+  readonly #activePerUser = new Map<string, number>();
+  readonly #now: () => number;
   #disposed = false;
   #disposePromise: Promise<void> | null = null;
 
@@ -30,11 +33,14 @@ export class RealtimeTranscriptionService {
     readonly glossaryService: GlossaryService;
     readonly dailyUsageRepo: DailyUsageRepository;
     readonly policy: RealtimeTranscriptionPolicy;
+    /** Session clock seam. Production uses the default wall clock; tests drive pacing deterministically. */
+    readonly now?: () => number;
   }) {
     this.#realtimeClient = deps.realtimeClient;
     this.#glossaryService = deps.glossaryService;
     this.#dailyUsageRepo = deps.dailyUsageRepo;
     this.#policy = deps.policy;
+    this.#now = deps.now ?? (() => Date.now());
   }
 
   get activeSessionCount(): number {
@@ -46,6 +52,11 @@ export class RealtimeTranscriptionService {
       throw new RealtimeAdmissionError(RealtimeProtocolErrorCode.ServiceRestarting);
     }
     throwIfAborted(request.signal);
+    // Admission must be decided and counted in one synchronous block, before the first await.
+    // The daily budget is read but never reserved, so concurrent starts each observe the same
+    // remaining seconds; without a ceiling here a single user could hold as many sessions as the
+    // start limiter allows per minute, each with its own client socket, provider socket and timers.
+    this.#throwIfAtCapacity(request.userId);
 
     const controller = new RealtimeSessionController({
       service: this,
@@ -54,10 +65,11 @@ export class RealtimeTranscriptionService {
       providerLimitSeconds: 1,
       readyLimitReason: RealtimeFinishedReason.SessionLimit,
       remainingAtAdmission: 0,
+      now: this.#now,
     });
     this.#starting.add(controller);
     this.#startingControllers.add(controller);
-    this.#active.add(controller);
+    this.#acquireSlot(controller, request.userId);
 
     try {
       const usedSeconds = await this.#dailyUsageRepo.getDailyTranscriptionSeconds(request.userId);
@@ -128,6 +140,40 @@ export class RealtimeTranscriptionService {
 
   release(session: RealtimeTranscriptionSession): void {
     this.#active.delete(session);
+    const userId = this.#sessionUserIds.get(session);
+    if (userId === undefined) {
+      return;
+    }
+
+    this.#sessionUserIds.delete(session);
+    const remaining = (this.#activePerUser.get(userId) ?? 1) - 1;
+    if (remaining <= 0) {
+      // Drop the key rather than leaving a zero so the per-user tally cannot grow unbounded
+      // over the process lifetime.
+      this.#activePerUser.delete(userId);
+      return;
+    }
+
+    this.#activePerUser.set(userId, remaining);
+  }
+
+  #throwIfAtCapacity(userId: string): void {
+    // Refuse with ProviderCapacity: it is retryable and closes 1013, which is the correct client
+    // response to a transient concurrency ceiling. QuotaExhausted is nonretryable and would
+    // wrongly claim the daily budget is gone, and a new wire code would break protocol v1 clients.
+    if (this.#active.size >= this.#policy.maxConcurrentSessions) {
+      throw new RealtimeAdmissionError(RealtimeProtocolErrorCode.ProviderCapacity);
+    }
+
+    if ((this.#activePerUser.get(userId) ?? 0) >= this.#policy.maxConcurrentSessionsPerUser) {
+      throw new RealtimeAdmissionError(RealtimeProtocolErrorCode.ProviderCapacity);
+    }
+  }
+
+  #acquireSlot(session: RealtimeTranscriptionSession, userId: string): void {
+    this.#active.add(session);
+    this.#sessionUserIds.set(session, userId);
+    this.#activePerUser.set(userId, (this.#activePerUser.get(userId) ?? 0) + 1);
   }
 
   #throwIfDisposed(): void {

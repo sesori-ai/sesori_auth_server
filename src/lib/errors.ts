@@ -81,6 +81,23 @@ type RetryableErrorOptions = {
 };
 
 /**
+ * The process is shutting down and cannot answer this request truthfully.
+ * Used where refusing beats guessing — a long poll released for shutdown has
+ * no verified answer to serve, and a wrong one would be indistinguishable from
+ * a real result. Mirrors the `service_restarting` signal the OAuth status poll
+ * returns for `PendingAuthStatus.Shutdown`.
+ */
+export class ServiceRestartingError extends ApiError {
+  public readonly retryAfterSeconds: number;
+
+  constructor(opts?: RetryableErrorOptions) {
+    super("service_restarting", 503, opts?.debugMessage, opts?.nestedError);
+    this.responseBody = { retryable: true };
+    this.retryAfterSeconds = clampRetryAfterSeconds(opts?.retryAfterSeconds);
+  }
+}
+
+/**
  * Transcription provider failures. Each carries a fixed `retryable` flag so a
  * client can distinguish a transient outage from a permanent rejection; the
  * additive field is safe for released apps to ignore.

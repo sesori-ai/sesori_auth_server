@@ -5,12 +5,13 @@ export function setSessionTimer(callback: () => void, timeoutMs: number): NodeJS
 }
 
 export class RealtimeSessionTimers {
-  #firstAudioTimer: NodeJS.Timeout | null = null;
+  #audioDeadlineTimer: NodeJS.Timeout | null = null;
   #wallClockTimer: NodeJS.Timeout | null = null;
 
-  startFirstAudio(callback: () => void, timeoutMs: number): void {
-    this.clearFirstAudio();
-    this.#firstAudioTimer = setSessionTimer(callback, timeoutMs);
+  /** Arms the first-audio deadline, and rearms it as a rolling idle deadline on later frames. */
+  startAudioDeadline(callback: () => void, timeoutMs: number): void {
+    this.clearAudioDeadline();
+    this.#audioDeadlineTimer = setSessionTimer(callback, timeoutMs);
   }
 
   startWallClock(callback: () => void, timeoutMs: number): void {
@@ -18,10 +19,10 @@ export class RealtimeSessionTimers {
     this.#wallClockTimer = setSessionTimer(callback, timeoutMs);
   }
 
-  clearFirstAudio(): void {
-    if (this.#firstAudioTimer !== null) {
-      clearTimeout(this.#firstAudioTimer);
-      this.#firstAudioTimer = null;
+  clearAudioDeadline(): void {
+    if (this.#audioDeadlineTimer !== null) {
+      clearTimeout(this.#audioDeadlineTimer);
+      this.#audioDeadlineTimer = null;
     }
   }
 
@@ -33,7 +34,7 @@ export class RealtimeSessionTimers {
   }
 
   clearAll(): void {
-    this.clearFirstAudio();
+    this.clearAudioDeadline();
     this.clearWallClock();
   }
 }
@@ -43,8 +44,10 @@ export async function withTimeout<T>(operation: Promise<T>, timeoutMs: number, m
   try {
     return await Promise.race([
       operation,
+      // Unref'd like every other realtime timer: a disposal race that is still
+      // pending must not be the reason the process refuses to exit.
       new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+        timer = setSessionTimer(() => reject(new Error(message)), timeoutMs);
       }),
     ]);
   } finally {

@@ -125,25 +125,22 @@ export class BridgeStateTracker {
     readonly status: BridgeStatus;
   }): Promise<void> {
     const { entry, capturedGeneration, userId, status } = args;
+    // No `#accepting` re-check here, deliberately. This runs synchronously up to
+    // the send, and `dispose()` clears `#accepting`, every timer and the whole
+    // map synchronously before its first await — so a callback either started
+    // before dispose (and must be drained, which is what `#inFlight` is for) or
+    // its timer was cancelled and it never starts. A guard would have read as
+    // live shutdown handling while being unreachable, and the `finally` that
+    // re-cleared `#state` only ever cleared a map dispose had already emptied.
     try {
-      if (!this.#accepting) {
-        return;
-      }
-
-      try {
-        await this.#notificationService.sendToUser(userId, this.#buildPayload(status));
-      } catch (err) {
-        console.warn("Bridge notification failed", { userId, status, err });
-      } finally {
-        if (entry.generation === capturedGeneration) {
-          entry.lastNotifiedStatus = status;
-          entry.pendingStatus = null;
-          entry.timer = null;
-        }
-      }
+      await this.#notificationService.sendToUser(userId, this.#buildPayload(status));
+    } catch (err) {
+      console.warn("Bridge notification failed", { userId, status, err });
     } finally {
-      if (!this.#accepting) {
-        this.#state.clear();
+      if (entry.generation === capturedGeneration) {
+        entry.lastNotifiedStatus = status;
+        entry.pendingStatus = null;
+        entry.timer = null;
       }
     }
   }

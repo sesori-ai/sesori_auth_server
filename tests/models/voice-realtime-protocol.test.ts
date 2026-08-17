@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
+import { z } from "zod";
 import {
   REALTIME_PROTOCOL_ERROR_RETRYABLE,
   realtimeClientMessageSchema,
-  realtimeProtocolFixtureSchema,
   realtimeServerEventSchema,
   realtimeStartMessageSchema,
   realtimeTranscriptEventSchema,
@@ -16,6 +16,14 @@ import {
   RealtimeProviderEventType,
   RealtimeServerEventType,
 } from "../../src/types/transcription.js";
+
+/** Shape of the canonical protocol fixture. Only this test reads it, so it lives here. */
+const realtimeProtocolFixtureSchema = z
+  .object({
+    valid: z.record(z.string(), z.unknown()),
+    invalid: z.record(z.string(), z.unknown()),
+  })
+  .strict();
 
 const fixturePath = new URL("../fixtures/voice-realtime-protocol-v1.json", import.meta.url);
 const fixtureSource = readFileSync(fixturePath, "utf8");
@@ -29,6 +37,8 @@ describe("realtime protocol v1 schemas", () => {
     assert.equal(fixtureSource.includes("soniox"), false);
     assert.equal(fixtureSource.includes("user_"), false);
     assert.equal(fixtureSource.includes("sk-"), false);
+    assert.equal(fixtureSource.includes("project-123"), false);
+    assert.equal(/\bproject-[A-Za-z0-9_-]+\b/.test(fixtureSource), false);
   });
 
   it("accepts every valid canonical protocol case", () => {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it, mock } from "node:test";
-import { createShutdownHandler, type ShutdownWaiterOwner } from "../src/shutdown.js";
+import { createShutdownHandler, type ShutdownReadDrainer, type ShutdownWaiterOwner } from "../src/shutdown.js";
 
 type Deferred<T> = {
   readonly promise: Promise<T>;
@@ -28,6 +28,7 @@ describe("shutdown coordinator", () => {
         },
       },
       waiters: [waiter],
+      readDrainers: [createReadDrainer(calls)],
       producers: [
         {
           dispose: async () => {
@@ -75,6 +76,7 @@ describe("shutdown coordinator", () => {
         },
       },
       waiters: [createWaiter(calls)],
+      readDrainers: [createReadDrainer(calls)],
       producers: [],
       realtimeService: null,
       exit: (code) => calls.push(`exit:${code}`),
@@ -92,8 +94,9 @@ describe("shutdown coordinator", () => {
     assert.equal(calls.filter((call) => call === "exit:0").length, 1);
   });
 
-  it("exits 1 and skips Mongo when a prerequisite rejects", async () => {
+  it("finishes realtime disposal before app.close so terminal frames flush to open sockets", async () => {
     const calls: string[] = [];
+    const disposeGate = deferred<void>();
     const shutdown = createShutdownHandler({
       app: {
         close: async (): Promise<void> => {
@@ -106,27 +109,44 @@ describe("shutdown coordinator", () => {
         },
       },
       waiters: [createWaiter(calls)],
-      producers: [
-        {
-          dispose: async () => {
-            calls.push("producer.dispose");
-            throw new Error("producer failed");
-          },
+      readDrainers: [createReadDrainer(calls)],
+      producers: [],
+      realtimeService: {
+        beginShutdown: () => calls.push("realtime.begin"),
+        dispose: async () => {
+          calls.push("realtime.dispose.start");
+          await disposeGate.promise;
+          calls.push("realtime.dispose.done");
         },
-      ],
-      realtimeService: null,
+      },
       exit: (code) => calls.push(`exit:${code}`),
       log: () => undefined,
     });
 
-    await shutdown("SIGTERM");
+    const running = shutdown("SIGTERM");
+    await nextTurn();
+    // @fastify/websocket's preClose closes every client socket, so app.close()
+    // must not begin while a session is still emitting its terminal frame.
+    assert.equal(calls.includes("app.close"), false);
 
-    assert.equal(calls.includes("mongo.close"), false);
-    assert.equal(calls.at(-1), "exit:1");
+    disposeGate.resolve(undefined);
+    await running;
+
+    assert.deepEqual(calls, [
+      "waiter.release",
+      "realtime.begin",
+      "realtime.dispose.start",
+      "realtime.dispose.done",
+      "app.close",
+      "waiter.drain",
+      "mongo.close",
+      "exit:0",
+    ]);
   });
 
-  it("starts all producer disposals and app close when one disposal throws synchronously", async () => {
+  it("treats a failed producer or realtime drain as degraded, still closing Mongo and exiting 0", async () => {
     const calls: string[] = [];
+    const logs: string[] = [];
     const shutdown = createShutdownHandler({
       app: {
         close: async (): Promise<void> => {
@@ -139,6 +159,7 @@ describe("shutdown coordinator", () => {
         },
       },
       waiters: [createWaiter(calls)],
+      readDrainers: [createReadDrainer(calls)],
       producers: [
         {
           dispose: async () => {
@@ -157,10 +178,11 @@ describe("shutdown coordinator", () => {
         beginShutdown: () => calls.push("realtime.begin"),
         dispose: () => {
           calls.push("realtime.dispose");
+          throw new Error("realtime failed");
         },
       },
       exit: (code) => calls.push(`exit:${code}`),
-      log: () => undefined,
+      log: (message) => logs.push(message),
     });
 
     await shutdown("SIGTERM");
@@ -169,6 +191,38 @@ describe("shutdown coordinator", () => {
     assert.equal(calls.includes("producer.throw"), true);
     assert.equal(calls.includes("realtime.dispose"), true);
     assert.equal(calls.includes("app.close"), true);
+    // A drain that did not finish is loud but not a failed termination: the
+    // work it guards is killed by process exit either way, so reporting exit 1
+    // would turn every routine SIGTERM mid-sweep into a failed container stop.
+    assert.equal(calls.includes("mongo.close"), true);
+    assert.equal(calls.at(-1), "exit:0");
+    assert.equal(logs.filter((message) => message === "[Shutdown] disposal degraded").length, 3);
+  });
+
+  it("exits 1 and skips Mongo when a resource-owning step rejects", async () => {
+    const calls: string[] = [];
+    const shutdown = createShutdownHandler({
+      app: {
+        close: async (): Promise<void> => {
+          calls.push("app.close");
+          throw new Error("app close failed");
+        },
+      },
+      mongo: {
+        close: async () => {
+          calls.push("mongo.close");
+        },
+      },
+      waiters: [createWaiter(calls)],
+      readDrainers: [createReadDrainer(calls)],
+      producers: [],
+      realtimeService: null,
+      exit: (code) => calls.push(`exit:${code}`),
+      log: () => undefined,
+    });
+
+    await shutdown("SIGTERM");
+
     assert.equal(calls.includes("mongo.close"), false);
     assert.equal(calls.at(-1), "exit:1");
   });
@@ -184,6 +238,7 @@ describe("shutdown coordinator", () => {
         },
       },
       waiters: [createWaiter(calls)],
+      readDrainers: [createReadDrainer(calls)],
       producers: [],
       realtimeService: null,
       exit: (code) => calls.push(`exit:${code}`),
@@ -218,6 +273,7 @@ describe("shutdown coordinator", () => {
         },
       },
       waiters: [createWaiter(calls)],
+      readDrainers: [createReadDrainer(calls)],
       producers: [],
       realtimeService: null,
       exit: (code) => calls.push(`exit:${code}`),
@@ -244,10 +300,19 @@ describe("shutdown coordinator", () => {
 function createWaiter(calls: string[]): ShutdownWaiterOwner {
   return {
     releaseWaiters: () => calls.push("waiter.release"),
+  };
+}
+
+function createReadDrainer(calls: string[]): ShutdownReadDrainer {
+  return {
     drainReleasedReads: async () => {
       calls.push("waiter.drain");
     },
   };
+}
+
+async function nextTurn(): Promise<void> {
+  await new Promise((resolve) => setImmediate(resolve));
 }
 
 async function keepProcessAlive<T>(promise: Promise<T>): Promise<T> {
