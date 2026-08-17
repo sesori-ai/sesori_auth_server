@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { after, before, describe, it } from "node:test";
-import type { WebSocket } from "ws";
-import type { RawData } from "ws";
+import type { FastifyInstance } from "fastify";
+import { WebSocket, type RawData } from "ws";
 import { REALTIME_PROTOCOL_ERROR_RETRYABLE } from "../../src/models/voice.js";
 import { startRealtimeSocket } from "../../src/routes/voice-realtime-socket.js";
 import { RealtimeAdmissionError } from "../../src/services/realtime-transcription-errors.js";
@@ -536,6 +536,65 @@ describe("voice realtime route", () => {
       assert.equal(localRealtimeService.starts.length, 0);
     });
 
+    it("closes an upgraded socket that never sends a start frame with start_timeout", async () => {
+      const localRealtimeService = new FakeRealtimeService();
+      const socket = new FakeSocket();
+      startRealtimeSocket({
+        socket: socket.websocket,
+        request: { user: { userId: "6a7603577dee429b4d11b17a" } } as never,
+        realtimeService: localRealtimeService,
+        routePolicy: {
+          firstFrameTimeoutMs: 5,
+          maxTextFrameBytes: 2_048,
+          maxAudioFrameBytes: 65_536,
+          outboundBufferMaxBytes: 65_536,
+        },
+        state: "awaiting_start",
+        session: null,
+        terminalSent: false,
+        startAbortController: null,
+      });
+
+      await delay(20);
+
+      assert.deepEqual(
+        socket.sent.map((message) => JSON.parse(message)),
+        [{ type: "error", code: "start_timeout", retryable: true }],
+      );
+      assert.equal(socket.closeCodes.at(-1), 1013);
+      assert.equal(localRealtimeService.starts.length, 0);
+    });
+
+    it("does not fire the first-frame timeout once a start frame has arrived", async () => {
+      const localRealtimeService = new FakeRealtimeService();
+      const socket = new FakeSocket();
+      startRealtimeSocket({
+        socket: socket.websocket,
+        request: { user: { userId: "6a7603577dee429b4d11b17a" } } as never,
+        realtimeService: localRealtimeService,
+        routePolicy: {
+          firstFrameTimeoutMs: 5,
+          maxTextFrameBytes: 2_048,
+          maxAudioFrameBytes: 65_536,
+          outboundBufferMaxBytes: 65_536,
+        },
+        state: "awaiting_start",
+        session: null,
+        terminalSent: false,
+        startAbortController: null,
+      });
+
+      socket.emitText(Buffer.from(validStartFrame()));
+      await delay(20);
+
+      assert.deepEqual(
+        socket.sent.map((message) => JSON.parse(message)),
+        [{ type: "ready", protocolVersion: 1, maxSessionSeconds: 900, dailySecondsRemaining: 3600 }],
+      );
+      assert.deepEqual(socket.closeCodes, []);
+      assert.equal(localRealtimeService.starts.length, 1);
+    });
+
     it("keeps send and close races non-throwing", async () => {
       const localRealtimeService = new FakeRealtimeService();
       const socket = new FakeSocket();
@@ -877,6 +936,102 @@ describe("voice realtime route", () => {
       });
     }
 
+    // The start-rejection table above only reaches closeCodeForError through admission
+    // failures. A provider error raised after `ready` takes the onError callback path
+    // instead, so the same code-to-close-code mapping has to be pinned for live sessions.
+    const midSessionErrorCases: readonly {
+      readonly errorCode: RealtimeProtocolErrorCode;
+      readonly closeCode: number;
+    }[] = [
+      { errorCode: RealtimeProtocolErrorCode.ProviderTimeout, closeCode: 1011 },
+      { errorCode: RealtimeProtocolErrorCode.ProviderCapacity, closeCode: 1013 },
+      { errorCode: RealtimeProtocolErrorCode.QuotaExhausted, closeCode: 1008 },
+    ];
+
+    for (const { errorCode, closeCode } of midSessionErrorCases) {
+      it(`forwards a mid-session ${errorCode} provider error and closes with ${closeCode}`, async () => {
+        const user = await ctx.createUser();
+        const socket = await ctx.app.injectWS("/voice/realtime", {
+          headers: { authorization: `Bearer ${user.accessToken}` },
+        });
+        await sendStartAndWaitForReady(socket);
+        const session = realtimeService.sessions.at(-1);
+        assert.ok(session);
+        const message = nextMessageWithin(socket, 200);
+        const close = nextClose(socket);
+
+        session.callbacks?.onError({
+          type: RealtimeServerEventType.Error,
+          code: errorCode,
+          retryable: REALTIME_PROTOCOL_ERROR_RETRYABLE[errorCode],
+        });
+
+        assert.deepEqual(await message, {
+          type: "error",
+          code: errorCode,
+          retryable: REALTIME_PROTOCOL_ERROR_RETRYABLE[errorCode],
+        });
+        assert.equal((await close).code, closeCode);
+      });
+    }
+
+    it("emits exactly one terminal event when the provider reports further errors after the first", async () => {
+      const localRealtimeService = new FakeRealtimeService();
+      const socket = new FakeSocket();
+      startRealtimeSocket({
+        socket: socket.websocket,
+        request: { user: { userId: "6a7603577dee429b4d11b17a" } } as never,
+        realtimeService: localRealtimeService,
+        routePolicy: {
+          firstFrameTimeoutMs: 5_000,
+          maxTextFrameBytes: 2_048,
+          maxAudioFrameBytes: 65_536,
+          outboundBufferMaxBytes: 65_536,
+        },
+        state: "awaiting_start",
+        session: null,
+        terminalSent: false,
+        startAbortController: null,
+      });
+      socket.emitText(Buffer.from(validStartFrame()));
+      await nextTurn();
+      const session = localRealtimeService.sessions.at(-1);
+      assert.ok(session);
+
+      session.callbacks?.onError({
+        type: RealtimeServerEventType.Error,
+        code: RealtimeProtocolErrorCode.ProviderTimeout,
+        retryable: true,
+      });
+
+      const afterFirstTerminal = [...socket.sent];
+      assert.deepEqual(
+        afterFirstTerminal.map((message) => JSON.parse(message)),
+        [
+          { type: "ready", protocolVersion: 1, maxSessionSeconds: 900, dailySecondsRemaining: 3600 },
+          { type: "error", code: "provider_timeout", retryable: true },
+        ],
+      );
+      assert.deepEqual(socket.closeCodes, [1011]);
+
+      // Re-open the transport so a second terminal event can only be suppressed by the
+      // terminalSent guard rather than by the socket already being closed.
+      socket.readyState = socket.OPEN;
+      session.callbacks?.onError({
+        type: RealtimeServerEventType.Error,
+        code: RealtimeProtocolErrorCode.ProviderUnavailable,
+        retryable: true,
+      });
+      session.callbacks?.onComplete({
+        type: RealtimeServerEventType.Complete,
+        reason: RealtimeFinishedReason.Finished,
+        dailySecondsRemaining: 3599,
+      });
+
+      assert.deepEqual(socket.sent, afterFirstTerminal);
+      assert.deepEqual(socket.closeCodes, [1011]);
+    });
+
     it("reports configuration rejections as provider_rejected without raw provider text", async () => {
       const localCtx = await createTestApp({
         realtimeService: new RejectingRealtimeService(RealtimeProtocolErrorCode.ProviderRejected),
@@ -969,36 +1124,132 @@ describe("voice realtime route", () => {
       }
     });
 
-    it("ignores spoofed forwarding headers for the process-wide pre-auth limiter", async () => {
+    // Spoofed forwarding headers have to be proven harmless against each limiter
+    // separately. An authenticated attempt is admitted by the pre-auth gate and then
+    // counted by the post-auth gate, so a single run cannot tell which one rejected it.
+    it("exhausts the pre-auth allowance across varied forwarding headers before authentication runs", async () => {
       const localRealtimeService = new FakeRealtimeService();
       const localCtx = await createTestApp({
         realtimeService: localRealtimeService,
-        configOverrides: { REALTIME_TRANSCRIPTION_ENABLED: true, SONIOX_API_KEY: "test-soniox-key" },
+        configOverrides: {
+          REALTIME_TRANSCRIPTION_ENABLED: true,
+          SONIOX_API_KEY: "test-soniox-key",
+          REALTIME_UPGRADE_MAX_PER_MINUTE: 12,
+        },
       });
-      const user = await localCtx.createUser();
-      const statuses: string[] = [];
+      const statuses: (number | "upgraded")[] = [];
 
       try {
-        for (let attempt = 0; attempt < 14; attempt += 1) {
-          try {
-            const socket = await localCtx.app.injectWS("/voice/realtime", {
-              headers: {
-                authorization: `Bearer ${user.accessToken}`,
-                "x-forwarded-for": `203.0.113.${attempt}`,
-                "cf-connecting-ip": `198.51.100.${attempt}`,
-              },
-            });
-            socket.terminate();
-            statuses.push("upgraded");
-          } catch (error) {
-            statuses.push(error instanceof Error ? error.message : "rejected");
-          }
+        for (let attempt = 0; attempt < 16; attempt += 1) {
+          statuses.push(
+            await attemptUpgrade(localCtx.app, {
+              // Invalid bearer keeps the post-auth limiter out of the picture: every
+              // admitted attempt dies at authentication, so a 429 can only be pre-auth.
+              authorization: "Bearer malformed",
+              "x-forwarded-for": `203.0.113.${attempt}`,
+              "cf-connecting-ip": `198.51.100.${attempt}`,
+            }),
+          );
         }
 
-        assert.ok(
-          statuses.some((status) => status.includes("429")),
-          JSON.stringify(statuses),
-        );
+        assert.deepEqual(statuses, [401, 401, 401, 401, 401, 401, 401, 401, 401, 401, 401, 401, 429, 429, 429, 429]);
+        assert.equal(localRealtimeService.starts.length, 0);
+      } finally {
+        await localCtx.cleanup();
+      }
+    });
+
+    it("keys the post-auth start limiter to the verified user across varied forwarding headers", async () => {
+      const localRealtimeService = new FakeRealtimeService();
+      const localCtx = await createTestApp({
+        realtimeService: localRealtimeService,
+        configOverrides: {
+          REALTIME_TRANSCRIPTION_ENABLED: true,
+          SONIOX_API_KEY: "test-soniox-key",
+          // High enough that the pre-auth gate cannot account for any rejection below.
+          REALTIME_UPGRADE_MAX_PER_MINUTE: 1_000,
+        },
+      });
+      const user = await localCtx.createUser();
+      const statuses: (number | "upgraded")[] = [];
+
+      try {
+        for (let attempt = 0; attempt < 13; attempt += 1) {
+          statuses.push(
+            await attemptUpgrade(localCtx.app, {
+              authorization: `Bearer ${user.accessToken}`,
+              "x-forwarded-for": `203.0.113.${attempt}`,
+              "cf-connecting-ip": `198.51.100.${attempt}`,
+            }),
+          );
+        }
+
+        assert.deepEqual(statuses, [
+          "upgraded",
+          "upgraded",
+          "upgraded",
+          "upgraded",
+          "upgraded",
+          "upgraded",
+          "upgraded",
+          "upgraded",
+          "upgraded",
+          "upgraded",
+          "upgraded",
+          "upgraded",
+          429,
+        ]);
+      } finally {
+        await localCtx.cleanup();
+      }
+    });
+
+    // The global rate-limit registration exempts loopback socket peers. Route limiters
+    // built with fastify.rateLimit() inherit global params, so this checks the realtime
+    // start limiter still applies to a connection the global allowList would exempt —
+    // the normal shape when auth sits behind a same-host proxy or tunnel daemon.
+    it("applies the post-auth start limiter to loopback peers the global allowList exempts", async () => {
+      const localRealtimeService = new FakeRealtimeService();
+      const localCtx = await createTestApp({
+        realtimeService: localRealtimeService,
+        configOverrides: {
+          REALTIME_TRANSCRIPTION_ENABLED: true,
+          SONIOX_API_KEY: "test-soniox-key",
+          REALTIME_UPGRADE_MAX_PER_MINUTE: 1_000,
+        },
+      });
+      const user = await localCtx.createUser();
+      const statuses: (number | "upgraded")[] = [];
+
+      try {
+        const baseUrl = await localCtx.app.listen({ port: 0, host: "127.0.0.1" });
+
+        // Guard the premise: a globally limited route over this same loopback
+        // connection is exempted, so the allowList really does match here.
+        const exempted = await fetch(`${baseUrl}/terms`);
+        await exempted.text();
+        assert.equal(exempted.status, 200);
+        assert.equal(exempted.headers.get("x-ratelimit-limit"), null);
+
+        for (let attempt = 0; attempt < 13; attempt += 1) {
+          statuses.push(await attemptLoopbackUpgrade(baseUrl, user.accessToken));
+        }
+
+        assert.deepEqual(statuses, [
+          "upgraded",
+          "upgraded",
+          "upgraded",
+          "upgraded",
+          "upgraded",
+          "upgraded",
+          "upgraded",
+          "upgraded",
+          "upgraded",
+          "upgraded",
+          "upgraded",
+          "upgraded",
+          429,
+        ]);
       } finally {
         await localCtx.cleanup();
       }
@@ -1029,6 +1280,46 @@ function noMessageWithin(socket: WebSocket, timeoutMs: number): Promise<boolean>
       resolve(false);
     };
     socket.once("message", onMessage);
+  });
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const UPGRADE_REJECTION_STATUS = /Unexpected server response: (\d+)/;
+
+async function attemptUpgrade(app: FastifyInstance, headers: Record<string, string>): Promise<number | "upgraded"> {
+  try {
+    const socket = await app.injectWS("/voice/realtime", { headers });
+    socket.terminate();
+    return "upgraded";
+  } catch (error) {
+    const status = error instanceof Error ? UPGRADE_REJECTION_STATUS.exec(error.message) : null;
+    if (status === null) {
+      throw error;
+    }
+
+    return Number(status[1]);
+  }
+}
+
+function attemptLoopbackUpgrade(baseUrl: string, accessToken: string): Promise<number | "upgraded"> {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(`${baseUrl.replace(/^http/, "ws")}/voice/realtime`, {
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    socket.on("open", () => {
+      socket.terminate();
+      resolve("upgraded");
+    });
+    socket.on("unexpected-response", (request, response) => {
+      const statusCode = response.statusCode ?? 0;
+      response.resume();
+      request.destroy();
+      resolve(statusCode);
+    });
+    socket.on("error", reject);
   });
 }
 
