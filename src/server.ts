@@ -139,11 +139,21 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
     return { status: "ok" };
   });
 
-  // Public and unauthenticated, so it carries no reason to sit outside the
-  // global limiter: an exemption here is a free unauthenticated endpoint.
-  app.get<{ Reply: { realtime: { enabled: boolean; protocolVersions: [1] } } }>("/voice/capabilities", async () => ({
-    realtime: { enabled: realtimeEnabled, protocolVersions: [1] },
-  }));
+  // Exempt from the global limiter deliberately. The handler returns a
+  // constant, so the exemption costs nothing, while the global limiter keys on
+  // client IP: an office, campus, or carrier NAT shares one key, and 100
+  // requests a minute across that whole population is reachable. Capability
+  // discovery runs before every recording attempt and decides whether voice
+  // works at all, so a 429 here does not degrade one caller, it silently drops
+  // every client behind that address onto the legacy path. Do not remove this
+  // on the reasoning that a public endpoint should not be exempt.
+  app.get<{ Reply: { realtime: { enabled: boolean; protocolVersions: [1] } } }>(
+    "/voice/capabilities",
+    { config: { rateLimit: false } },
+    async () => ({
+      realtime: { enabled: realtimeEnabled, protocolVersions: [1] },
+    }),
+  );
 
   await app.register(installRoutes, {
     installScriptService: services.installScriptService,

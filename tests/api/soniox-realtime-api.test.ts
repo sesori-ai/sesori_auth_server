@@ -5,7 +5,6 @@ import {
   parseSonioxRealtimeResult,
   toRealtimeFailureReason,
 } from "../../src/api/soniox-realtime-api.js";
-import { MAX_REALTIME_TRANSCRIPT_CHARACTERS } from "../../src/models/voice.js";
 import { isPublicEventValid } from "../../src/services/realtime-transcription-events.js";
 import {
   RealtimeProviderEventType,
@@ -94,78 +93,60 @@ describe("soniox realtime api boundary", () => {
     assert.equal(event.provisional.length, 20_000);
   });
 
-  it("bounds assembled transcript fields individually to the schema max instead of failing", () => {
-    const overConfirmed = parseSonioxRealtimeResult(
-      {
-        tokens: [
-          { text: "x".repeat(32_769), confidence: 1, is_final: true },
-          { text: "y", confidence: 1, is_final: false },
-        ],
-        final_audio_proc_ms: 1,
-        total_audio_proc_ms: 1,
-      },
-      { maxAudioDurationMs: 1_000 },
-    );
-
-    assert.equal(overConfirmed.type, "transcript");
-    assert.equal(overConfirmed.confirmedDelta.length, MAX_REALTIME_TRANSCRIPT_CHARACTERS);
-    assert.equal(overConfirmed.provisional, "y");
-
-    const overProvisional = parseSonioxRealtimeResult(
-      {
-        tokens: [
-          { text: "x", confidence: 1, is_final: true },
-          { text: "y".repeat(32_769), confidence: 1, is_final: false },
-        ],
-        final_audio_proc_ms: 1,
-        total_audio_proc_ms: 1,
-      },
-      { maxAudioDurationMs: 1_000 },
-    );
-
-    assert.equal(overProvisional.type, "transcript");
-    assert.equal(overProvisional.confirmedDelta, "x");
-    assert.equal(overProvisional.provisional.length, MAX_REALTIME_TRANSCRIPT_CHARACTERS);
-  });
-
-  /**
-   * CQ-8/PF-5 regression. The parser used to admit two full-width fields and a
-   * single multi-byte field of the same character length, both of which the
-   * public emitter then rejected on serialized size — and the session
-   * controller turned that rejection into an `internal_error` terminal. Every
-   * transcript this boundary produces must now be emittable.
-   */
-  for (const [name, tokens] of [
-    [
-      "two ASCII fields at the character cap",
+  it("rejects an assembled transcript the emitter could not carry, rather than trimming it", () => {
+    // A confirmedDelta is an append-only increment of finalized speech, so
+    // trimming it silently destroys words the user said while still billing the
+    // audio that produced them. A delta this large is also unreachable from
+    // legitimate audio inside the 900s session cap, so it indicates provider
+    // malfunction: MalformedOutput routes to internal_error with
+    // recordUsage:false, and the user is not charged for output we refused.
+    for (const tokens of [
       [
         { text: "x".repeat(32_768), confidence: 1, is_final: true },
         { text: "y".repeat(32_768), confidence: 1, is_final: false },
       ],
-    ],
-    [
-      "one two-byte-per-code-point field at the character cap",
-      [{ text: "д".repeat(32_768), confidence: 1, is_final: true }],
-    ],
-    [
-      "one field of characters JSON escapes to six bytes each",
+      [{ text: "\u0434".repeat(32_768), confidence: 1, is_final: true }],
       [{ text: "\u0001".repeat(32_768), confidence: 1, is_final: true }],
-    ],
+      [{ text: "\uD83D\uDE00".repeat(16_384), confidence: 1, is_final: true }],
+    ]) {
+      expectReason(
+        () =>
+          parseSonioxRealtimeResult(
+            { tokens, final_audio_proc_ms: 1, total_audio_proc_ms: 1 },
+            { maxAudioDurationMs: 1_000 },
+          ),
+        RealtimeTranscriptionFailureReason.MalformedOutput,
+      );
+    }
+  });
+
+  /**
+   * CQ-8/PF-5 regression. The parser used to admit a transcript the public
+   * emitter then rejected on serialized size, and the controller turned that
+   * rejection into an `internal_error` terminal. Whatever this boundary
+   * ADMITS must still be emittable — that invariant is what closed the band
+   * where the parser said valid and the emitter killed the session.
+   */
+  for (const [name, tokens] of [
     [
-      "one field of astral code points at the character cap",
-      [{ text: "😀".repeat(16_384), confidence: 1, is_final: true }],
+      "two ASCII fields just inside the budget",
+      [
+        { text: "x".repeat(16_000), confidence: 1, is_final: true },
+        { text: "y".repeat(16_000), confidence: 1, is_final: false },
+      ],
     ],
+    ["a two-byte-per-code-point field", [{ text: "\u0434".repeat(16_000), confidence: 1, is_final: true }]],
+    ["characters JSON escapes to six bytes each", [{ text: "\u0001".repeat(8_000), confidence: 1, is_final: true }]],
+    ["astral code points", [{ text: "\uD83D\uDE00".repeat(8_000), confidence: 1, is_final: true }]],
   ] as const) {
-    it(`keeps ${name} emittable rather than terminating the session`, () => {
+    it(`keeps ${name} admissible and emittable`, () => {
       const event = parseSonioxRealtimeResult(
         { tokens, final_audio_proc_ms: 1, total_audio_proc_ms: 1 },
         { maxAudioDurationMs: 1_000 },
       );
 
-      assert.equal(event.type, RealtimeProviderEventType.Transcript);
       assert.ok(event.type === RealtimeProviderEventType.Transcript);
       assert.ok(event.confirmedDelta.length > 0 || event.provisional.length > 0);
-      // Never a lone surrogate: bounding must cut on code-point boundaries.
       assert.equal(
         /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(event.confirmedDelta),
         false,
