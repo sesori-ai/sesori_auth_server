@@ -168,7 +168,13 @@ holding both sockets to the wall clock. Inbound audio is paced against elapsed
 session time plus a burst allowance rather than paused via socket watermarks;
 pacing keeps transport detail off the provider-neutral session contract and
 bounds what can ever be in flight. Do not replace it with the cumulative cap
-alone, which permits a whole session of audio to arrive at once.
+alone, which permits a whole session of audio to arrive at once. The cap is
+resolved *before* the pace check so pacing measures the prefix that would
+actually be forwarded; measuring the delivered payload instead turns the
+ordinary last frame of a session — which overruns the cap by design — into
+`invalid_audio` rather than a truncated send and a normal `session_limit`
+completion, and it buys nothing, because a prefix that outruns the budget is
+still refused.
 
 Route limits come from the injected immutable `RealtimeRoutePolicy`; service
 limits come from the injected immutable `RealtimeTranscriptionPolicy`. Every

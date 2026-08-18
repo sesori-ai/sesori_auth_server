@@ -84,20 +84,11 @@ export function sendRealtimeAudioFrame(args: {
     return { kind: "invalid" };
   }
 
-  // Checked before the cumulative cap so excess audio is refused rather than queued at the provider.
-  if (
-    exceedsRealtimePace({
-      byteLength: args.data.byteLength,
-      sampleRate: audio.sampleRate,
-      channels: audio.channels,
-      attemptedBytes: args.attemptedBytes,
-      elapsedMs: args.elapsedMs,
-      burstSeconds: args.paceBurstSeconds,
-    })
-  ) {
-    return { kind: "pace" };
-  }
-
+  // The cumulative cap is resolved first so pacing measures the bytes we would actually forward.
+  // Measuring the whole payload instead turned the legitimate last frame of a session — one that
+  // overruns the cumulative cap but whose accepted prefix is well inside the pace allowance — into
+  // a `pace` refusal, which the controller reports to the client as `invalid_audio` rather than
+  // truncating the frame and completing on `session_limit`/`quota_limit`.
   const alignedBytes = acceptedFrameBytes({
     byteLength: args.data.byteLength,
     sampleRate: audio.sampleRate,
@@ -107,6 +98,23 @@ export function sendRealtimeAudioFrame(args: {
   });
   if (alignedBytes <= 0) {
     return { kind: "limit" };
+  }
+
+  // Excess audio is still refused rather than sliced and queued at the provider: the prefix we
+  // would forward is itself measured against the pace budget, so a client running further ahead
+  // of real time than the burst allowance permits is rejected whether or not the cap truncated
+  // its frame. Only a frame whose accepted prefix is within budget survives this.
+  if (
+    exceedsRealtimePace({
+      byteLength: alignedBytes,
+      sampleRate: audio.sampleRate,
+      channels: audio.channels,
+      attemptedBytes: args.attemptedBytes,
+      elapsedMs: args.elapsedMs,
+      burstSeconds: args.paceBurstSeconds,
+    })
+  ) {
+    return { kind: "pace" };
   }
 
   try {

@@ -1,6 +1,7 @@
 import type { FastifyRequest } from "fastify";
 import type { RawData, WebSocket } from "ws";
 import type { RealtimeSessionCallbacks } from "../services/realtime-transcription-events.js";
+import { scheduleUnrefTimeout, type RealtimeTimeoutScheduler } from "../services/realtime-session-utils.js";
 import { RealtimeAdmissionError } from "../services/realtime-transcription-errors.js";
 import type { RealtimeTranscriptionService } from "../services/realtime-transcription-service.js";
 import { RealtimeClientMessageType, RealtimeProtocolErrorCode } from "../types/transcription.js";
@@ -34,6 +35,8 @@ export type SocketContext = {
   session: RealtimeRouteSession | null;
   terminalSent: boolean;
   startAbortController: AbortController | null;
+  /** First-frame deadline seam. Production arms a real unref'd timer; tests fire it deterministically. */
+  readonly scheduleStartTimeout?: RealtimeTimeoutScheduler;
 };
 
 type SocketMessageArgs = Readonly<{ context: SocketContext; data: RawData; isBinary: boolean }>;
@@ -46,7 +49,8 @@ export class RealtimeAuthenticatedUserMissing extends Error {
 }
 
 export function startRealtimeSocket(context: SocketContext): void {
-  const startTimer = setTimeout(() => {
+  const scheduleStartTimeout = context.scheduleStartTimeout ?? scheduleUnrefTimeout;
+  const cancelStartTimeout = scheduleStartTimeout(() => {
     if (context.state !== "awaiting_start") {
       return;
     }
@@ -57,13 +61,12 @@ export function startRealtimeSocket(context: SocketContext): void {
     sendTerminalError(context.socket, RealtimeProtocolErrorCode.StartTimeout, context.routePolicy);
     closeSocket(context.socket, CLOSE_CODE.unavailable);
   }, context.routePolicy.firstFrameTimeoutMs);
-  startTimer.unref();
 
   const disconnect = (): void => {
     abortStarting(context);
     context.state = "closed";
     context.terminalSent = true;
-    clearTimeout(startTimer);
+    cancelStartTimeout();
     if (context.session !== null) {
       void context.session.disconnect().catch(() => undefined);
     }
@@ -92,7 +95,7 @@ export function startRealtimeSocket(context: SocketContext): void {
     }
 
     if (context.state === "awaiting_start") {
-      clearTimeout(startTimer);
+      cancelStartTimeout();
       context.state = "starting";
     }
 

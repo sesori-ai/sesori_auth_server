@@ -37,8 +37,17 @@ export function exceedsRealtimePace(input: {
   readonly elapsedMs: number;
   readonly burstSeconds: number;
 }): boolean {
-  const allowedSeconds = Math.max(0, input.elapsedMs) / 1000 + input.burstSeconds;
-  return input.attemptedBytes + input.byteLength > Math.floor(allowedSeconds * bytesPerSecond(input));
+  // The allowance is computed in whole bytes rather than via an intermediate seconds value.
+  // `elapsedMs / 1000` is not exactly representable in binary floating point, so scaling that
+  // quotient by the byte rate landed a hair below the byte count the elapsed time is actually
+  // worth, and `Math.floor` then turned that hair into a whole byte: a frame that exactly fits
+  // the allowance was rejected as if it had overrun it. Multiplying first keeps every
+  // intermediate an exact integer at these magnitudes, and `burstSeconds` is a whole number of
+  // seconds by config, so its contribution is exact too.
+  const bytesPerSecondValue = bytesPerSecond(input);
+  const allowedBytes =
+    Math.floor((Math.max(0, input.elapsedMs) * bytesPerSecondValue) / 1000) + input.burstSeconds * bytesPerSecondValue;
+  return input.attemptedBytes + input.byteLength > allowedBytes;
 }
 
 export function billableSeconds(input: {

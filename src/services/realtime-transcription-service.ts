@@ -8,7 +8,7 @@ import type {
   RealtimeTranscriptionSession,
 } from "./realtime-transcription-contracts.js";
 import { RealtimeAdmissionError, toProviderErrorCode } from "./realtime-transcription-errors.js";
-import { withTimeout } from "./realtime-session-utils.js";
+import { withTimeout, type RealtimeTimeoutScheduler } from "./realtime-session-utils.js";
 import { RealtimeFinishedReason, RealtimeProtocolErrorCode } from "../types/transcription.js";
 import { safeErrorType } from "../lib/errors.js";
 
@@ -25,6 +25,7 @@ export class RealtimeTranscriptionService {
   readonly #sessionUserIds = new Map<RealtimeTranscriptionSession, string>();
   readonly #activePerUser = new Map<string, number>();
   readonly #now: () => number;
+  readonly #scheduleTimeout: RealtimeTimeoutScheduler | undefined;
   #disposed = false;
   #disposePromise: Promise<void> | null = null;
 
@@ -35,12 +36,15 @@ export class RealtimeTranscriptionService {
     readonly policy: RealtimeTranscriptionPolicy;
     /** Session clock seam. Production uses the default wall clock; tests drive pacing deterministically. */
     readonly now?: () => number;
+    /** Session deadline seam. Production arms real unref'd timers; tests fire them deterministically. */
+    readonly scheduleTimeout?: RealtimeTimeoutScheduler;
   }) {
     this.#realtimeClient = deps.realtimeClient;
     this.#glossaryService = deps.glossaryService;
     this.#dailyUsageRepo = deps.dailyUsageRepo;
     this.#policy = deps.policy;
     this.#now = deps.now ?? (() => Date.now());
+    this.#scheduleTimeout = deps.scheduleTimeout;
   }
 
   get activeSessionCount(): number {
@@ -66,6 +70,7 @@ export class RealtimeTranscriptionService {
       readyLimitReason: RealtimeFinishedReason.SessionLimit,
       remainingAtAdmission: 0,
       now: this.#now,
+      scheduleTimeout: this.#scheduleTimeout,
     });
     this.#starting.add(controller);
     this.#startingControllers.add(controller);

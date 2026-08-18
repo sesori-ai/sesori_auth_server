@@ -25,6 +25,7 @@ import {
   RealtimeProtocolVersion,
   RealtimeServerEventType,
 } from "../../src/types/transcription.js";
+import { RecordingTimeoutScheduler } from "../helpers/recording-timeout-scheduler.js";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
 
 type StartedSession = {
@@ -721,21 +722,32 @@ describe("voice realtime route", () => {
       assert.equal(localRealtimeService.starts.length, 0);
     });
 
-    it("closes an upgraded socket that never sends a start frame with start_timeout", async () => {
+    // The first-frame deadline is the only bound on an idle upgraded socket, so both halves of it
+    // are driven through the scheduler seam rather than a real timer: firing it explicitly pins
+    // the terminal it produces and the duration it was armed with, neither of which a sleep past
+    // a short timeout could observe.
+    it("closes an upgraded socket that never sends a start frame with start_timeout", () => {
       const localRealtimeService = new FakeRealtimeService();
       const socket = new FakeSocket();
+      const timeouts = new RecordingTimeoutScheduler();
       startRealtimeSocket({
         socket: socket.websocket,
         request: { user: { userId: "6a7603577dee429b4d11b17a" } } as never,
         realtimeService: localRealtimeService,
-        routePolicy: testRoutePolicy({ firstFrameTimeoutMs: 5 }),
+        routePolicy: testRoutePolicy({ firstFrameTimeoutMs: 5_000 }),
         state: "awaiting_start",
         session: null,
         terminalSent: false,
         startAbortController: null,
+        scheduleStartTimeout: timeouts.schedule,
       });
 
-      await delay(20);
+      assert.deepEqual(
+        timeouts.armed.map((timeout) => timeout.timeoutMs),
+        [5_000],
+      );
+
+      timeouts.armed[0]?.fire();
 
       assert.deepEqual(
         socket.sent.map((message) => JSON.parse(message)),
@@ -745,22 +757,31 @@ describe("voice realtime route", () => {
       assert.equal(localRealtimeService.starts.length, 0);
     });
 
-    it("does not fire the first-frame timeout once a start frame has arrived", async () => {
+    it("cancels the first-frame timeout once a start frame has arrived", async () => {
       const localRealtimeService = new FakeRealtimeService();
       const socket = new FakeSocket();
+      const timeouts = new RecordingTimeoutScheduler();
       startRealtimeSocket({
         socket: socket.websocket,
         request: { user: { userId: "6a7603577dee429b4d11b17a" } } as never,
         realtimeService: localRealtimeService,
-        routePolicy: testRoutePolicy({ firstFrameTimeoutMs: 5 }),
+        routePolicy: testRoutePolicy({ firstFrameTimeoutMs: 5_000 }),
         state: "awaiting_start",
         session: null,
         terminalSent: false,
         startAbortController: null,
+        scheduleStartTimeout: timeouts.schedule,
       });
 
       socket.emitText(Buffer.from(validStartFrame()));
-      await delay(20);
+      await nextTurn();
+
+      assert.equal(timeouts.armed[0]?.cancelCount, 1);
+
+      // Belt and braces: a deadline that somehow outlived its cancel must still find the socket
+      // past `awaiting_start` and leave the started session alone.
+      timeouts.armed[0]?.fire();
+      await nextTurn();
 
       assert.deepEqual(
         socket.sent.map((message) => JSON.parse(message)),

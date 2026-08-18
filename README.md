@@ -344,7 +344,12 @@ ready and rearmed on every accepted frame, so a session that goes silent ends
 with `audio_timeout` instead of pinning both sockets until the wall-clock cap.
 Inbound audio is additionally paced: accepted bytes must stay within
 `elapsed session seconds + REALTIME_AUDIO_PACE_BURST_SECONDS` of audio, and a
-client beyond that is terminated with `invalid_audio`. Live capture produces one
+client beyond that is terminated with `invalid_audio`. The frame that crosses
+the cumulative session cap is truncated to the bytes that still fit and the
+session completes on `session_limit`/`quota_limit`; pacing measures that
+accepted prefix, so a client's ordinary final frame is not refused as a protocol
+error for overshooting a limit the server was about to enforce anyway. Live
+capture produces one
 second of audio per elapsed second, so a client that buffers during a network
 stall stays within budget — the stall advances the elapsed clock by the same
 amount it buffered. Without pacing the cumulative session cap alone allows an
