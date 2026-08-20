@@ -49,11 +49,13 @@ analytics_key="$(openssl rand -base64 32)"
 fcm_json="$(printf '{"type":"service_account","project_id":"ci","private_key_id":"ci","private_key":"-----BEGIN PRIVATE KEY-----\\nfake\\n-----END PRIVATE KEY-----\\n","client_email":"ci@example.com","client_id":"1","auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token","auth_provider_x509_cert_url":"https://www.googleapis.com/oauth2/v1/certs","client_x509_cert_url":"https://www.googleapis.com/robot/v1/metadata/x509/ci","universe_domain":"googleapis.com"}' | base64 | tr -d '\n')"
 session_token="$(openssl rand -hex 32)"
 
-echo "::add-mask::$jwt_private_key" 2>/dev/null || true
-echo "::add-mask::$jwt_public_key" 2>/dev/null || true
-echo "::add-mask::$analytics_key" 2>/dev/null || true
-echo "::add-mask::$fcm_json" 2>/dev/null || true
-echo "::add-mask::$session_token" 2>/dev/null || true
+if [ "${GITHUB_ACTIONS:-false}" = "true" ]; then
+  echo "::add-mask::$jwt_private_key"
+  echo "::add-mask::$jwt_public_key"
+  echo "::add-mask::$analytics_key"
+  echo "::add-mask::$fcm_json"
+  echo "::add-mask::$session_token"
+fi
 
 docker run --rm -d --name "$mongo" --network "$network" mongo:7 >/dev/null
 docker run -d --name "$auth" --network "$network" -p 3001:3001 \
