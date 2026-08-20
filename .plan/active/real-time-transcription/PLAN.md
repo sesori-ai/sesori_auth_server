@@ -31,7 +31,7 @@ The same provider boundary also permits the existing file-upload endpoint to sel
 3. Successful release appends one final voice-origin span to the existing draft. Drag cancellation appends nothing. A mid-session failure appends only already-confirmed text and presents a retryable error.
 4. Older apps continue using `POST /voice/transcribe`. New apps choose realtime or async before capture from a Sesori capability response and fall back to async when an older server lacks that response.
 5. `POST /voice/transcribe` can use either configured async provider. Realtime initially has a Soniox adapter but no provider detail escapes its server-side interface.
-6. Audio, transcripts, provisional text, glossary words, JWTs, provider keys, raw project IDs, and raw user IDs are absent from persistence and logs. Soniox content uses the approved EU project and endpoints.
+6. Audio, transcripts, provisional text, glossary words, JWTs, provider keys, raw project IDs, and raw user IDs are absent from persistence and logs. Soniox content uses the approved US project and endpoints.
 7. Daily quota behavior remains explicitly best effort: precheck before provider work, bounded realtime duration, one post-use atomic increment, and measured/logged persistence failure. No receipt or reconciliation collection is added.
 8. The auth and apps verification suites, Docker build/smoke checks, protocol compatibility tests, and real-device manual checks pass.
 
@@ -47,7 +47,7 @@ The same provider boundary also permits the existing file-upload endpoint to sel
 - Interaction-local live transcript preview and final/confirmed-partial draft commit.
 - Staged server capability selection with the current async path retained.
 - Minimal feature-owned cancellation and shutdown behavior, including release of the two existing long-poll waiter stores before Fastify close.
-- EU Soniox configuration, legal disclosure, ordinary cleanup, an operator purge command, safe logs, and rollout gates.
+- US Soniox configuration, legal disclosure, ordinary cleanup, an operator purge command, safe logs, and rollout gates.
 
 ### Non-Goals
 
@@ -92,7 +92,7 @@ The same provider boundary also permits the existing file-upload endpoint to sel
 - Relay remains an encrypted forwarding boundary and must not receive readable voice data.
 - Soniox documents `stt-async-v5`, `stt-rt-v5`, final tokens sent once, replaceable non-final tokens, audio progress fields, a 10-session default realtime project cap, and a 300-minute provider session cap.
 - The current official Node SDK supports typed async and realtime APIs, abort signals, explicit regional endpoints, stable error classes, and normal lifecycle methods. Its realtime `sendAudio` method has no per-frame acknowledgement.
-- Soniox states realtime content is not retained, while the async API stores uploaded files/transcriptions until deletion. EU regional projects keep content processing and storage in the EU, but system metadata may be processed elsewhere.
+- Soniox states realtime content is not retained, while the async API stores uploaded files/transcriptions until deletion. The US regional project keeps content processing and storage in the US.
 
 ## 5. Architecture and Data Flow
 
@@ -125,7 +125,7 @@ The canonical cross-repository vector is project ID `project-123`, digest input 
 2. The route validates multipart metadata and normalizes omission to `null`.
 3. `VoiceService` prechecks daily usage and asks `GlossaryService` for the deterministic context subset for the exact key, or no terms for `null`.
 4. The deployment-selected `AsyncTranscriptionClient` transcribes through OpenAI or Soniox.
-5. The Soniox adapter uses explicit EU REST configuration, validates the result, and attempts immediate transcription/file deletion with a separate bounded cleanup signal.
+5. The Soniox adapter uses explicit US REST configuration, validates the result, and attempts immediate transcription/file deletion with a separate bounded cleanup signal.
 6. `VoiceService` performs one atomic usage increment. Increment failure is logged safely and does not discard a completed transcript.
 7. The existing response shape returns text and remaining daily seconds.
 
@@ -195,7 +195,7 @@ The canonical cross-repository vector is project ID `project-123`, digest input 
 
 ### Production order
 
-1. Complete Soniox DPA/subprocessor approval, provision a dedicated EU project/key, and publish updated legal disclosure.
+1. Complete Soniox DPA/subprocessor approval, provision a dedicated US project/key, and publish updated legal disclosure.
 2. Release the new app while realtime remains disabled; verify old-server capability fallback and the longer async request budget.
 3. Stop the single auth instance, rerun glossary dry-run, apply/verify the target index only if the collection remains valid, and deploy the new auth binary with async OpenAI and realtime disabled.
 4. Run the safe Soniox residual audit/purge command before sending production audio.
@@ -205,7 +205,8 @@ The canonical cross-repository vector is project ID `project-123`, digest input 
 ### Rollback
 
 - Disable realtime in auth; new apps select async on their next capability read.
-- Select OpenAI for async and restart. No automatic failover occurs inside a request.
+- The deployment operator owns configuration-first binary rollback. While the region-aware binary is still running, set `ASYNC_TRANSCRIPTION_PROVIDER=openai` and `SONIOX_REGION=eu`, restart, then verify `/health` and one authenticated OpenAI transcription. A binary predating US-region support rejects `SONIOX_REGION=us`, so it must never start with the US configuration still present.
+- After Soniox traffic is drained, run the residual audit against `SONIOX_REGION=us` with the region-aware binary and clear any residue under the normal purge rules. Only then may an older binary replace it.
 - Roll forward for any code defect after scoped glossary rows exist. Database rollback is allowed only under the existing empty-collection migration rule.
 - A provider outage returns bounded retryable errors; it does not route audio through relay or directly from the app to the provider.
 
@@ -217,7 +218,7 @@ The canonical cross-repository vector is project ID `project-123`, digest input 
 
 ### Manual verification
 
-- Real Soniox EU async and realtime smoke tests with safe logs inspected.
+- Real Soniox US async and realtime smoke tests with safe logs inspected.
 - iOS and Android PCM stream, provisional replacement, final commit, cancel, network loss, backgrounding, quota/session limit, and async fallback.
 - Old app/new server and new app/old server compatibility.
 - Ingress holds a session until the 15-minute application cap without an earlier infrastructure timeout.
@@ -230,7 +231,7 @@ The canonical cross-repository vector is project ID `project-123`, digest input 
 | Crash or MongoDB write failure undercounts usage; concurrent work can overshoot quota | Precheck, 15-minute cap, provider limits, one atomic increment, safe warning | Cost/usage divergence or abuse is observed |
 | Concurrent glossary requests can narrowly exceed a cap | Per-request limits, deterministic trimming, unique index | Real contention or storage growth is observed |
 | SDK `sendAudio` exposes no acknowledgement and may buffer during provider/network stalls | Recorder-paced audio, provider disconnect behavior, 15-minute cap, memory observation | Reproduced RSS growth or OOM |
-| Hard crash can leave Soniox async artifacts | Dedicated EU project, immediate ordinary cleanup, residual audit/operator purge | Residuals recur or approach provider limits |
+| Hard crash can leave Soniox async artifacts | Dedicated US project, immediate ordinary cleanup, residual audit/operator purge | Residuals recur or approach provider limits |
 | Equal project IDs on two bridges share glossary scope | User partition plus opaque project digest; no bridge-ID plumbing | Demonstrated cross-bridge glossary conflict |
 | Process restart loses realtime sessions and feature-owned in-memory state | Single-instance deployment and client retry/confirmed partial behavior | Horizontal scaling or restart-loss product harm |
 | No automatic provider failover | Explicit deploy-time rollback | Availability objective requires multi-provider continuity |

@@ -21,10 +21,17 @@ export enum AsyncTranscriptionProvider {
   Soniox = "soniox",
 }
 
+/** Soniox project regions supported by the server-owned endpoint allowlist. */
+export enum SonioxRegion {
+  Us = "us",
+  Eu = "eu",
+}
+
 /** Explicit regional REST endpoints. Resolved locally so SDK environment precedence can never redirect audio or credentials. */
 export const SONIOX_REST_URL_BY_REGION = {
-  eu: "https://api.eu.soniox.com",
-} as const satisfies Record<string, string>;
+  [SonioxRegion.Us]: "https://api.soniox.com",
+  [SonioxRegion.Eu]: "https://api.eu.soniox.com",
+} as const satisfies Record<SonioxRegion, string>;
 
 /**
  * The single glossary-prompt format. Shared so the budget reserved by

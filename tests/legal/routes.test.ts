@@ -112,6 +112,10 @@ describe("Legal routes", () => {
       for (const subProcessor of ["OpenAI", "Soniox", "Anthropic"]) {
         assert.ok(res.body.includes(subProcessor), `privacy policy must disclose ${subProcessor}`);
       }
+      assert.ok(res.body.includes("United States (US regional project)"));
+      assert.ok(
+        res.body.includes("audio is processed and temporarily stored in Soniox's United States regional project"),
+      );
     } finally {
       await ctx.cleanup();
     }

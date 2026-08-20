@@ -239,7 +239,7 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 | `RELAY_WEBHOOK_SECRET`         | Shared secret authenticating the relay on `/internal/*` endpoints.                                                                                                                          |
 | `ASYNC_TRANSCRIPTION_PROVIDER` | Async transcription provider: `openai` (default) or `soniox`. Selected once at startup; a failed request is never retried against the other provider. |
 | `SONIOX_API_KEY`               | Soniox API key. Required only when `ASYNC_TRANSCRIPTION_PROVIDER=soniox`; keep it in the encrypted env only. |
-| `SONIOX_REGION`                | Soniox data-residency region. Only `eu` is accepted. Default `eu`. |
+| `SONIOX_REGION`                | Soniox project region: `us` or `eu`. Must match the API key's project region. Default `us`. |
 | `SONIOX_ASYNC_MODEL`           | Soniox async model. Default `stt-async-v5`. |
 | `SONIOX_ASYNC_TIMEOUT_MS`      | Budget covering upload, processing, and transcript fetch. Default `100000` (range 1,000-110,000). |
 | `SONIOX_CLEANUP_TIMEOUT_MS`    | Independent budget for deleting provider-side audio. Default `10000` (range 1,000-30,000). |
@@ -420,10 +420,16 @@ provider fails, the request fails with a provider-neutral error. Switching
 providers is a configuration change plus a restart.
 
 OpenAI remains the default. **Do not select Soniox in production until the
-Soniox DPA is signed, the EU project is provisioned, the updated privacy policy
-is published, and the mobile app's request timeout exceeds the server budget.**
+Soniox DPA is signed, a regional project and key matching `SONIOX_REGION` are
+provisioned, the matching privacy disclosure is published, and the mobile app's
+request timeout exceeds the server budget.**
 Soniox async processing can take longer than the app's current 30-second
 timeout.
+
+Before rolling back to a binary that predates US-region support, first set
+`ASYNC_TRANSCRIPTION_PROVIDER=openai` and `SONIOX_REGION=eu`, then restart and
+verify OpenAI transcription on the current binary. The older binary rejects
+`SONIOX_REGION=us`; never start it before this configuration transition.
 
 Provider failures map to bounded errors, each carrying an additive `retryable`
 boolean that older apps may ignore:

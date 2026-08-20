@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AsyncTranscriptionProvider } from "./types/transcription.js";
+import { AsyncTranscriptionProvider, SonioxRegion } from "./types/transcription.js";
 import { clientIpSourceSchema, ClientIpSource, trustedIngressCidrsSchema } from "./types/client-ip.js";
 import { productAnalyticsPseudonymizationKeySchema } from "./types/product-analytics.js";
 
@@ -98,7 +98,7 @@ const baseConfigSchema = z.object({
 
   ASYNC_TRANSCRIPTION_PROVIDER: z.nativeEnum(AsyncTranscriptionProvider).default(AsyncTranscriptionProvider.OpenAI),
   SONIOX_API_KEY: z.string().min(1).optional(),
-  SONIOX_REGION: z.literal("eu").default("eu"),
+  SONIOX_REGION: z.nativeEnum(SonioxRegion).default(SonioxRegion.Us),
   SONIOX_ASYNC_MODEL: z.string().min(1).default("stt-async-v5"),
   SONIOX_ASYNC_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(110_000).default(100_000),
   SONIOX_CLEANUP_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(30_000).default(10_000),
@@ -136,14 +136,14 @@ const glossaryMigrationConfigSchema = z.object({
 
 const sonioxPurgeConfigSchema = z.object({
   SONIOX_API_KEY: z.string().min(1),
-  SONIOX_REGION: z.literal("eu").default("eu"),
+  SONIOX_REGION: z.nativeEnum(SonioxRegion).default(SonioxRegion.Us),
 });
 
 /**
  * Narrow config for the operator purge script: it reads only the Soniox
  * credentials it needs, never the full web configuration.
  */
-export function loadSonioxPurgeConfig(env: NodeJS.ProcessEnv): { apiKey: string; region: "eu" } {
+export function loadSonioxPurgeConfig(env: NodeJS.ProcessEnv): { apiKey: string; region: SonioxRegion } {
   const result = sonioxPurgeConfigSchema.safeParse(env);
   if (!result.success) {
     throw new Error("SonioxPurgeConfigError");

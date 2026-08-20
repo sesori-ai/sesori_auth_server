@@ -695,20 +695,20 @@ event.
 Non-production Soniox endpoint overrides exist only to test real SDK
 composition. Docker CI sets `NODE_ENV=test`, uses an internal no-egress network,
 and points the startup reconciler to a local list stub. Production validation
-rejects those overrides and derives only the EU REST/WebSocket endpoints from
-`SONIOX_REGION=eu`. The SDK-specific `SONIOX_BASE_DOMAIN` variable is forbidden
-and startup-rejected in every environment. The async client always receives the
-validated resolved REST URL as explicit SDK `base_url`, exactly
-`https://api.eu.soniox.com` in production, so SDK environment precedence cannot
-redirect the key or audio.
+rejects those overrides and derives REST/WebSocket endpoints from the closed
+`SONIOX_REGION` allowlist. The SDK-specific `SONIOX_BASE_DOMAIN` variable is
+forbidden and startup-rejected in every environment. The async client always
+receives the validated resolved REST URL as explicit SDK `base_url`, exactly
+`https://api.soniox.com` for official production, so SDK environment precedence
+cannot redirect the key or audio.
 
 ## Legal And Data Residency
 
-The chosen Soniox project is EU regional and must use both the EU project key
-and EU domains:
+The chosen Soniox project is US regional and must use both the US project key
+and US domains:
 
-- `https://api.eu.soniox.com`
-- `wss://stt-rt.eu.soniox.com/transcribe-websocket`
+- `https://api.soniox.com`
+- `wss://stt-rt.soniox.com/transcribe-websocket`
 
 Soniox documents that content remains in the selected region, while account,
 billing, usage, security, and other system metadata may be processed elsewhere.
