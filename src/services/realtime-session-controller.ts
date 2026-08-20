@@ -304,7 +304,11 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
     this.#abortController.abort();
     this.#state = "closed";
     if (decision.kind !== "complete") {
-      this.#provider?.cancel();
+      try {
+        this.#provider?.cancel();
+      } catch {
+        // Provider teardown is best-effort and must not suppress usage accounting or the wire terminal.
+      }
     }
 
     try {

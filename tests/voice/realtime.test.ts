@@ -193,7 +193,7 @@ class ShutdownProviderSession implements ProviderSession {
   async finish(): Promise<void> {}
 
   cancel(): void {
-    this.#closed.resolve(undefined);
+    throw new Error("provider cancel exploded");
   }
 
   close(): void {
@@ -1298,7 +1298,7 @@ describe("voice realtime route", () => {
     // preClose closes every client socket, and a session emits its terminal
     // frame only after an awaited usage write. Running the two concurrently
     // dropped the frame and left the client with a bare close.
-    it("delivers service_restarting and close 1013 to a live socket during shutdown", async () => {
+    it("delivers service_restarting and close 1013 when provider cancellation throws during shutdown", async () => {
       const provider = new ShutdownProviderClient();
       const realtimeService = new RealtimeTranscriptionService({
         realtimeClient: provider,
