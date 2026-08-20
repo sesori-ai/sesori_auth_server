@@ -9,14 +9,14 @@
 
 ## 1. Outcome
 
-The merged feature is verified against real EU Soniox, staging ingress, physical iOS/Android devices, old/new app-server combinations, migration rules, shutdown, privacy, and rollback before production enablement.
+The merged feature is verified against real US Soniox, staging ingress, physical iOS/Android devices, old/new app-server combinations, migration rules, shutdown, privacy, and rollback before production enablement.
 
 ## 2. Entry Criteria and Baseline
 
 - S01, S02, and S03 PRs are merged.
 - Their exact CI results and deployed build identifiers are known.
 - Auth is deployed first with async OpenAI and realtime disabled.
-- Soniox contractual approval and dedicated EU project/key are available without exposing secrets to plan/tracker evidence.
+- Soniox contractual approval and dedicated US project/key are available without exposing secrets to plan/tracker evidence.
 
 ## 3. Invariants and Non-Goals
 

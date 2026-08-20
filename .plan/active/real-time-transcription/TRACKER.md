@@ -53,9 +53,11 @@
 
 - Full-plan review is approved and the definition digest is recorded; implementation may begin from the pinned S01/W01 baseline.
 - Open auth PR #55 is explicitly superseded and must not be used as an implementation base.
-- Production enablement requires Soniox contractual approval, dedicated EU project configuration, and the glossary migration gate.
+- Production enablement requires Soniox contractual approval, dedicated US project configuration, and the glossary migration gate.
 
 ## Findings and Plan Deltas
+
+- 2026-08-20 — The official Soniox account and API key are US-regional. Async configuration now accepts a closed `us|eu` region and pins each to its exact allowlisted endpoint; official production explicitly selects `us`, while `eu` remains the compatibility default. Future realtime and rollout work must use the US project/endpoints and the updated US privacy disclosure rather than inferring EU from the completed S01 implementation record.
 
 - 2026-08-11 — S02/W01 drift input recorded while refreshing PR #64. `master` advanced five commits past the pinned S01/W02 baseline `1f1138b` (#57, #66, #65, #56, #63), so PR #64 was merged forward to `c2323b8`; the five conflicts (`src/config.ts`, `tests/config.test.ts`, `tests/helpers/setup.ts`, `AGENTS.md`, `README.md`) were additive and both sides were retained. Three of those commits land directly on seams S02-W01-P01 edits and must be reconciled in its drift assessment rather than assumed compatible. #66 added `src/lib/client-ip.ts` and `src/types/client-ip.ts` and keys rate limiting by Cloudflare-verified IP, while the step file specifies a pre-auth realtime upgrade limiter that is "deliberately independent of headers, peer IP, and forwarding trust" and requires tests proving spoofed forwarding headers cannot change either limit — the shipped client-IP helper and that independence claim need an explicit decision. #57 introduced per-route write rate limiting with compile-time constants, which is the pattern the planned post-auth 12/user/minute start limiter should follow. #65 changed `src/middleware/auth.ts` to require an explicit opt-in for the development auth bypass, and S02 reuses that middleware for WebSocket upgrade authentication. The S02/W01 pinned SHA is still unset because it must be the `master` SHA produced by merging PR #64, which does not exist yet.
 
