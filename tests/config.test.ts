@@ -68,21 +68,21 @@ describe("loadGlossaryMigrationConfig", () => {
 });
 
 describe("loadSonioxPurgeConfig", () => {
-  it("returns only the Soniox credentials the operator script needs", () => {
+  it("returns only the Soniox credentials the operator script needs and defaults to US", () => {
     assert.deepEqual(
       loadSonioxPurgeConfig({
         SONIOX_API_KEY: "test-soniox-key",
         MONGODB_URI: "mongodb://localhost:27017/oauth",
         JWT_PRIVATE_KEY: "must-not-cross-the-cli-boundary",
       }),
-      { apiKey: "test-soniox-key", region: "eu" },
+      { apiKey: "test-soniox-key", region: "us" },
     );
   });
 
-  it("accepts the US region", () => {
-    assert.deepEqual(loadSonioxPurgeConfig({ SONIOX_API_KEY: "test-soniox-key", SONIOX_REGION: "us" }), {
+  it("accepts the explicit EU region", () => {
+    assert.deepEqual(loadSonioxPurgeConfig({ SONIOX_API_KEY: "test-soniox-key", SONIOX_REGION: "eu" }), {
       apiKey: "test-soniox-key",
-      region: "us",
+      region: "eu",
     });
   });
 
@@ -145,20 +145,20 @@ describe("async transcription provider configuration", () => {
       SONIOX_API_KEY: "soniox-key",
     });
     assert.equal(provided.success, true);
-    assert.equal(provided.data?.SONIOX_REGION, "eu");
+    assert.equal(provided.data?.SONIOX_REGION, SonioxRegion.Us);
     assert.equal(provided.data?.SONIOX_ASYNC_MODEL, "stt-async-v5");
   });
 
-  it("accepts the US region for Soniox", () => {
+  it("accepts the explicit EU region for Soniox", () => {
     const result = configSchemaForTest.safeParse({
       ...base,
       ASYNC_TRANSCRIPTION_PROVIDER: "soniox",
       SONIOX_API_KEY: "soniox-key",
-      SONIOX_REGION: "us",
+      SONIOX_REGION: "eu",
     });
 
     assert.equal(result.success, true);
-    assert.equal(result.data?.SONIOX_REGION, SonioxRegion.Us);
+    assert.equal(result.data?.SONIOX_REGION, SonioxRegion.Eu);
   });
 
   it("rejects an unknown provider, an unsupported region, and out-of-range timeouts", () => {

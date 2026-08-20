@@ -239,7 +239,7 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 | `RELAY_WEBHOOK_SECRET`         | Shared secret authenticating the relay on `/internal/*` endpoints.                                                                                                                          |
 | `ASYNC_TRANSCRIPTION_PROVIDER` | Async transcription provider: `openai` (default) or `soniox`. Selected once at startup; a failed request is never retried against the other provider. |
 | `SONIOX_API_KEY`               | Soniox API key. Required only when `ASYNC_TRANSCRIPTION_PROVIDER=soniox`; keep it in the encrypted env only. |
-| `SONIOX_REGION`                | Soniox project region: `us` or `eu`. Must match the API key's project region. Default `eu`; official production uses `us`. |
+| `SONIOX_REGION`                | Soniox project region: `us` or `eu`. Must match the API key's project region. Default `us`. |
 | `SONIOX_ASYNC_MODEL`           | Soniox async model. Default `stt-async-v5`. |
 | `SONIOX_ASYNC_TIMEOUT_MS`      | Budget covering upload, processing, and transcript fetch. Default `100000` (range 1,000-110,000). |
 | `SONIOX_CLEANUP_TIMEOUT_MS`    | Independent budget for deleting provider-side audio. Default `10000` (range 1,000-30,000). |

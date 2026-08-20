@@ -1553,7 +1553,7 @@ instead of waiting on a coordinator that was never invoked.
 | `NODE_ENV`                                       | `production`   | Closed `development`/`test`/`production` enum used to forbid provider URL overrides in production.        |
 | `ASYNC_TRANSCRIPTION_PROVIDER`                   | `openai`       | Closed enum selecting the existing async route's provider.                                                |
 | `SONIOX_API_KEY`                                 | conditional    | Required when async selects Soniox, realtime is enabled, or cleanup must drain existing Soniox resources. |
-| `SONIOX_REGION`                                  | `eu`           | Closed `us`/`eu` enum; official production explicitly selects `us`.                                      |
+| `SONIOX_REGION`                                  | `us`           | Closed `us`/`eu` enum; official production also explicitly selects `us`.                                 |
 | `SONIOX_BASE_DOMAIN`                             | forbidden      | SDK-owned environment override; startup rejects its presence in every environment.                        |
 | `SONIOX_API_BASE_URL`                            | absent         | Non-production-only REST override for deterministic tests/Docker stub; production rejects it.             |
 | `SONIOX_WS_URL`                                  | absent         | Non-production-only WebSocket override for deterministic tests/Docker stub; production rejects it.        |

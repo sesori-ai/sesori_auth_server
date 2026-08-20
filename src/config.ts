@@ -98,7 +98,7 @@ const baseConfigSchema = z.object({
 
   ASYNC_TRANSCRIPTION_PROVIDER: z.nativeEnum(AsyncTranscriptionProvider).default(AsyncTranscriptionProvider.OpenAI),
   SONIOX_API_KEY: z.string().min(1).optional(),
-  SONIOX_REGION: z.nativeEnum(SonioxRegion).default(SonioxRegion.Eu),
+  SONIOX_REGION: z.nativeEnum(SonioxRegion).default(SonioxRegion.Us),
   SONIOX_ASYNC_MODEL: z.string().min(1).default("stt-async-v5"),
   SONIOX_ASYNC_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(110_000).default(100_000),
   SONIOX_CLEANUP_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(30_000).default(10_000),
@@ -136,7 +136,7 @@ const glossaryMigrationConfigSchema = z.object({
 
 const sonioxPurgeConfigSchema = z.object({
   SONIOX_API_KEY: z.string().min(1),
-  SONIOX_REGION: z.nativeEnum(SonioxRegion).default(SonioxRegion.Eu),
+  SONIOX_REGION: z.nativeEnum(SonioxRegion).default(SonioxRegion.Us),
 });
 
 /**
