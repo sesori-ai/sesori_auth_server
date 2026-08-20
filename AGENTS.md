@@ -19,7 +19,7 @@ src/
 │   ├── openai-client.ts      # OpenAI transcription client
 │   ├── realtime-transcription-client.ts       # Provider-neutral realtime client/session contracts
 │   ├── soniox-realtime-transcription-client.ts # Soniox realtime adapter (only consumer of raw SDK realtime values)
-│   └── soniox-realtime-sdk-factory.ts         # EU-pinned SDK options (region + base_url + realtime.ws_base_url)
+│   └── soniox-realtime-sdk-factory.ts         # Region-pinned SDK options (region + base_url + realtime.ws_base_url)
 ├── api/               # Typed adapters translating external SDK values/errors into local models
 │   └── soniox-realtime-api.ts # Mandatory realtime validation boundary (safeParse + toRealtimeFailureReason)
 ├── db/
@@ -73,7 +73,7 @@ src/
 | Product analytics preference/export/deletion | `src/types/product-analytics.ts`, `src/models/{documents,api,product-analytics-export}.ts`, `src/clients/bigquery-product-analytics-*.ts`, `src/api/product-analytics-*.ts`, `src/repositories/{user-repo,product-analytics-*}.ts`, `src/services/product-analytics-*.ts`, `src/routes/product-analytics.ts`, `src/scripts/{backfill-product-analytics-preference,export-product-analytics,suppress-product-analytics-export}.ts` | Required revisioned preference, isolated auth-private export, and separately permissioned privacy-target handoff; see README rollout and IAM boundaries |
 | Activation reminders       | `.plans/activation-reminders/` + `src/services/activation-reminder-service.ts` + `src/repositories/activation-state-repo.ts`            | Read `PLAN.md` and `CONSIDERATIONS.md` before continuing the staged implementation          |
 | Per-device settings        | `src/routes/settings/settings.ts` + `src/services/settings-service.ts` + `src/repositories/settings-configuration-repo.ts` + `src/models/settings.ts` | Settings keyed by `{userId, deviceId}`; toggle registry + server-resolved defaults live in `models/settings.ts` |
-| Async transcription providers | `src/types/transcription.ts` + `src/clients/{async-transcription-client,openai-client,soniox-transcription-client}.ts` + `src/api/soniox-transcription-api.ts` + `src/services/voice-service.ts` + `src/routes/voice.ts` + `src/scripts/purge-soniox-transcription.ts` | One provider chosen at startup, no fallback; OpenAI default, Soniox EU-pinned. See ASYNC TRANSCRIPTION below |
+| Async transcription providers | `src/types/transcription.ts` + `src/clients/{async-transcription-client,openai-client,soniox-transcription-client}.ts` + `src/api/soniox-transcription-api.ts` + `src/services/voice-service.ts` + `src/routes/voice.ts` + `src/scripts/purge-soniox-transcription.ts` | One provider chosen at startup, no fallback; OpenAI default, Soniox region-pinned. See ASYNC TRANSCRIPTION below |
 | Realtime transcription proxy | `.plan/active/real-time-transcription/` + `src/routes/voice-realtime.ts`, `src/routes/voice-realtime-support.ts`, `src/services/realtime-transcription-service.ts`, `src/services/realtime-session-controller.ts`, `src/clients/soniox-realtime-transcription-client.ts`, `src/api/soniox-realtime-api.ts`, `src/middleware/realtime-upgrade-rate-limit.ts`, `src/shutdown.ts`, `scripts/ci-auth-container-smoke.sh` | Disabled by default; provider-neutral protocol v1 over WebSocket. Read `TRACKER.md` for the staged checkpoint before continuing. See REALTIME TRANSCRIPTION below |
 | Push notification filtering | `src/models/notification.ts` + `src/services/notification-service.ts` | `NotificationCategory` is the wire contract; `NOTIFICATION_CATEGORY_SETTING_KEYS` maps each category to the toggle that silences it |
 | Ordered shutdown           | `src/shutdown.ts` + the `onClose` hook in `src/server.ts`                                                                                | Waiter release, drain ordering, and which failures are fatal; see SHUTDOWN below            |
@@ -126,7 +126,7 @@ Push notifications debounce through `BridgeStateTracker` (120s), keyed per bridg
 
 Four invariants in `SonioxTranscriptionClient` are load-bearing and easy to undo:
 
-1. **EU residency** is pinned with an explicit `base_url` in `src/index.ts`. `region` alone is insufficient — it resolves below `SONIOX_BASE_DOMAIN` and `SONIOX_API_BASE_URL`, so an env var could otherwise redirect audio and the API key.
+1. **Regional residency** is pinned with an explicit allowlisted `base_url` in `src/index.ts`. `SONIOX_REGION` must match the key's project (`us` for official production, or `eu`), and `region` alone is insufficient because it resolves below `SONIOX_BASE_DOMAIN` and `SONIOX_API_BASE_URL`; an environment variable could otherwise redirect audio and the API key.
 2. **Cancellation and timeout are decided from the signals we own**, never from an SDK error shape. `toFailureReason` deliberately maps abort shapes to `unavailable`, not `cancelled`. `toRealtimeFailureReason` in `src/api/soniox-realtime-api.ts` reproduces this exactly; both must move together.
 3. **Job identity is correlated.** `wait` and `getTranscript` address the job by the ID we created, and a record echoing a different ID is `malformed_output` — otherwise another job's transcript could be returned and billed.
 4. **Cleanup deletes the transcription before the file**, and skips the file entirely when a job delete fails or when a create attempt returned no usable ID. Leaving both for the purge command is the safe state; deleting the file alone strands a job against the provider's cap.
@@ -195,7 +195,7 @@ the service.
 The two async-Soniox invariants below apply verbatim to the realtime path, and
 both look like cleanups to a reader who does not know why they exist:
 
-1. **EU residency is pinned three times over.** `createSonioxRealtimeSdkOptions`
+1. **Regional residency is pinned three times over.** `createSonioxRealtimeSdkOptions`
    passes `region`, `base_url` *and* `realtime.ws_base_url`. The URL fields are
    not redundant: `region` only selects the base the SDK derives defaults from
    and loses to `SONIOX_BASE_DOMAIN`, while `base_url` and `realtime.ws_base_url`

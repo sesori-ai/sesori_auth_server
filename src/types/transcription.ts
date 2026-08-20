@@ -21,6 +21,12 @@ export enum AsyncTranscriptionProvider {
   Soniox = "soniox",
 }
 
+/** Soniox project regions supported by the server-owned endpoint allowlist. */
+export enum SonioxRegion {
+  Us = "us",
+  Eu = "eu",
+}
+
 export enum RealtimeProtocolVersion {
   V1 = 1,
 }
@@ -124,8 +130,9 @@ export class RealtimeTranscriptionFailure extends Error {
 
 /** Explicit regional REST endpoints. Resolved locally so SDK environment precedence can never redirect audio or credentials. */
 export const SONIOX_REST_URL_BY_REGION = {
-  eu: "https://api.eu.soniox.com",
-} as const satisfies Record<string, string>;
+  [SonioxRegion.Us]: "https://api.soniox.com",
+  [SonioxRegion.Eu]: "https://api.eu.soniox.com",
+} as const satisfies Record<SonioxRegion, string>;
 
 /**
  * Explicit regional realtime WebSocket endpoints, for the same reason as the
@@ -135,8 +142,9 @@ export const SONIOX_REST_URL_BY_REGION = {
  * environment variable stream audio and the API key to another host.
  */
 export const SONIOX_REALTIME_WS_URL_BY_REGION = {
-  eu: "wss://stt-rt.eu.soniox.com/transcribe-websocket",
-} as const satisfies Record<string, string>;
+  [SonioxRegion.Us]: "wss://stt-rt.soniox.com/transcribe-websocket",
+  [SonioxRegion.Eu]: "wss://stt-rt.eu.soniox.com/transcribe-websocket",
+} as const satisfies Record<SonioxRegion, string>;
 
 /**
  * The single glossary-prompt format. Shared so the budget reserved by

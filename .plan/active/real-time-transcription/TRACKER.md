@@ -53,9 +53,11 @@
 
 - Full-plan review is approved and the definition digest is recorded; implementation may begin from the pinned S01/W01 baseline.
 - Open auth PR #55 is explicitly superseded and must not be used as an implementation base.
-- Production enablement requires Soniox contractual approval, dedicated EU project configuration, and the glossary migration gate.
+- Production enablement requires Soniox contractual approval, dedicated US project configuration, and the glossary migration gate.
 
 ## Findings and Plan Deltas
+
+- 2026-08-20 — The official Soniox account and API key are US-regional. Async configuration now accepts a closed `us|eu` region and pins each to its exact allowlisted endpoint; omitted configuration defaults to `us`, and official production also explicitly selects `us`. Future realtime and rollout work must use the US project/endpoints and the updated US privacy disclosure rather than inferring EU from the completed S01 implementation record.
 
 - 2026-08-13 — S02-W01-P01 candidate implemented after PR #64 merged as `2ed90a743f348102a2c023e4b1aae934886abe2d`. Review defects corrected in the candidate: no unbounded route message queue, finish waits for provider terminal callbacks, invalid binary frames map to `invalid_audio`, post-auth limiter has no IP fallback after auth, route policy is injected from config, start timeout is cleared/guarded, waiter owners expose release/drain contracts, producers reject disposal timeouts, `src/shutdown.ts` owns the memoized ordered signal path, and CI delegates Docker smoke to `scripts/ci-auth-container-smoke.sh`. This is not a merge record; leave S02 unchecked until a PR is opened and merged.
 

@@ -1,6 +1,6 @@
 # Sesori Privacy Policy
 
-_Last updated: July 30, 2026_
+_Last updated: August 20, 2026_
 
 This Privacy Policy explains how **Digitalblock Labs LTD** ("**Sesori**," "**Company**," "we," "us," or "our") collects, uses, stores, shares, and otherwise processes personal data when you use Sesori's official apps and services. It applies only to the official Sesori services, including the Sesori mobile app, the official local bridge software, relay services, account and authentication services, push notification services, `sesori.com`, voice input and server-side transcription features, diagnostics, analytics, support channels, and related hosted features we provide (collectively, the "**Service**").
 
@@ -163,7 +163,7 @@ We use a limited number of service providers that may process personal data on o
 | DigitalOcean, LLC                      | Hosting, infrastructure, and databases                                                                                                    | European Union (Sesori-controlled servers are currently EU-hosted); provider headquartered in the United States |
 | Cloudflare, Inc.                       | Reverse proxy, DNS, and security edge services                                                                                            | Global edge network; provider headquartered in the United States                                                |
 | OpenAI, L.L.C.                         | Voice transcription and short text feature processing (e.g., session title naming)                                                        | United States                                                                                                   |
-| Soniox, Inc.                           | Voice transcription                                                                                                                       | European Union (EU regional project); limited system and usage metadata may be processed outside the EU         |
+| Soniox, Inc.                           | Voice transcription                                                                                                                       | United States (US regional project)                                                                              |
 | Anthropic, PBC                         | Short text feature processing (e.g., session title naming)                                                                                | United States                                                                                                   |
 | Google LLC (Firebase and Google Cloud) | Push notifications via Firebase Cloud Messaging, app analytics, restricted analytics storage and processing via BigQuery, and Crashlytics | United States and Google global infrastructure                                                                  |
 | Functional Software, Inc. (Sentry)     | Error monitoring and crash diagnostics                                                                                                    | United States                                                                                                   |
@@ -236,7 +236,7 @@ Sesori will **not** use your content, including voice recordings and transcripts
 
 We use third-party AI sub-processors (currently OpenAI, Soniox, and Anthropic) for voice transcription and short text feature processing. Our agreements with these sub-processors prohibit them from using your inputs or outputs processed on our behalf to train their general-purpose or foundation models. We rely on the API and enterprise data processing terms offered by these providers, which include no-training commitments for data submitted through their APIs.
 
-Voice transcription is served by one configured provider at a time. When Soniox is configured, audio is processed in Soniox's European Union regional project. Audio submitted for file-based transcription is stored by the provider only for as long as the transcription job requires and is deleted immediately after the transcript is returned; in rare cases such as an unexpected server restart, residual audio may persist briefly until an operator cleanup removes it. If live transcription is enabled later, live transcription audio will be processed in transit and not retained by the provider. Sesori does not store your audio or transcripts.
+Voice transcription is served by one configured provider at a time. When Soniox is configured for the official Service, audio is processed and temporarily stored in Soniox's United States regional project. Audio submitted for file-based transcription is stored by the provider only for as long as the transcription job requires and is deleted immediately after the transcript is returned; in rare cases such as an unexpected server restart, residual audio may persist briefly until an operator cleanup removes it. If live transcription is enabled later, live transcription audio will be processed in transit and not retained by the provider. Sesori does not store your audio or transcripts.
 
 ## 13. Automated decision-making
 

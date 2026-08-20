@@ -1,10 +1,14 @@
 import { SonioxNodeClient } from "@soniox/node";
 import type { SonioxRealtimeSdk } from "./soniox-realtime-transcription-client.js";
-import { SONIOX_REALTIME_WS_URL_BY_REGION, SONIOX_REST_URL_BY_REGION } from "../types/transcription.js";
+import {
+  SONIOX_REALTIME_WS_URL_BY_REGION,
+  SONIOX_REST_URL_BY_REGION,
+  type SonioxRegion,
+} from "../types/transcription.js";
 
 type SonioxRealtimeClientOptions = {
   readonly api_key: string;
-  readonly region: "eu";
+  readonly region: SonioxRegion;
   readonly base_url: string;
   readonly realtime: {
     readonly ws_base_url: string;
@@ -16,7 +20,7 @@ type SonioxRealtimeConstructor = new (options: SonioxRealtimeClientOptions) => S
 const SonioxRealtimeNodeClient: SonioxRealtimeConstructor = SonioxNodeClient;
 
 /**
- * EU residency pinning. The three endpoint fields are NOT redundant, so do not
+ * Regional residency pinning. The three endpoint fields are NOT redundant, so do not
  * "simplify" this to `region` alone:
  *
  * - `region` only picks the base the SDK *derives* defaults from, and it loses
@@ -27,13 +31,13 @@ const SonioxRealtimeNodeClient: SonioxRealtimeConstructor = SonioxNodeClient;
  *   outranks `SONIOX_WS_URL`.
  *
  * Without the two explicit URLs an environment variable could redirect audio
- * and the API key off the approved EU project. `src/index.ts` carries the same
+ * and the API key away from the selected project. `src/index.ts` carries the same
  * warning for the async client, and `SONIOX_BASE_DOMAIN` is rejected outright
  * in `src/config.ts`.
  */
 export function createSonioxRealtimeSdkOptions(deps: {
   readonly apiKey: string;
-  readonly region: "eu";
+  readonly region: SonioxRegion;
 }): SonioxRealtimeClientOptions {
   return {
     api_key: deps.apiKey,

@@ -168,7 +168,7 @@ async function main() {
     // `base_url` is the SDK's highest-precedence endpoint source. `region` alone
     // is NOT sufficient: it resolves below both SONIOX_BASE_DOMAIN and
     // SONIOX_API_BASE_URL, so an environment variable could otherwise redirect
-    // audio and the API key off the approved EU project.
+    // audio and the API key away from the selected regional project.
     const sdk: SonioxAsyncSdk = new SonioxNodeClient({
       api_key: config.SONIOX_API_KEY,
       region: config.SONIOX_REGION,

@@ -81,7 +81,7 @@ function createClient(session: FakeRealtimeSession): SonioxRealtimeClient {
 }
 
 describe("SonioxRealtimeClient", () => {
-  it("configures the official realtime stt session with EU-safe server-owned settings", async () => {
+  it("configures the official realtime stt session with server-owned settings", async () => {
     const session = new FakeRealtimeSession(null, null);
     const events: unknown[] = [];
     const client = createClient(session);
