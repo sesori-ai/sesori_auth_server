@@ -71,7 +71,7 @@ describe("soniox realtime api boundary", () => {
         },
         { maxAudioDurationMs: 1_000 },
       ),
-      { type: "finished" },
+      { type: "transcript", confirmedDelta: "", provisional: "", finalAudioMs: 1, totalAudioMs: 1 },
     );
   });
 

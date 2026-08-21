@@ -93,10 +93,9 @@ export function parseSonioxRealtimeResult(value: unknown, options: SonioxRealtim
     fail(RealtimeTranscriptionFailureReason.MalformedOutput);
   }
 
-  if (result.data.finished === true) {
-    return { type: RealtimeProviderEventType.Finished };
-  }
-
+  // The SDK emits every result before its separate `finished` event, including
+  // results whose provider payload has `finished: true`. Preserve those tokens;
+  // the adapter's dedicated finished listener owns terminal signaling.
   const finalTextDelta = result.data.tokens
     .filter((token) => !isControlToken(token.text))
     .filter((token) => token.is_final)

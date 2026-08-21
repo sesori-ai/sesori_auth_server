@@ -162,6 +162,31 @@ describe("SonioxRealtimeClient", () => {
     await assert.rejects(realtimeSession.closed, RealtimeTranscriptionFailure);
   });
 
+  it("preserves final tokens before the SDK's dedicated finished event", async () => {
+    const session = new FakeRealtimeSession(null, null);
+    const events: unknown[] = [];
+    const realtimeSession = await createClient(session).connect({
+      audio: { encoding: RealtimeAudioEncoding.PcmS16Le, sampleRate: 16000, channels: 1 },
+      terms: [],
+      maxAudioDurationMs: 1_000,
+      onEvent: (event) => events.push(event),
+    });
+
+    session.emit("result", {
+      tokens: [{ text: "last words", confidence: 1, is_final: true }],
+      final_audio_proc_ms: 20,
+      total_audio_proc_ms: 20,
+      finished: true,
+    });
+    session.emit("finished");
+
+    assert.deepEqual(events, [
+      { type: "transcript", confirmedDelta: "last words", provisional: "", finalAudioMs: 20, totalAudioMs: 20 },
+      { type: "finished" },
+    ]);
+    await realtimeSession.closed;
+  });
+
   it("settles closed on explicit cancel and close without masking provider errors", async () => {
     const cancelled = new FakeRealtimeSession(null, null);
     const cancelledSession = await createClient(cancelled).connect({
