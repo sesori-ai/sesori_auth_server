@@ -6,6 +6,7 @@ import type { DeviceTokenRepository } from "../../src/repositories/device-token-
 import {
   AppClientPresenceInitialReadTimeout,
   AppClientPresenceService,
+  AppClientPresenceShuttingDown,
 } from "../../src/services/app-client-presence-service.js";
 
 type Deferred<T> = {
@@ -246,6 +247,68 @@ describe("AppClientPresenceService", () => {
       /recheck failed/,
     );
     assert.equal(getEventListeners(controller.signal, "abort").length, 0);
+  });
+
+  it("releaseWaiters resolves a wait whose read already confirmed absence as false", async () => {
+    const repo = new FakeDeviceTokenRepository();
+    repo.reads.push(false, false);
+    const service = createService(repo);
+    const controller = new AbortController();
+    const waiting = service.waitForRegistration({
+      userId: "user-release",
+      timeoutMs: 1_000,
+      abortSignal: controller.signal,
+    });
+    await waitFor(() => repo.readCount === 2);
+
+    service.releaseWaiters();
+
+    // Both reads returned false before the release, so `false` here is a
+    // confirmed absence rather than an unverified one.
+    assert.equal(await waiting, false);
+  });
+
+  it("refuses a wait that starts after release instead of reporting unconfirmed absence", async () => {
+    const repo = new FakeDeviceTokenRepository();
+    const service = createService(repo);
+    service.releaseWaiters();
+
+    await assert.rejects(
+      service.waitForRegistration({
+        userId: "user-post-release",
+        timeoutMs: 1_000,
+        abortSignal: new AbortController().signal,
+      }),
+      AppClientPresenceShuttingDown,
+    );
+    // Refusing must not be mistaken for a read: nothing was asked of the database.
+    assert.equal(repo.readCount, 0);
+  });
+
+  it("drainReleasedReads waits for reads registered during shutdown", async () => {
+    const repo = new FakeDeviceTokenRepository();
+    const initialRead = deferred<boolean>();
+    const concurrentRead = deferred<boolean>();
+    repo.reads.push(initialRead.promise, concurrentRead.promise);
+    const service = createService(repo);
+    const waiting = service.waitForRegistration({
+      userId: "user-drain",
+      timeoutMs: 1_000,
+      abortSignal: new AbortController().signal,
+    });
+    await waitFor(() => repo.readCount === 1);
+
+    service.releaseWaiters();
+    const directRead = service.hasRegisteredClient({ userId: "user-drain" });
+    const draining = service.drainReleasedReads().then(() => "drained");
+    await delay(0);
+    assert.equal(await Promise.race([draining, delayResult("pending", 5)]), "pending");
+
+    initialRead.resolve(false);
+    concurrentRead.resolve(true);
+    assert.equal(await directRead, true);
+    assert.equal(await draining, "drained");
+    assert.equal(await waiting, false);
   });
 });
 

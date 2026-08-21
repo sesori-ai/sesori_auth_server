@@ -9,6 +9,7 @@ import { OAuthClientType } from "../../src/models/api.js";
 import { PendingAuthStore } from "../../src/services/pending-auth-store.js";
 import { ClientIpSource } from "../../src/types/client-ip.js";
 import { OAuthProviderName, type OAuthExchangeParams, type OAuthIdentity } from "../../src/types/oauth.js";
+import { AsyncTranscriptionProvider } from "../../src/types/transcription.js";
 import { FakeOAuthClient } from "../helpers/fake-oauth-client.js";
 
 const VALID_SESSION_TOKEN = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -59,6 +60,7 @@ function createTestConfig(): Config {
     RELAY_WEBHOOK_SECRET: "test-relay-secret",
     CLIENT_IP_SOURCE: ClientIpSource.Socket,
     CLOUDFLARE_INGRESS_CIDRS: undefined,
+    AUTH_REQUIRE_DEVICE_ID_IN_TOKEN_REGISTRATION: false,
     PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY: Buffer.alloc(32, 7),
     ACTIVATION_REMINDERS_ENABLED: false,
     ACTIVATION_SWEEP_INTERVAL_MS: 900_000,
@@ -66,9 +68,25 @@ function createTestConfig(): Config {
     ACTIVATION_BRIDGE_REMINDER_2_DELAY_MS: 86_400_000,
     ACTIVATION_SESSION_REMINDER_DELAY_MS: 86_400_000,
     ACTIVATION_SWEEP_BATCH_LIMIT: 100,
+    ASYNC_TRANSCRIPTION_PROVIDER: AsyncTranscriptionProvider.OpenAI,
     OPENAI_API_KEY: "test-openai-api-key",
     OPENAI_TRANSCRIPTION_MODEL: "gpt-4o-mini-transcribe",
     OPENAI_METADATA_MODEL: "gpt-5-nano",
+    SONIOX_REGION: "eu",
+    SONIOX_ASYNC_MODEL: "stt-async-v5",
+    SONIOX_ASYNC_TIMEOUT_MS: 100_000,
+    SONIOX_CLEANUP_TIMEOUT_MS: 10_000,
+    SONIOX_REALTIME_MODEL: "stt-rt-v5",
+    SONIOX_BASE_DOMAIN: undefined,
+    REALTIME_TRANSCRIPTION_ENABLED: false,
+    REALTIME_CONNECT_TIMEOUT_MS: 10_000,
+    REALTIME_FINISH_TIMEOUT_MS: 10_000,
+    REALTIME_DISPOSE_TIMEOUT_MS: 15_000,
+    REALTIME_SESSION_MAX_SECONDS: 900,
+    REALTIME_FIRST_FRAME_TIMEOUT_MS: 5_000,
+    REALTIME_FIRST_AUDIO_TIMEOUT_MS: 5_000,
+    REALTIME_OUTBOUND_BUFFER_MAX_BYTES: 1_048_576,
+    REALTIME_UPGRADE_MAX_PER_MINUTE: 120,
     FCM_SA_JSON: {
       type: "service_account",
       project_id: "test-project",
@@ -130,7 +148,7 @@ function createTestServices(params: {
       registerToken: async () => {},
       hasRegisteredClient: async () => false,
       waitForRegistration: async () => false,
-    } as AppServices["appClientPresenceService"],
+    } as unknown as AppServices["appClientPresenceService"],
     settingsService: {} as AppServices["settingsService"],
     notificationService: {} as AppServices["notificationService"],
     activationService: {} as AppServices["activationService"],

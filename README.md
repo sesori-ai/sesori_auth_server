@@ -76,7 +76,16 @@ The newer flow keeps the client in control of when tokens are issued. The client
 | `POST` | `/auth/google/init`             | No   | (same shape as github)                                                                                       |
 | `GET`  | `/auth/google/callback`         | No   | (same)                                                                                                       |
 | `POST` | `/auth/google/callback/confirm` | No   | (same)                                                                                                       |
-| `GET`  | `/auth/session/status`          | No   | Long-poll status (requires `X-Sesori-Session-Token`) — returns pending / complete / denied / expired / error |
+| `GET`  | `/auth/session/status`          | No   | Long-poll status (requires `X-Sesori-Session-Token`) — returns pending / complete / denied / expired / error, or `503 service_restarting` during shutdown |
+
+`/auth/session/status` answers `503` with `{"status":"error","message":"service_restarting"}` once shutdown has released its
+waiters. It is a refusal, not a verdict: the pending session was neither
+confirmed nor denied, and the in-memory store is about to be discarded. Clients
+must treat it as retryable — reconnect to a healthy instance and resume polling
+with the same `X-Sesori-Session-Token` — and must not surface it as a denied or
+expired sign-in. Because the pending store is process-local, a session started
+on an instance that restarts cannot be recovered and the client should restart
+the flow if polling then reports `expired`.
 
 ### Tokens
 
@@ -213,6 +222,140 @@ A device whose app is never opened again does not self-heal, and the loss there 
 
 So the choice is between leaving a filtering gap open while it drains by attrition, and closing it immediately at the cost of silencing installs that are still reachable but no longer launched. Run the deletion only where recovering registrations can be observed, and prefer attrition when that recovery cannot be confirmed.
 
+### Realtime voice
+
+Realtime transcription is disabled by default during the staged rollout. Public
+`GET /voice/capabilities` is always available, requires no token, and carries no
+account or provider data:
+
+```json
+{"realtime":{"enabled":false,"protocolVersions":[1]}}
+```
+
+| Method | Path                   | Auth                        | Description                                                                                                       |
+| ------ | ---------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/voice/capabilities`  | No                          | Capability discovery. Always registered, exempt from the global rate limit. `enabled` mirrors `REALTIME_TRANSCRIPTION_ENABLED`; `protocolVersions` is always `[1]`. |
+| `GET`  | `/voice/realtime`      | Bearer (upgrade header)     | WebSocket upgrade for protocol v1 streaming. Only registered when `REALTIME_TRANSCRIPTION_ENABLED` is true; otherwise upgrades receive HTTP 404. |
+
+Clients connect with the standard `Authorization: Bearer <access-token>` upgrade
+header; tokens are never accepted in the URL or in frames. Authentication is
+fixed at upgrade time, and a live socket is not closed merely because its access
+token later expires. Every reconnect requires a fresh valid access token.
+
+Protocol v1 accepts one strict JSON `start` control as the first frame, then
+bounded PCM16 binary audio frames, followed by strict `finish` or `cancel`
+controls. Binary frames before `ready`, after finish, empty, odd-sized, or over
+65,536 bytes are rejected as protocol errors. `finish` asks the provider to
+finalize and keeps the socket open until a single `complete` or `error` terminal
+event closes it.
+
+#### Session length
+
+One session is capped at `min(REALTIME_SESSION_MAX_SECONDS, remaining daily
+quota)` seconds of accepted audio, not at a flat 900. Both halves matter:
+
+- The **configured ceiling** defaults to 900 seconds and is the maximum the
+  variable itself accepts, so 900 is the upper bound rather than the value.
+- The **remaining daily quota** is `DAILY_TRANSCRIPTION_LIMIT_SECONDS` minus
+  seconds already used today. When it is zero the session is refused at
+  admission with `quota_exhausted` **before** any provider connection is opened,
+  so an exhausted quota costs nothing at the provider.
+
+The effective cap is reported to the client as `maxSessionSeconds` on `ready`,
+and both `ready` and `complete` carry `dailySecondsRemaining`. `ready` reports
+the remaining quota observed at admission; `complete` reports it after this
+session's usage has been written. Reaching the cap ends the session with a
+`complete` whose `reason` says which limit bound it.
+
+#### Server events
+
+| Event        | Payload                                                                                     |
+| ------------ | --------------------------------------------------------------------------------------------- |
+| `ready`      | `{ type, protocolVersion: 1, maxSessionSeconds, dailySecondsRemaining }` — provider is connected and audio may start |
+| `transcript` | `{ type, confirmedDelta, provisional }` — at least one is non-empty; each at most 32,768 characters |
+| `complete`   | `{ type, reason, dailySecondsRemaining }` — terminal, closes with 1000                        |
+| `error`      | `{ type, code, retryable }` — terminal, close code per the table below                        |
+
+`complete.reason` is one of:
+
+| Reason          | Meaning                                                                                        |
+| --------------- | ------------------------------------------------------------------------------------------------ |
+| `finished`      | The client sent `finish` and the provider finalized normally                                    |
+| `session_limit` | The session reached `REALTIME_SESSION_MAX_SECONDS`, which was the binding limit at admission     |
+| `quota_limit`   | The session reached the remaining daily quota, which was the binding limit at admission          |
+
+#### Error codes
+
+Every `error` event carries a `retryable` boolean, enforced against this table by
+the response schema, so a client may trust the flag rather than switch on the
+code. The close code follows deterministically from the error code.
+
+| Code                   | Retryable | Close | Raised when                                                                                       |
+| ---------------------- | --------- | ----- | --------------------------------------------------------------------------------------------------- |
+| `invalid_message`      | no        | 1008  | A text frame is not a valid `start`/`finish`/`cancel`, exceeds the text frame cap, or arrives while `start` is still resolving |
+| `unsupported_protocol` | no        | 1008  | A `start` frame names a `protocolVersion` other than `1`                                            |
+| `invalid_audio`        | no        | 1008  | A binary frame arrives before `start` resolves, is empty, is odd-sized, exceeds 65,536 bytes, arrives after `finish`, or runs further ahead of real time than the pace budget allows |
+| `quota_exhausted`      | no        | 1008  | The daily quota is already spent at admission; no provider connection is attempted                  |
+| `provider_rejected`    | no        | 1011  | The provider rejected our credentials or configuration                                              |
+| `audio_timeout`        | yes       | 1011  | No accepted audio frame within `REALTIME_FIRST_AUDIO_TIMEOUT_MS` of `ready` or of the previous accepted frame |
+| `provider_timeout`     | yes       | 1011  | The provider exceeded `REALTIME_CONNECT_TIMEOUT_MS` or `REALTIME_FINISH_TIMEOUT_MS`                 |
+| `internal_error`       | yes       | 1011  | A server-side fault, including provider output that fails our validation boundary                   |
+| `start_timeout`        | yes       | 1013  | No `start` frame within `REALTIME_FIRST_FRAME_TIMEOUT_MS` of the upgrade                             |
+| `provider_capacity`    | yes       | 1013  | A concurrency ceiling was hit, or the provider reported capacity exhaustion                          |
+| `provider_unavailable` | yes       | 1013  | The provider connection failed or dropped for an unclassified reason                                 |
+| `slow_client`          | yes       | 1013  | Outbound buffering exceeded `REALTIME_OUTBOUND_BUFFER_MAX_BYTES`                                      |
+| `service_restarting`   | yes       | 1013  | The server is shutting down; see the shutdown section                                                |
+
+Close codes are `1008` (policy violation — the client sent something invalid or
+exceeded a quota), `1011` (internal error — the failure was ours or the
+provider's), and `1013` (try again later — transient, and the only group worth
+an automatic reconnect). A non-retryable code will fail the same way on
+reconnect; fix the request or wait for the quota to reset instead.
+
+A client implementing against this contract should switch on `retryable`, back
+off before reconnecting on `1013`, and treat any unknown future code as
+non-retryable.
+
+Realtime upgrade admission has two process-local limits: a pre-auth default of
+120 upgrades per minute for the process, and a fixed post-auth limit of 12
+starts per verified user per minute. Forwarding headers, `trustProxy`, and
+socket IP do not affect either realtime limiter; authentication and rate keys
+come only from the verified bearer token after the pre-auth gate. Realtime
+active sessions, first-frame/first-audio timers, and shutdown drains are also
+process-local. Keep auth single-instance while realtime is enabled unless these
+limits and session drains are moved to shared infrastructure.
+
+Rate limits bound how often a session may be *started*, not how many may be held
+at once, so admission also enforces concurrency ceilings
+(`REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER`, `REALTIME_MAX_CONCURRENT_SESSIONS`)
+before it reads the daily budget. Both are counted synchronously, including
+sessions still resolving `start`, and a session over either ceiling is refused
+with a retryable `provider_capacity`. The daily budget is read but never
+reserved, so concurrent sessions still each observe the same remaining seconds:
+a user can overshoot the daily limit by at most
+`REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER × REALTIME_SESSION_MAX_SECONDS`
+before the terminal usage writes land. That overshoot is bounded and accepted;
+closing it fully requires reserving budget at admission and reconciling at
+terminal, which changes daily-usage accounting and its crash semantics.
+
+Two per-session limits bound what one admitted session can hold. The audio
+deadline (`REALTIME_FIRST_AUDIO_TIMEOUT_MS`) is armed when the provider becomes
+ready and rearmed on every accepted frame, so a session that goes silent ends
+with `audio_timeout` instead of pinning both sockets until the wall-clock cap.
+Inbound audio is additionally paced: accepted bytes must stay within
+`elapsed session seconds + REALTIME_AUDIO_PACE_BURST_SECONDS` of audio, and a
+client beyond that is terminated with `invalid_audio`. The frame that crosses
+the cumulative session cap is truncated to the bytes that still fit and the
+session completes on `session_limit`/`quota_limit`; pacing measures that
+accepted prefix, so a client's ordinary final frame is not refused as a protocol
+error for overshooting a limit the server was about to enforce anyway. Live
+capture produces one
+second of audio per elapsed second, so a client that buffers during a network
+stall stays within budget — the stall advances the elapsed clock by the same
+amount it buffered. Without pacing the cumulative session cap alone allows an
+entire session of audio to be delivered as fast as the client uplink permits,
+which queues on this process's heap once the provider applies backpressure.
+
 ## Environment variables
 
 Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configuration.
@@ -238,11 +381,25 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 | `PENDING_AUTH_POLL_TIMEOUT_MS` | Max long-poll duration on `/auth/session/status`. Default `30000`.                                                                                                                          |
 | `RELAY_WEBHOOK_SECRET`         | Shared secret authenticating the relay on `/internal/*` endpoints.                                                                                                                          |
 | `ASYNC_TRANSCRIPTION_PROVIDER` | Async transcription provider: `openai` (default) or `soniox`. Selected once at startup; a failed request is never retried against the other provider. |
-| `SONIOX_API_KEY`               | Soniox API key. Required only when `ASYNC_TRANSCRIPTION_PROVIDER=soniox`; keep it in the encrypted env only. |
+| `SONIOX_API_KEY`               | Soniox API key. Required when `ASYNC_TRANSCRIPTION_PROVIDER=soniox` **or** when `REALTIME_TRANSCRIPTION_ENABLED` is true — realtime always runs on Soniox, so enabling it on the default OpenAI async provider still requires this key or startup fails. Keep it in the encrypted env only. |
 | `SONIOX_REGION`                | Soniox project region: `us` or `eu`. Must match the API key's project region. Default `us`. |
 | `SONIOX_ASYNC_MODEL`           | Soniox async model. Default `stt-async-v5`. |
 | `SONIOX_ASYNC_TIMEOUT_MS`      | Budget covering upload, processing, and transcript fetch. Default `100000` (range 1,000-110,000). |
 | `SONIOX_CLEANUP_TIMEOUT_MS`    | Independent budget for deleting provider-side audio. Default `10000` (range 1,000-30,000). |
+| `SONIOX_REALTIME_MODEL`        | Soniox realtime model. Default `stt-rt-v5`. |
+| `SONIOX_BASE_DOMAIN`           | **Not a setting.** Declared in the schema only so that setting it *fails startup* with `SONIOX_BASE_DOMAIN is forbidden`. The Soniox SDK reads this variable itself and it outranks `SONIOX_REGION` when deriving the default host of every Soniox service, so honouring it would silently move any endpoint we have not pinned. Leave it unset. See "Soniox endpoint pinning" below. |
+| `REALTIME_TRANSCRIPTION_ENABLED` | Enables the `/voice/realtime` WebSocket route. Default `false`; disabled deployments still expose protocol 1 capability discovery. Accepted values: `false`, `0`, `true`, `1`. Anything else — including an empty string, `TRUE`, or `yes` — fails startup rather than defaulting to off. Requires `SONIOX_API_KEY`. |
+| `REALTIME_CONNECT_TIMEOUT_MS`  | Soniox realtime connect timeout. Default `10000` (range 1,000-30,000). |
+| `REALTIME_FINISH_TIMEOUT_MS`   | Provider finalization timeout after client finish/session cap. Default `10000` (range 1,000-30,000). |
+| `REALTIME_DISPOSE_TIMEOUT_MS`  | Realtime service shutdown drain timeout. Default `15000` (range 1,000-20,000). |
+| `REALTIME_SESSION_MAX_SECONDS` | Maximum accepted audio duration per realtime session. Default `900` (range 1-900). |
+| `REALTIME_FIRST_FRAME_TIMEOUT_MS` | Deadline for the first WebSocket `start` frame. Default `5000` (range 1,000-15,000). |
+| `REALTIME_FIRST_AUDIO_TIMEOUT_MS` | Deadline for first audio after provider ready. Default `5000` (range 1,000-15,000). |
+| `REALTIME_OUTBOUND_BUFFER_MAX_BYTES` | Slow-client outbound buffer threshold. Default `1048576` (range 65,536-8,388,608). |
+| `REALTIME_UPGRADE_MAX_PER_MINUTE` | Process-wide pre-auth realtime upgrade allowance. Default `120` (range 12-1000). |
+| `REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER` | Concurrent realtime sessions one user may hold in this process, counting sessions still resolving `start`. Default `3` (range 1-50). Exceeding it is refused with `provider_capacity`. Must not exceed `REALTIME_MAX_CONCURRENT_SESSIONS`. |
+| `REALTIME_MAX_CONCURRENT_SESSIONS` | Concurrent realtime sessions this process will hold across all users. Default `200` (range 1-10,000). Each session holds a client socket, a provider socket, and timers. |
+| `REALTIME_AUDIO_PACE_BURST_SECONDS` | How many seconds of audio a client may deliver ahead of real time before the session is terminated with `invalid_audio`. Default `5` (range 1-60). |
 | `CLIENT_IP_SOURCE`             | Source used for per-client rate-limit keys. `socket` (default) ignores proxy headers; `cloudflare` uses `CF-Connecting-IP` only when syntactically valid.                                  |
 | `CLOUDFLARE_INGRESS_CIDRS`     | Optional comma-separated Cloudflare ingress CIDRs/IPs. In `cloudflare` mode, `CF-Connecting-IP` is honored only when the socket peer matches this list; otherwise the socket IP is used.       |
 | `AUTH_DEV_BYPASS_ENABLED`      | **Local development only — disables JWT verification on every authenticated route.** Default `false`. Accepted values: `false`, `0`, `true`, `1`. Startup fails unless `NODE_ENV=development`. See "Development auth bypass" below. |
@@ -319,6 +476,53 @@ predates this change, audit `NODE_ENV` in its environment before assuming it was
 unaffected.
 
 Activation reminder timers and single-flight state are process-local. Keep `ACTIVATION_REMINDERS_ENABLED=false` on every instance except the single designated sender; multiple enabled instances can duplicate notifications.
+
+## Graceful shutdown
+
+`SIGTERM` and `SIGINT` run one ordered shutdown: release long-poll waiters, tell
+realtime to stop admitting, drain in-flight background work, close the HTTP
+server, then close MongoDB. Callers that cannot be answered truthfully in that
+window are refused rather than guessed at — `/auth/session/status` and
+`/auth/app-clients/status?wait=true` return `503 service_restarting`, and live
+realtime sessions receive a `service_restarting` error frame and close 1013.
+
+**The deployment platform must allow at least 25 seconds of SIGTERM grace.** The
+process enforces its own 22-second hard deadline (`SHUTDOWN_HARD_DEADLINE_MS` in
+`src/shutdown.ts`), which is the only mechanism that reports "could not stop
+cleanly" — it exits 1 when the ordered shutdown does not finish in time. A grace
+period shorter than 22 seconds makes that deadline unreachable: the platform
+SIGKILLs first, in-flight work is lost without a signal, and the container
+records an abnormal termination instead. `scripts/ci-auth-container-smoke.sh`
+stops the container with `docker stop --time 25` and asserts the normal path
+finishes well inside it. Configure Kubernetes
+`terminationGracePeriodSeconds`, Cloud Run request timeouts, or the equivalent
+accordingly.
+
+**The tunable drains must sum to less than the fixed deadline.** The deadline is
+a constant; the drains that must fit inside it are not:
+
+| Drain                        | Budget                                        | Ordering                                        |
+| ---------------------------- | --------------------------------------------- | ----------------------------------------------- |
+| Realtime session disposal    | `REALTIME_DISPOSE_TIMEOUT_MS` (default 15s, max 20s) | Awaited to completion **before** the HTTP server closes |
+| Bridge notification debounce | 15s, fixed in code                            | Started early, awaited after the HTTP server closes |
+| Activation reminders         | 15s, fixed in code                            | Started early, awaited after the HTTP server closes |
+
+Realtime disposal is the only one on the critical path, because a session's
+terminal frame must be written before `@fastify/websocket` closes the client
+sockets. Raising `REALTIME_DISPOSE_TIMEOUT_MS` to its 20-second maximum leaves
+roughly 2 seconds for the remaining steps, so raise the platform grace period
+and revisit the hard deadline together if you need a longer realtime drain.
+
+**A drain that fails or times out is degraded, not fatal.** It is logged as
+`[Shutdown] disposal degraded` and shutdown continues to close MongoDB and exit
+`0`. This is deliberate: exiting 1 on a slow drain turned a routine SIGTERM that
+happened to land mid-sweep into a failed container termination, while the
+immediate exit killed the very in-flight work the still-open database connection
+was supposed to protect. Failures of the steps that own resources and ordering —
+closing the HTTP server, draining released reads, closing MongoDB — remain
+fatal, as does the hard deadline. Treat a nonzero exit on shutdown as a real
+fault to investigate; treat a `disposal degraded` log line on an otherwise clean
+exit as informational.
 
 ## Project-scoped glossary migration
 
@@ -477,6 +681,33 @@ nonzero and should be investigated before a rerun. Deletes are issued with
 bounded concurrency, and the file sweep is held back whenever any job delete or
 list item failed, so the command is safe to rerun and is idempotent once a sweep
 completes.
+
+### Soniox endpoint pinning
+
+Regional data residency is enforced with a closed server-owned endpoint
+allowlist; official production uses the US project. Both the async and realtime
+Soniox clients are constructed with explicit endpoints — `base_url`
+for REST and, for realtime, `realtime.ws_base_url` — because `SONIOX_REGION`
+alone is not sufficient. The SDK resolves each endpoint in this order, highest
+precedence first:
+
+1. The explicit option we pass (`base_url`, `realtime.ws_base_url`)
+2. The matching environment variable (`SONIOX_API_BASE_URL`, `SONIOX_WS_URL`)
+3. A host derived from `SONIOX_BASE_DOMAIN`, which **overrides the region**
+4. A host derived from `region`
+
+`SONIOX_API_BASE_URL` and `SONIOX_WS_URL` are therefore harmless in our
+deployments: each targets one endpoint, and our explicit option outranks it.
+They are deliberately left alone rather than rejected.
+
+`SONIOX_BASE_DOMAIN` is different. It rewrites the base that *every* default
+Soniox service host is derived from, so it moves any endpoint that is not pinned
+explicitly. Rather than depend on every present and future SDK call site
+remembering to pass a URL, the config schema **rejects it outright**: setting it
+fails startup with `SONIOX_BASE_DOMAIN is forbidden`. It appears in the schema
+only for that purpose — it is not a tunable, and deleting the declaration would
+silently re-open the hole. `tests/config.test.ts` covers the rejection and
+asserts the precedence claims against the real SDK.
 
 ## Activation backfill
 

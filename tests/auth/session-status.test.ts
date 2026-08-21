@@ -263,6 +263,24 @@ describe("GET /auth/session/status", () => {
     assert.equal(res.json<{ error: string }>().error, "not_found");
   });
 
+  it("terminates released pending polls promptly during shutdown", async () => {
+    createPendingSession({ sessionToken: VALID_SESSION_TOKEN });
+
+    const responsePromise = injectWithKeepAlive({
+      method: "GET",
+      url: "/auth/session/status",
+      headers: { "x-sesori-session-token": VALID_SESSION_TOKEN },
+    });
+
+    setTimeout(() => {
+      pendingAuthStore.releaseWaiters();
+    }, 5);
+
+    const res = await responsePromise;
+
+    assert.equal(res.statusCode, 503);
+  });
+
   it("lets concurrent completed pollers receive the same payload before ACK", async () => {
     const tokenHash = createPendingSession({ sessionToken: VALID_SESSION_TOKEN });
     pendingAuthStore.completeSession({ tokenHash, tokens: TEST_TOKENS, user: TEST_USER });

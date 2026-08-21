@@ -6,6 +6,8 @@ import { GithubClient } from "./clients/auth/github-client.js";
 import { GoogleClient } from "./clients/auth/google-client.js";
 import { OpenAIClient } from "./clients/openai-client.js";
 import { SonioxTranscriptionClient, type SonioxAsyncSdk } from "./clients/soniox-transcription-client.js";
+import { SonioxRealtimeClient } from "./clients/soniox-realtime-transcription-client.js";
+import { createSonioxRealtimeSdk, createSonioxRealtimeSdkOptions } from "./clients/soniox-realtime-sdk-factory.js";
 import type { AsyncTranscriptionClient } from "./clients/async-transcription-client.js";
 import { AsyncTranscriptionProvider, SONIOX_REST_URL_BY_REGION } from "./types/transcription.js";
 import { loadConfig } from "./config.js";
@@ -24,6 +26,8 @@ import { UserRepository } from "./repositories/user-repo.js";
 import { ActivationStateRepository } from "./repositories/activation-state-repo.js";
 import { SettingsConfigurationRepository } from "./repositories/settings-configuration-repo.js";
 import { buildApp } from "./server.js";
+import { MAX_REALTIME_EVENT_BYTES } from "./models/voice.js";
+import { MAX_BINARY_BYTES, MAX_TEXT_BYTES } from "./routes/voice-realtime-support.js";
 import { AuthService } from "./services/auth-service.js";
 import { ActivationReminderService } from "./services/activation-reminder-service.js";
 import { ActivationService } from "./services/activation-service.js";
@@ -37,9 +41,11 @@ import { SessionMetadataService } from "./services/session-metadata-service.js";
 import { TokenService } from "./services/token-service.js";
 import { GlossaryService } from "./services/glossary-service.js";
 import { VoiceService } from "./services/voice-service.js";
+import { RealtimeTranscriptionService } from "./services/realtime-transcription-service.js";
 import { AppClientPresenceService } from "./services/app-client-presence-service.js";
 import { ProductAnalyticsPreferenceService } from "./services/product-analytics-preference-service.js";
 import { SettingsService } from "./services/settings-service.js";
+import { createShutdownHandler } from "./shutdown.js";
 
 async function main() {
   const config = loadConfig();
@@ -186,6 +192,42 @@ async function main() {
     dailyLimitSeconds: config.DAILY_TRANSCRIPTION_LIMIT_SECONDS,
   });
 
+  const realtime = config.REALTIME_TRANSCRIPTION_ENABLED
+    ? {
+        realtimeService: new RealtimeTranscriptionService({
+          realtimeClient: new SonioxRealtimeClient({
+            sdk: createSonioxRealtimeSdk({
+              ...createSonioxRealtimeSdkOptions({
+                apiKey: requireSonioxApiKey(config.SONIOX_API_KEY),
+                region: config.SONIOX_REGION,
+              }),
+            }),
+            model: config.SONIOX_REALTIME_MODEL,
+            connectTimeoutMs: config.REALTIME_CONNECT_TIMEOUT_MS,
+          }),
+          glossaryService,
+          dailyUsageRepo,
+          policy: {
+            dailyLimitSeconds: config.DAILY_TRANSCRIPTION_LIMIT_SECONDS,
+            maxSessionSeconds: config.REALTIME_SESSION_MAX_SECONDS,
+            firstAudioTimeoutMs: config.REALTIME_FIRST_AUDIO_TIMEOUT_MS,
+            finishTimeoutMs: config.REALTIME_FINISH_TIMEOUT_MS,
+            disposeTimeoutMs: config.REALTIME_DISPOSE_TIMEOUT_MS,
+            maxConcurrentSessionsPerUser: config.REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER,
+            maxConcurrentSessions: config.REALTIME_MAX_CONCURRENT_SESSIONS,
+            audioPaceBurstSeconds: config.REALTIME_AUDIO_PACE_BURST_SECONDS,
+          },
+        }),
+        routePolicy: {
+          firstFrameTimeoutMs: config.REALTIME_FIRST_FRAME_TIMEOUT_MS,
+          maxTextFrameBytes: MAX_TEXT_BYTES,
+          maxAudioFrameBytes: MAX_BINARY_BYTES,
+          maxOutboundEventBytes: MAX_REALTIME_EVENT_BYTES,
+          outboundBufferMaxBytes: config.REALTIME_OUTBOUND_BUFFER_MAX_BYTES,
+        },
+      }
+    : undefined;
+
   const sessionMetadataService = new SessionMetadataService({
     openai,
     dailyUsageRepo,
@@ -220,26 +262,34 @@ async function main() {
     appleNativeVerifier,
     pendingAuthStore,
     productAnalyticsPreferenceService,
+    realtime,
   });
 
   const address = await app.listen({ port: config.PORT, host: "0.0.0.0" });
   console.log(`Server listening at ${address}`);
   activationReminderService.start();
 
-  const signals = ["SIGINT", "SIGTERM"] as const;
-  for (const signal of signals) {
-    process.on(signal, async () => {
-      console.log(`Received ${signal}, shutting down gracefully...`);
-      const reminderDisposal = activationReminderService.dispose();
-      bridgeStateTracker.dispose();
-      await Promise.all([app.close(), reminderDisposal]);
-      await dbConnector.close();
-      process.exit(0);
-    });
-  }
+  const shutdown = createShutdownHandler({
+    app,
+    mongo: dbConnector,
+    waiters: [pendingAuthStore, appClientPresenceService],
+    readDrainers: [appClientPresenceService],
+    producers: [bridgeStateTracker, activationReminderService],
+    realtimeService: realtime?.realtimeService ?? null,
+    exit: (code) => process.exit(code),
+  });
+  process.on("SIGINT", () => void shutdown("SIGINT"));
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
 }
 
 main().catch((error) => {
   console.error("Fatal error:", error);
   process.exit(1);
 });
+
+function requireSonioxApiKey(apiKey: string | undefined): string {
+  if (apiKey === undefined) {
+    throw new Error("RealtimeSonioxKeyMissing");
+  }
+  return apiKey;
+}

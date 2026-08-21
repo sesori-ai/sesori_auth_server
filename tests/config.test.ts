@@ -6,8 +6,14 @@ import {
   loadGlossaryMigrationConfig,
   loadSonioxPurgeConfig,
 } from "../src/config.js";
+import { createSonioxRealtimeSdkOptions } from "../src/clients/soniox-realtime-sdk-factory.js";
 import { ClientIpSource } from "../src/types/client-ip.js";
-import { SONIOX_REST_URL_BY_REGION, SonioxRegion } from "../src/types/transcription.js";
+import {
+  AsyncTranscriptionProvider,
+  SONIOX_REALTIME_WS_URL_BY_REGION,
+  SONIOX_REST_URL_BY_REGION,
+  SonioxRegion,
+} from "../src/types/transcription.js";
 
 const serviceAccount = {
   type: "service_account",
@@ -168,6 +174,133 @@ describe("async transcription provider configuration", () => {
     assert.equal(configSchemaForTest.safeParse({ ...base, SONIOX_ASYNC_TIMEOUT_MS: "120000" }).success, false);
     assert.equal(configSchemaForTest.safeParse({ ...base, SONIOX_CLEANUP_TIMEOUT_MS: "40000" }).success, false);
   });
+
+  it("ignores hostile realtime websocket endpoint environment in parsed config", () => {
+    const result = configSchemaForTest.safeParse({
+      ...base,
+      REALTIME_TRANSCRIPTION_ENABLED: "true",
+      SONIOX_API_KEY: "soniox-key",
+      SONIOX_WS_URL: "wss://attacker.example.com/transcribe",
+    });
+
+    assert.equal(result.success, true);
+    if (!result.success) {
+      throw new Error("expected config parse success");
+    }
+
+    assert.equal("SONIOX_WS_URL" in result.data, false);
+    const sonioxApiKey = result.data.SONIOX_API_KEY;
+    if (sonioxApiKey === undefined) {
+      throw new Error("expected Soniox API key in parsed config");
+    }
+
+    assert.deepEqual(
+      createSonioxRealtimeSdkOptions({
+        apiKey: sonioxApiKey,
+        region: result.data.SONIOX_REGION,
+      }).realtime,
+      { ws_base_url: SONIOX_REALTIME_WS_URL_BY_REGION[SonioxRegion.Us] },
+    );
+  });
+});
+
+describe("realtime transcription configuration", () => {
+  // The sibling `SONIOX_WS_URL` case above proves only that an unknown key is
+  // dropped from the parsed config. `SONIOX_BASE_DOMAIN` IS a schema key, so the
+  // refinement is the only thing rejecting it — and it is what stops the SDK
+  // deriving every unpinned endpoint from an attacker-supplied base.
+  it("rejects SONIOX_BASE_DOMAIN whatever its value", () => {
+    for (const value of ["attacker.example.com", "eu.soniox.com", ""]) {
+      const result = configSchema.safeParse(validEnv({ SONIOX_BASE_DOMAIN: value }));
+
+      assert.equal(result.success, false, `SONIOX_BASE_DOMAIN=${JSON.stringify(value)} must fail startup`);
+      assert.ok(result.error?.issues.some((issue) => issue.path.includes("SONIOX_BASE_DOMAIN")));
+    }
+  });
+
+  it("accepts the baseline environment only while SONIOX_BASE_DOMAIN is absent", () => {
+    const result = configSchema.safeParse(validEnv());
+
+    assert.equal(result.success, true);
+    assert.equal(result.data?.SONIOX_BASE_DOMAIN, undefined);
+  });
+
+  // Realtime always runs on Soniox regardless of the async provider, so the key
+  // is required even on the OpenAI default.
+  it("requires the Soniox key for realtime on the default OpenAI async provider", () => {
+    const missing = configSchema.safeParse(validEnv({ REALTIME_TRANSCRIPTION_ENABLED: "true" }));
+
+    assert.equal(missing.success, false);
+    assert.ok(missing.error?.issues.some((issue) => issue.path.includes("SONIOX_API_KEY")));
+
+    const provided = configSchema.safeParse(
+      validEnv({ REALTIME_TRANSCRIPTION_ENABLED: "true", SONIOX_API_KEY: "soniox-key" }),
+    );
+
+    assert.equal(provided.success, true);
+    assert.equal(provided.data?.ASYNC_TRANSCRIPTION_PROVIDER, AsyncTranscriptionProvider.OpenAI);
+    assert.equal(provided.data?.REALTIME_TRANSCRIPTION_ENABLED, true);
+  });
+
+  it("does not require the Soniox key while realtime is disabled", () => {
+    for (const value of ["false", "0"]) {
+      const result = configSchema.safeParse(validEnv({ REALTIME_TRANSCRIPTION_ENABLED: value }));
+
+      assert.equal(result.success, true, `REALTIME_TRANSCRIPTION_ENABLED=${JSON.stringify(value)} should parse`);
+      assert.equal(result.data?.REALTIME_TRANSCRIPTION_ENABLED, false);
+    }
+
+    assert.equal(configSchema.safeParse(validEnv()).data?.REALTIME_TRANSCRIPTION_ENABLED, false);
+  });
+
+  it("rejects realtime enable values that are not an exact boolean literal", () => {
+    for (const value of ["TRUE", "True", "yes", "", " true", "2", "on"]) {
+      const result = configSchema.safeParse(
+        validEnv({ REALTIME_TRANSCRIPTION_ENABLED: value, SONIOX_API_KEY: "soniox-key" }),
+      );
+
+      assert.equal(result.success, false, `REALTIME_TRANSCRIPTION_ENABLED=${JSON.stringify(value)} should be rejected`);
+      assert.ok(result.error?.issues.some((issue) => issue.path.includes("REALTIME_TRANSCRIPTION_ENABLED")));
+    }
+
+    assert.equal(
+      configSchema.safeParse(validEnv({ REALTIME_TRANSCRIPTION_ENABLED: "1", SONIOX_API_KEY: "soniox-key" })).data
+        ?.REALTIME_TRANSCRIPTION_ENABLED,
+      true,
+    );
+  });
+
+  // A per-user ceiling above the process-wide one is unreachable: admission
+  // checks the process ceiling first, so the per-user value would silently never
+  // bind and the operator would believe a limit is in force that is not.
+  it("refuses a per-user concurrency ceiling above the process-wide ceiling", () => {
+    const result = configSchema.safeParse(
+      validEnv({
+        REALTIME_TRANSCRIPTION_ENABLED: "true",
+        SONIOX_API_KEY: "soniox-key",
+        REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER: "4",
+        REALTIME_MAX_CONCURRENT_SESSIONS: "3",
+      }),
+    );
+
+    assert.equal(result.success, false);
+    assert.ok(result.error?.issues.some((issue) => issue.path.includes("REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER")));
+  });
+
+  it("accepts a per-user ceiling equal to or below the process-wide ceiling", () => {
+    const equal = configSchema.safeParse(
+      validEnv({ REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER: "3", REALTIME_MAX_CONCURRENT_SESSIONS: "3" }),
+    );
+
+    assert.equal(equal.success, true);
+    assert.equal(equal.data?.REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER, 3);
+    assert.equal(equal.data?.REALTIME_MAX_CONCURRENT_SESSIONS, 3);
+
+    const defaults = configSchema.safeParse(validEnv());
+
+    assert.equal(defaults.data?.REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER, 3);
+    assert.equal(defaults.data?.REALTIME_MAX_CONCURRENT_SESSIONS, 200);
+  });
 });
 
 describe("Soniox endpoint pinning", () => {
@@ -205,7 +338,52 @@ describe("Soniox endpoint pinning", () => {
       }
     }
   });
+
+  // The realtime half of the same invariant. `realtime.ws_base_url` is what
+  // stops SONIOX_WS_URL redirecting the audio stream, and SONIOX_BASE_DOMAIN
+  // would move BOTH derived defaults at once — which is why the config schema
+  // refuses it outright rather than relying on every call site pinning a URL.
+  it("pins the realtime websocket endpoint above SDK environment overrides", async () => {
+    const previous = {
+      wsUrl: process.env.SONIOX_WS_URL,
+      baseDomain: process.env.SONIOX_BASE_DOMAIN,
+    };
+    process.env.SONIOX_WS_URL = "wss://redirected.example.com/transcribe";
+    process.env.SONIOX_BASE_DOMAIN = "attacker.example.com";
+    try {
+      const { SonioxNodeClient } = await import("@soniox/node");
+      const readWsUrl = (client: unknown): unknown =>
+        (client as { realtime: { options: { ws_base_url?: unknown } } }).realtime.options.ws_base_url;
+      const readBaseUrl = (client: unknown): unknown =>
+        (client as { files: { http: { baseUrl?: unknown } } }).files.http.baseUrl;
+
+      for (const region of [SonioxRegion.Us, SonioxRegion.Eu]) {
+        const unpinned = new SonioxNodeClient({ api_key: "k", region });
+        const pinned = new SonioxNodeClient(createSonioxRealtimeSdkOptions({ apiKey: "k", region }));
+
+        assert.equal(readWsUrl(unpinned), "wss://redirected.example.com/transcribe");
+        assert.equal(readWsUrl(pinned), SONIOX_REALTIME_WS_URL_BY_REGION[region]);
+
+        // SONIOX_BASE_DOMAIN alone reaches the REST host too once no explicit
+        // base_url is passed, which is the surface the config refinement closes.
+        assert.equal(readBaseUrl(unpinned), "https://api.attacker.example.com");
+        assert.equal(readBaseUrl(pinned), SONIOX_REST_URL_BY_REGION[region]);
+      }
+    } finally {
+      restoreEnv("SONIOX_WS_URL", previous.wsUrl);
+      restoreEnv("SONIOX_BASE_DOMAIN", previous.baseDomain);
+    }
+  });
 });
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+
+  process.env[name] = value;
+}
 
 describe("configSchema", () => {
   it("accepts the baseline environment", () => {

@@ -12,6 +12,7 @@
  *   400 { error: "bad_request" }                                — missing/invalid session-token header
  *   404 { error: "not_found" }                                  — unknown OR already-consumed (deliberately conflated, see CQ-11)
  *   410 { status: "expired" }
+ *   503 { status: "error", message: "service_restarting" }
  *
  * ACK endpoint:
  *   POST /auth/session/status/ack                         — consumes a complete session after the client persists tokens
@@ -93,6 +94,8 @@ export const sessionStatusRoutes: FastifyPluginAsync<SessionStatusRouteOptions> 
         return reply.status(410).send(createExpiredReply());
       case PendingAuthStatus.Error:
         return createErrorReply({ message: nextSession.errorMessage ?? "authentication_failed" });
+      case PendingAuthStatus.Shutdown:
+        return reply.status(503).send(createErrorReply({ message: "service_restarting" }));
       case PendingAuthStatus.Consumed:
         // CQ-11: tokens were already ACKed by a prior poller. We deliberately
         // return the same 404 used for "unknown session" to avoid leaking

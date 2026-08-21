@@ -27,10 +27,123 @@ export enum SonioxRegion {
   Eu = "eu",
 }
 
+export enum RealtimeProtocolVersion {
+  V1 = 1,
+}
+
+export enum RealtimeAudioEncoding {
+  PcmS16Le = "pcm_s16le",
+}
+
+export enum RealtimeSampleRate {
+  Rate16000 = 16000,
+  Rate24000 = 24000,
+  Rate44100 = 44100,
+  Rate48000 = 48000,
+}
+
+export enum RealtimeChannelCount {
+  Mono = 1,
+}
+
+export enum RealtimeFinishedReason {
+  Finished = "finished",
+  SessionLimit = "session_limit",
+  QuotaLimit = "quota_limit",
+}
+
+export enum RealtimeProtocolErrorCode {
+  StartTimeout = "start_timeout",
+  InvalidMessage = "invalid_message",
+  UnsupportedProtocol = "unsupported_protocol",
+  InvalidAudio = "invalid_audio",
+  ProviderRejected = "provider_rejected",
+  AudioTimeout = "audio_timeout",
+  ProviderTimeout = "provider_timeout",
+  InternalError = "internal_error",
+  ProviderCapacity = "provider_capacity",
+  QuotaExhausted = "quota_exhausted",
+  ProviderUnavailable = "provider_unavailable",
+  SlowClient = "slow_client",
+  ServiceRestarting = "service_restarting",
+}
+
+export enum RealtimeClientMessageType {
+  Start = "start",
+  Finish = "finish",
+  Cancel = "cancel",
+}
+
+export enum RealtimeServerEventType {
+  Ready = "ready",
+  Transcript = "transcript",
+  Complete = "complete",
+  Error = "error",
+}
+
+export enum RealtimeProviderEventType {
+  Transcript = "transcript",
+  Finished = "finished",
+}
+
+export enum RealtimeTranscriptionFailureReason {
+  Capacity = "capacity",
+  Unavailable = "unavailable",
+  Timeout = "timeout",
+  Configuration = "configuration",
+  MalformedOutput = "malformed_output",
+  Cancelled = "cancelled",
+  Internal = "internal",
+}
+
+export type RealtimeAudioFormat = {
+  readonly encoding: RealtimeAudioEncoding;
+  readonly sampleRate: RealtimeSampleRate;
+  readonly channels: RealtimeChannelCount;
+};
+
+/**
+ * Provider-neutral realtime event, produced by an API boundary and consumed by
+ * the client and session layers. It lives here rather than beside the client
+ * interface so `src/api/` — which must not depend on `src/clients/` — can name
+ * the shape it returns, matching the async adapter's direction of dependency.
+ */
+export type RealtimeProviderEvent =
+  | {
+      readonly type: RealtimeProviderEventType.Transcript;
+      readonly confirmedDelta: string;
+      readonly provisional: string;
+      readonly finalAudioMs: number;
+      readonly totalAudioMs: number;
+    }
+  | { readonly type: RealtimeProviderEventType.Finished };
+
+export class RealtimeTranscriptionFailure extends Error {
+  readonly reason: RealtimeTranscriptionFailureReason;
+
+  constructor(reason: RealtimeTranscriptionFailureReason, options?: { cause?: unknown }) {
+    super(reason, options);
+    this.name = "RealtimeTranscriptionFailure";
+    this.reason = reason;
+  }
+}
+
 /** Explicit regional REST endpoints. Resolved locally so SDK environment precedence can never redirect audio or credentials. */
 export const SONIOX_REST_URL_BY_REGION = {
   [SonioxRegion.Us]: "https://api.soniox.com",
   [SonioxRegion.Eu]: "https://api.eu.soniox.com",
+} as const satisfies Record<SonioxRegion, string>;
+
+/**
+ * Explicit regional realtime WebSocket endpoints, for the same reason as the
+ * REST table above: passed as `realtime.ws_base_url`, they outrank the SDK's
+ * `SONIOX_WS_URL` environment fallback and the `SONIOX_BASE_DOMAIN`-derived
+ * default. Leaving the realtime endpoint to `region` alone would let an
+ * environment variable stream audio and the API key to another host.
+ */
+export const SONIOX_REALTIME_WS_URL_BY_REGION = {
+  [SonioxRegion.Us]: "wss://stt-rt.soniox.com/transcribe-websocket",
+  [SonioxRegion.Eu]: "wss://stt-rt.eu.soniox.com/transcribe-websocket",
 } as const satisfies Record<SonioxRegion, string>;
 
 /**
