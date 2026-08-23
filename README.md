@@ -556,7 +556,6 @@ view:
 - `PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY`
 - optional `PRODUCT_ANALYTICS_EXPORT_BATCH_LIMIT` (default 500, maximum 1000)
 - optional `PRODUCT_ANALYTICS_INTERNAL_EXCLUSION_MAX_KEYS` (default 10000, maximum 100000)
-- optional `PRODUCT_ANALYTICS_INTERNAL_EXCLUSION_MAX_AGE_MS` (default 48 hours)
 - `MONGODB_URI`
 
 Generate the pseudonymization key once with `openssl rand -base64 32`, store it
@@ -567,13 +566,14 @@ targets; a mismatched key breaks privacy joins.
 
 The control view must return `user_key`, `is_active`, and a common
 `control_updated_at`. It must include one row with a nullable `user_key` as a
-freshness sentinel even when there are no active exclusions. Missing, stale,
-malformed, duplicate, or oversized controls abort publication. The job stages
-only pseudonymous/aggregate rows in tables expiring within 24 hours, reconciles
-late preference changes, validates both products, and transactionally replaces
-`auth_user_milestones` and `auth_weekly_setup_cohorts`. Failed runs leave the
-previous publication intact. The same transaction appends aggregate source,
-exclusion, reconciliation, cutoff, and freshness metadata to
+version sentinel even when there are no active exclusions. Missing, future-dated,
+malformed, duplicate, mixed-version, or oversized controls abort publication.
+The job stages only pseudonymous/aggregate rows in tables expiring within 24
+hours, reconciles late preference changes, validates both products, and
+transactionally replaces `auth_user_milestones` and
+`auth_weekly_setup_cohorts`. Failed runs leave the previous publication intact.
+The same transaction appends aggregate source, exclusion, reconciliation,
+cutoff, and freshness metadata to
 `product_analytics_export_runs`; it contains no source account identifiers.
 
 The deployment identity—not the export job—must provision and own the permanent

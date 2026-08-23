@@ -41,7 +41,6 @@ export async function runProductAnalyticsExport(input: { env?: NodeJS.ProcessEnv
       controlRepo: new ProductAnalyticsControlRepository({
         api,
         maxUserKeys: config.PRODUCT_ANALYTICS_INTERNAL_EXCLUSION_MAX_KEYS,
-        maxAgeMs: config.PRODUCT_ANALYTICS_INTERNAL_EXCLUSION_MAX_AGE_MS,
       }),
       exportRepo: new ProductAnalyticsExportRepository({ api }),
       batchLimit: config.PRODUCT_ANALYTICS_EXPORT_BATCH_LIMIT,
