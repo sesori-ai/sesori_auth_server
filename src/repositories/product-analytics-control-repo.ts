@@ -15,20 +15,13 @@ type ProductAnalyticsControlApi = {
 export class ProductAnalyticsControlRepository {
   readonly #api: ProductAnalyticsControlApi;
   readonly #maxUserKeys: number;
-  readonly #maxAgeMs: number;
 
-  constructor(deps: { api: ProductAnalyticsControlApi; maxUserKeys: number; maxAgeMs: number }) {
-    if (
-      !Number.isSafeInteger(deps.maxUserKeys) ||
-      deps.maxUserKeys < 1 ||
-      !Number.isSafeInteger(deps.maxAgeMs) ||
-      deps.maxAgeMs < 1
-    ) {
+  constructor(deps: { api: ProductAnalyticsControlApi; maxUserKeys: number }) {
+    if (!Number.isSafeInteger(deps.maxUserKeys) || deps.maxUserKeys < 1) {
       throw new InternalServerError({ debugMessage: "Invalid product analytics control limits" });
     }
     this.#api = deps.api;
     this.#maxUserKeys = deps.maxUserKeys;
-    this.#maxAgeMs = deps.maxAgeMs;
   }
 
   async loadActiveInternalUserKeys(input: { loadedAt: Date }): Promise<ProductAnalyticsInternalExclusionSnapshot> {
@@ -52,7 +45,7 @@ export class ProductAnalyticsControlRepository {
     }
     const controlUpdatedAt = input.rows[0].controlUpdatedAt;
     const userKeys = input.rows.flatMap((row) => (row.userKey === null ? [] : [row.userKey]));
-    // The authorized view must always emit exactly one null-key freshness
+    // The authorized view must always emit exactly one null-key version
     // sentinel, including when there are no active internal exclusions.
     const sentinelCount = input.rows.filter((row) => row.userKey === null).length;
     if (
@@ -63,8 +56,7 @@ export class ProductAnalyticsControlRepository {
       new Set(userKeys).size !== userKeys.length ||
       Number.isNaN(controlUpdatedAt.getTime()) ||
       input.rows.some((row) => row.controlUpdatedAt.getTime() !== controlUpdatedAt.getTime()) ||
-      controlUpdatedAt > input.loadedAt ||
-      input.loadedAt.getTime() - controlUpdatedAt.getTime() > this.#maxAgeMs
+      controlUpdatedAt > input.loadedAt
     ) {
       throw new InternalServerError({ debugMessage: "Invalid product analytics internal-exclusion control" });
     }

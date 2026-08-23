@@ -5,10 +5,10 @@ import { ProductAnalyticsControlRepository } from "../../src/repositories/produc
 
 describe("ProductAnalyticsControlRepository", () => {
   const loadedAt = new Date("2026-07-28T12:00:00.000Z");
-  const controlUpdatedAt = new Date("2026-07-28T11:00:00.000Z");
+  const controlUpdatedAt = new Date("2026-01-01T11:00:00.000Z");
   const key = "a".repeat(64);
 
-  it("loads a bounded fresh key set with a nullable empty-set sentinel", async () => {
+  it("loads a bounded versioned key set with a nullable empty-set sentinel", async () => {
     let requestedMaxRows: number | null = null;
     const repo = new ProductAnalyticsControlRepository({
       api: {
@@ -21,7 +21,6 @@ describe("ProductAnalyticsControlRepository", () => {
         },
       },
       maxUserKeys: 10,
-      maxAgeMs: 2 * 60 * 60 * 1_000,
     });
 
     const snapshot = await repo.loadActiveInternalUserKeys({ loadedAt });
@@ -31,11 +30,11 @@ describe("ProductAnalyticsControlRepository", () => {
     assert.equal(requestedMaxRows, 12);
   });
 
-  it("fails closed for missing, stale, malformed, duplicate, or oversized controls", async () => {
+  it("fails closed for missing, future-dated, malformed, duplicate, or oversized controls", async () => {
     const invalidRows = [
       [],
       [{ userKey: null, controlUpdatedAt: new Date(Number.NaN) }],
-      [{ userKey: key, controlUpdatedAt: new Date("2026-07-28T09:00:00.000Z") }],
+      [{ userKey: null, controlUpdatedAt: new Date("2026-07-28T13:00:00.000Z") }],
       [{ userKey: "invalid", controlUpdatedAt }],
       [{ userKey: key, controlUpdatedAt }],
       [
@@ -62,7 +61,6 @@ describe("ProductAnalyticsControlRepository", () => {
           },
         },
         maxUserKeys: 1,
-        maxAgeMs: 2 * 60 * 60 * 1_000,
       });
       await assert.rejects(
         () => repo.loadActiveInternalUserKeys({ loadedAt }),

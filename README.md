@@ -556,7 +556,6 @@ view:
 - `PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY`
 - optional `PRODUCT_ANALYTICS_EXPORT_BATCH_LIMIT` (default 500, maximum 1000)
 - optional `PRODUCT_ANALYTICS_INTERNAL_EXCLUSION_MAX_KEYS` (default 10000, maximum 100000)
-- optional `PRODUCT_ANALYTICS_INTERNAL_EXCLUSION_MAX_AGE_MS` (default 48 hours)
 - `MONGODB_URI`
 
 Generate the pseudonymization key once with `openssl rand -base64 32`, store it
