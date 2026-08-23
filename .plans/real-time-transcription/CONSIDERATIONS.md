@@ -656,8 +656,9 @@ delay reaches T+125 before dispatch, the owned lease transitions to pending
 before body-buffer release; no unowned late write starts. PR11 reuses this
 lifecycle for realtime.
 
-The real-time route is additive but fail-closed: PR13 ships
-`REALTIME_TRANSCRIPTION_ENABLED=false`, so no route is registered until
+The real-time route is additive. Omitted enablement follows Soniox key presence:
+a configured key enables it, while no key leaves it disabled. Credentialed
+environments use explicit `REALTIME_TRANSCRIPTION_ENABLED=false` until
 operations finish ingress/legal/provider checks. Once enabled, the later mobile
 feature flag controls cohort use between async and real-time; it does not select
 Soniox versus another provider.

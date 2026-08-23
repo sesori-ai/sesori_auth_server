@@ -74,7 +74,7 @@ src/
 | Activation reminders       | `.plans/activation-reminders/` + `src/services/activation-reminder-service.ts` + `src/repositories/activation-state-repo.ts`            | Read `PLAN.md` and `CONSIDERATIONS.md` before continuing the staged implementation          |
 | Per-device settings        | `src/routes/settings/settings.ts` + `src/services/settings-service.ts` + `src/repositories/settings-configuration-repo.ts` + `src/models/settings.ts` | Settings keyed by `{userId, deviceId}`; toggle registry + server-resolved defaults live in `models/settings.ts` |
 | Async transcription providers | `src/types/transcription.ts` + `src/clients/{async-transcription-client,openai-client,soniox-transcription-client}.ts` + `src/api/soniox-transcription-api.ts` + `src/services/voice-service.ts` + `src/routes/voice.ts` + `src/scripts/purge-soniox-transcription.ts` | One provider chosen at startup, no fallback; OpenAI default, Soniox region-pinned. See ASYNC TRANSCRIPTION below |
-| Realtime transcription proxy | `.plan/active/real-time-transcription/` + `src/routes/voice-realtime.ts`, `src/routes/voice-realtime-support.ts`, `src/services/realtime-transcription-service.ts`, `src/services/realtime-session-controller.ts`, `src/clients/soniox-realtime-transcription-client.ts`, `src/api/soniox-realtime-api.ts`, `src/middleware/realtime-upgrade-rate-limit.ts`, `src/shutdown.ts`, `scripts/ci-auth-container-smoke.sh` | Disabled by default; provider-neutral protocol v1 over WebSocket. Read `TRACKER.md` for the staged checkpoint before continuing. See REALTIME TRANSCRIPTION below |
+| Realtime transcription proxy | `.plan/active/real-time-transcription/` + `src/routes/voice-realtime.ts`, `src/routes/voice-realtime-support.ts`, `src/services/realtime-transcription-service.ts`, `src/services/realtime-session-controller.ts`, `src/clients/soniox-realtime-transcription-client.ts`, `src/api/soniox-realtime-api.ts`, `src/middleware/realtime-upgrade-rate-limit.ts`, `src/shutdown.ts`, `scripts/ci-auth-container-smoke.sh` | Key-aware default: enabled when a Soniox key is configured unless explicitly disabled; provider-neutral protocol v1 over WebSocket. Read `TRACKER.md` for the staged checkpoint before continuing. See REALTIME TRANSCRIPTION below |
 | Push notification filtering | `src/models/notification.ts` + `src/services/notification-service.ts` | `NotificationCategory` is the wire contract; `NOTIFICATION_CATEGORY_SETTING_KEYS` maps each category to the toggle that silences it |
 | Ordered shutdown           | `src/shutdown.ts` + the `onClose` hook in `src/server.ts`                                                                                | Waiter release, drain ordering, and which failures are fatal; see SHUTDOWN below            |
 | Wire dependencies          | `src/index.ts`                                                                                                                          | Composition root — all instantiation happens here                                           |
@@ -138,11 +138,14 @@ Retryable failures carry `Retry-After`: a provider-stated cooldown when present 
 ## REALTIME TRANSCRIPTION
 
 `GET /voice/capabilities` is public and always reports protocol version `1`;
-`enabled` mirrors `REALTIME_TRANSCRIPTION_ENABLED`. With realtime disabled,
+`enabled` mirrors the resolved `REALTIME_TRANSCRIPTION_ENABLED`. With realtime disabled,
 `/voice/realtime` is not registered and upgrades return 404. With realtime
 enabled, the route uses the normal bearer auth middleware during upgrade and
 then keys the post-auth start limiter only from verified `request.user.userId`;
 forwarding headers must not influence either realtime limiter.
+When `REALTIME_TRANSCRIPTION_ENABLED` is omitted, validated config resolves it
+to true exactly when `SONIOX_API_KEY` is present. Explicit `false`/`0` remains
+the rollout opt-out; explicit `true`/`1` without a key fails startup.
 The pre-auth limiter is process-wide and defaults to 120 upgrades/minute; the
 post-auth limiter is fixed at 12 starts/minute per verified user. Both are
 process-local, as are active realtime sessions and route/service timers.

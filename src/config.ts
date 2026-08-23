@@ -111,7 +111,7 @@ const baseConfigSchema = z.object({
   REALTIME_TRANSCRIPTION_ENABLED: z
     .union([z.literal("true"), z.literal("false"), z.literal("1"), z.literal("0")])
     .optional()
-    .transform((v) => v === "true" || v === "1"),
+    .transform((v) => (v === undefined ? undefined : v === "true" || v === "1")),
   REALTIME_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(30_000).default(10_000),
   REALTIME_FINISH_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(30_000).default(10_000),
   REALTIME_DISPOSE_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(20_000).default(15_000),
@@ -128,7 +128,7 @@ const baseConfigSchema = z.object({
   DAILY_TRANSCRIPTION_LIMIT_SECONDS: z.coerce.number().default(3600),
 });
 
-export const configSchema = baseConfigSchema.superRefine((config, ctx) => {
+const validatedConfigSchema = baseConfigSchema.superRefine((config, ctx) => {
   if (config.AUTH_DEV_BYPASS_ENABLED && config.NODE_ENV !== "development") {
     ctx.addIssue({
       code: "custom",
@@ -156,9 +156,9 @@ export const configSchema = baseConfigSchema.superRefine((config, ctx) => {
     ctx.addIssue({ code: "custom", path: ["SONIOX_BASE_DOMAIN"], message: "SONIOX_BASE_DOMAIN is forbidden" });
   }
 
-  // Realtime needs the key regardless of which async provider is selected: the
-  // realtime proxy always runs on Soniox, so enabling it on the default OpenAI
-  // async provider still requires the credential.
+  // Explicit realtime enablement needs the key regardless of which async
+  // provider is selected. Omitted enablement is resolved from key presence by
+  // the transform below, so a deployment without Soniox credentials stays off.
   if (config.REALTIME_TRANSCRIPTION_ENABLED && !config.SONIOX_API_KEY) {
     ctx.addIssue({ code: "custom", path: ["SONIOX_API_KEY"], message: "SONIOX_API_KEY is required for realtime" });
   }
@@ -171,6 +171,11 @@ export const configSchema = baseConfigSchema.superRefine((config, ctx) => {
     });
   }
 });
+
+export const configSchema = validatedConfigSchema.transform((config) => ({
+  ...config,
+  REALTIME_TRANSCRIPTION_ENABLED: config.REALTIME_TRANSCRIPTION_ENABLED ?? config.SONIOX_API_KEY !== undefined,
+}));
 
 export type Config = z.infer<typeof configSchema>;
 

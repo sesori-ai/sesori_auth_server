@@ -242,15 +242,23 @@ describe("realtime transcription configuration", () => {
     assert.equal(provided.data?.REALTIME_TRANSCRIPTION_ENABLED, true);
   });
 
-  it("does not require the Soniox key while realtime is disabled", () => {
+  it("defaults realtime from Soniox key presence and preserves an explicit opt-out", () => {
+    const withoutKey = configSchema.safeParse(validEnv());
+    assert.equal(withoutKey.success, true);
+    assert.equal(withoutKey.data?.REALTIME_TRANSCRIPTION_ENABLED, false);
+
+    const withKey = configSchema.safeParse(validEnv({ SONIOX_API_KEY: "soniox-key" }));
+    assert.equal(withKey.success, true);
+    assert.equal(withKey.data?.REALTIME_TRANSCRIPTION_ENABLED, true);
+
     for (const value of ["false", "0"]) {
-      const result = configSchema.safeParse(validEnv({ REALTIME_TRANSCRIPTION_ENABLED: value }));
+      const result = configSchema.safeParse(
+        validEnv({ REALTIME_TRANSCRIPTION_ENABLED: value, SONIOX_API_KEY: "soniox-key" }),
+      );
 
       assert.equal(result.success, true, `REALTIME_TRANSCRIPTION_ENABLED=${JSON.stringify(value)} should parse`);
       assert.equal(result.data?.REALTIME_TRANSCRIPTION_ENABLED, false);
     }
-
-    assert.equal(configSchema.safeParse(validEnv()).data?.REALTIME_TRANSCRIPTION_ENABLED, false);
   });
 
   it("rejects realtime enable values that are not an exact boolean literal", () => {

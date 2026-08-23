@@ -11,7 +11,7 @@
 
 ## Goal and Cohesion
 
-Deliver one complete, provider-neutral, disabled-by-default realtime proxy from public WebSocket through Soniox and back, including quota, cancellation, safe failure mapping, capability discovery, and feature-owned shutdown. This single PR avoids intermediate dead code and is one independently deployable backend feature.
+Deliver one complete, provider-neutral, key-aware realtime proxy from public WebSocket through Soniox and back, including quota, cancellation, safe failure mapping, capability discovery, and feature-owned shutdown. Omitted enablement follows Soniox key presence, while explicit false keeps the complete feature off. This single PR avoids intermediate dead code and is one independently deployable backend feature.
 
 ## Dependencies
 
@@ -27,7 +27,7 @@ Deliver one complete, provider-neutral, disabled-by-default realtime proxy from 
 - Add `RealtimeTranscriptionService` with straight-line lifecycle, exact-project context, 15-minute/quota duration bounds, confirmed/provisional translation, and one best-effort usage increment.
 - Add minimal session-owned timers and an active-session set for shutdown.
 - Add a small memoized shutdown coordinator that releases existing parked long polls before Fastify close and disposes realtime sessions before MongoDB close.
-- Keep realtime disabled by default.
+- Default omitted realtime enablement from Soniox key presence while retaining an explicit disabled state.
 
 ## Non-Goals
 
@@ -85,7 +85,7 @@ Deliver one complete, provider-neutral, disabled-by-default realtime proxy from 
 
 ## Production and Test Composition
 
-- With realtime disabled, `src/index.ts` constructs no Soniox realtime SDK/client and passes `realtimeTranscriptionService: null` plus the capability/route policy to `src/server.ts`; server exposes the public capability response and does not register `/voice/realtime`.
+- With no Soniox key and omitted enablement, or with explicit disabled enablement, `src/index.ts` constructs no Soniox realtime SDK/client; server exposes the public capability response and does not register `/voice/realtime`.
 - With realtime enabled, `src/index.ts` constructs one process-wide `RealtimeUpgradeLimiter({maxAttemptsPerMinute, now})`, then the official US SDK factory -> `SonioxRealtimeTranscriptionClient` -> `RealtimeTranscriptionService`, translating validated config into `RealtimeServicePolicy` and `RealtimeRoutePolicy`. `RealtimeRoutePolicy` contains `firstFrameTimeoutMs`, `maxTextFrameBytes: 2048`, `maxAudioFrameBytes: 65536`, and `outboundBufferMaxBytes`. `src/server.ts` receives the limiter through typed `AppServices` and passes its pre-auth hook through typed `voice-realtime.ts` route options.
 - `tests/helpers/setup.ts` sets realtime disabled by default; adds `realtimeUpgradeLimiter`, `realtimeTranscriptionClient`, `realtimeTranscriptionService`, `realtimeServicePolicy`, and `realtimeEnabled` overrides; exposes the limiter/service when enabled; and registers test cleanup through `app.close()`. It awaits `bridgeStateTracker.dispose()` before database cleanup. Fake SDK factories are injected only into client unit tests, while route tests inject the provider-neutral fake service/client graph and limiter with a controlled clock.
 - The Fastify close hook and process shutdown coordinator both call the same memoized `RealtimeTranscriptionService.dispose()` promise, so test cleanup cannot double-dispose.
@@ -179,7 +179,7 @@ The frame is a strict object: unknown or omitted required fields fail. `projectK
 
 ## Configuration and Deployment
 
-- Add validated `REALTIME_TRANSCRIPTION_ENABLED=false`; `SONIOX_REALTIME_MODEL=stt-rt-v5`; `REALTIME_CONNECT_TIMEOUT_MS=10000` (1,000..30,000); `REALTIME_FINISH_TIMEOUT_MS=10000` (1,000..30,000); `REALTIME_DISPOSE_TIMEOUT_MS=15000` (1,000..20,000); `REALTIME_SESSION_MAX_SECONDS=900` (1..900); `REALTIME_FIRST_FRAME_TIMEOUT_MS=5000` (1,000..15,000); `REALTIME_FIRST_AUDIO_TIMEOUT_MS=5000` (1,000..15,000); `REALTIME_OUTBOUND_BUFFER_MAX_BYTES=1048576` (65,536..8,388,608); and `REALTIME_UPGRADE_MAX_PER_MINUTE=120` (12..1000). Realtime has one initial provider implementation, so do not add a one-value provider selector. The post-auth start limit is a fixed 12/user/minute safety policy.
+- Add validated `REALTIME_TRANSCRIPTION_ENABLED`: when omitted it resolves to enabled exactly when `SONIOX_API_KEY` is present; explicit false disables even with a key, and explicit true without a key fails. Add `SONIOX_REALTIME_MODEL=stt-rt-v5`; `REALTIME_CONNECT_TIMEOUT_MS=10000` (1,000..30,000); `REALTIME_FINISH_TIMEOUT_MS=10000` (1,000..30,000); `REALTIME_DISPOSE_TIMEOUT_MS=15000` (1,000..20,000); `REALTIME_SESSION_MAX_SECONDS=900` (1..900); `REALTIME_FIRST_FRAME_TIMEOUT_MS=5000` (1,000..15,000); `REALTIME_FIRST_AUDIO_TIMEOUT_MS=5000` (1,000..15,000); `REALTIME_OUTBOUND_BUFFER_MAX_BYTES=1048576` (65,536..8,388,608); and `REALTIME_UPGRADE_MAX_PER_MINUTE=120` (12..1000). Realtime has one initial provider implementation, so do not add a one-value provider selector. The post-auth start limit is a fixed 12/user/minute safety policy.
 - Extend config's conditional validation so `SONIOX_API_KEY` is required when either async Soniox is selected or realtime is enabled. Disabled realtime must not construct the SDK or require its key.
 - The explicit US Soniox WebSocket URL is constructed from validated configuration and passed to the SDK.
 - Preserve single-instance deployment and at least the existing 25-second stop grace.
@@ -237,7 +237,7 @@ docker rm -f rtt-mongo
 
 ## Acceptance Criteria
 
-- Realtime proxy works end to end with a fake provider and is absent/disabled by default.
+- Realtime proxy works end to end with a fake provider; omitted enablement follows key presence and explicit disabled remains absent/404.
 - Public protocol contains no provider-specific value.
 - Confirmed/provisional semantics and one terminal finalizer are deterministic without an exhaustive race table.
 - Shutdown releases observed long polls and owned sessions without broad tracking.

@@ -224,7 +224,11 @@ So the choice is between leaving a filtering gap open while it drains by attriti
 
 ### Realtime voice
 
-Realtime transcription is disabled by default during the staged rollout. Public
+Realtime transcription defaults to enabled when `SONIOX_API_KEY` is configured
+and `REALTIME_TRANSCRIPTION_ENABLED` is omitted. A deployment without the key
+defaults to disabled, and an explicit `false`/`0` disables the route even when a
+key is present. The current mobile app does not consume this endpoint, so its
+voice traffic remains on `POST /voice/transcribe`. Public
 `GET /voice/capabilities` is always available, requires no token, and carries no
 account or provider data:
 
@@ -388,7 +392,7 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 | `SONIOX_CLEANUP_TIMEOUT_MS`    | Independent budget for deleting provider-side audio. Default `10000` (range 1,000-30,000). |
 | `SONIOX_REALTIME_MODEL`        | Soniox realtime model. Default `stt-rt-v5`. |
 | `SONIOX_BASE_DOMAIN`           | **Not a setting.** Declared in the schema only so that setting it *fails startup* with `SONIOX_BASE_DOMAIN is forbidden`. The Soniox SDK reads this variable itself and it outranks `SONIOX_REGION` when deriving the default host of every Soniox service, so honouring it would silently move any endpoint we have not pinned. Leave it unset. See "Soniox endpoint pinning" below. |
-| `REALTIME_TRANSCRIPTION_ENABLED` | Enables the `/voice/realtime` WebSocket route. Default `false`; disabled deployments still expose protocol 1 capability discovery. Accepted values: `false`, `0`, `true`, `1`. Anything else — including an empty string, `TRUE`, or `yes` — fails startup rather than defaulting to off. Requires `SONIOX_API_KEY`. |
+| `REALTIME_TRANSCRIPTION_ENABLED` | Enables the additive `/voice/realtime` WebSocket route. When omitted, defaults to `true` if `SONIOX_API_KEY` is present and `false` otherwise. Explicit `false`/`0` disables it even with a key; explicit `true`/`1` without a key fails startup. Disabled deployments still expose protocol 1 capability discovery. Any other value — including an empty string, `TRUE`, or `yes` — fails startup. |
 | `REALTIME_CONNECT_TIMEOUT_MS`  | Soniox realtime connect timeout. Default `10000` (range 1,000-30,000). |
 | `REALTIME_FINISH_TIMEOUT_MS`   | Provider finalization timeout after client finish/session cap. Default `10000` (range 1,000-30,000). |
 | `REALTIME_DISPOSE_TIMEOUT_MS`  | Realtime service shutdown drain timeout. Default `15000` (range 1,000-20,000). |

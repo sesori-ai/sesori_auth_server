@@ -57,6 +57,8 @@
 
 ## Findings and Plan Deltas
 
+- 2026-08-23 — Product decision: omitted `REALTIME_TRANSCRIPTION_ENABLED` now follows `SONIOX_API_KEY` presence. A configured key enables the additive realtime endpoint by default; no key leaves it disabled. Explicit `false`/`0` remains the credentialed rollout opt-out, and explicit `true`/`1` without a key still fails startup. The current mobile app remains async-only and does not consume the new endpoint.
+
 - 2026-08-20 — The official Soniox account and API key are US-regional. Async configuration now accepts a closed `us|eu` region and pins each to its exact allowlisted endpoint; omitted configuration defaults to `us`, and official production also explicitly selects `us`. Future realtime and rollout work must use the US project/endpoints and the updated US privacy disclosure rather than inferring EU from the completed S01 implementation record.
 
 - 2026-08-13 — S02-W01-P01 candidate implemented after PR #64 merged as `2ed90a743f348102a2c023e4b1aae934886abe2d`. Review defects corrected in the candidate: no unbounded route message queue, finish waits for provider terminal callbacks, invalid binary frames map to `invalid_audio`, post-auth limiter has no IP fallback after auth, route policy is injected from config, start timeout is cleared/guarded, waiter owners expose release/drain contracts, producers reject disposal timeouts, `src/shutdown.ts` owns the memoized ordered signal path, and CI delegates Docker smoke to `scripts/ci-auth-container-smoke.sh`. This is not a merge record; leave S02 unchecked until a PR is opened and merged.
