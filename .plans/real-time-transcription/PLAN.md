@@ -144,9 +144,9 @@ Out of scope:
 - The existing async route and new real-time route remain available together.
 - Omitted real-time enablement follows Soniox key presence: a configured
   `SONIOX_API_KEY` enables the route by default, while no key leaves it disabled.
-  Operations use explicit `REALTIME_TRANSCRIPTION_ENABLED=false` while rollout
-  gates remain open. Disabled means the WebSocket route is not registered and
-  returns the normal HTTP 404.
+  Operations can use explicit `REALTIME_TRANSCRIPTION_ENABLED=false` to hold
+  endpoint registration. When disabled, the WebSocket route is not registered
+  and returns the normal HTTP 404.
 - The async provider is selected globally at process startup; a failed request
   is not retried with the other provider.
 - Soniox processing uses the US regional project and US REST/WebSocket domains.

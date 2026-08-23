@@ -17,7 +17,7 @@ Deliver one complete, provider-neutral, key-aware realtime proxy from public Web
 
 - S01-W02-P01 merged.
 - S02/W01 auth baseline pinned after drift assessment.
-- Production remains disabled until S03 and S04.
+- Production endpoint registration follows the key-aware default. The current app remains async-only until S03 adoption, and S04 owns client-traffic rollout validation.
 
 ## Scope
 

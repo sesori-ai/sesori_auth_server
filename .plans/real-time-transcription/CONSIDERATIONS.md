@@ -658,8 +658,8 @@ lifecycle for realtime.
 
 The real-time route is additive. Omitted enablement follows Soniox key presence:
 a configured key enables it, while no key leaves it disabled. Credentialed
-environments use explicit `REALTIME_TRANSCRIPTION_ENABLED=false` until
-operations finish ingress/legal/provider checks. Once enabled, the later mobile
+environments can use explicit `REALTIME_TRANSCRIPTION_ENABLED=false` to hold
+endpoint registration. Once enabled, the later mobile
 feature flag controls cohort use between async and real-time; it does not select
 Soniox versus another provider.
 

@@ -26,6 +26,7 @@
 - [ ] Remove the explicit false override (or set `REALTIME_TRANSCRIPTION_ENABLED=true`) and restart; verify one authorized internal iOS and Android protocol 1 session.
 - [ ] Rehearse configuration-first rollback while still internal-only and while the region-aware binary remains installed: set `REALTIME_TRANSCRIPTION_ENABLED=false`, `ASYNC_TRANSCRIPTION_PROVIDER=openai`, and `SONIOX_REGION=eu`, restart, confirm capability advertises disabled, `/health` passes, and an authenticated OpenAI async smoke succeeds. This is the only state in which an older binary may start.
 - [ ] Before restoring Soniox, run the residual audit with an explicit protected `SONIOX_REGION=us` override and require zero files/transcriptions, applying and re-auditing under the normal drained-traffic rules if needed. Restore the region-aware binary first if an older binary was exercised, then set `SONIOX_REGION=us` and `ASYNC_TRANSCRIPTION_PROVIDER=soniox`, restart, and confirm one internal Soniox smoke without a 401.
+- [ ] Remove the explicit realtime false override (or set `REALTIME_TRANSCRIPTION_ENABLED=true`), restart, confirm capability advertises enabled, and verify one authorized internal protocol 1 session before general exposure.
 - [ ] Observe safe logs, provider cost/concurrency/storage, process RSS, and error counts for the agreed initial window.
 - [ ] Confirm no secret/content/PII exposure and no relay change.
 - [ ] Confirm the OpenAI async rollback configuration remains deployable. If any scoped glossary row now exists, database rollback is forbidden; roll forward.
@@ -42,7 +43,7 @@
 ## Pass Criteria
 
 - Migration and both provider modes operate as planned.
-- Realtime is enabled only after app and staging readiness.
+- Client realtime traffic is enabled only after app and staging readiness.
 - Ordinary provider cleanup returns to zero and accepted residual policy is understood.
 - Configuration-first rollback to realtime-off, OpenAI async, and `SONIOX_REGION=eu` is rehearsed before any older binary is eligible, all without schema reversal.
 - Tracker records User and Worker evidence status and any plan delta.
