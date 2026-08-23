@@ -487,8 +487,9 @@ Activation reminder timers and single-flight state are process-local. Keep `ACTI
 realtime to stop admitting, drain in-flight background work, close the HTTP
 server, then close MongoDB. Callers that cannot be answered truthfully in that
 window are refused rather than guessed at — `/auth/session/status` and
-`/auth/app-clients/status?wait=true` return `503 service_restarting`, and live
-realtime sessions receive a `service_restarting` error frame and close 1013.
+`/auth/app-clients/status?wait=true` return `503 service_restarting`, and
+authenticated realtime sockets, including those waiting for their first frame,
+receive a `service_restarting` error frame and close 1013.
 
 **The deployment platform must allow at least 25 seconds of SIGTERM grace.** The
 process enforces its own 22-second hard deadline (`SHUTDOWN_HARD_DEADLINE_MS` in

@@ -24,6 +24,7 @@ export class RealtimeTranscriptionService {
   readonly #startingControllers = new Set<RealtimeSessionController>();
   readonly #sessionUserIds = new Map<RealtimeTranscriptionSession, string>();
   readonly #activePerUser = new Map<string, number>();
+  readonly #shutdownListeners = new Set<() => void>();
   readonly #now: () => number;
   readonly #scheduleTimeout: RealtimeTimeoutScheduler | undefined;
   #disposed = false;
@@ -49,6 +50,22 @@ export class RealtimeTranscriptionService {
 
   get activeSessionCount(): number {
     return this.#active.size;
+  }
+
+  registerShutdownListener(listener: () => void): () => void {
+    if (this.#disposed) {
+      try {
+        listener();
+      } catch {
+        // A route listener cannot be allowed to interrupt ordered shutdown.
+      }
+      return () => undefined;
+    }
+
+    this.#shutdownListeners.add(listener);
+    return () => {
+      this.#shutdownListeners.delete(listener);
+    };
   }
 
   async start(request: RealtimeStartRequest): Promise<RealtimeTranscriptionSession> {
@@ -121,7 +138,21 @@ export class RealtimeTranscriptionService {
   }
 
   beginShutdown(): void {
+    if (this.#disposed) {
+      return;
+    }
+
     this.#disposed = true;
+    const shutdownListeners = [...this.#shutdownListeners];
+    this.#shutdownListeners.clear();
+    for (const listener of shutdownListeners) {
+      try {
+        listener();
+      } catch {
+        // Continue notifying other sockets and aborting admitted starts.
+      }
+    }
+
     for (const session of this.#startingControllers) {
       session.abortStart();
     }

@@ -155,7 +155,12 @@ export async function finishRealtimeProvider(args: {
   readonly fail: (code: RealtimeProtocolErrorCode) => Promise<void>;
 }): Promise<void> {
   if (args.billableSeconds === 0) {
-    args.provider?.cancel();
+    try {
+      args.provider?.cancel();
+    } catch {
+      // No audio was sent, so provider teardown is best-effort cleanup and
+      // cannot block the empty completion from releasing the session.
+    }
     await args.completeWithoutProvider();
     return;
   }

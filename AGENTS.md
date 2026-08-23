@@ -232,6 +232,11 @@ hook in `src/server.ts` is only a safety net for closes that bypass the
 coordinator; it cannot substitute for this ordering, because by the time it runs
 the sockets are already gone.
 
+Authenticated realtime sockets waiting for their first frame register a shutdown
+listener with the realtime service. `beginShutdown()` synchronously sends them
+`service_restarting` and close 1013; registration invokes the listener immediately
+when shutdown already began, covering upgrades admitted during the drain window.
+
 **A failed or timed-out disposal is degraded, not fatal.** Producer and realtime
 drains are logged as `[Shutdown] disposal degraded` and the ordered shutdown
 continues to `mongo.close()` and exit 0. Keeping MongoDB open bought nothing:

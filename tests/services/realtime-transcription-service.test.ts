@@ -379,6 +379,32 @@ describe("RealtimeTranscriptionService", () => {
     assert.equal(progress.usage.increments[0]?.seconds, 1);
   });
 
+  it("completes a no-audio finish when provider cancellation throws", async () => {
+    const harness = createHarness();
+    const session = await harness.start();
+    const providerSession = harness.provider.sessions[0];
+    assert.ok(providerSession);
+    providerSession.cancel = (): void => {
+      providerSession.calls.push("cancel");
+      throw new Error("provider cancel exploded");
+    };
+
+    try {
+      await session.finish();
+
+      assert.deepEqual(providerSession.calls, ["cancel"]);
+      assert.deepEqual(harness.events.at(-1), {
+        type: "complete",
+        reason: RealtimeFinishedReason.Finished,
+        dailySecondsRemaining: 10,
+      });
+      assert.equal(harness.service.activeSessionCount, 0);
+      await session.closed;
+    } finally {
+      await session.shutdown().catch(() => undefined);
+    }
+  });
+
   it("rejects provider progress beyond the admitted session limit before usage accounting", async () => {
     const harness = createHarness({ policy: { ...POLICY, maxSessionSeconds: 1 } });
     const session = await harness.start();

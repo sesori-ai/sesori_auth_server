@@ -21,6 +21,7 @@ export type RealtimeRouteSession = Awaited<ReturnType<RealtimeTranscriptionServi
 
 export type RealtimeRouteService = {
   start(request: Parameters<RealtimeTranscriptionService["start"]>[0]): Promise<RealtimeRouteSession>;
+  registerShutdownListener(listener: () => void): () => void;
   dispose(): Promise<void>;
 };
 
@@ -62,7 +63,9 @@ export function startRealtimeSocket(context: SocketContext): void {
     closeSocket(context.socket, CLOSE_CODE.unavailable);
   }, context.routePolicy.firstFrameTimeoutMs);
 
+  let unregisterShutdownListener = (): void => undefined;
   const disconnect = (): void => {
+    unregisterShutdownListener();
     abortStarting(context);
     context.state = "closed";
     context.terminalSent = true;
@@ -74,6 +77,17 @@ export function startRealtimeSocket(context: SocketContext): void {
 
   context.socket.once("close", disconnect);
   context.socket.once("error", disconnect);
+  unregisterShutdownListener = context.realtimeService.registerShutdownListener(() => {
+    if (context.state !== "awaiting_start") {
+      return;
+    }
+
+    context.state = "closed";
+    context.terminalSent = true;
+    cancelStartTimeout();
+    sendTerminalError(context.socket, RealtimeProtocolErrorCode.ServiceRestarting, context.routePolicy);
+    closeSocket(context.socket, CLOSE_CODE.unavailable);
+  });
   context.socket.on("message", (data, isBinary) => {
     if (context.state === "closed") {
       return;
