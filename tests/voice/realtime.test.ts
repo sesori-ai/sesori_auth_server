@@ -586,6 +586,34 @@ describe("voice realtime route", () => {
       socket.terminate();
     });
 
+    it("enters closed before session cancellation resolves", async () => {
+      const user = await ctx.createUser();
+      const socket = await ctx.app.injectWS("/voice/realtime", {
+        headers: { authorization: `Bearer ${user.accessToken}` },
+      });
+      await sendStartAndWaitForReady(socket);
+      const session = realtimeService.sessions.at(-1);
+      assert.ok(session);
+      const cancelGate = deferred<void>();
+      let cancelCalls = 0;
+      session.cancel = async (): Promise<void> => {
+        cancelCalls += 1;
+        session.cancelled = true;
+        await cancelGate.promise;
+      };
+      const close = nextClose(socket);
+
+      socket.send(JSON.stringify({ type: "cancel" }));
+      await nextTurn();
+      socket.send(Buffer.from([0]));
+      await nextTurn();
+      const cancelCallsBeforeResolution = cancelCalls;
+      cancelGate.resolve(undefined);
+
+      assert.equal((await close).code, 1000);
+      assert.equal(cancelCallsBeforeResolution, 1);
+    });
+
     it("accepts differently spaced finish and cancel controls", async () => {
       const finishUser = await ctx.createUser();
       const finishSocket = await ctx.app.injectWS("/voice/realtime", {

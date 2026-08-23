@@ -136,8 +136,8 @@ async function handleSocketMessage(args: SocketMessageArgs): Promise<void> {
       await args.context.session?.finish();
       return;
     case RealtimeClientMessageType.Cancel:
-      await args.context.session?.cancel();
       args.context.state = "closed";
+      await args.context.session?.cancel();
       closeSocket(args.context.socket, CLOSE_CODE.normal);
       return;
     case "invalid":
