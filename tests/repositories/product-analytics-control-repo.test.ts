@@ -39,6 +39,10 @@ describe("ProductAnalyticsControlRepository", () => {
       [{ userKey: key, controlUpdatedAt }],
       [
         { userKey: null, controlUpdatedAt },
+        { userKey: key, controlUpdatedAt: new Date(controlUpdatedAt.getTime() + 1_000) },
+      ],
+      [
+        { userKey: null, controlUpdatedAt },
         { userKey: null, controlUpdatedAt },
       ],
       [
