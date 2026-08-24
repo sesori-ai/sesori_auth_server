@@ -142,10 +142,11 @@ Out of scope:
 - Live audio terminates at the auth server and is proxied to the provider.
 - Both public transcription APIs remain provider-agnostic.
 - The existing async route and new real-time route remain available together.
-- PR13 deploys the real-time route behind
-  `REALTIME_TRANSCRIPTION_ENABLED=false`; operations enable it only after the
-  trusted-ingress, Soniox, privacy, and capacity gates pass. Disabled means the
-  WebSocket route is not registered and returns the normal HTTP 404.
+- Omitted real-time enablement follows Soniox key presence: a configured
+  `SONIOX_API_KEY` enables the route by default, while no key leaves it disabled.
+  Operations can use explicit `REALTIME_TRANSCRIPTION_ENABLED=false` to hold
+  endpoint registration. When disabled, the WebSocket route is not registered
+  and returns the normal HTTP 404.
 - The async provider is selected globally at process startup; a failed request
   is not retried with the other provider.
 - Soniox processing uses the US regional project and US REST/WebSocket domains.
@@ -1560,7 +1561,7 @@ instead of waiting on a coordinator that was never invoked.
 | `SONIOX_ASYNC_MODEL`                             | `stt-async-v5` | Exact literal server-owned async model.                                                                   |
 | `SONIOX_REALTIME_MODEL`                          | `stt-rt-v5`    | Exact literal server-owned real-time model.                                                               |
 | `SONIOX_ASYNC_TIMEOUT_MS`                        | `60000`        | Integer 1,000-60,000 ms upload/job/poll timeout for the synchronous async route.                          |
-| `REALTIME_TRANSCRIPTION_ENABLED`                 | `false`        | Fail-closed route registration gate until ingress/legal/provider checks pass.                             |
+| `REALTIME_TRANSCRIPTION_ENABLED`                 | key presence   | Omitted value enables with `SONIOX_API_KEY` and disables without it; explicit false is the rollout gate.   |
 | `REALTIME_TRANSCRIPTION_MAX_SESSION_SECONDS`     | `900`          | Integer 1-900 used for both wall-clock deadline and attempted-upstream audio cap.                         |
 | `REALTIME_TRANSCRIPTION_MAX_CONCURRENT_SESSIONS` | `10`           | Integer 1-10 local cap aligned with the initial Soniox project quota.                                     |
 | `AUTH_TRUSTED_PROXY_CIDRS`                       | empty          | Comma-separated exact CIDRs allowed to supply forwarding headers; empty config means `trustProxy: false`. |
@@ -1677,7 +1678,7 @@ All slices are sequential and independently deployable from the then-current
 | PR10 | Uncomposed Soniox realtime transport adapter                  | No realtime public route is registered; adapter is focused-test only.                                           | Separate handshake/event normalization from bounded send lifecycle.     |
 | PR11 | Realtime transcription lifecycle and shared usage integration | No realtime public route is registered; complete service is exercised behind local interfaces.                  | Separate admission/timers from transcript/terminal/accounting behavior. |
 | PR12 | Realtime socket-session collaborator and backpressure         | No route plugin exists and production behavior remains unchanged.                                               | Separate client-send coalescing from inbound FIFO/session behavior.     |
-| PR13 | Typed route, conditional composition, pre-close, CI, rollout  | Realtime route is registered only when default-false flag is enabled; async and realtime coexist.               | Move more non-plugin tests into PR12; keep route/registration atomic.   |
+| PR13 | Typed route, conditional composition, pre-close, CI, rollout  | Realtime route follows the key-aware enablement value; async and realtime coexist.                              | Move more non-plugin tests into PR12; keep route/registration atomic.   |
 
 Checkpoint ledger (update the active row before coding and again before opening
 each PR; `actual` includes authored additions plus deletions):
@@ -2574,7 +2575,7 @@ MONGODB_URI_TEST=mongodb://localhost:27017/auth-backend-test \
 
 File map:
 
-- `src/config.ts`: add exact trusted-proxy CIDRs, default-false realtime enable
+- `src/config.ts`: add exact trusted-proxy CIDRs, key-aware realtime enable
   flag, conditional Soniox-key rule, exact model/session/concurrency bounds, and
   non-production-only WebSocket endpoint override; failures use only bounded
   path/code diagnostics. Disabled config requires empty trusted CIDRs and no WS
@@ -2667,7 +2668,8 @@ File map:
 
 Acceptance criteria:
 
-- [ ] Ship realtime default-disabled and register WebSocket support before every
+- [ ] Ship realtime with omitted enablement derived from Soniox key presence and
+      register WebSocket support before every
       route only with a complete typed optional bundle; disabled startup creates
       no realtime client/gate/service/plugin/route and requires no Soniox key.
 - [ ] Define/register `VoiceRealtimeRouteOptions` in the same PR as the route;

@@ -102,12 +102,33 @@ const baseConfigSchema = z.object({
   SONIOX_ASYNC_MODEL: z.string().min(1).default("stt-async-v5"),
   SONIOX_ASYNC_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(110_000).default(100_000),
   SONIOX_CLEANUP_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(30_000).default(10_000),
+  SONIOX_REALTIME_MODEL: z.string().min(1).default("stt-rt-v5"),
+  // NOT a setting. Declared only so the refinement below can hard-fail startup:
+  // the SDK reads this variable itself, and it outranks `region` when deriving
+  // every default service URL. See the refinement for why it is rejected while
+  // its siblings are not.
+  SONIOX_BASE_DOMAIN: z.string().optional(),
+  REALTIME_TRANSCRIPTION_ENABLED: z
+    .union([z.literal("true"), z.literal("false"), z.literal("1"), z.literal("0")])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === "true" || v === "1")),
+  REALTIME_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(30_000).default(10_000),
+  REALTIME_FINISH_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(30_000).default(10_000),
+  REALTIME_DISPOSE_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(20_000).default(15_000),
+  REALTIME_SESSION_MAX_SECONDS: z.coerce.number().int().min(1).max(900).default(900),
+  REALTIME_FIRST_FRAME_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(15_000).default(5_000),
+  REALTIME_FIRST_AUDIO_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(15_000).default(5_000),
+  REALTIME_OUTBOUND_BUFFER_MAX_BYTES: z.coerce.number().int().min(65_536).max(8_388_608).default(1_048_576),
+  REALTIME_UPGRADE_MAX_PER_MINUTE: z.coerce.number().int().min(12).max(1_000).default(120),
+  REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER: z.coerce.number().int().min(1).max(50).default(3),
+  REALTIME_MAX_CONCURRENT_SESSIONS: z.coerce.number().int().min(1).max(10_000).default(200),
+  REALTIME_AUDIO_PACE_BURST_SECONDS: z.coerce.number().int().min(1).max(60).default(5),
 
   // App-wide limits (hardcoded defaults, not sourced from env)
   DAILY_TRANSCRIPTION_LIMIT_SECONDS: z.coerce.number().default(3600),
 });
 
-export const configSchema = baseConfigSchema.superRefine((config, ctx) => {
+const validatedConfigSchema = baseConfigSchema.superRefine((config, ctx) => {
   if (config.AUTH_DEV_BYPASS_ENABLED && config.NODE_ENV !== "development") {
     ctx.addIssue({
       code: "custom",
@@ -123,7 +144,38 @@ export const configSchema = baseConfigSchema.superRefine((config, ctx) => {
       message: "SONIOX_API_KEY is required when ASYNC_TRANSCRIPTION_PROVIDER is soniox",
     });
   }
+
+  // `SONIOX_BASE_DOMAIN` rewrites the base every default Soniox service URL is
+  // derived from, so it moves any endpoint we have not pinned explicitly. We
+  // pin the two we use (`base_url`, `realtime.ws_base_url`), which is why the
+  // narrower `SONIOX_API_BASE_URL` and `SONIOX_WS_URL` are deliberately NOT
+  // rejected — an explicit option outranks each of them, and there are tests
+  // proving it. Failing startup here keeps that residual surface closed rather
+  // than depending on every future SDK call site remembering to pin.
+  if (config.SONIOX_BASE_DOMAIN !== undefined) {
+    ctx.addIssue({ code: "custom", path: ["SONIOX_BASE_DOMAIN"], message: "SONIOX_BASE_DOMAIN is forbidden" });
+  }
+
+  // Explicit realtime enablement needs the key regardless of which async
+  // provider is selected. Omitted enablement is resolved from key presence by
+  // the transform below, so a deployment without Soniox credentials stays off.
+  if (config.REALTIME_TRANSCRIPTION_ENABLED && !config.SONIOX_API_KEY) {
+    ctx.addIssue({ code: "custom", path: ["SONIOX_API_KEY"], message: "SONIOX_API_KEY is required for realtime" });
+  }
+
+  if (config.REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER > config.REALTIME_MAX_CONCURRENT_SESSIONS) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER"],
+      message: "REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER cannot exceed REALTIME_MAX_CONCURRENT_SESSIONS",
+    });
+  }
 });
+
+export const configSchema = validatedConfigSchema.transform((config) => ({
+  ...config,
+  REALTIME_TRANSCRIPTION_ENABLED: config.REALTIME_TRANSCRIPTION_ENABLED ?? config.SONIOX_API_KEY !== undefined,
+}));
 
 export type Config = z.infer<typeof configSchema>;
 

@@ -180,7 +180,7 @@ The canonical cross-repository vector is project ID `project-123`, digest input 
 - Project-scoped glossary CRUD intentionally requires a project key. Repository history found no caller, and the production dry-run found zero rows; any nonzero rerun stops rollout rather than guessing ownership.
 - Use the merged `migrate-project-glossary-index` command. Production apply occurs with the single auth instance stopped, followed by verify before starting the scoped runtime. Once a scoped row exists, rollback to the old index is forbidden.
 - Async provider remains `openai` by default until the new app timeout and rollout checks are complete. Switching to Soniox is configuration, not an automatic fallback.
-- Realtime remains disabled by default. Older apps ignore it; newer apps select async until enabled.
+- Realtime defaults from Soniox key presence: omitted configuration enables it when `SONIOX_API_KEY` exists and disables it otherwise. Explicit `false` is available as a rollout hold for credentialed environments. Older apps ignore the additive endpoint; app adoption remains a separate stage.
 - Exact cleanup of compatibility branches is authorized only after the minimum supported app always sends project context and all supported auth deployments expose capability protocol 1. Relevant PR files name the mechanical cleanup.
 - Compatibility and migration scaffolding is retained deliberately, not indefinitely. S05 owns its removal so the debt is scheduled rather than orphaned; every marker added by this plan names its trigger, and S05-W01-P01 deletes exactly those whose triggers have fired. Nothing is removed while its rollback path is still the documented recovery route.
 
@@ -190,16 +190,16 @@ The canonical cross-repository vector is project ID `project-123`, digest input 
 
 1. Project-scoped glossary runtime.
 2. Provider-neutral async Soniox support, still defaulting to OpenAI.
-3. Realtime auth proxy, still disabled.
+3. Realtime auth proxy, key-aware by default with an explicit opt-out for environments that need to hold endpoint registration.
 4. Mobile realtime adoption with async fallback.
 
 ### Production order
 
 1. Complete Soniox DPA/subprocessor approval, provision a dedicated US project/key, and publish updated legal disclosure.
-2. Release the new app while realtime remains disabled; verify old-server capability fallback and the longer async request budget.
-3. Stop the single auth instance, rerun glossary dry-run, apply/verify the target index only if the collection remains valid, and deploy the new auth binary with async OpenAI and realtime disabled.
+2. Deploy the additive realtime endpoint; current and older apps ignore it and remain on async transcription until S03 adoption. Set `REALTIME_TRANSCRIPTION_ENABLED=false` only where operations need to hold endpoint registration despite a configured Soniox key.
+3. Stop the single auth instance, rerun glossary dry-run, apply/verify the target index only if the collection remains valid, and deploy the new auth binary with async OpenAI. Verify capability discovery matches the resolved key-aware configuration.
 4. Run the safe Soniox residual audit/purge command before sending production audio.
-5. Select Soniox async, verify ordinary deletion/latency/error logs, then enable realtime protocol 1.
+5. Select Soniox async, verify ordinary deletion/latency/error logs, then begin approved protocol 1 client traffic.
 6. Observe safe outcome counts, provider cost/concurrency, process memory, and cleanup residual counts. Do not log content or identifiers.
 
 ### Rollback

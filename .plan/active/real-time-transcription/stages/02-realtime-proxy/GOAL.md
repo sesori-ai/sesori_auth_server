@@ -9,7 +9,7 @@
 
 ## 1. Outcome
 
-The auth server exposes disabled-by-default Sesori realtime voice protocol version 1, proxies PCM audio through a provider-neutral service to Soniox, emits confirmed/provisional updates, records best-effort usage, and shuts down its own sessions cleanly without adopting PR #55's broad coordination machinery.
+The auth server exposes Sesori realtime voice protocol version 1 with an omitted-enable default derived from Soniox key presence, proxies PCM audio through a provider-neutral service to Soniox, emits confirmed/provisional updates, records best-effort usage, and shuts down its own sessions cleanly without adopting PR #55's broad coordination machinery.
 
 ## 2. Entry Criteria and Baseline
 
@@ -22,14 +22,14 @@ The auth server exposes disabled-by-default Sesori realtime voice protocol versi
 - No provider name, key, URL, model, error, or SDK shape crosses the Sesori protocol.
 - Access tokens appear only in the standard WSS `Authorization: Bearer` upgrade header, never a URL, protocol frame, or log.
 - Audio/transcript content is not persisted or logged.
-- Realtime is disabled by default.
+- Omitted realtime enablement follows Soniox key presence; explicit false remains a complete route/object-graph opt-out.
 - No direct provider app access, relay change, receipt ledger, global admission registry, provider failover, generic handler tracker, or exhaustive terminal matrix.
 
 ## 4. Execution Waves
 
 | Wave | Step | Repository | Base | Parallel safety | Outcome |
 |---|---|---|---|---|---|
-| W01 | S02-W01-P01 | `sesori-ai/sesori_auth_server` | `master` | Sole step | Complete disabled-by-default realtime server capability |
+| W01 | S02-W01-P01 | `sesori-ai/sesori_auth_server` | `master` | Sole step | Complete key-aware realtime server capability |
 
 ## 5. Integration and Manual Verification
 

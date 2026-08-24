@@ -360,4 +360,22 @@ describe("PendingAuthStore", () => {
     assert.equal(b?.status, "denied");
     assert.equal(c?.status, "denied");
   });
+
+  it("releaseWaiters resolves current and future waits as shutdown", async () => {
+    const store = createStore();
+    const tokenHash = createSessionTokenHash();
+    store.createSession({
+      tokenHash,
+      provider: OAuthProviderName.Github,
+      pkceVerifier: "pkce-verifier",
+      state: "oauth-state",
+    });
+    const waiter = store.waitForStatusChange(tokenHash, 5_000);
+
+    store.releaseWaiters();
+
+    assert.equal((await waiter)?.status, "shutdown");
+    assert.equal((await store.waitForStatusChange(tokenHash, 5_000))?.status, "shutdown");
+    store.releaseWaiters();
+  });
 });

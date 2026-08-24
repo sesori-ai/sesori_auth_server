@@ -13,9 +13,12 @@
  *   401 { error: "unauthenticated" }
  *   500 { error: "internal_server_error" } — the initial read missed the 30 s
  *       deadline; unconfirmed absence is never reported as `false`
+ *   503 { error: "service_restarting", retryable: true } — shutdown released
+ *       an active wait or the wait began after release (wait=true only; an
+ *       immediate read still answers, because its result is verified)
  */
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
-import { BadRequestError, InternalServerError, UnauthenticatedError } from "../lib/errors.js";
+import { BadRequestError, InternalServerError, ServiceRestartingError, UnauthenticatedError } from "../lib/errors.js";
 import { createRequestCloseSignal, isClientConnectionOpen } from "../lib/request-close-signal.js";
 import {
   appClientStatusQuerySchema,
@@ -25,6 +28,7 @@ import {
 } from "../models/api.js";
 import {
   AppClientPresenceInitialReadTimeout,
+  AppClientPresenceShuttingDown,
   type AppClientPresenceService,
 } from "../services/app-client-presence-service.js";
 
@@ -63,6 +67,12 @@ export const appClientRoutes: FastifyPluginAsync<AppClientRouteOptions> = async 
         // rather than letting a false negative reach the app client.
         if (error instanceof AppClientPresenceInitialReadTimeout) {
           throw new InternalServerError({ debugMessage: error.message });
+        }
+
+        // Shutdown ended the wait early or refused a new one. Keep that distinct
+        // from the ordinary wait timeout's confirmed `false` response.
+        if (error instanceof AppClientPresenceShuttingDown) {
+          throw new ServiceRestartingError({ debugMessage: error.message });
         }
 
         throw error;

@@ -47,6 +47,7 @@ export enum PendingAuthStatus {
   Denied = "denied",
   Expired = "expired",
   Error = "error",
+  Shutdown = "shutdown",
 }
 
 export type PendingAuthTokens = {
@@ -103,6 +104,7 @@ export class PendingAuthStore {
   readonly #sessionTtlMs: number;
   readonly #userCodeGenerator: () => string;
   readonly #now: () => Date;
+  #released = false;
 
   constructor(deps?: {
     sessionTtlMs?: number;
@@ -438,6 +440,10 @@ export class PendingAuthStore {
       return Promise.resolve(null);
     }
 
+    if (this.#released) {
+      return Promise.resolve({ ...session, status: PendingAuthStatus.Shutdown });
+    }
+
     if (timeoutMs <= 0) {
       return Promise.resolve(session);
     }
@@ -517,6 +523,20 @@ export class PendingAuthStore {
       if (entry.session.expiresAt.getTime() <= now.getTime()) {
         this.#expireSession(tokenHash, entry);
       }
+    }
+  }
+
+  releaseWaiters(): void {
+    if (this.#released) {
+      return;
+    }
+
+    this.#released = true;
+    for (const tokenHash of Array.from(this.#waitersByTokenHash.keys())) {
+      const entry = this.#getActiveEntry(tokenHash);
+      this.#notifyWaiters(tokenHash, entry ? { ...entry.session, status: PendingAuthStatus.Shutdown } : null, {
+        includeSameStatus: true,
+      });
     }
   }
 

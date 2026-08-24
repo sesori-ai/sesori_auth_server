@@ -8,12 +8,12 @@
 
 ## Setup
 
-1. Deploy merged auth with `ASYNC_TRANSCRIPTION_PROVIDER=openai` and realtime disabled.
+1. Deploy merged auth with `ASYNC_TRANSCRIPTION_PROVIDER=openai` and `REALTIME_TRANSCRIPTION_ENABLED=false`; the explicit flag is required once staging receives a Soniox key.
 2. Install the merged app build on one physical supported iOS device and one supported Android device.
 3. Confirm legal staging text names Soniox and the approved US data handling.
 4. Configure the dedicated US Soniox project through encrypted deployment secrets; never copy values into evidence.
 5. Enable Soniox async (`ASYNC_TRANSCRIPTION_PROVIDER=soniox`) in staging only after the residual audit/purge reports a safe empty state; run the async Soniox checklist items in this state.
-6. Set `REALTIME_TRANSCRIPTION_ENABLED=true` in staging and restart before exercising the realtime checklist items (PCM sessions, latency trials, cancel/failure/cap cases, 15-minute ingress hold, and the realtime SIGTERM check). The disabled-capability checklist item must be evidenced before this step.
+6. Remove the explicit false override (or set `REALTIME_TRANSCRIPTION_ENABLED=true`) in staging and restart before exercising the realtime checklist items (PCM sessions, latency trials, cancel/failure/cap cases, 15-minute ingress hold, and the realtime SIGTERM check). The disabled-capability checklist item must be evidenced before this step.
 
 ## Checklist
 

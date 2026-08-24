@@ -7,6 +7,7 @@ import { DeviceTokenRepository } from "../../src/repositories/device-token-repo.
 import { appClientRoutes } from "../../src/routes/app-clients.js";
 import {
   AppClientPresenceInitialReadTimeout,
+  AppClientPresenceShuttingDown,
   type AppClientPresenceService,
 } from "../../src/services/app-client-presence-service.js";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
@@ -84,6 +85,52 @@ describe("GET /auth/app-clients/status", () => {
     }
   });
 
+  // `releaseWaiters()` is irreversible for a service instance, so this runs on
+  // its own app rather than poisoning the shared one for later cases.
+  it("serves active and future wait polls a retryable 503 once shutdown releases waiters", async () => {
+    const localCtx = await createTestApp();
+    const readSpy = mock.method(DeviceTokenRepository.prototype, "hasAnyForUser");
+    try {
+      const user = await localCtx.createUser();
+
+      const activeWait = keepProcessAlive(
+        localCtx.app.inject({
+          method: "GET",
+          url: "/auth/app-clients/status?wait=true",
+          headers: { authorization: `Bearer ${user.accessToken}` },
+        }),
+      );
+      await waitFor(() => readSpy.mock.callCount() >= 2);
+      assert.equal(await readSpy.mock.calls[1]?.result, false);
+
+      localCtx.appClientPresenceService.releaseWaiters();
+      const active = await activeWait;
+      const future = await localCtx.app.inject({
+        method: "GET",
+        url: "/auth/app-clients/status?wait=true",
+        headers: { authorization: `Bearer ${user.accessToken}` },
+      });
+      // The immediate read still answers: it reports a confirmed database
+      // result, so shutdown never turns it into a guess.
+      const immediate = await localCtx.app.inject({
+        method: "GET",
+        url: "/auth/app-clients/status",
+        headers: { authorization: `Bearer ${user.accessToken}` },
+      });
+
+      for (const response of [active, future]) {
+        assert.equal(response.statusCode, 503);
+        assert.deepEqual(response.json(), { error: "service_restarting", retryable: true });
+        assert.equal(response.headers["retry-after"], "1");
+      }
+      assert.equal(immediate.statusCode, 200);
+      assert.deepEqual(immediate.json(), { registered: false });
+    } finally {
+      readSpy.mock.restore();
+      await localCtx.cleanup();
+    }
+  });
+
   it("requires auth and rejects unsupported or unknown query values", async () => {
     const user = await ctx.createUser();
     const missingAuth = await ctx.app.inject({ method: "GET", url: "/auth/app-clients/status" });
@@ -130,6 +177,29 @@ describe("app-client status route failure and disconnect mapping", () => {
 
     assert.equal(response.statusCode, 500);
     assert.deepEqual(response.json(), { error: "internal_server_error" });
+  });
+
+  it("maps only the typed shutdown refusal to 503, and leaves other errors alone", async () => {
+    const shuttingDown = await buildRouteApp({
+      hasRegisteredClient: async () => false,
+      waitForRegistration: async () => {
+        throw new AppClientPresenceShuttingDown();
+      },
+    });
+    const unexpected = await buildRouteApp({
+      hasRegisteredClient: async () => false,
+      waitForRegistration: async () => {
+        throw new Error("presence read exploded");
+      },
+    });
+
+    const refused = await shuttingDown.inject({ method: "GET", url: "/auth/app-clients/status?wait=true" });
+    const failed = await unexpected.inject({ method: "GET", url: "/auth/app-clients/status?wait=true" });
+
+    assert.equal(refused.statusCode, 503);
+    assert.deepEqual(refused.json(), { error: "service_restarting" });
+    assert.equal(failed.statusCode, 500);
+    assert.deepEqual(failed.json(), { error: "internal_server_error" });
   });
 
   it("returns { registered: false } when the wait times out without a registration", async () => {

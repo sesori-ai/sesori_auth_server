@@ -1,0 +1,267 @@
+import type { RawData, WebSocket } from "ws";
+import type { z } from "zod";
+import {
+  REALTIME_PROTOCOL_ERROR_RETRYABLE,
+  realtimeCancelMessageSchema,
+  realtimeFinishMessageSchema,
+  realtimeStartMessageSchema,
+} from "../models/voice.js";
+import {
+  RealtimeClientMessageType,
+  RealtimeProtocolErrorCode,
+  RealtimeServerEventType,
+} from "../types/transcription.js";
+
+/**
+ * Protocol v1 frame ceilings. These are wire contract, not tunables: a client
+ * built against protocol 1 may send audio frames up to `MAX_BINARY_BYTES`, so
+ * they are compile-time constants rather than config. The transport cap is one
+ * byte above the audio cap so an over-sized frame is rejected by our own
+ * validation with `invalid_audio` instead of being dropped by `ws` as a
+ * protocol violation before the route ever sees it.
+ */
+export const MAX_TEXT_BYTES = 2_048;
+export const MAX_BINARY_BYTES = 65_536;
+export const MAX_TRANSPORT_PAYLOAD_BYTES = MAX_BINARY_BYTES + 1;
+
+/**
+ * Per-connection route limits, injected from config by the composition root.
+ * Every field is required, so there is deliberately no defaults object to merge
+ * under it: an incomplete policy is a compile error rather than a silent
+ * fallback that could disagree with the documented config defaults.
+ */
+export type RealtimeRoutePolicy = {
+  readonly firstFrameTimeoutMs: number;
+  readonly maxTextFrameBytes: number;
+  /** Inbound PCM frame ceiling. Never reuse it for outbound events: the two bound different things. */
+  readonly maxAudioFrameBytes: number;
+  /** Serialized ceiling for a single outbound server event (`MAX_REALTIME_EVENT_BYTES`). */
+  readonly maxOutboundEventBytes: number;
+  readonly outboundBufferMaxBytes: number;
+};
+
+export type RealtimeStartFrameResult =
+  | { readonly kind: "valid"; readonly data: z.infer<typeof realtimeStartMessageSchema> }
+  | { readonly kind: "invalid" }
+  | { readonly kind: "unsupported" };
+
+export type RealtimeControlFrameResult =
+  | { readonly kind: RealtimeClientMessageType.Finish }
+  | { readonly kind: RealtimeClientMessageType.Cancel }
+  | { readonly kind: "invalid" };
+
+export const CLOSE_CODE = {
+  normal: 1000,
+  policy: 1008,
+  unavailable: 1013,
+  internal: 1011,
+} as const;
+
+const fatalUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
+export function sendTerminalError(
+  socket: WebSocket,
+  code: RealtimeProtocolErrorCode,
+  policy: RealtimeRoutePolicy,
+): boolean {
+  return sendEvent(
+    socket,
+    { type: RealtimeServerEventType.Error, code, retryable: REALTIME_PROTOCOL_ERROR_RETRYABLE[code] },
+    policy,
+  );
+}
+
+export function sendEvent(socket: WebSocket, event: object, policy: RealtimeRoutePolicy): boolean {
+  if (socket.readyState !== socket.OPEN) {
+    return false;
+  }
+
+  if (socket.bufferedAmount > policy.outboundBufferMaxBytes) {
+    sendSlowClientError(socket);
+    return false;
+  }
+
+  const serialized = JSON.stringify(event);
+  if (Buffer.byteLength(serialized, "utf8") > policy.maxOutboundEventBytes) {
+    sendOversizedEventError(socket);
+    return false;
+  }
+
+  try {
+    socket.send(serialized);
+    return true;
+  } catch {
+    closeSocket(socket, CLOSE_CODE.unavailable);
+    return false;
+  }
+}
+
+function sendSlowClientError(socket: WebSocket): void {
+  const serialized = errorFrame(RealtimeProtocolErrorCode.SlowClient);
+  if (socket.bufferedAmount === 0) {
+    trySend(socket, serialized);
+  }
+  closeSocket(socket, CLOSE_CODE.unavailable);
+}
+
+/**
+ * An outbound event we built ourselves that does not fit the wire budget is our
+ * defect, not evidence that the peer stopped reading — `bufferedAmount` was
+ * provably clear on the branch that reaches here. Reporting `slow_client` blamed
+ * the client for a server-side bug and told it to back off for a reason that
+ * would not change on retry.
+ */
+function sendOversizedEventError(socket: WebSocket): void {
+  trySend(socket, errorFrame(RealtimeProtocolErrorCode.InternalError));
+  closeSocket(socket, closeCodeForError(RealtimeProtocolErrorCode.InternalError));
+}
+
+function errorFrame(code: RealtimeProtocolErrorCode): string {
+  return JSON.stringify({
+    type: RealtimeServerEventType.Error,
+    code,
+    retryable: REALTIME_PROTOCOL_ERROR_RETRYABLE[code],
+  });
+}
+
+function trySend(socket: WebSocket, data: string): boolean {
+  if (socket.readyState !== socket.OPEN) {
+    return false;
+  }
+
+  try {
+    socket.send(data);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function rawDataToBuffer(data: RawData): Buffer {
+  if (Array.isArray(data)) {
+    return Buffer.concat(data);
+  }
+
+  return Buffer.isBuffer(data) ? data : Buffer.from(new Uint8Array(data));
+}
+
+export function decodeUtf8(buffer: Buffer): { readonly ok: true; readonly text: string } | { readonly ok: false } {
+  try {
+    return { ok: true, text: fatalUtf8Decoder.decode(buffer) };
+  } catch (error) {
+    if (error instanceof TypeError) {
+      return { ok: false };
+    }
+    throw error;
+  }
+}
+
+export function parseJson(source: string): { readonly ok: true; readonly value: unknown } | { readonly ok: false } {
+  try {
+    return { ok: true, value: JSON.parse(source) };
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return { ok: false };
+    }
+    throw error;
+  }
+}
+
+export function parseStartFrame(data: RawData, policy: RealtimeRoutePolicy): RealtimeStartFrameResult {
+  const raw = rawDataToBuffer(data);
+  if (raw.byteLength > policy.maxTextFrameBytes) {
+    return { kind: "invalid" };
+  }
+
+  const decoded = decodeUtf8(raw);
+  const parsedJson = decoded.ok ? parseJson(decoded.text) : { ok: false as const };
+  if (isUnsupportedStartProtocol(parsedJson)) {
+    return { kind: "unsupported" };
+  }
+
+  const startResult = parsedJson.ok ? realtimeStartMessageSchema.safeParse(parsedJson.value) : null;
+  if (startResult === null || !startResult.success) {
+    return { kind: "invalid" };
+  }
+
+  return { kind: "valid", data: startResult.data };
+}
+
+export function parseControlFrame(data: RawData, policy: RealtimeRoutePolicy): RealtimeControlFrameResult {
+  const raw = rawDataToBuffer(data);
+  if (raw.byteLength > policy.maxTextFrameBytes) {
+    return { kind: "invalid" };
+  }
+
+  const decoded = decodeUtf8(raw);
+  const parsedJson = decoded.ok ? parseJson(decoded.text) : { ok: false as const };
+  if (parsedJson.ok && realtimeFinishMessageSchema.safeParse(parsedJson.value).success) {
+    return { kind: RealtimeClientMessageType.Finish };
+  }
+
+  if (parsedJson.ok && realtimeCancelMessageSchema.safeParse(parsedJson.value).success) {
+    return { kind: RealtimeClientMessageType.Cancel };
+  }
+
+  return { kind: "invalid" };
+}
+
+function isUnsupportedStartProtocol(
+  parsedJson: { readonly ok: true; readonly value: unknown } | { readonly ok: false },
+): boolean {
+  if (!parsedJson.ok || typeof parsedJson.value !== "object" || parsedJson.value === null) {
+    return false;
+  }
+
+  return (
+    "type" in parsedJson.value &&
+    parsedJson.value.type === RealtimeClientMessageType.Start &&
+    "protocolVersion" in parsedJson.value &&
+    parsedJson.value.protocolVersion !== 1
+  );
+}
+
+export function closeCodeForError(code: RealtimeProtocolErrorCode): number {
+  switch (code) {
+    case RealtimeProtocolErrorCode.ProviderRejected:
+    case RealtimeProtocolErrorCode.AudioTimeout:
+    case RealtimeProtocolErrorCode.ProviderTimeout:
+    case RealtimeProtocolErrorCode.InternalError:
+      return CLOSE_CODE.internal;
+    case RealtimeProtocolErrorCode.ProviderUnavailable:
+    case RealtimeProtocolErrorCode.ProviderCapacity:
+    case RealtimeProtocolErrorCode.SlowClient:
+    case RealtimeProtocolErrorCode.StartTimeout:
+    case RealtimeProtocolErrorCode.ServiceRestarting:
+      return CLOSE_CODE.unavailable;
+    case RealtimeProtocolErrorCode.InvalidMessage:
+    case RealtimeProtocolErrorCode.UnsupportedProtocol:
+    case RealtimeProtocolErrorCode.InvalidAudio:
+    case RealtimeProtocolErrorCode.QuotaExhausted:
+      return CLOSE_CODE.policy;
+    default:
+      return assertNeverCode(code);
+  }
+}
+
+export function closeSocket(socket: WebSocket, code: number): void {
+  if (socket.readyState === socket.OPEN) {
+    try {
+      socket.close(code);
+    } catch {
+      tryTerminate(socket);
+    }
+  }
+}
+
+function tryTerminate(socket: WebSocket): void {
+  try {
+    socket.terminate();
+  } catch {
+    return;
+  }
+}
+
+function assertNeverCode(_code: never): never {
+  throw new Error("unhandled realtime error code");
+}

@@ -1,12 +1,14 @@
 import Fastify, { FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
+import websocket from "@fastify/websocket";
 import type { OAuthClient } from "./clients/auth/oauth-client.js";
 import type { Config } from "./config.js";
 import { createClientIpResolver, isLoopbackSocket } from "./lib/client-ip.js";
-import { ApiError } from "./lib/errors.js";
+import { ApiError, safeErrorType } from "./lib/errors.js";
 import type { StateStore } from "./lib/state-store.js";
 import { createAuthMiddleware } from "./middleware/auth.js";
+import { createRealtimeUpgradeRateLimit } from "./middleware/realtime-upgrade-rate-limit.js";
 import { createRelayAuthMiddleware } from "./middleware/relay-auth.js";
 import type { HealthReply } from "./models/api.js";
 import type { DeviceTokenRepository } from "./repositories/device-token-repo.js";
@@ -41,6 +43,8 @@ import { sessionStatusRoutes } from "./routes/auth/session-status.js";
 import { appClientRoutes } from "./routes/app-clients.js";
 import { productAnalyticsRoutes } from "./routes/product-analytics.js";
 import { settingsRoutes } from "./routes/settings/settings.js";
+import { voiceRealtimeRoutes, type VoiceRealtimeRouteOptions } from "./routes/voice-realtime.js";
+import { MAX_TRANSPORT_PAYLOAD_BYTES } from "./routes/voice-realtime-support.js";
 
 export type AppServices = {
   config: Config;
@@ -64,6 +68,7 @@ export type AppServices = {
   appleNativeVerifier: AppleNativeVerifier;
   pendingAuthStore: PendingAuthStore;
   productAnalyticsPreferenceService: ProductAnalyticsPreferenceService;
+  realtime?: Omit<VoiceRealtimeRouteOptions, "preAuthRateLimit" | "requireAuth">;
 };
 
 export async function buildApp(services: AppServices): Promise<FastifyInstance> {
@@ -79,6 +84,19 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
   await app.register(cors, {
     origin: true,
   });
+
+  // Whether realtime is enabled is defined by whether the composition root
+  // built the bundle, and nothing else. It used to be asserted at runtime
+  // against the config flag as well, which meant three sources of truth kept in
+  // step by a throw. `/voice/capabilities` below reports this same fact, so it
+  // can no longer advertise a protocol whose route was never registered.
+  const realtimeEnabled = Boolean(services.realtime);
+
+  if (services.realtime) {
+    await app.register(websocket, {
+      options: { maxPayload: MAX_TRANSPORT_PAYLOAD_BYTES, perMessageDeflate: false },
+    });
+  }
 
   await app.register(rateLimit, {
     max: 100,
@@ -121,6 +139,22 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
     return { status: "ok" };
   });
 
+  // Exempt from the global limiter deliberately. The handler returns a
+  // constant, so the exemption costs nothing, while the global limiter keys on
+  // client IP: an office, campus, or carrier NAT shares one key, and 100
+  // requests a minute across that whole population is reachable. Capability
+  // discovery runs before every recording attempt and decides whether voice
+  // works at all, so a 429 here does not degrade one caller, it silently drops
+  // every client behind that address onto the legacy path. Do not remove this
+  // on the reasoning that a public endpoint should not be exempt.
+  app.get<{ Reply: { realtime: { enabled: boolean; protocolVersions: [1] } } }>(
+    "/voice/capabilities",
+    { config: { rateLimit: false } },
+    async () => ({
+      realtime: { enabled: realtimeEnabled, protocolVersions: [1] },
+    }),
+  );
+
   await app.register(installRoutes, {
     installScriptService: services.installScriptService,
   });
@@ -133,6 +167,33 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
     devBypassEnabled: services.config.AUTH_DEV_BYPASS_ENABLED,
   });
   const requireRelayAuth = createRelayAuthMiddleware(services.config.RELAY_WEBHOOK_SECRET);
+
+  if (services.realtime) {
+    let realtimeDisposePromise: Promise<void> | null = null;
+    await app.register(voiceRealtimeRoutes, {
+      ...services.realtime,
+      preAuthRateLimit: createRealtimeUpgradeRateLimit({
+        maxUpgradesPerMinute: services.config.REALTIME_UPGRADE_MAX_PER_MINUTE,
+      }),
+      requireAuth,
+    });
+    // Safety net for closes that bypass the shutdown coordinator (tests,
+    // embedded use). It cannot substitute for that ordering: onClose runs
+    // after @fastify/websocket's preClose has already closed every client
+    // socket, so a terminal frame emitted from here is written to a dead
+    // socket. `src/shutdown.ts` disposes realtime before calling app.close(),
+    // which leaves this hook awaiting an already-settled disposal.
+    app.addHook("onClose", async () => {
+      realtimeDisposePromise ??= services.realtime?.realtimeService.dispose() ?? Promise.resolve();
+      // A rejected disposal must not reject app.close(): the shutdown
+      // coordinator treats a failed drain as degraded but a failed app.close()
+      // as fatal, so propagating here would resurrect the exit-1-on-SIGTERM
+      // behaviour this deliberately does not have.
+      await realtimeDisposePromise.catch((error: unknown) => {
+        console.warn("[Server] realtime disposal degraded", { errorType: safeErrorType({ error }) });
+      });
+    });
+  }
 
   await app.register(tokenRoutes, {
     authService: services.authService,
