@@ -4,32 +4,52 @@ export function setSessionTimer(callback: () => void, timeoutMs: number): NodeJS
   return timer;
 }
 
+/**
+ * Arms a deadline and returns its cancel.
+ *
+ * Injected wherever a deadline decides observable behaviour, so a test can fire it exactly once
+ * at a point it chooses instead of sleeping past a real `setTimeout` and hoping the event loop
+ * cooperated. A test that races the wall clock either passes for the wrong reason under load or
+ * fails for one, and neither outcome says anything about the deadline it meant to pin.
+ */
+export type RealtimeTimeoutScheduler = (callback: () => void, timeoutMs: number) => () => void;
+
+export const scheduleUnrefTimeout: RealtimeTimeoutScheduler = (callback, timeoutMs) => {
+  const timer = setSessionTimer(callback, timeoutMs);
+  return () => clearTimeout(timer);
+};
+
 export class RealtimeSessionTimers {
-  #audioDeadlineTimer: NodeJS.Timeout | null = null;
-  #wallClockTimer: NodeJS.Timeout | null = null;
+  readonly #schedule: RealtimeTimeoutScheduler;
+  #cancelAudioDeadline: (() => void) | null = null;
+  #cancelWallClock: (() => void) | null = null;
+
+  constructor(schedule: RealtimeTimeoutScheduler = scheduleUnrefTimeout) {
+    this.#schedule = schedule;
+  }
 
   /** Arms the first-audio deadline, and rearms it as a rolling idle deadline on later frames. */
   startAudioDeadline(callback: () => void, timeoutMs: number): void {
     this.clearAudioDeadline();
-    this.#audioDeadlineTimer = setSessionTimer(callback, timeoutMs);
+    this.#cancelAudioDeadline = this.#schedule(callback, timeoutMs);
   }
 
   startWallClock(callback: () => void, timeoutMs: number): void {
     this.clearWallClock();
-    this.#wallClockTimer = setSessionTimer(callback, timeoutMs);
+    this.#cancelWallClock = this.#schedule(callback, timeoutMs);
   }
 
   clearAudioDeadline(): void {
-    if (this.#audioDeadlineTimer !== null) {
-      clearTimeout(this.#audioDeadlineTimer);
-      this.#audioDeadlineTimer = null;
+    if (this.#cancelAudioDeadline !== null) {
+      this.#cancelAudioDeadline();
+      this.#cancelAudioDeadline = null;
     }
   }
 
   clearWallClock(): void {
-    if (this.#wallClockTimer !== null) {
-      clearTimeout(this.#wallClockTimer);
-      this.#wallClockTimer = null;
+    if (this.#cancelWallClock !== null) {
+      this.#cancelWallClock();
+      this.#cancelWallClock = null;
     }
   }
 

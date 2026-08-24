@@ -11,7 +11,7 @@ import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { loadSonioxPurgeConfig } from "../config.js";
 import { safeErrorType } from "../lib/errors.js";
-import { SONIOX_REST_URL_BY_REGION } from "../types/transcription.js";
+import { SONIOX_REST_URL_BY_REGION, type SonioxRegion } from "../types/transcription.js";
 
 const DEFAULT_PURGE_TIMEOUT_MS = 10_000;
 
@@ -43,6 +43,14 @@ export type SonioxPurgeSdk = {
     delete(id: string, signal?: AbortSignal): Promise<void>;
   };
 };
+
+export type SonioxPurgeSdkOptions = {
+  api_key: string;
+  region: SonioxRegion;
+  base_url: string;
+};
+
+type SonioxPurgeSdkFactory = (options: SonioxPurgeSdkOptions) => Promise<SonioxPurgeSdk>;
 
 export function parseSonioxPurgeArgs(argv: string[]): { mode: SonioxPurgeMode; help: boolean } {
   let mode: SonioxPurgeMode = "audit";
@@ -220,7 +228,16 @@ export async function runSonioxPurge(input: {
   return report;
 }
 
-export async function runSonioxPurgeCli(input: { argv: string[]; env?: NodeJS.ProcessEnv }): Promise<number> {
+async function createSonioxPurgeSdk(options: SonioxPurgeSdkOptions): Promise<SonioxPurgeSdk> {
+  const { SonioxNodeClient } = await import("@soniox/node");
+  return new SonioxNodeClient(options);
+}
+
+export async function runSonioxPurgeCli(input: {
+  argv: string[];
+  env?: NodeJS.ProcessEnv;
+  createSdk?: SonioxPurgeSdkFactory;
+}): Promise<number> {
   let options: { mode: SonioxPurgeMode; help: boolean };
   try {
     options = parseSonioxPurgeArgs(input.argv);
@@ -235,8 +252,7 @@ export async function runSonioxPurgeCli(input: { argv: string[]; env?: NodeJS.Pr
   }
 
   const config = loadSonioxPurgeConfig(input.env ?? process.env);
-  const { SonioxNodeClient } = await import("@soniox/node");
-  const sdk: SonioxPurgeSdk = new SonioxNodeClient({
+  const sdk = await (input.createSdk ?? createSonioxPurgeSdk)({
     api_key: config.apiKey,
     region: config.region,
     base_url: SONIOX_REST_URL_BY_REGION[config.region],

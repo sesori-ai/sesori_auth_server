@@ -25,6 +25,7 @@ import {
   RealtimeProtocolVersion,
   RealtimeServerEventType,
 } from "../../src/types/transcription.js";
+import { RecordingTimeoutScheduler } from "../helpers/recording-timeout-scheduler.js";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
 
 type StartedSession = {
@@ -74,7 +75,20 @@ class FakeRealtimeSession implements StartedSession {
 class FakeRealtimeService {
   readonly starts: RealtimeStartRequest[] = [];
   readonly sessions: FakeRealtimeSession[] = [];
+  readonly #shutdownListeners = new Set<() => void>();
   disposed = false;
+
+  registerShutdownListener(listener: () => void): () => void {
+    if (this.disposed) {
+      listener();
+      return () => undefined;
+    }
+
+    this.#shutdownListeners.add(listener);
+    return () => {
+      this.#shutdownListeners.delete(listener);
+    };
+  }
 
   async start(request: RealtimeStartRequest): Promise<FakeRealtimeSession> {
     if (request.signal.aborted) {
@@ -93,8 +107,21 @@ class FakeRealtimeService {
     return session;
   }
 
-  async dispose(): Promise<void> {
+  beginShutdown(): void {
+    if (this.disposed) {
+      return;
+    }
+
     this.disposed = true;
+    const listeners = [...this.#shutdownListeners];
+    this.#shutdownListeners.clear();
+    for (const listener of listeners) {
+      listener();
+    }
+  }
+
+  async dispose(): Promise<void> {
+    this.beginShutdown();
   }
 }
 
@@ -170,11 +197,9 @@ const SHUTDOWN_POLICY: RealtimeTranscriptionPolicy = {
 
 class FailingDisposeRealtimeService extends FakeRealtimeService {
   override async dispose(): Promise<void> {
-    this.disposed = true;
+    this.beginShutdown();
     throw new Error("dispose_timeout");
   }
-
-  beginShutdown(): void {}
 }
 
 class ShutdownProviderSession implements ProviderSession {
@@ -192,7 +217,7 @@ class ShutdownProviderSession implements ProviderSession {
   async finish(): Promise<void> {}
 
   cancel(): void {
-    this.#closed.resolve(undefined);
+    throw new Error("provider cancel exploded");
   }
 
   close(): void {
@@ -585,6 +610,34 @@ describe("voice realtime route", () => {
       socket.terminate();
     });
 
+    it("enters closed before session cancellation resolves", async () => {
+      const user = await ctx.createUser();
+      const socket = await ctx.app.injectWS("/voice/realtime", {
+        headers: { authorization: `Bearer ${user.accessToken}` },
+      });
+      await sendStartAndWaitForReady(socket);
+      const session = realtimeService.sessions.at(-1);
+      assert.ok(session);
+      const cancelGate = deferred<void>();
+      let cancelCalls = 0;
+      session.cancel = async (): Promise<void> => {
+        cancelCalls += 1;
+        session.cancelled = true;
+        await cancelGate.promise;
+      };
+      const close = nextClose(socket);
+
+      socket.send(JSON.stringify({ type: "cancel" }));
+      await nextTurn();
+      socket.send(Buffer.from([0]));
+      await nextTurn();
+      const cancelCallsBeforeResolution = cancelCalls;
+      cancelGate.resolve(undefined);
+
+      assert.equal((await close).code, 1000);
+      assert.equal(cancelCallsBeforeResolution, 1);
+    });
+
     it("accepts differently spaced finish and cancel controls", async () => {
       const finishUser = await ctx.createUser();
       const finishSocket = await ctx.app.injectWS("/voice/realtime", {
@@ -721,21 +774,32 @@ describe("voice realtime route", () => {
       assert.equal(localRealtimeService.starts.length, 0);
     });
 
-    it("closes an upgraded socket that never sends a start frame with start_timeout", async () => {
+    // The first-frame deadline is the only bound on an idle upgraded socket, so both halves of it
+    // are driven through the scheduler seam rather than a real timer: firing it explicitly pins
+    // the terminal it produces and the duration it was armed with, neither of which a sleep past
+    // a short timeout could observe.
+    it("closes an upgraded socket that never sends a start frame with start_timeout", () => {
       const localRealtimeService = new FakeRealtimeService();
       const socket = new FakeSocket();
+      const timeouts = new RecordingTimeoutScheduler();
       startRealtimeSocket({
         socket: socket.websocket,
         request: { user: { userId: "6a7603577dee429b4d11b17a" } } as never,
         realtimeService: localRealtimeService,
-        routePolicy: testRoutePolicy({ firstFrameTimeoutMs: 5 }),
+        routePolicy: testRoutePolicy({ firstFrameTimeoutMs: 5_000 }),
         state: "awaiting_start",
         session: null,
         terminalSent: false,
         startAbortController: null,
+        scheduleStartTimeout: timeouts.schedule,
       });
 
-      await delay(20);
+      assert.deepEqual(
+        timeouts.armed.map((timeout) => timeout.timeoutMs),
+        [5_000],
+      );
+
+      timeouts.armed[0]?.fire();
 
       assert.deepEqual(
         socket.sent.map((message) => JSON.parse(message)),
@@ -745,22 +809,61 @@ describe("voice realtime route", () => {
       assert.equal(localRealtimeService.starts.length, 0);
     });
 
-    it("does not fire the first-frame timeout once a start frame has arrived", async () => {
+    it("closes a pre-start socket registered after shutdown has begun", () => {
       const localRealtimeService = new FakeRealtimeService();
+      localRealtimeService.beginShutdown();
       const socket = new FakeSocket();
+      const timeouts = new RecordingTimeoutScheduler();
+
       startRealtimeSocket({
         socket: socket.websocket,
         request: { user: { userId: "6a7603577dee429b4d11b17a" } } as never,
         realtimeService: localRealtimeService,
-        routePolicy: testRoutePolicy({ firstFrameTimeoutMs: 5 }),
+        routePolicy: testRoutePolicy({ firstFrameTimeoutMs: 5_000 }),
         state: "awaiting_start",
         session: null,
         terminalSent: false,
         startAbortController: null,
+        scheduleStartTimeout: timeouts.schedule,
+      });
+
+      assert.deepEqual(
+        socket.sent.map((message) => JSON.parse(message)),
+        [{ type: "error", code: "service_restarting", retryable: true }],
+      );
+      assert.equal(socket.closeCodes.at(-1), 1013);
+      assert.ok((timeouts.armed[0]?.cancelCount ?? 0) >= 1);
+
+      timeouts.armed[0]?.fire();
+      assert.equal(socket.sent.length, 1);
+      assert.equal(localRealtimeService.starts.length, 0);
+    });
+
+    it("cancels the first-frame timeout once a start frame has arrived", async () => {
+      const localRealtimeService = new FakeRealtimeService();
+      const socket = new FakeSocket();
+      const timeouts = new RecordingTimeoutScheduler();
+      startRealtimeSocket({
+        socket: socket.websocket,
+        request: { user: { userId: "6a7603577dee429b4d11b17a" } } as never,
+        realtimeService: localRealtimeService,
+        routePolicy: testRoutePolicy({ firstFrameTimeoutMs: 5_000 }),
+        state: "awaiting_start",
+        session: null,
+        terminalSent: false,
+        startAbortController: null,
+        scheduleStartTimeout: timeouts.schedule,
       });
 
       socket.emitText(Buffer.from(validStartFrame()));
-      await delay(20);
+      await nextTurn();
+
+      assert.equal(timeouts.armed[0]?.cancelCount, 1);
+
+      // Belt and braces: a deadline that somehow outlived its cancel must still find the socket
+      // past `awaiting_start` and leave the started session alone.
+      timeouts.armed[0]?.fire();
+      await nextTurn();
 
       assert.deepEqual(
         socket.sent.map((message) => JSON.parse(message)),
@@ -1277,7 +1380,7 @@ describe("voice realtime route", () => {
     // preClose closes every client socket, and a session emits its terminal
     // frame only after an awaited usage write. Running the two concurrently
     // dropped the frame and left the client with a bare close.
-    it("delivers service_restarting and close 1013 to a live socket during shutdown", async () => {
+    it("delivers service_restarting and close 1013 when provider cancellation throws during shutdown", async () => {
       const provider = new ShutdownProviderClient();
       const realtimeService = new RealtimeTranscriptionService({
         realtimeClient: provider,
@@ -1305,6 +1408,49 @@ describe("voice realtime route", () => {
         socket.send(Buffer.alloc(640));
         await waitFor(() => provider.sessions[0] !== undefined && provider.sessions[0].receivedBytes > 0);
 
+        const terminal = nextMessageWithin(socket, 5_000);
+        const closed = nextClose(socket);
+        const shutdown = createShutdownHandler({
+          app: localCtx.app,
+          mongo: { close: async () => undefined },
+          waiters: [],
+          readDrainers: [],
+          producers: [],
+          realtimeService,
+          exit: (code) => exitCodes.push(code),
+          log: () => undefined,
+        });
+
+        await shutdown("SIGTERM");
+
+        assert.deepEqual(await terminal, { type: "error", code: "service_restarting", retryable: true });
+        assert.equal((await closed).code, 1013);
+        assert.deepEqual(exitCodes, [0]);
+      } finally {
+        await localCtx.cleanup();
+      }
+    });
+
+    it("delivers service_restarting to a socket awaiting its first frame during shutdown", async () => {
+      const realtimeService = new RealtimeTranscriptionService({
+        realtimeClient: new ShutdownProviderClient(),
+        glossaryService: new EmptyGlossaryService() as unknown as GlossaryService,
+        dailyUsageRepo: new RoundTripDailyUsageRepository() as unknown as DailyUsageRepository,
+        policy: SHUTDOWN_POLICY,
+      });
+      const localCtx = await createTestApp({
+        realtimeService,
+        configOverrides: { REALTIME_TRANSCRIPTION_ENABLED: true, SONIOX_API_KEY: "test-soniox-key" },
+      });
+      const exitCodes: number[] = [];
+
+      try {
+        const user = await localCtx.createUser();
+        const baseUrl = await localCtx.app.listen({ port: 0, host: "127.0.0.1" });
+        const socket = new WebSocket(`${baseUrl.replace(/^http/, "ws")}/voice/realtime`, {
+          headers: { authorization: `Bearer ${user.accessToken}` },
+        });
+        await new Promise((resolve) => socket.once("open", resolve));
         const terminal = nextMessageWithin(socket, 5_000);
         const closed = nextClose(socket);
         const shutdown = createShutdownHandler({

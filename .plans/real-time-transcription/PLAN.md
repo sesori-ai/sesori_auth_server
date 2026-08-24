@@ -142,13 +142,14 @@ Out of scope:
 - Live audio terminates at the auth server and is proxied to the provider.
 - Both public transcription APIs remain provider-agnostic.
 - The existing async route and new real-time route remain available together.
-- PR13 deploys the real-time route behind
-  `REALTIME_TRANSCRIPTION_ENABLED=false`; operations enable it only after the
-  trusted-ingress, Soniox, privacy, and capacity gates pass. Disabled means the
-  WebSocket route is not registered and returns the normal HTTP 404.
+- Omitted real-time enablement follows Soniox key presence: a configured
+  `SONIOX_API_KEY` enables the route by default, while no key leaves it disabled.
+  Operations can use explicit `REALTIME_TRANSCRIPTION_ENABLED=false` to hold
+  endpoint registration. When disabled, the WebSocket route is not registered
+  and returns the normal HTTP 404.
 - The async provider is selected globally at process startup; a failed request
   is not retried with the other provider.
-- Soniox processing uses the EU regional project and EU REST/WebSocket domains.
+- Soniox processing uses the US regional project and US REST/WebSocket domains.
 - Soniox receives an English language hint without strict restriction, so
   multilingual speech remains possible.
 - Soniox semantic endpoint detection is disabled. The client `finish` command
@@ -1146,7 +1147,7 @@ messages never reach logs or HTTP responses.
 
 Soniox configuration for both modes:
 
-- EU region.
+- US region for the official project.
 - Explicit v5 model from validated configuration.
 - `language_hints: ["en"]`.
 - `language_hints_strict: false`.
@@ -1449,7 +1450,7 @@ start a next page/delete or change current single-flight state.
 Add a single-flight in-process safety sweep for process crashes and interrupted
 cleanup:
 
-- Use a dedicated Soniox EU project.
+- Use a dedicated Soniox US project.
 - Operate only on resources whose random `client_reference_id` has the Sesori
   voice prefix.
 - Sweep at startup and approximately every 15 minutes.
@@ -1553,14 +1554,14 @@ instead of waiting on a coordinator that was never invoked.
 | `NODE_ENV`                                       | `production`   | Closed `development`/`test`/`production` enum used to forbid provider URL overrides in production.        |
 | `ASYNC_TRANSCRIPTION_PROVIDER`                   | `openai`       | Closed enum selecting the existing async route's provider.                                                |
 | `SONIOX_API_KEY`                                 | conditional    | Required when async selects Soniox, realtime is enabled, or cleanup must drain existing Soniox resources. |
-| `SONIOX_REGION`                                  | `eu`           | Closed literal `eu`; production always uses EU endpoints.                                                 |
+| `SONIOX_REGION`                                  | `us`           | Closed `us`/`eu` enum; official production also explicitly selects `us`.                                 |
 | `SONIOX_BASE_DOMAIN`                             | forbidden      | SDK-owned environment override; startup rejects its presence in every environment.                        |
 | `SONIOX_API_BASE_URL`                            | absent         | Non-production-only REST override for deterministic tests/Docker stub; production rejects it.             |
 | `SONIOX_WS_URL`                                  | absent         | Non-production-only WebSocket override for deterministic tests/Docker stub; production rejects it.        |
 | `SONIOX_ASYNC_MODEL`                             | `stt-async-v5` | Exact literal server-owned async model.                                                                   |
 | `SONIOX_REALTIME_MODEL`                          | `stt-rt-v5`    | Exact literal server-owned real-time model.                                                               |
 | `SONIOX_ASYNC_TIMEOUT_MS`                        | `60000`        | Integer 1,000-60,000 ms upload/job/poll timeout for the synchronous async route.                          |
-| `REALTIME_TRANSCRIPTION_ENABLED`                 | `false`        | Fail-closed route registration gate until ingress/legal/provider checks pass.                             |
+| `REALTIME_TRANSCRIPTION_ENABLED`                 | key presence   | Omitted value enables with `SONIOX_API_KEY` and disables without it; explicit false is the rollout gate.   |
 | `REALTIME_TRANSCRIPTION_MAX_SESSION_SECONDS`     | `900`          | Integer 1-900 used for both wall-clock deadline and attempted-upstream audio cap.                         |
 | `REALTIME_TRANSCRIPTION_MAX_CONCURRENT_SESSIONS` | `10`           | Integer 1-10 local cap aligned with the initial Soniox project quota.                                     |
 | `AUTH_TRUSTED_PROXY_CIDRS`                       | empty          | Comma-separated exact CIDRs allowed to supply forwarding headers; empty config means `trustProxy: false`. |
@@ -1578,10 +1579,10 @@ conditional key/override rules. Validation also inspects and rejects any defined
 `SONIOX_BASE_DOMAIN` before an SDK client is constructed; non-production tests
 use only the validated `SONIOX_API_BASE_URL`. `SonioxAsyncClient` always passes
 the resolved local REST URL explicitly as the SDK `base_url`: exactly
-`https://api.eu.soniox.com` outside a validated non-production override. It also
-passes `region: "eu"` and the key explicitly, so no SDK-owned endpoint environment
-fallback selects the REST destination. Add the Soniox key only through the
-existing SOPS workflow; never create a plaintext environment file.
+`https://api.soniox.com` for official production. It also passes `region: "us"`
+and the matching key explicitly, so no SDK-owned endpoint environment fallback
+selects the REST destination. Add the Soniox key only through the existing SOPS
+workflow; never create a plaintext environment file.
 
 Realtime construction is one optional dependency bundle, never several optional
 services. `src/routes/voice-realtime.ts` exports exact
@@ -1624,14 +1625,14 @@ assertions or optional individual dependencies are permitted.
 - Real-time Soniox content is transient. Async content is stored only for job
   processing and is deleted immediately plus reconciled after crashes.
 - Update `assets/legal/privacy.md` before production traffic:
-  - add Soniox Inc. as an EU-region voice-transcription subprocessor;
+  - add Soniox Inc. as a US-region voice-transcription subprocessor;
   - retain OpenAI because async selection and metadata processing remain;
   - explain transient real-time processing and short-lived async job storage;
   - retain the no-training commitment and immediate post-processing deletion
     statement;
   - note that Soniox system/usage metadata may be processed outside the content
     region.
-- Soniox DPA acceptance, EU regional-project access, and the matching regional
+- Soniox DPA acceptance, US regional-project access, and the matching regional
   key are production gates.
 
 ## Delivery Plan
@@ -1677,7 +1678,7 @@ All slices are sequential and independently deployable from the then-current
 | PR10 | Uncomposed Soniox realtime transport adapter                  | No realtime public route is registered; adapter is focused-test only.                                           | Separate handshake/event normalization from bounded send lifecycle.     |
 | PR11 | Realtime transcription lifecycle and shared usage integration | No realtime public route is registered; complete service is exercised behind local interfaces.                  | Separate admission/timers from transcript/terminal/accounting behavior. |
 | PR12 | Realtime socket-session collaborator and backpressure         | No route plugin exists and production behavior remains unchanged.                                               | Separate client-send coalescing from inbound FIFO/session behavior.     |
-| PR13 | Typed route, conditional composition, pre-close, CI, rollout  | Realtime route is registered only when default-false flag is enabled; async and realtime coexist.               | Move more non-plugin tests into PR12; keep route/registration atomic.   |
+| PR13 | Typed route, conditional composition, pre-close, CI, rollout  | Realtime route follows the key-aware enablement value; async and realtime coexist.                              | Move more non-plugin tests into PR12; keep route/registration atomic.   |
 
 Checkpoint ledger (update the active row before coding and again before opening
 each PR; `actual` includes authored additions plus deletions):
@@ -2234,12 +2235,12 @@ File map:
 
 - `src/api/soniox.ts` (new): validate every consumed async SDK response/status,
   pagination shape, result, and provider error into bounded local values.
-- `src/clients/soniox-async-client.ts` (new): own EU async upload/create/poll/
+- `src/clients/soniox-async-client.ts` (new): own US async upload/create/poll/
   result/list/delete calls, 60-second provider deadline, fixed filename/context,
   request abort, and the exact fresh-five-second immediate-cleanup matrix; expose
   only local interfaces and do not compose it into the app. Accept the resolved
   local REST URL and pass it explicitly to the SDK as `base_url` alongside the
-  explicit EU region/key; never let SDK environment lookup choose the endpoint.
+  explicit US region/key; never let SDK environment lookup choose the endpoint.
 - `package.json` and `package-lock.json`: add locked `@soniox/node` without
   bypassing `.npmrc` safeguards; report generated lockfile churn separately.
 - `tests/api/soniox.test.ts` (new): cover every raw async value/status/error and
@@ -2247,7 +2248,7 @@ File map:
 - `tests/clients/soniox-async-client.test.ts` (new): use a fake SDK for success,
   invalid result, timeout/abort, every cleanup state, never-settling deletion,
   ambiguous creation/delete timeout, request-independent cleanup, fixed filename,
-  bounded terms, EU/model settings, explicit production/test `base_url`, hostile
+  bounded terms, US/model settings, explicit production/test `base_url`, hostile
   `SONIOX_BASE_DOMAIN` non-influence at this boundary, and safe logs.
 
 Acceptance criteria:
@@ -2279,9 +2280,9 @@ File map:
   prefix/status/reference safety, one interval, and five-second disposal.
 - `src/types/transcription.ts`: add the string-valued OpenAI/Soniox selector enum
   now that both implementations are composed.
-- `src/config.ts`: validate provider enum/default, EU-only region, exact async
+- `src/config.ts`: validate provider enum/default, closed US/EU region, exact async
   model/timeout, conditional key, `NODE_ENV`, production-forbidden REST stub, and
-  globally forbidden SDK-owned `SONIOX_BASE_DOMAIN`; resolve the exact EU/test
+  globally forbidden SDK-owned `SONIOX_BASE_DOMAIN`; resolve the exact regional/test
   REST URL passed to the client.
 - `src/shutdown.ts` and `src/index.ts`: construct OpenAI separately for metadata,
   select exactly one async provider, start cleanup after listen whenever a Soniox
@@ -2289,14 +2290,14 @@ File map:
   while preserving producer-before-usage order and one signal promise.
 - `src/lib/errors.ts`: add only bounded provider unavailable/invalid-result
   translations not already introduced by PR3.
-- `assets/legal/privacy.md`: disclose Soniox, EU content/system-metadata split,
+- `assets/legal/privacy.md`: disclose Soniox US content processing and storage,
   short-lived async storage, no training, deletion, and date.
 - `README.md`: document selector, cleanup, no fallback, 140-second downstream,
-  DPA/EU/dedicated-project gates, and provider rollback.
+  DPA/US/dedicated-project gates, and provider rollback.
 - `AGENTS.md`: record cleanup scheduler/dedicated-project constraints.
-- `tests/config.test.ts` (new): cover defaults, key condition, EU/model/timeout
+- `tests/config.test.ts` (new): cover defaults, key condition, US/EU/model/timeout
   bounds, production endpoint-override rejection, `SONIOX_BASE_DOMAIN`
-  rejection in every environment, exact resolved EU/test REST URL, and
+  rejection in every environment, exact resolved regional/test REST URL, and
   secret-canary failures producing only bounded path/code diagnostics.
 - `tests/services/soniox-cleanup-service.test.ts` (new): cover full bounded
   pagination-before-mutation, ordering, statuses, 404/409/errors, repeated IDs/
@@ -2310,7 +2311,7 @@ File map:
   selection/no fallback, ordered worst-case budget, and unchanged success JSON.
 - `.github/workflows/ci.yml`: run a no-egress local Soniox REST stub, wait for it,
   assert both startup list calls, and prohibit live endpoint resolution.
-- `env/app/prod.env` (operator-owned, SOPS-encrypted): add the EU key only via
+- `env/app/prod.env` (operator-owned, SOPS-encrypted): add the US key only via
   `npm run env:edit` after legal/provider gates; never expose plaintext.
 
 Acceptance criteria:
@@ -2346,8 +2347,8 @@ PR8 rollout checkpoint:
       Before PR8 accepts work, startup failure may restore PR7;
       afterward, require zero active/pending/blocked usage states before any
       rollback.
-- [ ] Provision a dedicated Soniox EU project and verify the API key against
-      `api.eu.soniox.com`.
+- [ ] Provision a dedicated Soniox US project and verify the API key against
+      `api.soniox.com`.
 - [ ] Accept/review the applicable Soniox DPA and subprocessor materials.
 - [ ] Add the key through SOPS before selecting Soniox.
 - [ ] Keep `ASYNC_TRANSCRIPTION_PROVIDER=openai` until the downstream client has
@@ -2445,13 +2446,13 @@ File map:
   validation, transcript bounds, and local classifications with path/code-only
   diagnostics.
 - `src/clients/soniox-realtime-client.ts` (new): use the direct locked `ws`
-  dependency rather than SDK `sendAudio()`; own EU handshake/configuration,
+  dependency rather than SDK `sendAudio()`; own US handshake/configuration,
   PCM/context settings, endpoint-detection disablement, exactly one outbound
   write callback, five-second send timeout, finish/cancel/terminate, and local
   provider-event normalization. It remains uncomposed.
 - `tests/api/soniox.test.ts`: cover raw real-time events, controls, errors,
   unknown future payloads, transcript bounds, and secret-canary log redaction.
-- `tests/clients/soniox-realtime-client.test.ts` (new): cover EU/model/config,
+- `tests/clients/soniox-realtime-client.test.ts` (new): cover US/model/config,
   configuration callback before ready, one write in flight, synchronous throw,
   callback error/timeout, normalized output, finish/cancel/terminate, zero-audio
   avoidance, abort, and late-callback fencing.
@@ -2574,7 +2575,7 @@ MONGODB_URI_TEST=mongodb://localhost:27017/auth-backend-test \
 
 File map:
 
-- `src/config.ts`: add exact trusted-proxy CIDRs, default-false realtime enable
+- `src/config.ts`: add exact trusted-proxy CIDRs, key-aware realtime enable
   flag, conditional Soniox-key rule, exact model/session/concurrency bounds, and
   non-production-only WebSocket endpoint override; failures use only bounded
   path/code diagnostics. Disabled config requires empty trusted CIDRs and no WS
@@ -2667,7 +2668,8 @@ File map:
 
 Acceptance criteria:
 
-- [ ] Ship realtime default-disabled and register WebSocket support before every
+- [ ] Ship realtime with omitted enablement derived from Soniox key presence and
+      register WebSocket support before every
       route only with a complete typed optional bundle; disabled startup creates
       no realtime client/gate/service/plugin/route and requires no Soniox key.
 - [ ] Define/register `VoiceRealtimeRouteOptions` in the same PR as the route;
@@ -2993,11 +2995,11 @@ enabled for client traffic:
    the candidate image. For PR13, run the WebSocket registration probe too.
 5. Keep async on OpenAI until the downstream timeout is at least 140 seconds,
    its boundary test receives a server response at the 130-second budget, and
-   the PR8 legal/EU/cleanup gates pass.
+   the PR8 legal/US/cleanup gates pass.
 6. Deploy PR13 with `REALTIME_TRANSCRIPTION_ENABLED=false`; verify the route is
    absent, production rejects `SONIOX_API_BASE_URL`/`SONIOX_WS_URL`, every
    environment rejects `SONIOX_BASE_DOMAIN`, and startup resolves the production
-   async REST endpoint to exactly `https://api.eu.soniox.com`.
+   async REST endpoint to exactly `https://api.soniox.com`.
 7. Identify every platform/proxy hop in front of `api.sesori.com`. If proxied,
    record exact source CIDRs in `AUTH_TRUSTED_PROXY_CIDRS`; if direct, retain an
    empty list/`trustProxy: false`. Never use all-proxy or ambiguous hop-count
@@ -3011,7 +3013,7 @@ enabled for client traffic:
 11. Confirm production remains single-instance while the documented in-memory
     auth-server constraints exist.
 12. Confirm the Soniox project has at least 10 concurrent real-time sessions and
-    100 new real-time requests/minute in EU.
+    100 new real-time requests/minute in the US.
 13. Run a staging stream longer than the ingress's former/default timeout and
     verify a terminal event arrives.
 14. Stream PCM fixtures at 16,000, 44,100, and 48,000 Hz and compare text against
@@ -3092,7 +3094,7 @@ implementing against the reference SHA recorded above.
 - No audio, transcript, access token, raw project identity, or provider secret
   appears in Sesori persistence or logs. Project-scoped glossary terms remain in
   `glossaryEntries` by design and never appear in logs.
-- Privacy disclosure, EU regional setup, capacity, ingress lifetime, tests,
+- Privacy disclosure, US regional setup, capacity, ingress lifetime, tests,
   build, lint, formatting, circular dependency check, and manual smoke checks
   are complete.
 - Durable debit receipts have approved retention/erasure wording, the runtime

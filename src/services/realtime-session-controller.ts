@@ -10,7 +10,7 @@ import type {
 } from "./realtime-transcription-contracts.js";
 import { RealtimeAdmissionError } from "./realtime-transcription-errors.js";
 import { emitTerminalEvent, emitTranscriptEvent } from "./realtime-public-event-emitter.js";
-import { Deferred, RealtimeSessionTimers } from "./realtime-session-utils.js";
+import { Deferred, RealtimeSessionTimers, type RealtimeTimeoutScheduler } from "./realtime-session-utils.js";
 import {
   RealtimeFinishedReason,
   RealtimeProtocolErrorCode,
@@ -36,7 +36,7 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
   readonly #abortController = new AbortController();
   readonly #providerSignal: AbortSignal;
   readonly #closed = new Deferred<void>();
-  readonly #timers = new RealtimeSessionTimers();
+  readonly #timers: RealtimeSessionTimers;
   readonly #now: () => number;
   #providerLimitSeconds: number;
   #remainingAtAdmission: number;
@@ -58,11 +58,14 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
     readonly readyLimitReason: RealtimeFinishedReason;
     readonly remainingAtAdmission: number;
     readonly now?: () => number;
+    /** Session deadline seam. Production arms real unref'd timers; tests fire them deterministically. */
+    readonly scheduleTimeout?: RealtimeTimeoutScheduler;
   }) {
     this.#service = args.service;
     this.#request = args.request;
     this.#policy = args.policy;
     this.#now = args.now ?? (() => Date.now());
+    this.#timers = new RealtimeSessionTimers(args.scheduleTimeout);
     this.#providerSignal = AbortSignal.any([this.#abortController.signal, args.request.signal]);
     this.#providerLimitSeconds = args.providerLimitSeconds;
     this.#readyLimitReason = args.readyLimitReason;
@@ -301,7 +304,11 @@ export class RealtimeSessionController implements RealtimeTranscriptionSession {
     this.#abortController.abort();
     this.#state = "closed";
     if (decision.kind !== "complete") {
-      this.#provider?.cancel();
+      try {
+        this.#provider?.cancel();
+      } catch {
+        // Provider teardown is best-effort and must not suppress usage accounting or the wire terminal.
+      }
     }
 
     try {

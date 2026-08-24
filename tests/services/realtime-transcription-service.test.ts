@@ -13,6 +13,7 @@ import {
   type RealtimeTranscriptionPolicy,
 } from "../../src/services/realtime-transcription-service.js";
 import { RealtimeSessionController } from "../../src/services/realtime-session-controller.js";
+import type { RealtimeTimeoutScheduler } from "../../src/services/realtime-session-utils.js";
 import { RealtimeAdmissionError } from "../../src/services/realtime-transcription-errors.js";
 import { emitTerminalEvent } from "../../src/services/realtime-public-event-emitter.js";
 import type { GlossaryService } from "../../src/services/glossary-service.js";
@@ -26,6 +27,7 @@ import {
   RealtimeTranscriptionFailureReason,
   type RealtimeProviderEvent,
 } from "../../src/types/transcription.js";
+import { RecordingTimeoutScheduler } from "../helpers/recording-timeout-scheduler.js";
 
 const USER_ID = "6a7603577dee429b4d11b17a";
 const PROJECT_KEY = "prj_v1_xgjNDm_yyduAKisFHr498ZgcjIU1FACdyEj68wSmbhc" as ProjectKey;
@@ -377,6 +379,32 @@ describe("RealtimeTranscriptionService", () => {
     assert.equal(progress.usage.increments[0]?.seconds, 1);
   });
 
+  it("completes a no-audio finish when provider cancellation throws", async () => {
+    const harness = createHarness();
+    const session = await harness.start();
+    const providerSession = harness.provider.sessions[0];
+    assert.ok(providerSession);
+    providerSession.cancel = (): void => {
+      providerSession.calls.push("cancel");
+      throw new Error("provider cancel exploded");
+    };
+
+    try {
+      await session.finish();
+
+      assert.deepEqual(providerSession.calls, ["cancel"]);
+      assert.deepEqual(harness.events.at(-1), {
+        type: "complete",
+        reason: RealtimeFinishedReason.Finished,
+        dailySecondsRemaining: 10,
+      });
+      assert.equal(harness.service.activeSessionCount, 0);
+      await session.closed;
+    } finally {
+      await session.shutdown().catch(() => undefined);
+    }
+  });
+
   it("rejects provider progress beyond the admitted session limit before usage accounting", async () => {
     const harness = createHarness({ policy: { ...POLICY, maxSessionSeconds: 1 } });
     const session = await harness.start();
@@ -721,20 +749,36 @@ describe("RealtimeTranscriptionService", () => {
     await Promise.all(admitted.map((session) => session.cancel()));
   });
 
+  // Driven through the scheduler seam rather than real timers. Sleeping between frames made the
+  // test assert that two wall-clock gaps stayed inside one deadline: a stalled event loop fired
+  // the deadline mid-test, the frame that was supposed to rearm it hit a closed session instead,
+  // and the failure said nothing about whether rearming works. Firing the deadline explicitly
+  // pins what rearming actually means — each accepted frame retires the pending deadline and arms
+  // a fresh one for the configured duration — which no amount of sleeping could observe.
   it("rearms the audio deadline on every accepted frame and terminates a silent session", async () => {
-    const harness = createHarness({ policy: { ...POLICY, firstAudioTimeoutMs: 120 } });
+    const timeouts = new RecordingTimeoutScheduler();
+    const harness = createHarness({
+      policy: { ...POLICY, firstAudioTimeoutMs: 120, maxSessionSeconds: 5 },
+      scheduleTimeout: timeouts.schedule,
+    });
     const session = await harness.start();
 
-    session.sendAudio(Buffer.alloc(320));
-    await delay(40);
-    session.sendAudio(Buffer.alloc(320));
-    await delay(40);
+    assert.equal(timeouts.armedWith(120).length, 1);
 
+    session.sendAudio(Buffer.alloc(320));
+    session.sendAudio(Buffer.alloc(320));
+
+    const deadlines = timeouts.armedWith(120);
+    assert.equal(deadlines.length, 3);
+    assert.deepEqual(
+      deadlines.map((deadline) => deadline.cancelCount),
+      [1, 1, 0],
+    );
     assert.equal(harness.events.at(-1)?.type, "ready");
 
-    const terminated = await Promise.race([session.closed.then(() => true), delay(1_000).then(() => false)]);
+    deadlines.at(-1)?.fire();
+    await session.closed;
 
-    assert.equal(terminated, true);
     assert.deepEqual(harness.events.at(-1), {
       type: "error",
       code: RealtimeProtocolErrorCode.AudioTimeout,
@@ -759,6 +803,63 @@ describe("RealtimeTranscriptionService", () => {
     const terminated = await Promise.race([session.closed.then(() => true), delay(1_000).then(() => false)]);
 
     assert.equal(terminated, true);
+    assert.deepEqual(harness.events.at(-1), {
+      type: "error",
+      code: RealtimeProtocolErrorCode.InvalidAudio,
+      retryable: false,
+    });
+  });
+
+  // The last frame of a session normally overruns the cumulative cap: a client streaming live
+  // audio has no way to land its final buffer exactly on the limit. Measuring pace against the
+  // whole payload rather than the prefix the cap would accept turned that ordinary frame into a
+  // protocol error, so the client saw invalid_audio instead of the transcript it had earned.
+  it("truncates a frame that crosses the session cap when its accepted prefix is within pace", async () => {
+    const clock = { nowMs: 1_000 };
+    const harness = createHarness({
+      now: () => clock.nowMs,
+      policy: { ...POLICY, maxSessionSeconds: 2, firstAudioTimeoutMs: 1_000, audioPaceBurstSeconds: 1 },
+    });
+    const session = await harness.start();
+
+    // 16 kHz mono s16le: 32 000 bytes per second, a 2 s cap, and a 1 s burst allowance.
+    session.sendAudio(Buffer.alloc(32_000));
+    clock.nowMs += 1_000;
+    // Only 32 000 bytes remain under the cap, which the elapsed second plus the burst covers
+    // exactly — even though the frame as delivered is twice that.
+    session.sendAudio(Buffer.alloc(64_000));
+    harness.provider.sessions[0]?.emit({ type: RealtimeProviderEventType.Finished });
+    await session.closed;
+
+    assert.deepEqual(harness.provider.sessions[0]?.sentBytes, [32_000, 32_000]);
+    assert.equal(
+      harness.events.some((event) => event.type === "error"),
+      false,
+    );
+    assert.deepEqual(harness.events.at(-1), {
+      type: "complete",
+      reason: RealtimeFinishedReason.SessionLimit,
+      dailySecondsRemaining: 8,
+    });
+    assert.equal(harness.usage.increments[0]?.seconds, 2);
+  });
+
+  // The counterpart the reordering must not cost: audio far beyond the pace budget is refused
+  // outright rather than sliced down to the cap and queued at the provider.
+  it("refuses a frame whose capped prefix still outruns the pace allowance", async () => {
+    const clock = { nowMs: 1_000 };
+    const harness = createHarness({
+      now: () => clock.nowMs,
+      policy: { ...POLICY, maxSessionSeconds: 5, firstAudioTimeoutMs: 1_000, audioPaceBurstSeconds: 1 },
+    });
+    const session = await harness.start();
+
+    // The cap would accept 160 000 bytes of this frame, but at zero elapsed time the burst
+    // allowance is worth 32 000, so even the truncated prefix is a fire-hose.
+    session.sendAudio(Buffer.alloc(200_000));
+    await session.closed;
+
+    assert.deepEqual(harness.provider.sessions[0]?.sentBytes, []);
     assert.deepEqual(harness.events.at(-1), {
       type: "error",
       code: RealtimeProtocolErrorCode.InvalidAudio,
@@ -836,6 +937,7 @@ function createHarness(
     termsGate?: TestDeferred<readonly string[]>;
     connectGate?: TestDeferred<RealtimeTranscriptionSession>;
     now?: () => number;
+    scheduleTimeout?: RealtimeTimeoutScheduler;
     /** Runs on every terminal callback, so a test can make the client-facing emit throw. */
     onTerminalEvent?: () => void;
   } = {},
@@ -855,6 +957,7 @@ function createHarness(
     dailyUsageRepo: usage as unknown as DailyUsageRepository,
     policy: options.policy ?? POLICY,
     now: options.now,
+    scheduleTimeout: options.scheduleTimeout,
   });
   return {
     provider,

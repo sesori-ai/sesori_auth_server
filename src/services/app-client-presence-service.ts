@@ -5,6 +5,7 @@ type RegistrationWaiter = {
   userId: string;
   promise: Promise<boolean | null>;
   resolve: (registered: boolean | null) => void;
+  reject: (error: unknown) => void;
   timeout: ReturnType<typeof setTimeout>;
   abortSignal: AbortSignal;
   abortListener: () => void;
@@ -40,10 +41,11 @@ export class AppClientPresenceInitialReadTimeout extends Error {
 }
 
 /**
- * Thrown by `waitForRegistration` when the wait begins after `releaseWaiters`
- * has run. Shutdown releases waiters before `app.close()`, so the server keeps
- * serving requests through this window; answering them `false` would report an
- * absence nothing ever read. The route surfaces it as a retryable 503, the same
+ * Thrown by `waitForRegistration` when shutdown releases an active waiter or
+ * when the wait begins after `releaseWaiters` has run. Shutdown releases
+ * waiters before `app.close()`, so the server keeps serving requests through
+ * this window; answering them `false` would conflate an early shutdown release
+ * with an ordinary timeout. The route surfaces it as a retryable 503, the same
  * signal `PendingAuthStatus.Shutdown` gives the OAuth long poll.
  */
 export class AppClientPresenceShuttingDown extends Error {
@@ -72,8 +74,9 @@ export class AppClientPresenceShuttingDown extends Error {
  *      close the registration-between-read-and-storage race window.
  *   3. `registerToken` resolves all waiters for the user as `true` — but only
  *      after the durable upsert succeeds; a failed upsert wakes no one.
- *   4. The remaining-budget timer resolves `false`; the abort signal resolves
- *      `null` (client gone — the route must not serialize a reply).
+ *   4. The remaining-budget timer resolves `false`; shutdown rejects with
+ *      `AppClientPresenceShuttingDown`; the abort signal resolves `null`
+ *      (client gone — the route must not serialize a reply).
  */
 export class AppClientPresenceService {
   readonly #deviceTokenRepo: DeviceTokenRepository;
@@ -125,8 +128,7 @@ export class AppClientPresenceService {
    *
    * Throws `AppClientPresenceInitialReadTimeout` when the deadline elapses
    * before the initial read settles, and `AppClientPresenceShuttingDown` when
-   * the wait starts after release — so unconfirmed absence is never reported
-   * as `false`.
+   * shutdown releases an active waiter or the wait starts after release.
    */
   async waitForRegistration(params: {
     userId: string;
@@ -230,7 +232,7 @@ export class AppClientPresenceService {
     this.#released = true;
     for (const waiters of Array.from(this.#waitersByUserId.values())) {
       for (const waiter of Array.from(waiters)) {
-        this.#completeWaiter(waiter, false);
+        this.#failWaiter(waiter, new AppClientPresenceShuttingDown());
       }
     }
   }
@@ -299,8 +301,10 @@ export class AppClientPresenceService {
 
   #createWaiter(params: { userId: string; timeoutMs: number; abortSignal: AbortSignal }): RegistrationWaiter {
     let resolvePromise!: (registered: boolean | null) => void;
-    const promise = new Promise<boolean | null>((resolve) => {
+    let rejectPromise!: (error: unknown) => void;
+    const promise = new Promise<boolean | null>((resolve, reject) => {
       resolvePromise = resolve;
+      rejectPromise = reject;
     });
     // waiterRef breaks the forward reference: the abort listener and timeout
     // callback need the waiter object, but both are created before it can be
@@ -322,6 +326,7 @@ export class AppClientPresenceService {
       userId: params.userId,
       promise,
       resolve: resolvePromise,
+      reject: rejectPromise,
       timeout,
       abortSignal: params.abortSignal,
       abortListener,
@@ -341,15 +346,30 @@ export class AppClientPresenceService {
     return waiter;
   }
 
-  /**
-   * Single-completion gate: clears the timer, removes the abort listener,
-   * removes the waiter from the per-user set (deleting a drained entry), and
-   * resolves its promise. The `settled` flag makes completion idempotent when
-   * registration, recheck, timeout, and abort race for the same waiter.
-   */
   #completeWaiter(waiter: RegistrationWaiter, registered: boolean | null): void {
-    if (waiter.settled) {
+    if (!this.#settleWaiter(waiter)) {
       return;
+    }
+
+    waiter.resolve(registered);
+  }
+
+  #failWaiter(waiter: RegistrationWaiter, error: unknown): void {
+    if (!this.#settleWaiter(waiter)) {
+      return;
+    }
+
+    waiter.reject(error);
+  }
+
+  /**
+   * Single-settlement gate: clears the timer, removes the abort listener, and
+   * removes the waiter from the per-user set. The flag makes settlement
+   * idempotent when registration, recheck, timeout, abort, and shutdown race.
+   */
+  #settleWaiter(waiter: RegistrationWaiter): boolean {
+    if (waiter.settled) {
+      return false;
     }
 
     waiter.settled = true;
@@ -361,6 +381,6 @@ export class AppClientPresenceService {
       this.#waitersByUserId.delete(waiter.userId);
     }
 
-    waiter.resolve(registered);
+    return true;
   }
 }

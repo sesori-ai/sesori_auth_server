@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AsyncTranscriptionProvider } from "./types/transcription.js";
+import { AsyncTranscriptionProvider, SonioxRegion } from "./types/transcription.js";
 import { clientIpSourceSchema, ClientIpSource, trustedIngressCidrsSchema } from "./types/client-ip.js";
 import { productAnalyticsPseudonymizationKeySchema } from "./types/product-analytics.js";
 
@@ -98,7 +98,7 @@ const baseConfigSchema = z.object({
 
   ASYNC_TRANSCRIPTION_PROVIDER: z.nativeEnum(AsyncTranscriptionProvider).default(AsyncTranscriptionProvider.OpenAI),
   SONIOX_API_KEY: z.string().min(1).optional(),
-  SONIOX_REGION: z.literal("eu").default("eu"),
+  SONIOX_REGION: z.nativeEnum(SonioxRegion).default(SonioxRegion.Us),
   SONIOX_ASYNC_MODEL: z.string().min(1).default("stt-async-v5"),
   SONIOX_ASYNC_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(110_000).default(100_000),
   SONIOX_CLEANUP_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(30_000).default(10_000),
@@ -111,7 +111,7 @@ const baseConfigSchema = z.object({
   REALTIME_TRANSCRIPTION_ENABLED: z
     .union([z.literal("true"), z.literal("false"), z.literal("1"), z.literal("0")])
     .optional()
-    .transform((v) => v === "true" || v === "1"),
+    .transform((v) => (v === undefined ? undefined : v === "true" || v === "1")),
   REALTIME_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(30_000).default(10_000),
   REALTIME_FINISH_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(30_000).default(10_000),
   REALTIME_DISPOSE_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(20_000).default(15_000),
@@ -128,7 +128,7 @@ const baseConfigSchema = z.object({
   DAILY_TRANSCRIPTION_LIMIT_SECONDS: z.coerce.number().default(3600),
 });
 
-export const configSchema = baseConfigSchema.superRefine((config, ctx) => {
+const validatedConfigSchema = baseConfigSchema.superRefine((config, ctx) => {
   if (config.AUTH_DEV_BYPASS_ENABLED && config.NODE_ENV !== "development") {
     ctx.addIssue({
       code: "custom",
@@ -156,9 +156,9 @@ export const configSchema = baseConfigSchema.superRefine((config, ctx) => {
     ctx.addIssue({ code: "custom", path: ["SONIOX_BASE_DOMAIN"], message: "SONIOX_BASE_DOMAIN is forbidden" });
   }
 
-  // Realtime needs the key regardless of which async provider is selected: the
-  // realtime proxy always runs on Soniox, so enabling it on the default OpenAI
-  // async provider still requires the credential.
+  // Explicit realtime enablement needs the key regardless of which async
+  // provider is selected. Omitted enablement is resolved from key presence by
+  // the transform below, so a deployment without Soniox credentials stays off.
   if (config.REALTIME_TRANSCRIPTION_ENABLED && !config.SONIOX_API_KEY) {
     ctx.addIssue({ code: "custom", path: ["SONIOX_API_KEY"], message: "SONIOX_API_KEY is required for realtime" });
   }
@@ -172,6 +172,11 @@ export const configSchema = baseConfigSchema.superRefine((config, ctx) => {
   }
 });
 
+export const configSchema = validatedConfigSchema.transform((config) => ({
+  ...config,
+  REALTIME_TRANSCRIPTION_ENABLED: config.REALTIME_TRANSCRIPTION_ENABLED ?? config.SONIOX_API_KEY !== undefined,
+}));
+
 export type Config = z.infer<typeof configSchema>;
 
 /** Exposed so configuration rules can be asserted without mutating process env. */
@@ -183,14 +188,14 @@ const glossaryMigrationConfigSchema = z.object({
 
 const sonioxPurgeConfigSchema = z.object({
   SONIOX_API_KEY: z.string().min(1),
-  SONIOX_REGION: z.literal("eu").default("eu"),
+  SONIOX_REGION: z.nativeEnum(SonioxRegion).default(SonioxRegion.Us),
 });
 
 /**
  * Narrow config for the operator purge script: it reads only the Soniox
  * credentials it needs, never the full web configuration.
  */
-export function loadSonioxPurgeConfig(env: NodeJS.ProcessEnv): { apiKey: string; region: "eu" } {
+export function loadSonioxPurgeConfig(env: NodeJS.ProcessEnv): { apiKey: string; region: SonioxRegion } {
   const result = sonioxPurgeConfigSchema.safeParse(env);
   if (!result.success) {
     throw new Error("SonioxPurgeConfigError");

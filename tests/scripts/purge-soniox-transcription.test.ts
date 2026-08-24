@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import {
   parseSonioxPurgeArgs,
   runSonioxPurge,
+  runSonioxPurgeCli,
   type SonioxPurgeSdk,
+  type SonioxPurgeSdkOptions,
 } from "../../src/scripts/purge-soniox-transcription.js";
 
 // The SDK's list helpers are async paginators, so a synchronous array iterator
@@ -62,6 +64,42 @@ describe("purge-soniox-transcription", () => {
       for (const argv of [["--delete"], ["--apply", "--apply"], ["extra"]]) {
         assert.throws(() => parseSonioxPurgeArgs(argv), /InvalidSonioxPurgeArguments/);
       }
+    });
+  });
+
+  describe("runSonioxPurgeCli", () => {
+    it("constructs the SDK with the US endpoint by default", async (t) => {
+      t.mock.method(console, "log", () => {});
+      const options: SonioxPurgeSdkOptions[] = [];
+
+      const code = await runSonioxPurgeCli({
+        argv: [],
+        env: { SONIOX_API_KEY: "test-key" },
+        createSdk: async (input) => {
+          options.push(input);
+          return createSdk([], []).sdk;
+        },
+      });
+
+      assert.equal(code, 0);
+      assert.deepEqual(options, [{ api_key: "test-key", region: "us", base_url: "https://api.soniox.com" }]);
+    });
+
+    it("constructs the SDK with the explicit EU endpoint", async (t) => {
+      t.mock.method(console, "log", () => {});
+      const options: SonioxPurgeSdkOptions[] = [];
+
+      const code = await runSonioxPurgeCli({
+        argv: [],
+        env: { SONIOX_API_KEY: "test-key", SONIOX_REGION: "eu" },
+        createSdk: async (input) => {
+          options.push(input);
+          return createSdk([], []).sdk;
+        },
+      });
+
+      assert.equal(code, 0);
+      assert.deepEqual(options, [{ api_key: "test-key", region: "eu", base_url: "https://api.eu.soniox.com" }]);
     });
   });
 

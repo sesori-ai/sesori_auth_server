@@ -224,7 +224,11 @@ So the choice is between leaving a filtering gap open while it drains by attriti
 
 ### Realtime voice
 
-Realtime transcription is disabled by default during the staged rollout. Public
+Realtime transcription defaults to enabled when `SONIOX_API_KEY` is configured
+and `REALTIME_TRANSCRIPTION_ENABLED` is omitted. A deployment without the key
+defaults to disabled, and an explicit `false`/`0` disables the route even when a
+key is present. The current mobile app does not consume this endpoint, so its
+voice traffic remains on `POST /voice/transcribe`. Public
 `GET /voice/capabilities` is always available, requires no token, and carries no
 account or provider data:
 
@@ -344,7 +348,12 @@ ready and rearmed on every accepted frame, so a session that goes silent ends
 with `audio_timeout` instead of pinning both sockets until the wall-clock cap.
 Inbound audio is additionally paced: accepted bytes must stay within
 `elapsed session seconds + REALTIME_AUDIO_PACE_BURST_SECONDS` of audio, and a
-client beyond that is terminated with `invalid_audio`. Live capture produces one
+client beyond that is terminated with `invalid_audio`. The frame that crosses
+the cumulative session cap is truncated to the bytes that still fit and the
+session completes on `session_limit`/`quota_limit`; pacing measures that
+accepted prefix, so a client's ordinary final frame is not refused as a protocol
+error for overshooting a limit the server was about to enforce anyway. Live
+capture produces one
 second of audio per elapsed second, so a client that buffers during a network
 stall stays within budget — the stall advances the elapsed clock by the same
 amount it buffered. Without pacing the cumulative session cap alone allows an
@@ -377,13 +386,13 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 | `RELAY_WEBHOOK_SECRET`         | Shared secret authenticating the relay on `/internal/*` endpoints.                                                                                                                          |
 | `ASYNC_TRANSCRIPTION_PROVIDER` | Async transcription provider: `openai` (default) or `soniox`. Selected once at startup; a failed request is never retried against the other provider. |
 | `SONIOX_API_KEY`               | Soniox API key. Required when `ASYNC_TRANSCRIPTION_PROVIDER=soniox` **or** when `REALTIME_TRANSCRIPTION_ENABLED` is true — realtime always runs on Soniox, so enabling it on the default OpenAI async provider still requires this key or startup fails. Keep it in the encrypted env only. |
-| `SONIOX_REGION`                | Soniox data-residency region. Only `eu` is accepted. Default `eu`. |
+| `SONIOX_REGION`                | Soniox project region: `us` or `eu`. Must match the API key's project region. Default `us`. |
 | `SONIOX_ASYNC_MODEL`           | Soniox async model. Default `stt-async-v5`. |
 | `SONIOX_ASYNC_TIMEOUT_MS`      | Budget covering upload, processing, and transcript fetch. Default `100000` (range 1,000-110,000). |
 | `SONIOX_CLEANUP_TIMEOUT_MS`    | Independent budget for deleting provider-side audio. Default `10000` (range 1,000-30,000). |
 | `SONIOX_REALTIME_MODEL`        | Soniox realtime model. Default `stt-rt-v5`. |
 | `SONIOX_BASE_DOMAIN`           | **Not a setting.** Declared in the schema only so that setting it *fails startup* with `SONIOX_BASE_DOMAIN is forbidden`. The Soniox SDK reads this variable itself and it outranks `SONIOX_REGION` when deriving the default host of every Soniox service, so honouring it would silently move any endpoint we have not pinned. Leave it unset. See "Soniox endpoint pinning" below. |
-| `REALTIME_TRANSCRIPTION_ENABLED` | Enables the `/voice/realtime` WebSocket route. Default `false`; disabled deployments still expose protocol 1 capability discovery. Accepted values: `false`, `0`, `true`, `1`. Anything else — including an empty string, `TRUE`, or `yes` — fails startup rather than defaulting to off. Requires `SONIOX_API_KEY`. |
+| `REALTIME_TRANSCRIPTION_ENABLED` | Enables the additive `/voice/realtime` WebSocket route. When omitted, defaults to `true` if `SONIOX_API_KEY` is present and `false` otherwise. Explicit `false`/`0` disables it even with a key; explicit `true`/`1` without a key fails startup. Disabled deployments still expose protocol 1 capability discovery. Any other value — including an empty string, `TRUE`, or `yes` — fails startup. |
 | `REALTIME_CONNECT_TIMEOUT_MS`  | Soniox realtime connect timeout. Default `10000` (range 1,000-30,000). |
 | `REALTIME_FINISH_TIMEOUT_MS`   | Provider finalization timeout after client finish/session cap. Default `10000` (range 1,000-30,000). |
 | `REALTIME_DISPOSE_TIMEOUT_MS`  | Realtime service shutdown drain timeout. Default `15000` (range 1,000-20,000). |
@@ -478,8 +487,9 @@ Activation reminder timers and single-flight state are process-local. Keep `ACTI
 realtime to stop admitting, drain in-flight background work, close the HTTP
 server, then close MongoDB. Callers that cannot be answered truthfully in that
 window are refused rather than guessed at — `/auth/session/status` and
-`/auth/app-clients/status?wait=true` return `503 service_restarting`, and live
-realtime sessions receive a `service_restarting` error frame and close 1013.
+`/auth/app-clients/status?wait=true` return `503 service_restarting`, and
+authenticated realtime sockets, including those waiting for their first frame,
+receive a `service_restarting` error frame and close 1013.
 
 **The deployment platform must allow at least 25 seconds of SIGTERM grace.** The
 process enforces its own 22-second hard deadline (`SHUTDOWN_HARD_DEADLINE_MS` in
@@ -619,10 +629,16 @@ provider fails, the request fails with a provider-neutral error. Switching
 providers is a configuration change plus a restart.
 
 OpenAI remains the default. **Do not select Soniox in production until the
-Soniox DPA is signed, the EU project is provisioned, the updated privacy policy
-is published, and the mobile app's request timeout exceeds the server budget.**
+Soniox DPA is signed, a regional project and key matching `SONIOX_REGION` are
+provisioned, the matching privacy disclosure is published, and the mobile app's
+request timeout exceeds the server budget.**
 Soniox async processing can take longer than the app's current 30-second
 timeout.
+
+Before rolling back to a binary that predates US-region support, first set
+`ASYNC_TRANSCRIPTION_PROVIDER=openai` and `SONIOX_REGION=eu`, then restart and
+verify OpenAI transcription on the current binary. The older binary rejects
+`SONIOX_REGION=us`; never start it before this configuration transition.
 
 Provider failures map to bounded errors, each carrying an additive `retryable`
 boolean that older apps may ignore:
@@ -673,8 +689,9 @@ completes.
 
 ### Soniox endpoint pinning
 
-EU data residency is enforced in code, not by configuration. Both the async and
-the realtime Soniox clients are constructed with explicit endpoints — `base_url`
+Regional data residency is enforced with a closed server-owned endpoint
+allowlist; official production uses the US project. Both the async and realtime
+Soniox clients are constructed with explicit endpoints — `base_url`
 for REST and, for realtime, `realtime.ws_base_url` — because `SONIOX_REGION`
 alone is not sufficient. The SDK resolves each endpoint in this order, highest
 precedence first:
@@ -775,7 +792,6 @@ view:
 - `PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY`
 - optional `PRODUCT_ANALYTICS_EXPORT_BATCH_LIMIT` (default 500, maximum 1000)
 - optional `PRODUCT_ANALYTICS_INTERNAL_EXCLUSION_MAX_KEYS` (default 10000, maximum 100000)
-- optional `PRODUCT_ANALYTICS_INTERNAL_EXCLUSION_MAX_AGE_MS` (default 48 hours)
 - `MONGODB_URI`
 
 Generate the pseudonymization key once with `openssl rand -base64 32`, store it
@@ -786,13 +802,14 @@ targets; a mismatched key breaks privacy joins.
 
 The control view must return `user_key`, `is_active`, and a common
 `control_updated_at`. It must include one row with a nullable `user_key` as a
-freshness sentinel even when there are no active exclusions. Missing, stale,
-malformed, duplicate, or oversized controls abort publication. The job stages
-only pseudonymous/aggregate rows in tables expiring within 24 hours, reconciles
-late preference changes, validates both products, and transactionally replaces
-`auth_user_milestones` and `auth_weekly_setup_cohorts`. Failed runs leave the
-previous publication intact. The same transaction appends aggregate source,
-exclusion, reconciliation, cutoff, and freshness metadata to
+version sentinel even when there are no active exclusions. Missing, future-dated,
+malformed, duplicate, mixed-version, or oversized controls abort publication.
+The job stages only pseudonymous/aggregate rows in tables expiring within 24
+hours, reconciles late preference changes, validates both products, and
+transactionally replaces `auth_user_milestones` and
+`auth_weekly_setup_cohorts`. Failed runs leave the previous publication intact.
+The same transaction appends aggregate source, exclusion, reconciliation,
+cutoff, and freshness metadata to
 `product_analytics_export_runs`; it contains no source account identifiers.
 
 The deployment identity—not the export job—must provision and own the permanent

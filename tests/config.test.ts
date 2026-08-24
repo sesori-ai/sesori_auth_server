@@ -12,6 +12,7 @@ import {
   AsyncTranscriptionProvider,
   SONIOX_REALTIME_WS_URL_BY_REGION,
   SONIOX_REST_URL_BY_REGION,
+  SonioxRegion,
 } from "../src/types/transcription.js";
 
 const serviceAccount = {
@@ -73,21 +74,28 @@ describe("loadGlossaryMigrationConfig", () => {
 });
 
 describe("loadSonioxPurgeConfig", () => {
-  it("returns only the Soniox credentials the operator script needs", () => {
+  it("returns only the Soniox credentials the operator script needs and defaults to US", () => {
     assert.deepEqual(
       loadSonioxPurgeConfig({
         SONIOX_API_KEY: "test-soniox-key",
         MONGODB_URI: "mongodb://localhost:27017/oauth",
         JWT_PRIVATE_KEY: "must-not-cross-the-cli-boundary",
       }),
-      { apiKey: "test-soniox-key", region: "eu" },
+      { apiKey: "test-soniox-key", region: "us" },
     );
   });
 
-  it("rejects a missing or empty key and a non-EU region", () => {
+  it("accepts the explicit EU region", () => {
+    assert.deepEqual(loadSonioxPurgeConfig({ SONIOX_API_KEY: "test-soniox-key", SONIOX_REGION: "eu" }), {
+      apiKey: "test-soniox-key",
+      region: "eu",
+    });
+  });
+
+  it("rejects a missing or empty key and an unsupported region", () => {
     assert.throws(() => loadSonioxPurgeConfig({}), /SonioxPurgeConfigError/);
     assert.throws(() => loadSonioxPurgeConfig({ SONIOX_API_KEY: "" }), /SonioxPurgeConfigError/);
-    assert.throws(() => loadSonioxPurgeConfig({ SONIOX_API_KEY: "k", SONIOX_REGION: "us" }), /SonioxPurgeConfigError/);
+    assert.throws(() => loadSonioxPurgeConfig({ SONIOX_API_KEY: "k", SONIOX_REGION: "jp" }), /SonioxPurgeConfigError/);
   });
 });
 
@@ -143,13 +151,25 @@ describe("async transcription provider configuration", () => {
       SONIOX_API_KEY: "soniox-key",
     });
     assert.equal(provided.success, true);
-    assert.equal(provided.data?.SONIOX_REGION, "eu");
+    assert.equal(provided.data?.SONIOX_REGION, SonioxRegion.Us);
     assert.equal(provided.data?.SONIOX_ASYNC_MODEL, "stt-async-v5");
   });
 
-  it("rejects an unknown provider, a non-EU region, and out-of-range timeouts", () => {
+  it("accepts the explicit EU region for Soniox", () => {
+    const result = configSchemaForTest.safeParse({
+      ...base,
+      ASYNC_TRANSCRIPTION_PROVIDER: "soniox",
+      SONIOX_API_KEY: "soniox-key",
+      SONIOX_REGION: "eu",
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.data?.SONIOX_REGION, SonioxRegion.Eu);
+  });
+
+  it("rejects an unknown provider, an unsupported region, and out-of-range timeouts", () => {
     assert.equal(configSchemaForTest.safeParse({ ...base, ASYNC_TRANSCRIPTION_PROVIDER: "whisper" }).success, false);
-    assert.equal(configSchemaForTest.safeParse({ ...base, SONIOX_REGION: "us" }).success, false);
+    assert.equal(configSchemaForTest.safeParse({ ...base, SONIOX_REGION: "jp" }).success, false);
     assert.equal(configSchemaForTest.safeParse({ ...base, SONIOX_ASYNC_TIMEOUT_MS: "999" }).success, false);
     assert.equal(configSchemaForTest.safeParse({ ...base, SONIOX_ASYNC_TIMEOUT_MS: "120000" }).success, false);
     assert.equal(configSchemaForTest.safeParse({ ...base, SONIOX_CLEANUP_TIMEOUT_MS: "40000" }).success, false);
@@ -179,7 +199,7 @@ describe("async transcription provider configuration", () => {
         apiKey: sonioxApiKey,
         region: result.data.SONIOX_REGION,
       }).realtime,
-      { ws_base_url: SONIOX_REALTIME_WS_URL_BY_REGION.eu },
+      { ws_base_url: SONIOX_REALTIME_WS_URL_BY_REGION[SonioxRegion.Us] },
     );
   });
 });
@@ -222,15 +242,23 @@ describe("realtime transcription configuration", () => {
     assert.equal(provided.data?.REALTIME_TRANSCRIPTION_ENABLED, true);
   });
 
-  it("does not require the Soniox key while realtime is disabled", () => {
+  it("defaults realtime from Soniox key presence and preserves an explicit opt-out", () => {
+    const withoutKey = configSchema.safeParse(validEnv());
+    assert.equal(withoutKey.success, true);
+    assert.equal(withoutKey.data?.REALTIME_TRANSCRIPTION_ENABLED, false);
+
+    const withKey = configSchema.safeParse(validEnv({ SONIOX_API_KEY: "soniox-key" }));
+    assert.equal(withKey.success, true);
+    assert.equal(withKey.data?.REALTIME_TRANSCRIPTION_ENABLED, true);
+
     for (const value of ["false", "0"]) {
-      const result = configSchema.safeParse(validEnv({ REALTIME_TRANSCRIPTION_ENABLED: value }));
+      const result = configSchema.safeParse(
+        validEnv({ REALTIME_TRANSCRIPTION_ENABLED: value, SONIOX_API_KEY: "soniox-key" }),
+      );
 
       assert.equal(result.success, true, `REALTIME_TRANSCRIPTION_ENABLED=${JSON.stringify(value)} should parse`);
       assert.equal(result.data?.REALTIME_TRANSCRIPTION_ENABLED, false);
     }
-
-    assert.equal(configSchema.safeParse(validEnv()).data?.REALTIME_TRANSCRIPTION_ENABLED, false);
   });
 
   it("rejects realtime enable values that are not an exact boolean literal", () => {
@@ -284,8 +312,9 @@ describe("realtime transcription configuration", () => {
 });
 
 describe("Soniox endpoint pinning", () => {
-  it("resolves the EU region to the explicit EU REST URL", () => {
-    assert.equal(SONIOX_REST_URL_BY_REGION.eu, "https://api.eu.soniox.com");
+  it("resolves each region to its explicit REST URL", () => {
+    assert.equal(SONIOX_REST_URL_BY_REGION[SonioxRegion.Us], "https://api.soniox.com");
+    assert.equal(SONIOX_REST_URL_BY_REGION[SonioxRegion.Eu], "https://api.eu.soniox.com");
   });
 
   it("outranks SDK environment endpoint overrides", async () => {
@@ -295,18 +324,20 @@ describe("Soniox endpoint pinning", () => {
     process.env.SONIOX_API_BASE_URL = "https://redirected.example.com";
     try {
       const { SonioxNodeClient } = await import("@soniox/node");
-      const unpinned = new SonioxNodeClient({ api_key: "k", region: "eu" });
-      const pinned = new SonioxNodeClient({
-        api_key: "k",
-        region: "eu",
-        base_url: SONIOX_REST_URL_BY_REGION.eu,
-      });
-
       const readBaseUrl = (client: unknown): unknown =>
         (client as { files: { http: { baseUrl?: unknown } } }).files.http.baseUrl;
 
-      assert.equal(readBaseUrl(unpinned), "https://redirected.example.com");
-      assert.equal(readBaseUrl(pinned), "https://api.eu.soniox.com");
+      for (const region of [SonioxRegion.Us, SonioxRegion.Eu]) {
+        const unpinned = new SonioxNodeClient({ api_key: "k", region });
+        const pinned = new SonioxNodeClient({
+          api_key: "k",
+          region,
+          base_url: SONIOX_REST_URL_BY_REGION[region],
+        });
+
+        assert.equal(readBaseUrl(unpinned), "https://redirected.example.com");
+        assert.equal(readBaseUrl(pinned), SONIOX_REST_URL_BY_REGION[region]);
+      }
     } finally {
       if (previous === undefined) {
         delete process.env.SONIOX_API_BASE_URL;
@@ -329,21 +360,23 @@ describe("Soniox endpoint pinning", () => {
     process.env.SONIOX_BASE_DOMAIN = "attacker.example.com";
     try {
       const { SonioxNodeClient } = await import("@soniox/node");
-      const unpinned = new SonioxNodeClient({ api_key: "k", region: "eu" });
-      const pinned = new SonioxNodeClient(createSonioxRealtimeSdkOptions({ apiKey: "k", region: "eu" }));
-
       const readWsUrl = (client: unknown): unknown =>
         (client as { realtime: { options: { ws_base_url?: unknown } } }).realtime.options.ws_base_url;
       const readBaseUrl = (client: unknown): unknown =>
         (client as { files: { http: { baseUrl?: unknown } } }).files.http.baseUrl;
 
-      assert.equal(readWsUrl(unpinned), "wss://redirected.example.com/transcribe");
-      assert.equal(readWsUrl(pinned), SONIOX_REALTIME_WS_URL_BY_REGION.eu);
+      for (const region of [SonioxRegion.Us, SonioxRegion.Eu]) {
+        const unpinned = new SonioxNodeClient({ api_key: "k", region });
+        const pinned = new SonioxNodeClient(createSonioxRealtimeSdkOptions({ apiKey: "k", region }));
 
-      // SONIOX_BASE_DOMAIN alone reaches the REST host too once no explicit
-      // base_url is passed, which is the surface the config refinement closes.
-      assert.equal(readBaseUrl(unpinned), "https://api.attacker.example.com");
-      assert.equal(readBaseUrl(pinned), SONIOX_REST_URL_BY_REGION.eu);
+        assert.equal(readWsUrl(unpinned), "wss://redirected.example.com/transcribe");
+        assert.equal(readWsUrl(pinned), SONIOX_REALTIME_WS_URL_BY_REGION[region]);
+
+        // SONIOX_BASE_DOMAIN alone reaches the REST host too once no explicit
+        // base_url is passed, which is the surface the config refinement closes.
+        assert.equal(readBaseUrl(unpinned), "https://api.attacker.example.com");
+        assert.equal(readBaseUrl(pinned), SONIOX_REST_URL_BY_REGION[region]);
+      }
     } finally {
       restoreEnv("SONIOX_WS_URL", previous.wsUrl);
       restoreEnv("SONIOX_BASE_DOMAIN", previous.baseDomain);

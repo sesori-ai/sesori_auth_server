@@ -93,10 +93,9 @@ export function parseSonioxRealtimeResult(value: unknown, options: SonioxRealtim
     fail(RealtimeTranscriptionFailureReason.MalformedOutput);
   }
 
-  if (result.data.finished === true) {
-    return { type: RealtimeProviderEventType.Finished };
-  }
-
+  // The SDK emits every result before its separate `finished` event, including
+  // results whose provider payload has `finished: true`. Preserve those tokens;
+  // the adapter's dedicated finished listener owns terminal signaling.
   const finalTextDelta = result.data.tokens
     .filter((token) => !isControlToken(token.text))
     .filter((token) => token.is_final)
@@ -108,12 +107,21 @@ export function parseSonioxRealtimeResult(value: unknown, options: SonioxRealtim
     .map((token) => token.text)
     .join("");
 
-  // Bounded, not rejected. An over-long transcript is not evidence of a
-  // malformed provider payload, and failing here would terminate a session over
-  // text we could simply have trimmed. Bounding against the shared public
-  // budget is also what guarantees the emitter can never refuse what this
-  // boundary admitted.
+  // Rejected rather than trimmed. `confirmedDelta` is an append-only increment
+  // of finalized speech, so silently trimming it destroys words the user
+  // actually said while still billing the audio that produced them. A single
+  // delta this large is not reachable from legitimate audio either — the
+  // session is capped at 900 seconds and this is one event's increment, not the
+  // running total — so it indicates a provider malfunction, which is precisely
+  // what MalformedOutput exists for: it routes to internal_error with
+  // recordUsage:false, so the user is not charged for output we refused.
+  // Comparing against the shared emit budget is also what guarantees the
+  // emitter can never refuse what this boundary admitted, which is the
+  // disagreement that previously let a valid transcript terminate a session.
   const bounded = boundRealtimeTranscript({ confirmedDelta: finalTextDelta, provisional: provisionalText });
+  if (bounded.confirmedDelta !== finalTextDelta || bounded.provisional !== provisionalText) {
+    fail(RealtimeTranscriptionFailureReason.MalformedOutput);
+  }
 
   return {
     type: RealtimeProviderEventType.Transcript,

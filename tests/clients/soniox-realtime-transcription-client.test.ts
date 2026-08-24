@@ -81,7 +81,7 @@ function createClient(session: FakeRealtimeSession): SonioxRealtimeClient {
 }
 
 describe("SonioxRealtimeClient", () => {
-  it("configures the official realtime stt session with EU-safe server-owned settings", async () => {
+  it("configures the official realtime stt session with server-owned settings", async () => {
     const session = new FakeRealtimeSession(null, null);
     const events: unknown[] = [];
     const client = createClient(session);
@@ -160,6 +160,31 @@ describe("SonioxRealtimeClient", () => {
 
     session.emit("result", { tokens: [], final_audio_proc_ms: -1, total_audio_proc_ms: 0 });
     await assert.rejects(realtimeSession.closed, RealtimeTranscriptionFailure);
+  });
+
+  it("preserves final tokens before the SDK's dedicated finished event", async () => {
+    const session = new FakeRealtimeSession(null, null);
+    const events: unknown[] = [];
+    const realtimeSession = await createClient(session).connect({
+      audio: { encoding: RealtimeAudioEncoding.PcmS16Le, sampleRate: 16000, channels: 1 },
+      terms: [],
+      maxAudioDurationMs: 1_000,
+      onEvent: (event) => events.push(event),
+    });
+
+    session.emit("result", {
+      tokens: [{ text: "last words", confidence: 1, is_final: true }],
+      final_audio_proc_ms: 20,
+      total_audio_proc_ms: 20,
+      finished: true,
+    });
+    session.emit("finished");
+
+    assert.deepEqual(events, [
+      { type: "transcript", confirmedDelta: "last words", provisional: "", finalAudioMs: 20, totalAudioMs: 20 },
+      { type: "finished" },
+    ]);
+    await realtimeSession.closed;
   });
 
   it("settles closed on explicit cancel and close without masking provider errors", async () => {

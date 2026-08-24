@@ -19,10 +19,6 @@ const productAnalyticsExportConfigSchema = z.object({
   PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY: productAnalyticsPseudonymizationKeySchema,
   PRODUCT_ANALYTICS_EXPORT_BATCH_LIMIT: positiveIntegerFromEnvironment(500, 1_000),
   PRODUCT_ANALYTICS_INTERNAL_EXCLUSION_MAX_KEYS: positiveIntegerFromEnvironment(10_000, 100_000),
-  PRODUCT_ANALYTICS_INTERNAL_EXCLUSION_MAX_AGE_MS: positiveIntegerFromEnvironment(
-    2 * 24 * 60 * 60 * 1_000,
-    30 * 24 * 60 * 60 * 1_000,
-  ),
 });
 
 export type ProductAnalyticsExportConfig = z.infer<typeof productAnalyticsExportConfigSchema>;

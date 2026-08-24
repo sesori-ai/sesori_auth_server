@@ -9,5 +9,5 @@ keys/
 !assets/legal/terms.md
 !assets/legal/privacy.md
 tests/
-scripts/
+/scripts/
 .sops.yaml
