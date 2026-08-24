@@ -249,7 +249,7 @@ describe("AppClientPresenceService", () => {
     assert.equal(getEventListeners(controller.signal, "abort").length, 0);
   });
 
-  it("releaseWaiters resolves a wait whose read already confirmed absence as false", async () => {
+  it("releaseWaiters refuses an active wait whose read already confirmed absence", async () => {
     const repo = new FakeDeviceTokenRepository();
     repo.reads.push(false, false);
     const service = createService(repo);
@@ -263,9 +263,7 @@ describe("AppClientPresenceService", () => {
 
     service.releaseWaiters();
 
-    // Both reads returned false before the release, so `false` here is a
-    // confirmed absence rather than an unverified one.
-    assert.equal(await waiting, false);
+    await assert.rejects(waiting, AppClientPresenceShuttingDown);
   });
 
   it("refuses a wait that starts after release instead of reporting unconfirmed absence", async () => {

@@ -14,7 +14,7 @@
  *   500 { error: "internal_server_error" } — the initial read missed the 30 s
  *       deadline; unconfirmed absence is never reported as `false`
  *   503 { error: "service_restarting", retryable: true } — shutdown released
- *       the waiters before any read could confirm absence (wait=true only; an
+ *       an active wait or the wait began after release (wait=true only; an
  *       immediate read still answers, because its result is verified)
  */
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
@@ -69,8 +69,8 @@ export const appClientRoutes: FastifyPluginAsync<AppClientRouteOptions> = async 
           throw new InternalServerError({ debugMessage: error.message });
         }
 
-        // Shutdown released the waiters, so no read stands behind an answer
-        // here either. Refuse retryably instead of inventing an absence.
+        // Shutdown ended the wait early or refused a new one. Keep that distinct
+        // from the ordinary wait timeout's confirmed `false` response.
         if (error instanceof AppClientPresenceShuttingDown) {
           throw new ServiceRestartingError({ debugMessage: error.message });
         }

@@ -87,13 +87,25 @@ describe("GET /auth/app-clients/status", () => {
 
   // `releaseWaiters()` is irreversible for a service instance, so this runs on
   // its own app rather than poisoning the shared one for later cases.
-  it("serves a wait poll a retryable 503 once shutdown released the waiters", async () => {
+  it("serves active and future wait polls a retryable 503 once shutdown releases waiters", async () => {
     const localCtx = await createTestApp();
+    const readSpy = mock.method(DeviceTokenRepository.prototype, "hasAnyForUser");
     try {
       const user = await localCtx.createUser();
 
+      const activeWait = keepProcessAlive(
+        localCtx.app.inject({
+          method: "GET",
+          url: "/auth/app-clients/status?wait=true",
+          headers: { authorization: `Bearer ${user.accessToken}` },
+        }),
+      );
+      await waitFor(() => readSpy.mock.callCount() >= 2);
+      assert.equal(await readSpy.mock.calls[1]?.result, false);
+
       localCtx.appClientPresenceService.releaseWaiters();
-      const waiting = await localCtx.app.inject({
+      const active = await activeWait;
+      const future = await localCtx.app.inject({
         method: "GET",
         url: "/auth/app-clients/status?wait=true",
         headers: { authorization: `Bearer ${user.accessToken}` },
@@ -106,12 +118,15 @@ describe("GET /auth/app-clients/status", () => {
         headers: { authorization: `Bearer ${user.accessToken}` },
       });
 
-      assert.equal(waiting.statusCode, 503);
-      assert.deepEqual(waiting.json(), { error: "service_restarting", retryable: true });
-      assert.equal(waiting.headers["retry-after"], "1");
+      for (const response of [active, future]) {
+        assert.equal(response.statusCode, 503);
+        assert.deepEqual(response.json(), { error: "service_restarting", retryable: true });
+        assert.equal(response.headers["retry-after"], "1");
+      }
       assert.equal(immediate.statusCode, 200);
       assert.deepEqual(immediate.json(), { registered: false });
     } finally {
+      readSpy.mock.restore();
       await localCtx.cleanup();
     }
   });
