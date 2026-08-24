@@ -5,15 +5,15 @@
 - **Status:** Approved — ready for implementation
 - **Active slug:** `real-time-transcription`
 - **Implementation base:** auth `master`
-- **Merged auth artifact SHA:** `2ed90a743f348102a2c023e4b1aae934886abe2d`
+- **Merged auth artifact SHA:** `0818bd18fa398c182bb353472f56326a634005f3` (S02-W01-P01 / PR #70). This field names the auth artifact the current wave builds on; prior merged artifacts remain recorded in PR Steps rather than being overwritten there.
 - **Merged apps artifact SHA:** —
 - **Plan definition PR:** https://github.com/sesori-ai/sesori_auth_server/pull/59
 
 ## Current Pointer
 
-- **Stage:** S02
+- **Stage:** S03
 - **Wave:** W01
-- **Next action:** S02-W01-P01 is implemented on the session-provided branch as an unmerged candidate. Run and review focused/full/static/Docker gates, then open the S02 PR when the candidate is ready; do not record an S02 PR number or merge SHA until one exists.
+- **Next action:** Reconfirm apps PR #918 against its current head and current `main`, address valid remaining review feedback, and merge S03-W01-P01. Its auth dependency is satisfied: PR #70 merged as `0818bd18fa398c182bb353472f56326a634005f3`. Then proceed to the S04 staging checkpoint; S05-W01-P01 remains blocked until its individual removal triggers fire.
 
 ## Plan Review
 
@@ -30,7 +30,7 @@
 | S01 | W01 | `sesori-ai/sesori_auth_server` | `master` | `287abb307f1e1cbd77c19bb81030b11749ff351b` | Assessed 2026-08-06: drift from the audited `9cc4953` tip is the merged plan-definition PR #59 only, which adds `.plan/active/real-time-transcription/` documentation and no runtime, schema, route, or composition change. Audited baseline remains valid. |
 | S01 | W02 | `sesori-ai/sesori_auth_server` | `master` | `1f1138be21fdbbd6a93ab256303307d5a766443f` | Assessed 2026-08-06: drift from the S01/W01 baseline is the merged S01-W01-P01 PR #61 plus the agent-config commit `65b1173`. Both are expected; no third-party change touched the voice, client, or config seams this step edits. |
 | S02 | W01 | `sesori-ai/sesori_auth_server` | `master` | `2ed90a743f348102a2c023e4b1aae934886abe2d` | Assessed 2026-08-13: PR #64 is merged as `2ed90a743f348102a2c023e4b1aae934886abe2d`, so S02 starts from the same SHA. Drift decisions carried into this implementation: realtime pre-auth limiting is process-wide and ignores forwarding headers, the post-auth limiter keys only verified `request.user.userId` with no IP fallback, route/service policy values are injected from config-derived immutable policies, and shutdown uses feature-owned drains rather than a broad admitted-handler tracker. |
-| S03 | W01 | `sesori-ai/sesori_apps_monorepo` | `main` | — | Not started |
+| S03 | W01 | `sesori-ai/sesori_apps_monorepo` | `main` | `d84b10cb30ff43965e0dacf708cee53308bdb8fa` | Assessed 2026-08-15: the branch was cut from `d84b10cb`, superseding the step file's stale audited base `5f98b320`. At assessment time, the 10 newer `main` commits were bridge-side and overlapped only the new-session screen and localization files, with no merge-tree conflict. Reassess drift against current `main` before merge. |
 
 ## PR Steps
 
@@ -38,9 +38,9 @@
 |---|---|---|---|---|---|---|
 | [x] | S01-W01-P01 | S01 | W01 | [#61](https://github.com/sesori-ai/sesori_auth_server/pull/61) | `real-time-config-next-step` | Merged `1f1138b`. Production index migration applied and verified before merge: documentCount 0, legacy absent, target exact. Implemented on the session-provided worktree branch instead of the planned branch name. |
 | [x] | S01-W02-P01 | S01 | W02 | [#64](https://github.com/sesori-ai/sesori_auth_server/pull/64) | `real-time-config-next-step` | Auth: provider boundary, Soniox async, legal/config/cleanup. Merged as `2ed90a743f348102a2c023e4b1aae934886abe2d`. Implemented on the session-provided worktree branch instead of the planned branch name. |
-| [ ] | S02-W01-P01 | S02 | W01 | — | `plan/real-time-transcription/s02-w01-p01-realtime-voice-proxy` | Auth: protocol v1 proxy and minimal shutdown. Current pointer: implemented on this branch as an unmerged S02 candidate; no PR number or merge SHA exists yet. |
-| [ ] | S03-W01-P01 | S03 | W01 | — | `plan/real-time-transcription/s03-w01-p01-stream-mobile-voice` | Apps: PCM streaming, preview, commit, async fallback |
-| [ ] | S05-W01-P01 | S05 | W01 | — | `plan/real-time-transcription/s05-w01-p01-remove-scaffolding` | Auth: delete compatibility/migration scaffolding whose trigger has fired; runs after S04 and may run more than once |
+| [x] | S02-W01-P01 | S02 | W01 | [#70](https://github.com/sesori-ai/sesori_auth_server/pull/70) | `plan/real-time-transcription/s02-w01-p01-realtime-voice-proxy` | Auth: protocol v1 proxy and minimal shutdown. Merged as `0818bd18fa398c182bb353472f56326a634005f3`. |
+| [ ] | S03-W01-P01 | S03 | W01 | [#918](https://github.com/sesori-ai/sesori_apps_monorepo/pull/918) | `plan/real-time-transcription/s03-w01-p01-stream-mobile-voice` | Apps: PCM streaming, preview, commit, async fallback. PR open and unmerged at `b3083b7`; recorded CI is green. Reconfirm review feedback and drift against current `main` before merge. |
+| [ ] | S05-W01-P01 | S05 | W01 | — | `plan/real-time-transcription/s05-w01-p01-remove-scaffolding` | Auth: delete each piece of compatibility/migration scaffolding once its own trigger has fired, restating the trigger and leaving code untouched for any trigger that has not fired. Runs after S04 and may run more than once because the six triggers can fire independently; none has fired yet. |
 
 ## Manual Checkpoints
 
@@ -57,11 +57,19 @@
 
 ## Findings and Plan Deltas
 
+- 2026-08-24 — S02-W01-P01 merged through auth PR #70 as `0818bd18fa398c182bb353472f56326a634005f3`; its reviewed head was `afc585cbba246d1ea740e876a506d4fd2aa35f8f`. The auth-first merge barrier is satisfied, the current pointer advances to S03-W01-P01, and tracker PR #71 is reconciled onto the merged tree so it remains documentation-only.
+
 - 2026-08-23 — Product decision: omitted `REALTIME_TRANSCRIPTION_ENABLED` now follows `SONIOX_API_KEY` presence. A configured key enables the additive realtime endpoint by default; no key leaves it disabled. Explicit `false`/`0` remains the credentialed rollout opt-out, and explicit `true`/`1` without a key still fails startup. The current mobile app remains async-only and does not consume the new endpoint.
 
 - 2026-08-20 — The official Soniox account and API key are US-regional. Async configuration now accepts a closed `us|eu` region and pins each to its exact allowlisted endpoint; omitted configuration defaults to `us`, and official production also explicitly selects `us`. Future realtime and rollout work must use the US project/endpoints and the updated US privacy disclosure rather than inferring EU from the completed S01 implementation record.
 
-- 2026-08-13 — S02-W01-P01 candidate implemented after PR #64 merged as `2ed90a743f348102a2c023e4b1aae934886abe2d`. Review defects corrected in the candidate: no unbounded route message queue, finish waits for provider terminal callbacks, invalid binary frames map to `invalid_audio`, post-auth limiter has no IP fallback after auth, route policy is injected from config, start timeout is cleared/guarded, waiter owners expose release/drain contracts, producers reject disposal timeouts, `src/shutdown.ts` owns the memoized ordered signal path, and CI delegates Docker smoke to `scripts/ci-auth-container-smoke.sh`. This is not a merge record; leave S02 unchecked until a PR is opened and merged.
+- 2026-08-15 — S02 and S03 PRs opened as a cross-repository review stack before the S02 merge barrier was satisfied, at explicit user direction. The exception relaxed review ordering only; it never relaxed merge ordering. S03 branch durability was also corrected: 20 commits that had existed only in an ephemeral scratch directory were pushed to `origin`. Future waves must not leave a wave's only copy outside a durable worktree. The merge barrier was later satisfied by PR #70 on 2026-08-24.
+
+- 2026-08-15 — Correction to the original PR #71 `cla` finding: S03's one-off failure was a flake, not a trailer-policy problem. `contributor-assistant/github-action@v2.6.1` logged "All contributors have signed the CLA" and then exited non-zero; rerunning the job turned it green without a branch change. The false diagnosis came from a verification command whose base SHA was absent locally: `git log <base>..<head>` failed, produced no output, and a `grep -c` over that empty output was misread as a real zero. A command returning zero matches and a command that failed are not equivalent. No CLA allowlist or co-author-trailer change is needed.
+
+- 2026-08-15 — S03 verification deviated from the step file in one direction only. `flutter build apk --debug` was not run locally because no JDK was installed and the project targets Java 21; CI's mobile and three desktop OS build jobs passed. Physical-device verification remains assigned to S04-W01-M01. A disposable screenshot fixture and evidence manifest were deleted because the step requires widget tests, not image evidence.
+
+- 2026-08-13 — S02-W01-P01 candidate implemented after PR #64 merged as `2ed90a743f348102a2c023e4b1aae934886abe2d`. Review defects corrected in the candidate: no unbounded route message queue, finish waits for provider terminal callbacks, invalid binary frames map to `invalid_audio`, post-auth limiter has no IP fallback after auth, route policy is injected from config, start timeout is cleared/guarded, waiter owners expose release/drain contracts, producers reject disposal timeouts, `src/shutdown.ts` owns the memoized ordered signal path, and CI delegates Docker smoke to `scripts/ci-auth-container-smoke.sh`. This entry records the candidate checkpoint; the eventual merge is recorded in the 2026-08-24 entry and PR Steps above.
 
 - 2026-08-11 — S02/W01 drift input recorded while refreshing PR #64. `master` advanced five commits past the pinned S01/W02 baseline `1f1138b` (#57, #66, #65, #56, #63), so PR #64 was merged forward to `c2323b8`; the five conflicts (`src/config.ts`, `tests/config.test.ts`, `tests/helpers/setup.ts`, `AGENTS.md`, `README.md`) were additive and both sides were retained. Three of those commits land directly on seams S02-W01-P01 edits and must be reconciled in its drift assessment rather than assumed compatible. #66 added `src/lib/client-ip.ts` and `src/types/client-ip.ts` and keys rate limiting by Cloudflare-verified IP, while the step file specifies a pre-auth realtime upgrade limiter that is "deliberately independent of headers, peer IP, and forwarding trust" and requires tests proving spoofed forwarding headers cannot change either limit — the shipped client-IP helper and that independence claim need an explicit decision. #57 introduced per-route write rate limiting with compile-time constants, which is the pattern the planned post-auth 12/user/minute start limiter should follow. #65 changed `src/middleware/auth.ts` to require an explicit opt-in for the development auth bypass, and S02 reuses that middleware for WebSocket upgrade authentication. The S02/W01 pinned SHA is still unset because it must be the `master` SHA produced by merging PR #64, which does not exist yet.
 
