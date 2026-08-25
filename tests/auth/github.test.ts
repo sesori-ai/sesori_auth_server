@@ -7,6 +7,7 @@ import { FakeOAuthClient } from "../helpers/fake-oauth-client.js";
 import { PendingAuthStore } from "../../src/services/pending-auth-store.js";
 import { MongoDbDatabase, AuthDbCollection } from "../../src/types/mongo.js";
 import type { OAuthAccount, User } from "../../src/models/documents.js";
+import { AccountStatus } from "../../src/types/account.js";
 import { ProductAnalyticsPreference } from "../../src/types/product-analytics.js";
 
 // A valid 43-character PKCE code_challenge (URL-safe base64, no padding)
@@ -237,8 +238,13 @@ describe("GitHub OAuth routes", () => {
         headers: { "x-sesori-session-token": confirmedToken },
       });
       assert.equal(statusRes.statusCode, 200);
-      const statusBody = statusRes.json<{ status: string; user: { id: string } }>();
+      const statusBody = statusRes.json<{
+        status: string;
+        user: { id: string };
+        accountStatus: AccountStatus;
+      }>();
       assert.equal(statusBody.status, "complete");
+      assert.equal(statusBody.accountStatus, AccountStatus.Created);
       assert.ok(ObjectId.isValid(statusBody.user.id), "user id should be a valid ObjectId");
       assert.equal(await countOAuthAccountsForProviderUserId(FAKE_IDENTITY.providerUserId), 1);
 

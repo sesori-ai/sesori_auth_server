@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
 import { PendingAuthStore } from "../../src/services/pending-auth-store.js";
+import { AccountStatus } from "../../src/types/account.js";
 import { OAuthProviderName } from "../../src/types/oauth.js";
 
 function createSessionTokenHash(token = "session-token"): string {
@@ -79,6 +80,7 @@ describe("PendingAuthStore", () => {
           providerUserId: "provider-user-1",
           providerUsername: "octocat",
         },
+        accountStatus: AccountStatus.Created,
       });
 
       const waited = await waitPromise;
@@ -141,6 +143,7 @@ describe("PendingAuthStore", () => {
         providerUserId: "provider-user-1",
         providerUsername: "octocat",
       },
+      accountStatus: AccountStatus.Existing,
     });
 
     assert.equal(waited, null);
@@ -180,6 +183,7 @@ describe("PendingAuthStore", () => {
         providerUserId: "provider-b",
         providerUsername: "user-b",
       },
+      accountStatus: AccountStatus.Created,
     });
     const waitedB = await waitB;
 
@@ -275,6 +279,7 @@ describe("PendingAuthStore", () => {
         providerUserId: "provider-user-1",
         providerUsername: "octocat",
       },
+      accountStatus: AccountStatus.Existing,
     });
 
     const firstConsume = store.consumeCompletion(tokenHash);
@@ -292,6 +297,7 @@ describe("PendingAuthStore", () => {
         providerUserId: "provider-user-1",
         providerUsername: "octocat",
       },
+      accountStatus: AccountStatus.Existing,
     });
     assert.equal(secondConsume, null);
     assert.equal(afterConsume, null);

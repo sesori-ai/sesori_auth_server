@@ -192,6 +192,7 @@ export async function handleProviderCallbackRedirect<TClient extends OAuthClient
         refreshToken: result.refreshToken,
       },
       user: result.user,
+      accountStatus: result.accountStatus,
     });
 
     if (!stagedSession) {

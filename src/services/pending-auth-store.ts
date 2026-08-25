@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { LRUCache } from "lru-cache";
 import type { DeviceInfo, OAuthClientType, UserProfile } from "../models/api.js";
+import type { AccountStatus } from "../types/account.js";
 import { OAuthProviderName } from "../types/oauth.js";
 
 /**
@@ -64,9 +65,10 @@ export type PendingAuthSession = {
   status: PendingAuthStatus;
   createdAt: Date;
   expiresAt: Date;
-  /** Tokens delivered to the client on `consumeCompletion`. Only present when `status === "complete"`. */
+  /** Completion data delivered to the client. Only present when `status === "complete"`. */
   tokens?: PendingAuthTokens;
   user?: UserProfile;
+  accountStatus?: AccountStatus;
   /** Provider error message when `status === "error"`. */
   errorMessage?: string;
   /** Client type (bridge / app / per-platform). Recorded at init for audit. */
@@ -83,9 +85,10 @@ type PendingAuthStoreEntry = {
 };
 
 type PendingAuthSessionRecord = PendingAuthSession & {
-  /** Tokens held during `awaiting_confirmation`; promoted to `tokens` on confirm. */
+  /** Completion data held during `awaiting_confirmation`; promoted on confirm. */
   stagedTokens?: PendingAuthTokens;
   stagedUser?: UserProfile;
+  stagedAccountStatus?: AccountStatus;
 };
 
 type StatusWaiter = {
@@ -228,6 +231,7 @@ export class PendingAuthStore {
     tokenHash: string;
     tokens: PendingAuthTokens;
     user: UserProfile;
+    accountStatus: AccountStatus;
   }): PendingAuthSession | null {
     const entry = this.#getActiveEntry(params.tokenHash);
     if (!entry) {
@@ -248,8 +252,10 @@ export class PendingAuthStore {
       status: PendingAuthStatus.AwaitingConfirmation,
       stagedTokens: params.tokens,
       stagedUser: params.user,
+      stagedAccountStatus: params.accountStatus,
       tokens: undefined,
       user: undefined,
+      accountStatus: undefined,
       errorMessage: undefined,
     });
   }
@@ -264,8 +270,8 @@ export class PendingAuthStore {
       return null;
     }
 
-    const { stagedTokens, stagedUser } = entry.session;
-    if (!stagedTokens || !stagedUser) {
+    const { stagedTokens, stagedUser, stagedAccountStatus } = entry.session;
+    if (!stagedTokens || !stagedUser || !stagedAccountStatus) {
       return null;
     }
 
@@ -274,8 +280,10 @@ export class PendingAuthStore {
       status: PendingAuthStatus.Complete,
       tokens: stagedTokens,
       user: stagedUser,
+      accountStatus: stagedAccountStatus,
       stagedTokens: undefined,
       stagedUser: undefined,
+      stagedAccountStatus: undefined,
       errorMessage: undefined,
     });
   }
@@ -291,6 +299,7 @@ export class PendingAuthStore {
     tokenHash: string;
     tokens: PendingAuthTokens;
     user: UserProfile;
+    accountStatus: AccountStatus;
   }): PendingAuthSession | null {
     const entry = this.#getActiveEntry(params.tokenHash);
     if (!entry) {
@@ -304,6 +313,7 @@ export class PendingAuthStore {
       status: PendingAuthStatus.Complete,
       tokens: params.tokens,
       user: params.user,
+      accountStatus: params.accountStatus,
       errorMessage: undefined,
     });
   }
@@ -371,15 +381,24 @@ export class PendingAuthStore {
   }
 
   /** Read a completed session without consuming it. The client must ACK before deletion. */
-  getCompletion(tokenHash: string): { tokens: PendingAuthTokens; user: UserProfile } | null {
+  getCompletion(
+    tokenHash: string,
+  ): { tokens: PendingAuthTokens; user: UserProfile; accountStatus: AccountStatus } | null {
     const entry = this.#getActiveEntry(tokenHash);
-    if (!entry || entry.session.status !== PendingAuthStatus.Complete || !entry.session.tokens || !entry.session.user) {
+    if (
+      !entry ||
+      entry.session.status !== PendingAuthStatus.Complete ||
+      !entry.session.tokens ||
+      !entry.session.user ||
+      !entry.session.accountStatus
+    ) {
       return null;
     }
 
     return {
       tokens: { ...entry.session.tokens },
       user: { ...entry.session.user },
+      accountStatus: entry.session.accountStatus,
     };
   }
 
@@ -389,15 +408,24 @@ export class PendingAuthStore {
    * Subsequent calls return null (the LRU entry is gone,
    * `getSessionByTokenHash` returns null too).
    */
-  consumeCompletion(tokenHash: string): { tokens: PendingAuthTokens; user: UserProfile } | null {
+  consumeCompletion(
+    tokenHash: string,
+  ): { tokens: PendingAuthTokens; user: UserProfile; accountStatus: AccountStatus } | null {
     const entry = this.#getActiveEntry(tokenHash);
-    if (!entry || entry.session.status !== PendingAuthStatus.Complete || !entry.session.tokens || !entry.session.user) {
+    if (
+      !entry ||
+      entry.session.status !== PendingAuthStatus.Complete ||
+      !entry.session.tokens ||
+      !entry.session.user ||
+      !entry.session.accountStatus
+    ) {
       return null;
     }
 
     const completion = {
       tokens: { ...entry.session.tokens },
       user: { ...entry.session.user },
+      accountStatus: entry.session.accountStatus,
     };
 
     // Notify any pollers with a "consumed" status, then delete the entry.
@@ -408,8 +436,10 @@ export class PendingAuthStore {
       status: PendingAuthStatus.Consumed,
       stagedTokens: undefined,
       stagedUser: undefined,
+      stagedAccountStatus: undefined,
       tokens: undefined,
       user: undefined,
+      accountStatus: undefined,
       errorMessage: undefined,
     };
     this.#notifyWaiters(tokenHash, consumedSession, { includeSameStatus: true });
@@ -545,8 +575,10 @@ export class PendingAuthStore {
     status: PendingAuthStatus;
     stagedTokens?: PendingAuthTokens;
     stagedUser?: UserProfile;
+    stagedAccountStatus?: AccountStatus;
     tokens?: PendingAuthTokens;
     user?: UserProfile;
+    accountStatus?: AccountStatus;
     errorMessage?: string;
   }): PendingAuthSession | null {
     const entry = this.#getActiveEntry(params.tokenHash);
@@ -557,8 +589,10 @@ export class PendingAuthStore {
     entry.session.status = params.status;
     entry.session.stagedTokens = params.stagedTokens ? { ...params.stagedTokens } : params.stagedTokens;
     entry.session.stagedUser = params.stagedUser ? { ...params.stagedUser } : params.stagedUser;
+    entry.session.stagedAccountStatus = params.stagedAccountStatus;
     entry.session.tokens = params.tokens ? { ...params.tokens } : params.tokens;
     entry.session.user = params.user ? { ...params.user } : params.user;
+    entry.session.accountStatus = params.accountStatus;
     entry.session.errorMessage = params.errorMessage;
     this.#notifyWaiters(params.tokenHash, entry.session);
 
@@ -601,8 +635,10 @@ export class PendingAuthStore {
       status: PendingAuthStatus.Expired,
       stagedTokens: undefined,
       stagedUser: undefined,
+      stagedAccountStatus: undefined,
       tokens: undefined,
       user: undefined,
+      accountStatus: undefined,
       errorMessage: undefined,
     };
 
@@ -690,6 +726,7 @@ export class PendingAuthStore {
       expiresAt: new Date(session.expiresAt),
       tokens: session.tokens ? { ...session.tokens } : undefined,
       user: session.user ? { ...session.user } : undefined,
+      accountStatus: session.accountStatus,
       errorMessage: session.errorMessage,
       clientType: session.clientType,
       device: session.device ? { ...session.device } : undefined,

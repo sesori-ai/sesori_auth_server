@@ -61,8 +61,12 @@ npm run start:prod
 | `POST` | `/auth/google/callback` | No   | Exchange Google auth code for JWT tokens                                                                   |
 | `GET`  | `/auth/apple`           | No   | Get Apple OAuth URL (requires `redirect_uri`, `code_challenge` query params). HTTPS redirect URI required. |
 | `POST` | `/auth/apple/callback`  | No   | Exchange Apple auth code for JWT tokens                                                                    |
-| `POST` | `/auth/apple/native`    | No   | Verify Apple native id_token and return JWT tokens (requires `idToken`, `nonce`)                           |
-| `POST` | `/auth/email`           | No   | Login with email and password for existing admin-provisioned accounts                                      |
+| `POST` | `/auth/apple/native`    | No   | Verify Apple native id_token and return JWT tokens plus `accountStatus` (requires `idToken`, `nonce`)      |
+| `POST` | `/auth/email`           | No   | Login with email/password and return JWT tokens plus `accountStatus` for an existing provisioned account   |
+
+Successful responses from these two login endpoints include top-level `accountStatus: "created" | "existing"`.
+Apple reports `created` only when that request creates the Sesori account; email/password accounts are provisioned
+before login and therefore report `existing`. Token refresh responses do not include `accountStatus`.
 
 ### OAuth (anti-phishing confirmation flow)
 
@@ -76,7 +80,10 @@ The newer flow keeps the client in control of when tokens are issued. The client
 | `POST` | `/auth/google/init`             | No   | (same shape as github)                                                                                       |
 | `GET`  | `/auth/google/callback`         | No   | (same)                                                                                                       |
 | `POST` | `/auth/google/callback/confirm` | No   | (same)                                                                                                       |
-| `GET`  | `/auth/session/status`          | No   | Long-poll status (requires `X-Sesori-Session-Token`) — returns pending / complete / denied / expired / error, or `503 service_restarting` during shutdown |
+| `GET`  | `/auth/session/status`          | No   | Long-poll status (requires `X-Sesori-Session-Token`) — complete responses include `accountStatus`; may return pending / denied / expired / error, or `503 service_restarting` during shutdown |
+
+A complete `/auth/session/status` response includes top-level `accountStatus: "created" | "existing"`; repeated polls
+return the same value until the completion is acknowledged.
 
 `/auth/session/status` answers `503` with `{"status":"error","message":"service_restarting"}` once shutdown has released its
 waiters. It is a refusal, not a verdict: the pending session was neither

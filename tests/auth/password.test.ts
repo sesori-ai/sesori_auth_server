@@ -5,6 +5,7 @@ import argon2 from "argon2";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
 import { MongoDbDatabase, AuthDbCollection } from "../../src/types/mongo.js";
 import type { User, PasswordAccount } from "../../src/models/documents.js";
+import { AccountStatus } from "../../src/types/account.js";
 import { ProductAnalyticsPreference } from "../../src/types/product-analytics.js";
 
 describe("Password authentication", () => {
@@ -65,12 +66,18 @@ describe("Password authentication", () => {
       });
 
       assert.equal(res.statusCode, 200);
-      const body = res.json<{ accessToken: string; refreshToken: string; user: { id: string; provider: string } }>();
+      const body = res.json<{
+        accessToken: string;
+        refreshToken: string;
+        user: { id: string; provider: string };
+        accountStatus: AccountStatus;
+      }>();
       assert.ok(body.accessToken, "Should return access token");
       assert.ok(body.refreshToken, "Should return refresh token");
       assert.ok(body.user.id, "Should return user id");
       assert.equal(body.user.provider, "email");
-      assert.deepEqual(Object.keys(body).sort(), ["accessToken", "refreshToken", "user"]);
+      assert.equal(body.accountStatus, AccountStatus.Existing);
+      assert.deepEqual(Object.keys(body).sort(), ["accessToken", "accountStatus", "refreshToken", "user"]);
       assert.deepEqual(Object.keys(body.user).sort(), ["id", "provider", "providerUserId", "providerUsername"]);
     });
 

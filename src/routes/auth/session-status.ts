@@ -6,7 +6,7 @@
  *
  * Responses:
  *   200 { status: "pending" }                                  — long-poll timed out, still pending
- *   200 { status: "complete", accessToken, refreshToken, user } — tokens ready; repeated polls return the same payload until ACK
+ *   200 { status: "complete", accessToken, refreshToken, user, accountStatus } — tokens ready; repeated polls return the same payload until ACK
  *   200 { status: "denied" }
  *   200 { status: "error", message }
  *   400 { error: "bad_request" }                                — missing/invalid session-token header
@@ -178,6 +178,7 @@ function createCompleteReply(params: {
     accessToken: completion.tokens.accessToken,
     refreshToken: completion.tokens.refreshToken,
     user: completion.user,
+    accountStatus: completion.accountStatus,
   };
 }
 

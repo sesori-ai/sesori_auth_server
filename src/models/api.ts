@@ -3,6 +3,7 @@ import { BridgePlatform, bridgeIdSchema, bridgePlatformSchema } from "./bridge.j
 import { devicePlatformSchema } from "./device.js";
 import { CLIENT_SENDABLE_NOTIFICATION_CATEGORIES } from "./notification.js";
 import { deviceIdSchema } from "./settings.js";
+import type { AccountStatus } from "../types/account.js";
 import {
   productAnalyticsExpectedRevisionSchema,
   productAnalyticsOperationIdSchema,
@@ -126,6 +127,7 @@ export type AuthSessionStatusCompleteReply = {
   accessToken: string;
   refreshToken: string;
   user: UserProfile;
+  accountStatus: AccountStatus;
 };
 
 export type AuthSessionStatusDeniedReply = {
@@ -152,6 +154,10 @@ export type AuthTokensReply = {
   accessToken: string;
   refreshToken: string;
   user: UserProfile;
+};
+
+export type AuthLoginReply = AuthTokensReply & {
+  accountStatus: AccountStatus;
 };
 
 export type MeReply = {
