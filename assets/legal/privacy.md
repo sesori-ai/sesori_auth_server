@@ -1,14 +1,14 @@
 # Sesori Privacy Policy
 
-_Last updated: August 20, 2026_
+_Last updated: August 25, 2026_
 
-This Privacy Policy explains how **Digitalblock Labs LTD** ("**Sesori**," "**Company**," "we," "us," or "our") collects, uses, stores, shares, and otherwise processes personal data when you use Sesori's official apps and services. It applies only to the official Sesori services, including the Sesori mobile app, the official local bridge software, relay services, account and authentication services, push notification services, `sesori.com`, voice input and server-side transcription features, diagnostics, analytics, support channels, and related hosted features we provide (collectively, the "**Service**").
+This Privacy Policy explains how **Digitalblock Labs LTD** ("**Sesori**," "**Company**," "we," "us," or "our") collects, uses, stores, shares, and otherwise processes personal data when you use Sesori's official apps and services. It applies only to the official Sesori services, including the Sesori mobile app, the official local bridge software, relay services, account and authentication services, push notification services, `sesori.com`, voice input and server-side transcription features, diagnostics, analytics, mobile advertising attribution, website analytics and advertising technologies, support channels, and related hosted features we provide (collectively, the "**Service**").
 
 This Privacy Policy does **not** apply to source builds, self-hosted deployments, unofficial builds, modified versions, forks, community distributions, or other non-official deployments, except to the extent those versions connect to an official Sesori-hosted feature. In that case, this Privacy Policy applies only to the official hosted feature interaction.
 
 ## 1. How Sesori works
 
-Sesori is designed to help you monitor and interact with compatible AI coding assistants running on your own host system from your phone. The Service may include a local bridge running on your device, relay infrastructure, account and authentication services, push notifications, websites, diagnostics, analytics, voice input, server-side transcription, and other related hosted features.
+Sesori is designed to help you monitor and interact with compatible AI coding assistants running on your own host system from your phone. The Service may include a local bridge running on your device, relay infrastructure, account and authentication services, push notifications, websites, diagnostics, product and website analytics, mobile advertising attribution, advertising audience tools, voice input, server-side transcription, and other related hosted features.
 
 In ordinary operation, Sesori infrastructure routes encrypted relay traffic between your devices. That ordinary relay routing does **not ordinarily require Sesori to have plaintext access** to relay payloads in transit. Some specific features you invoke do require Sesori or its sub-processors to receive readable data, including voice input and server-side transcription, short text feature processing such as session title naming and branch naming, push payload snippets, and support or diagnostic review.
 
@@ -81,7 +81,7 @@ Supported release builds may associate account-linked product analytics events w
 
 Sesori-defined account-linked product analytics event payloads cannot contain source code; prompts, responses, transcripts, or reasoning; filenames or paths; repository, project, or session names; coding provider, model, agent, tool, or command names; raw error text; OAuth identity; email address; IP address; or raw or hashed project, session, bridge, device, notification, or account identifiers.
 
-These payload restrictions apply specifically to Sesori-defined account-linked product analytics events. Firebase may separately process automatic installation-level data as described in Section 14, and other operational, support, security, crash, or diagnostic processing described in this Privacy Policy is outside this event contract.
+These payload restrictions apply specifically to Sesori-defined account-linked product analytics events. Firebase may separately process automatic installation-level data as described in Section 14, and the website analytics, mobile attribution, advertising audience, operational, support, security, crash, or diagnostic processing described elsewhere in this Privacy Policy is outside this event contract.
 
 ### 3.6 Support communications
 
@@ -103,6 +103,52 @@ Voice recordings are transmitted to Sesori servers and a third-party transcripti
 - limited readable inputs and outputs needed to operate specific invoked features, such as session title naming, branch naming, or similar short text feature processing
 - limited readable snippets needed for push notifications, support, diagnostics, abuse review, or security investigation
 
+### 3.9 Website analytics and advertising data
+
+When you visit `sesori.com`, we currently use Google Analytics 4 (measurement ID `G-5R35L8J3NT`) and Meta Pixel (pixel ID `1619146889579169`) to measure website use, acquisition, advertising performance, and actions such as store visits, documentation visits, or Bridge installation interactions.
+
+Depending on the technology, configuration, and your interaction with the website, this processing may include:
+
+- pages viewed, page titles, referring URLs, and the date and time of a visit
+- button clicks, page-view events, store or documentation visits, install interactions, and similar conversion events
+- campaign, referral, and advertising click parameters
+- browser type, device type, operating system, language, screen characteristics, and general interaction data
+- IP address and approximate location derived from network information
+- cookie, browser, advertising, and similar online identifiers, including identifiers such as `_ga`, `_ga_*`, `_fbp`, and `_fbc`
+
+Google and Meta may associate these identifiers and events with other information available to them under their own terms and privacy policies. We do not intentionally send source code, prompts, AI responses, repository names, file paths, terminal output, authentication tokens, form contents, or other coding-session content through these website tags.
+
+### 3.10 Mobile advertising attribution data
+
+The official mobile app may use the Singular Flutter SDK to attribute installs and re-engagements, measure campaign performance, detect attribution fraud, support deep links, and understand whether advertising leads to useful product outcomes.
+
+Depending on device settings, platform availability, consent choices, and our SDK configuration, Singular may process:
+
+- IP address, user agent, device model, operating system, app version, installation, session, and general app-event data
+- country, region, or approximate geolocation derived from network or device information
+- advertising and device identifiers such as IDFA on iOS, Google Advertising ID on Android, IDFV, App Set ID, or a Singular-generated device identifier
+- app-store referral, campaign, ad-network, click, impression, deep-link, and attribution information
+- custom product events and purchase or revenue information only where we deliberately configure those events
+- a pseudonymous internal user identifier if we deliberately configure one for cross-device attribution; we do not use a raw email address as the Singular user ID
+
+Singular processes this information on our behalf and may send attribution data or configured postbacks to advertising partners according to our campaign and partner settings. Limiting partner sharing does not necessarily stop Singular's own SDK measurement. Platform tracking permissions and the controls described in Section 14 apply.
+
+### 3.11 Meta Customer List and Lookalike Audiences
+
+We may use the email address associated with your Sesori account, including an email obtained through Apple, Google, GitHub, or email sign-in, to create advertising audiences on Meta platforms.
+
+Before transfer for customer-list matching, we normalize and cryptographically hash the email address. Hashing reduces direct exposure during transfer but does not make the information anonymous. Meta uses the hashed value to determine whether it matches a Meta account and to create a Customer List Custom Audience. Meta does not tell us which specific people matched.
+
+We may use the resulting Custom Audience to:
+
+- advertise Sesori to existing users or exclude existing users from acquisition campaigns
+- measure campaign reach or effectiveness
+- ask Meta to create a Lookalike Audience of other Meta users with characteristics similar to the matched audience
+
+Where applicable law requires consent for this processing, we rely on that consent rather than treating this Privacy Policy itself as consent. Audience matching is not required to use Sesori's core functionality. You may withdraw consent or opt out by contacting [contact@sesori.com](mailto:contact@sesori.com) or [gdpr@sesori.com](mailto:gdpr@sesori.com). After a valid opt-out, we will stop including the address in future audience uploads and remove it from active customer-list audiences within a reasonable period, subject to Meta's processing and retention systems.
+
+This audience matching does not by itself subscribe you to marketing email. Meta Customer List Custom Audiences are governed by the [Meta Customer List Custom Audiences Terms](https://www.facebook.com/legal/terms/customaudience) and [Meta Business Tools Terms](https://www.facebook.com/legal/technology_terms).
+
 ## 4. Sources of data
 
 We collect personal data from the following sources:
@@ -112,6 +158,8 @@ We collect personal data from the following sources:
 - from your chosen identity provider, such as Apple, Google, or GitHub, when you use that sign-in option
 - from our service providers and infrastructure providers that help us operate the Service
 - from automated logs, analytics, crash reporting, and security systems generated during Service operation
+- from your browser when you visit `sesori.com`, interact with website controls, or arrive through an advertising or campaign link
+- from advertising, analytics, and attribution providers when they report campaign, install, re-engagement, conversion, or audience-match results
 
 ## 5. How we use personal data
 
@@ -125,10 +173,13 @@ We use personal data for the following purposes:
 - securing the Service, preventing abuse, investigating suspicious activity, and responding to incidents
 - monitoring reliability, diagnosing failures, fixing bugs, and improving performance
 - analyzing product usage so we can understand how the Service is used and improve it
+- understanding website traffic, referral sources, and interactions with our public pages
+- attributing installs and re-engagements and measuring advertising or acquisition campaign performance
+- creating, excluding, measuring, or finding similar advertising audiences where permitted by law
 - communicating with you about the Service, including support and operational notices
 - complying with legal obligations, enforcing our terms, and protecting our rights, users, systems, and providers
 
-We use product analytics data solely to understand and improve Sesori. We do not use it for advertising or disclose it to business partners or other third parties for their independent use. The Google services identified in Section 8.1 process this data as sub-processors only on our behalf and under our instructions. The limited legal, safety, and corporate disclosures described in Section 8.3 may still apply.
+We use account-linked product analytics data solely to understand and improve Sesori. We do not use the restricted product analytics events described in Section 3.5 for advertising or disclose those events to business partners for their independent use. This limitation does not apply to the separate website analytics, mobile attribution, or advertising audience processing described in Sections 3.9 through 3.11. Google, Meta, Singular, and configured advertising partners process that separate data for the measurement, attribution, audience, and advertising purposes disclosed in this Privacy Policy.
 
 ## 6. When Sesori processes readable content
 
@@ -152,21 +203,27 @@ If GDPR or similar law applies, we generally rely on one or more of the followin
 - **Consent** (GDPR Art. 6(1)(a)), where consent is required by law or where we specifically ask for it, for example for certain analytics or tracking on supported platforms. You may withdraw consent at any time
 - **Legal obligation** (GDPR Art. 6(1)(c)), when processing is needed to comply with law, regulation, lawful requests, or mandatory recordkeeping requirements
 
+For website advertising technologies, mobile attribution, Meta Customer List Custom Audiences, Lookalike Audiences, and similar targeted-advertising processing, the legal basis depends on the jurisdiction and configuration. Where applicable law requires prior consent, we rely on consent and allow it to be withdrawn. Where the law permits processing based on legitimate interests, those interests include measuring acquisition, preventing attribution fraud, avoiding irrelevant advertising, and operating sustainable marketing, balanced against the rights of affected individuals. Platform permission frameworks such as Apple's App Tracking Transparency are separate from, and do not replace, any consent required under data-protection or electronic-communications law.
+
 ## 8. Sub-processors and third-party recipients
 
-### 8.1 Sub-processors acting on our behalf
+### 8.1 Service providers and technology recipients
 
-We use a limited number of service providers that may process personal data on our behalf to operate the official Service. Current sub-processors are:
+We use service providers, analytics providers, attribution providers, and advertising platforms to operate, measure, secure, and market the official Service. Some process personal data solely on our behalf and instructions; others may have separate responsibilities under their own terms and applicable law. Current recipients include:
 
-| Provider                               | Role                                                                                                                                      | Location of processing                                                                                          |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| DigitalOcean, LLC                      | Hosting, infrastructure, and databases                                                                                                    | European Union (Sesori-controlled servers are currently EU-hosted); provider headquartered in the United States |
-| Cloudflare, Inc.                       | Reverse proxy, DNS, and security edge services                                                                                            | Global edge network; provider headquartered in the United States                                                |
-| OpenAI, L.L.C.                         | Voice transcription and short text feature processing (e.g., session title naming)                                                        | United States                                                                                                   |
-| Soniox, Inc.                           | Voice transcription                                                                                                                       | United States (US regional project)                                                                              |
-| Anthropic, PBC                         | Short text feature processing (e.g., session title naming)                                                                                | United States                                                                                                   |
-| Google LLC (Firebase and Google Cloud) | Push notifications via Firebase Cloud Messaging, app analytics, restricted analytics storage and processing via BigQuery, and Crashlytics | United States and Google global infrastructure                                                                  |
-| Functional Software, Inc. (Sentry)     | Error monitoring and crash diagnostics                                                                                                    | United States                                                                                                   |
+| Provider                               | Role                                                                                                                                                                       | Location of processing                                                                                          |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| DigitalOcean, LLC                      | Hosting, infrastructure, and databases                                                                                                                                     | European Union (Sesori-controlled servers are currently EU-hosted); provider headquartered in the United States |
+| Cloudflare, Inc.                       | Reverse proxy, DNS, security edge services, and related network infrastructure                                                                                            | Global edge network; provider headquartered in the United States                                                |
+| OpenAI, L.L.C.                         | Voice transcription and short text feature processing (e.g., session title naming)                                                                                         | United States                                                                                                   |
+| Soniox, Inc.                           | Voice transcription                                                                                                                                                        | United States (US regional project)                                                                              |
+| Anthropic, PBC                         | Short text feature processing (e.g., session title naming)                                                                                                                 | United States                                                                                                   |
+| Google LLC (Firebase, Google Cloud, and Google Analytics) | Push notifications, app and website analytics, campaign measurement, restricted analytics storage and processing via BigQuery, and Crashlytics                            | United States and Google global infrastructure                                                                  |
+| Meta Platforms Ireland Limited and Meta Platforms, Inc. | Meta Pixel, advertising measurement and optimization, Customer List Custom Audiences, Lookalike Audiences, and related Meta advertising services                          | European Union, United States, and Meta global infrastructure                                                    |
+| Singular Labs, Inc.                    | Mobile install and re-engagement attribution, campaign analytics, deep linking, fraud prevention, and configured advertising-partner postbacks                             | United States and Singular global infrastructure                                                                |
+| Functional Software, Inc. (Sentry)     | Error monitoring and crash diagnostics                                                                                                                                     | United States                                                                                                   |
+
+Google, Meta, Singular, and configured advertising partners may receive the identifiers, events, and campaign data described in Sections 3.9 through 3.11. Their processing is also governed by the applicable provider terms and privacy documentation, including [Google's Privacy Policy](https://policies.google.com/privacy), [Meta's Business Tools Terms](https://www.facebook.com/legal/technology_terms), [Meta's Customer List Custom Audiences Terms](https://www.facebook.com/legal/terms/customaudience), and [Singular's Privacy Policy](https://www.singular.net/privacy-policy/).
 
 We also operate our own Sesori authentication backend on Sesori infrastructure for account and authentication services.
 
@@ -191,9 +248,11 @@ We may also disclose personal data where reasonably necessary to:
 
 In the event of a merger, acquisition, financing, reorganization, bankruptcy, or sale of all or part of our business or assets, personal data may be transferred to the acquiring or successor entity. We will seek to ensure that any recipient continues to protect personal data consistent with this Privacy Policy.
 
-### 8.4 No sale or sharing for advertising
+### 8.4 No monetary sale; analytics and advertising disclosures
 
-Sesori does **not** sell personal data. Sesori does **not** share personal data for cross-context behavioral advertising. Sesori does **not** use personal data for targeted advertising.
+Sesori does **not** sell personal data for money. We disclose website activity, online identifiers, mobile attribution data, campaign events, and hashed account email addresses to Google, Meta, Singular, and configured advertising partners for analytics, attribution, campaign measurement, audience matching, advertising optimization, and targeted advertising as described in this Privacy Policy.
+
+Under some United States privacy laws, some of these disclosures may be considered "sharing," targeted advertising, or cross-context behavioral advertising even when no money is exchanged. Where applicable, you may opt out of this processing by contacting [contact@sesori.com](mailto:contact@sesori.com) or [gdpr@sesori.com](mailto:gdpr@sesori.com). We will apply a valid opt-out to future audience uploads and advertising-data sharing under our control and will request removal from active customer-list audiences where applicable.
 
 ## 9. International data transfers
 
@@ -213,7 +272,10 @@ Indicative retention practices:
 - **Voice recordings and generated transcripts**: deleted after processing completes, typically within seconds of the processing flow, except to the limited extent reasonably needed for operations, abuse prevention, security, incident response, or legal compliance
 - **Account and authentication data**: retained while your account exists and thereafter for a reasonable period, typically up to 24 months, for security, fraud prevention, legal compliance, dispute handling, or enforcement
 - **Push notification tokens**: retained while needed for notification delivery and removed or allowed to expire when you log out, rotate tokens, uninstall the app, or when the token becomes stale
-- **Google Analytics product analytics data**: upstream event and user data retention is configured to two months
+- **Google Analytics website and product analytics data**: upstream event and user data retention is configured to two months
+- **Meta Pixel and Meta advertising data**: retained by Meta according to the applicable Meta terms and our advertising-account settings; campaign reports and audience records may remain while needed for the disclosed advertising purposes
+- **Meta customer-list audience data**: hashed customer-list data is used by Meta for matching under its Customer List Custom Audiences Terms; we remove opted-out users from future uploads and request removal from active customer-list audiences within a reasonable period
+- **Singular attribution data**: retained according to our Singular settings, Singular's processor terms, and the period needed for attribution, fraud prevention, campaign analysis, rights requests, and legal obligations
 - **Restricted raw BigQuery analytics export**: raw exported analytics data expires after 90 days
 - **Curated product analytics data**: minimized pseudonymous event facts are retained for up to 14 months; routine product and dashboard viewers cannot access raw analytics datasets or pseudonymous account keys
 - **Crash and diagnostic data**: retained according to vendor settings and our operational needs, typically up to 90 days for crash and error reports
@@ -242,9 +304,9 @@ Voice transcription is served by one configured provider at a time. When Soniox 
 
 We do not use your personal data for solely automated decision-making that produces legal or similarly significant effects concerning you within the meaning of Article 22 GDPR.
 
-## 14. Analytics, diagnostics, and platform tracking controls
+## 14. Analytics, diagnostics, advertising, and platform tracking controls
 
-The Service currently uses analytics and diagnostic tools in the apps and hosted features, including Firebase Analytics, Firebase Crashlytics, and Sentry, to understand usage, detect failures, and improve reliability.
+The Service currently uses analytics, diagnostic, attribution, and advertising tools in the apps and hosted features, including Firebase Analytics, Firebase Crashlytics, Sentry, Google Analytics 4, Meta Pixel, and the Singular Flutter SDK, to understand usage, detect failures, attribute acquisition, measure campaigns, and improve reliability.
 
 ### 14.1 Account-linked product analytics control
 
@@ -260,18 +322,27 @@ This control applies only to the account-linked product analytics events describ
 - analytics behavior from an older app version
 - account-linked events on a remote supported installation before it next establishes authentication or explicitly refreshes its preference
 - separate crash and diagnostic processing through tools such as Firebase Crashlytics or Sentry
+- website Google Analytics and Meta Pixel processing described in Section 14.3
+- Singular install attribution, advertising-partner postbacks, or other mobile advertising processing
+- Meta Customer List Custom Audiences, Lookalike Audiences, or other advertising audience processing
 
 Before sign-in, supported release builds may send bounded events indicating that a sign-in attempt started, completed, or failed. These events contain only a pinned sign-in provider and, for failures, a bounded failure category. They contain no account key or attempt identifier. Because these events are account-less, we cannot reliably filter internal or test release traffic from them. We use them only as diagnostic information and do not treat them as an account conversion metric.
 
 The Settings control is therefore not an account-wide, Firebase-wide, or diagnostics-wide collection switch, and it cannot change behavior in older app versions.
 
-### 14.2 Platform tracking controls
+### 14.2 Mobile platform tracking and attribution controls
 
-On iOS, we respect Apple's App Tracking Transparency framework. We do not track you across apps and websites owned by other companies without your permission through the ATT prompt where ATT applies.
+On iOS, we respect Apple's App Tracking Transparency framework. We do not access the IDFA or track you across apps and websites owned by other companies without the required ATT permission where ATT applies. ATT is a platform permission and is separate from any consent required under privacy law. Singular may still support privacy-preserving or non-IDFA attribution methods, such as Apple's attribution frameworks, subject to our configuration.
 
-On Android, we respect Google's applicable user choice and advertising ID controls.
+On Android, we respect Google's advertising identifier controls and applicable user choices. Availability of an advertising identifier depends on device, platform, account, age, and privacy settings.
 
-`sesori.com` currently does **not** use cookies or website analytics. If this changes, we will update this Privacy Policy and, where required, provide appropriate consent and controls.
+Where supported by our implementation, Singular controls can limit data sharing with advertising partners or stop future SDK tracking. A request to withdraw applicable consent or opt out can also be submitted to [contact@sesori.com](mailto:contact@sesori.com) or [gdpr@sesori.com](mailto:gdpr@sesori.com). Stopping future tracking does not automatically retract data already transmitted, which remains subject to applicable deletion and rights-request processes.
+
+### 14.3 Website analytics and advertising technologies
+
+`sesori.com` currently loads Google Analytics 4 and Meta Pixel when a visitor opens the website. These technologies record page views and configured interaction events and may set or read cookies and similar browser identifiers for analytics, attribution, audience, and advertising purposes.
+
+You can block or delete cookies using browser controls, use [Google's Analytics opt-out tools](https://tools.google.com/dlpage/gaoptout), manage advertising preferences through [Meta's Ad Preferences](https://www.facebook.com/adpreferences/ad_settings), or submit an applicable opt-out or rights request using the contacts in Section 2. Blocking these technologies may reduce the accuracy of campaign attribution but does not prevent access to Sesori's public website or core Service.
 
 ## 15. Children's privacy
 
@@ -304,21 +375,23 @@ When we act on a verified account-deletion or analytics-erasure request, we can 
 
 Data from an automatic-only installation that never emitted an account-keyed event cannot be linked back to an account by design. We therefore cannot identify that installation's automatic data in response to an account request. It remains subject to Google Analytics' two-month upstream retention period, and an already-exported row in the restricted raw BigQuery dataset may remain until its 90-day expiration.
 
+For website analytics, mobile attribution, or advertising audience data, a verified request may require us to stop future collection or sharing under our control, remove an email address from future audience uploads, request removal from active Meta customer-list audiences, or submit an applicable deletion or suppression request to Google, Meta, Singular, or another configured advertising partner. Data associated only with a cookie, device identifier, or advertising identifier may not be identifiable from an account email without additional information from you or the provider.
+
 We aim to respond to rights requests within 30 days of receipt, with the possibility of an extension of up to two additional months for complex or numerous requests, consistent with GDPR Article 12. We do not currently offer self-serve in-app privacy rights workflows or in-account deletion flows. Rights requests are handled by email.
 
 ## 17. California privacy notice
 
 This section applies to California residents to the extent required by the California Consumer Privacy Act as amended by the California Privacy Rights Act ("**CCPA/CPRA**").
 
-We collect and use personal information as described in this Privacy Policy for service operation, security, support, diagnostics, analytics, legal compliance, and related business purposes. The categories of personal information we collect correspond to the data categories described in Section 3.
+We collect and use personal information as described in this Privacy Policy for service operation, security, support, diagnostics, analytics, advertising attribution, audience matching, targeted advertising, legal compliance, and related business purposes. The categories of personal information we collect correspond to the data categories described in Section 3.
 
-- Sesori does **not** sell personal information
-- Sesori does **not** share personal information for cross-context behavioral advertising
-- Sesori does **not** use personal information for targeted advertising
+- Sesori does **not** sell personal information for money
+- Sesori may disclose online identifiers, website activity, mobile attribution data, campaign events, and hashed account email addresses to Google, Meta, Singular, and configured advertising partners
+- these disclosures may constitute "sharing," targeted advertising, or cross-context behavioral advertising under CCPA/CPRA
 
 To the extent we process sensitive personal information, we do so only to provide the Service or for closely related security, compliance, fraud-prevention, support, diagnostic, and operational purposes, within the limits permitted by CCPA/CPRA.
 
-California residents may request to know, access, correct, or delete personal information, and may request to limit use of sensitive personal information, by emailing [contact@sesori.com](mailto:contact@sesori.com) or [gdpr@sesori.com](mailto:gdpr@sesori.com). We will respond consistent with CCPA/CPRA, generally within 45 days of a verifiable request, with the possibility of an extension where permitted. We may need to verify your identity before responding. You may also designate an authorized agent to act on your behalf as permitted under California law.
+California residents may request to know, access, correct, or delete personal information; request to limit use of sensitive personal information; or opt out of sale, sharing, cross-context behavioral advertising, or targeted advertising by emailing [contact@sesori.com](mailto:contact@sesori.com) or [gdpr@sesori.com](mailto:gdpr@sesori.com). We will respond consistent with CCPA/CPRA, generally within 45 days of a verifiable request, with the possibility of an extension where permitted. We may need to verify your identity before responding. You may also designate an authorized agent to act on your behalf as permitted by California law.
 
 We do not discriminate against California residents for exercising their privacy rights.
 
