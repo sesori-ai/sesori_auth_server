@@ -105,7 +105,7 @@ Voice recordings are transmitted to Sesori servers and a third-party transcripti
 
 ### 3.9 Website analytics and advertising data
 
-When you visit `sesori.com`, we currently use Google Analytics 4 (measurement ID `G-5R35L8J3NT`) and Meta Pixel (pixel ID `1619146889579169`) to measure website use, acquisition, advertising performance, and actions such as store visits, documentation visits, or Bridge installation interactions.
+Subject to the choices presented through our cookie banner and Cookie Settings control, `sesori.com` uses Google Analytics 4 (measurement ID `G-5R35L8J3NT`) and Meta Pixel (pixel ID `1619146889579169`) to measure website use, acquisition, advertising performance, and actions such as store visits, documentation visits, or Bridge installation interactions. In jurisdictions where prior consent is required, non-essential analytics and advertising tags remain disabled until the visitor grants the relevant consent.
 
 Depending on the technology, configuration, and your interaction with the website, this processing may include:
 
@@ -120,7 +120,7 @@ Google and Meta may associate these identifiers and events with other informatio
 
 ### 3.10 Mobile advertising attribution data
 
-The official mobile app may use the Singular Flutter SDK to attribute installs and re-engagements, measure campaign performance, detect attribution fraud, support deep links, and understand whether advertising leads to useful product outcomes.
+Official mobile release builds for which Sesori enables advertising attribution use the Singular Flutter SDK to attribute installs and re-engagements, measure campaign performance, detect attribution fraud, support deep links, and understand whether advertising leads to useful product outcomes. Singular is not enabled in development, self-hosted, or other builds where the SDK or required configuration is absent.
 
 Depending on device settings, platform availability, consent choices, and our SDK configuration, Singular may process:
 
@@ -135,7 +135,7 @@ Singular processes this information on our behalf and may send attribution data 
 
 ### 3.11 Meta Customer List and Lookalike Audiences
 
-We may use the email address associated with your Sesori account, including an email obtained through Apple, Google, GitHub, or email sign-in, to create advertising audiences on Meta platforms.
+We may use an email address that you submit directly to Sesori through an email-and-password account or a separate advertising-audience form to create advertising audiences on Meta platforms. We do **not** use an email claim received solely from Apple, Google, GitHub, or another OAuth or identity provider for advertising audience matching. An address used to authenticate an account is not automatically eligible for audience matching; we apply the separate consent or other lawful permission described below.
 
 Before transfer for customer-list matching, we normalize and cryptographically hash the email address. Hashing reduces direct exposure during transfer but does not make the information anonymous. Meta uses the hashed value to determine whether it matches a Meta account and to create a Customer List Custom Audience. Meta does not tell us which specific people matched.
 
@@ -145,7 +145,7 @@ We may use the resulting Custom Audience to:
 - measure campaign reach or effectiveness
 - ask Meta to create a Lookalike Audience of other Meta users with characteristics similar to the matched audience
 
-Where applicable law requires consent for this processing, we rely on that consent rather than treating this Privacy Policy itself as consent. Audience matching is not required to use Sesori's core functionality. You may withdraw consent or opt out by contacting [contact@sesori.com](mailto:contact@sesori.com) or [gdpr@sesori.com](mailto:gdpr@sesori.com). After a valid opt-out, we will stop including the address in future audience uploads and remove it from active customer-list audiences within a reasonable period, subject to Meta's processing and retention systems.
+Where applicable law requires consent for this processing, we obtain a separate advertising-audience consent rather than treating account creation or this Privacy Policy itself as consent. Audience matching is not required to use Sesori's core functionality. You may withdraw consent or opt out through the privacy controls described in Sections 14 and 17 or by contacting [contact@sesori.com](mailto:contact@sesori.com) or [gdpr@sesori.com](mailto:gdpr@sesori.com). After a valid opt-out, we will stop including the address in future audience uploads and remove it from active customer-list audiences within a reasonable period, subject to Meta's processing and retention systems.
 
 This audience matching does not by itself subscribe you to marketing email. Meta Customer List Custom Audiences are governed by the [Meta Customer List Custom Audiences Terms](https://www.facebook.com/legal/terms/customaudience) and [Meta Business Tools Terms](https://www.facebook.com/legal/technology_terms).
 
@@ -203,7 +203,7 @@ If GDPR or similar law applies, we generally rely on one or more of the followin
 - **Consent** (GDPR Art. 6(1)(a)), where consent is required by law or where we specifically ask for it, for example for certain analytics or tracking on supported platforms. You may withdraw consent at any time
 - **Legal obligation** (GDPR Art. 6(1)(c)), when processing is needed to comply with law, regulation, lawful requests, or mandatory recordkeeping requirements
 
-For website advertising technologies, mobile attribution, Meta Customer List Custom Audiences, Lookalike Audiences, and similar targeted-advertising processing, the legal basis depends on the jurisdiction and configuration. Where applicable law requires prior consent, we rely on consent and allow it to be withdrawn. Where the law permits processing based on legitimate interests, those interests include measuring acquisition, preventing attribution fraud, avoiding irrelevant advertising, and operating sustainable marketing, balanced against the rights of affected individuals. Platform permission frameworks such as Apple's App Tracking Transparency are separate from, and do not replace, any consent required under data-protection or electronic-communications law.
+For website advertising technologies, mobile attribution, Meta Customer List Custom Audiences, Lookalike Audiences, and similar targeted-advertising processing, the legal basis depends on the jurisdiction and configuration. In jurisdictions where prior consent is required, our cookie banner keeps non-essential website analytics and advertising tags disabled until the relevant consent is granted, and we obtain separate consent for customer-list audience matching where required. Where the law permits processing based on legitimate interests, those interests include measuring acquisition, preventing attribution fraud, avoiding irrelevant advertising, and operating sustainable marketing, balanced against the rights of affected individuals. Platform permission frameworks such as Apple's App Tracking Transparency are separate from, and do not replace, any consent required under data-protection or electronic-communications law.
 
 ## 8. Sub-processors and third-party recipients
 
@@ -252,7 +252,7 @@ In the event of a merger, acquisition, financing, reorganization, bankruptcy, or
 
 Sesori does **not** sell personal data for money. We disclose website activity, online identifiers, mobile attribution data, campaign events, and hashed account email addresses to Google, Meta, Singular, and configured advertising partners for analytics, attribution, campaign measurement, audience matching, advertising optimization, and targeted advertising as described in this Privacy Policy.
 
-Under some United States privacy laws, some of these disclosures may be considered "sharing," targeted advertising, or cross-context behavioral advertising even when no money is exchanged. Where applicable, you may opt out of this processing by contacting [contact@sesori.com](mailto:contact@sesori.com) or [gdpr@sesori.com](mailto:gdpr@sesori.com). We will apply a valid opt-out to future audience uploads and advertising-data sharing under our control and will request removal from active customer-list audiences where applicable.
+Under some United States privacy laws, some of these disclosures may be considered "sharing," targeted advertising, or cross-context behavioral advertising even when no money is exchanged. Where applicable, you may opt out immediately through the Cookie Settings or "Do Not Sell or Share My Personal Information" control on the website or app. We also treat a recognized opt-out preference signal, including Global Privacy Control, as an opt-out request for the browser or device that sends it where required by law. You may additionally contact [contact@sesori.com](mailto:contact@sesori.com) or [gdpr@sesori.com](mailto:gdpr@sesori.com). We will apply a valid opt-out to future audience uploads and advertising-data sharing under our control and will request removal from active customer-list audiences where applicable.
 
 ## 9. International data transfers
 
@@ -306,7 +306,7 @@ We do not use your personal data for solely automated decision-making that produ
 
 ## 14. Analytics, diagnostics, advertising, and platform tracking controls
 
-The Service currently uses analytics, diagnostic, attribution, and advertising tools in the apps and hosted features, including Firebase Analytics, Firebase Crashlytics, Sentry, Google Analytics 4, Meta Pixel, and the Singular Flutter SDK, to understand usage, detect failures, attribute acquisition, measure campaigns, and improve reliability.
+The Service currently uses analytics, diagnostic, and advertising tools in the apps and hosted features, including Firebase Analytics, Firebase Crashlytics, Sentry, Google Analytics 4, and Meta Pixel, to understand usage, detect failures, measure campaigns, and improve reliability. Official mobile release builds configured for advertising attribution also use the Singular Flutter SDK as described in Sections 3.10 and 14.2.
 
 ### 14.1 Account-linked product analytics control
 
@@ -340,9 +340,9 @@ Where supported by our implementation, Singular controls can limit data sharing 
 
 ### 14.3 Website analytics and advertising technologies
 
-`sesori.com` currently loads Google Analytics 4 and Meta Pixel when a visitor opens the website. These technologies record page views and configured interaction events and may set or read cookies and similar browser identifiers for analytics, attribution, audience, and advertising purposes.
+`sesori.com` presents a cookie banner and persistent Cookie Settings control for Google Analytics 4, Meta Pixel, and related non-essential technologies. In jurisdictions requiring opt-in consent, analytics and advertising tags remain disabled until the visitor accepts the relevant category. In jurisdictions that use an opt-out model, the tags operate subject to the visitor's saved preference and applicable opt-out rights.
 
-You can block or delete cookies using browser controls, use [Google's Analytics opt-out tools](https://tools.google.com/dlpage/gaoptout), manage advertising preferences through [Meta's Ad Preferences](https://www.facebook.com/adpreferences/ad_settings), or submit an applicable opt-out or rights request using the contacts in Section 2. Blocking these technologies may reduce the accuracy of campaign attribution but does not prevent access to Sesori's public website or core Service.
+You can accept, reject, or later change analytics and advertising choices through Cookie Settings. Where applicable, the website also provides a "Do Not Sell or Share My Personal Information" control and honors recognized opt-out preference signals such as Global Privacy Control for the browser or device that sends them. You can additionally block or delete cookies using browser controls, use [Google's Analytics opt-out tools](https://tools.google.com/dlpage/gaoptout), manage advertising preferences through [Meta's Ad Preferences](https://www.facebook.com/adpreferences/ad_settings), or submit a rights request using the contacts in Section 2. Rejecting these technologies may reduce the accuracy of campaign attribution but does not prevent access to Sesori's public website or core Service.
 
 ## 15. Children's privacy
 
@@ -391,7 +391,7 @@ We collect and use personal information as described in this Privacy Policy for 
 
 To the extent we process sensitive personal information, we do so only to provide the Service or for closely related security, compliance, fraud-prevention, support, diagnostic, and operational purposes, within the limits permitted by CCPA/CPRA.
 
-California residents may request to know, access, correct, or delete personal information; request to limit use of sensitive personal information; or opt out of sale, sharing, cross-context behavioral advertising, or targeted advertising by emailing [contact@sesori.com](mailto:contact@sesori.com) or [gdpr@sesori.com](mailto:gdpr@sesori.com). We will respond consistent with CCPA/CPRA, generally within 45 days of a verifiable request, with the possibility of an extension where permitted. We may need to verify your identity before responding. You may also designate an authorized agent to act on your behalf as permitted by California law.
+California residents may request to know, access, correct, or delete personal information; request to limit use of sensitive personal information; or opt out of sale, sharing, cross-context behavioral advertising, or targeted advertising. Where CCPA/CPRA applies, an immediate opt-out is available through the Cookie Settings or "Do Not Sell or Share My Personal Information" control on the website or app, and we honor recognized opt-out preference signals such as Global Privacy Control for the browser or device that sends them. Requests may also be submitted to [contact@sesori.com](mailto:contact@sesori.com) or [gdpr@sesori.com](mailto:gdpr@sesori.com). We will respond consistent with CCPA/CPRA, generally within 45 days of a verifiable request, with the possibility of an extension where permitted. We may need to verify your identity before responding. You may also designate an authorized agent to act on your behalf as permitted by California law.
 
 We do not discriminate against California residents for exercising their privacy rights.
 

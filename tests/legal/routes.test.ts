@@ -125,6 +125,10 @@ describe("Legal routes", () => {
       assert.ok(res.body.includes("1619146889579169"));
       assert.ok(res.body.includes("cryptographically hash the email address"));
       assert.doesNotMatch(res.body, /currently does \*\*not\*\* use cookies or website analytics/i);
+      assert.ok(res.body.includes("do **not** use an email claim received solely from Apple, Google, GitHub"));
+      assert.ok(res.body.includes("non-essential analytics and advertising tags remain disabled"));
+      assert.ok(res.body.includes("Global Privacy Control"));
+      assert.ok(res.body.includes("Official mobile release builds for which Sesori enables advertising attribution"));
       assert.ok(res.body.includes("United States (US regional project)"));
       assert.ok(
         res.body.includes("audio is processed and temporarily stored in Soniox's United States regional project"),
