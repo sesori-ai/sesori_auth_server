@@ -226,7 +226,12 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     overrides?.sessionMetadataService ?? new SessionMetadataService({ openai, dailyUsageRepo, model: "gpt-4o-mini" });
   const installScriptService = overrides?.installScriptService ?? new InstallScriptService();
   const legalDocumentService =
-    overrides?.legalDocumentService ?? new LegalDocumentService("# Test Terms\n", "# Test Privacy\n");
+    overrides?.legalDocumentService ??
+    new LegalDocumentService({
+      termsText: "# Test Terms\n",
+      privacyText: "# Test Privacy\n",
+      cookiesText: "# Test Cookies\n",
+    });
 
   const app = await buildApp({
     config: effectiveConfig,

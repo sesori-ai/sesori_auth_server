@@ -234,11 +234,12 @@ async function main() {
     model: config.OPENAI_METADATA_MODEL,
   });
   const installScriptService = new InstallScriptService();
-  const [termsText, privacyText] = await Promise.all([
+  const [termsText, privacyText, cookiesText] = await Promise.all([
     readFile(getLegalDocumentUrl(import.meta.url, "terms"), "utf8"),
     readFile(getLegalDocumentUrl(import.meta.url, "privacy"), "utf8"),
+    readFile(getLegalDocumentUrl(import.meta.url, "cookies"), "utf8"),
   ]);
-  const legalDocumentService = new LegalDocumentService(termsText, privacyText);
+  const legalDocumentService = new LegalDocumentService({ termsText, privacyText, cookiesText });
 
   const app = await buildApp({
     config,

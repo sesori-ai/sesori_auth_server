@@ -1,8 +1,8 @@
 # Sesori Terms and Conditions
 
-_Last updated: April 18, 2026_
+_Last updated: August 25, 2026_
 
-These Sesori Terms and Conditions, together with any additional terms, policies, notices, or product-specific rules that we make available for the official Sesori services, form a legally binding agreement between you and **Digitalblock Labs LTD** ("**Sesori**," "**Company**," "we," "us," or "our"). These terms apply when you access, install, use, or interact with Sesori's official apps and services, including the Sesori mobile app, the official local bridge software, relay services, authentication and account services, push notification services, voice input and transcription features, `sesori.com`, and related hosted features that we provide (collectively, the "**Service**").
+These Sesori Terms and Conditions, together with any additional terms, policies, notices, or product-specific rules that we make available for the official Sesori services, form a legally binding agreement between you and **Digitalblock Labs LTD** ("**Sesori**," "**Company**," "we," "us," or "our"). These terms apply when you access, install, use, or interact with Sesori's official apps and services, including the Sesori mobile app, the official local bridge software, relay services, authentication and account services, push notification services, voice input and transcription features, `sesori.com`, website analytics and advertising technologies, mobile advertising attribution, advertising audience services, and related hosted features that we provide (collectively, the "**Service**").
 
 By accessing or using the Service, you agree to these Terms and Conditions. If you do not agree, do not access or use the Service.
 
@@ -20,7 +20,7 @@ By accessing or using the Service, you agree to these Terms and Conditions. If y
 
 2.1. The Service is designed to let you connect compatible AI coding assistants running on your own host system with your mobile device so that you can browse projects, review sessions, receive real-time updates, respond to prompts, use voice input, and use related official Sesori features.
 
-2.2. The Service may include, without limitation, local bridge software running on your host system, relay transport, account and authentication features, push notification delivery, mobile clients, websites, voice input and server-side transcription features, diagnostics, support tools, analytics, and related hosted components.
+2.2. The Service may include, without limitation, local bridge software running on your host system, relay transport, account and authentication features, push notification delivery, mobile clients, websites, voice input and server-side transcription features, diagnostics, support tools, product and website analytics, advertising technologies, mobile attribution, advertising audience services, and related hosted components.
 
 2.3. The Service may depend on your own devices, local host environment, internet connectivity, AI tools, operating systems, app stores, notification providers, and other third-party services. Those dependencies are outside our control.
 
@@ -52,7 +52,7 @@ By accessing or using the Service, you agree to these Terms and Conditions. If y
 
 1. In ordinary operation, Sesori infrastructure may route encrypted relay traffic between your devices and does not ordinarily have plaintext access to that relay payload in transit.
 2. Certain features, including voice input, require Sesori and its sub-processors to receive, process, and transcribe audio recordings you submit through the Service. Voice recordings and generated transcripts are not retained by Sesori after processing completes, except to the limited extent reasonably necessary for service operation, abuse prevention, security, diagnostics, incident response, or as required by law. Transcription and related processing may be performed by one or more third-party providers acting as Sesori's sub-processors. A current list of sub-processors is maintained in or linked from our Privacy Policy.
-3. Limited additional data may be processed in connection with notifications, account and authentication, device and app metadata, analytics, diagnostics, support, and limited feature processing that you invoke.
+3. Limited additional data may be processed in connection with notifications, account and authentication, device and app metadata, product and website analytics, advertising attribution, campaign measurement, advertising audience matching, diagnostics, support, and limited feature processing that you invoke.
 4. No networked system is risk free, and some data exposure, loss, corruption, delay, or misdelivery may still occur.
 
 4.7. You are responsible for deciding whether the Service is appropriate for your workflow, data sensitivity, compliance obligations, and operational risk tolerance.
@@ -81,17 +81,17 @@ By accessing or using the Service, you agree to these Terms and Conditions. If y
 
 ## 7. Privacy and data handling
 
-7.1. The Service is designed so that ordinary routing of encrypted relay traffic between your devices does not ordinarily require Sesori to have plaintext access to that traffic in transit. However, certain features, including voice input, require Sesori and its sub-processors to receive and process your data in readable form. In particular, voice recordings submitted through the Service are transmitted to Sesori servers and processed by a third-party transcription sub-processor. Voice recordings and generated transcripts are not retained by Sesori after processing completes, except as described in Section 4.6. Additional limited data may be processed in connection with notifications, metadata, diagnostics, support flows, analytics, and other service operations you invoke.
+7.1. The Service is designed so that ordinary routing of encrypted relay traffic between your devices does not ordinarily require Sesori to have plaintext access to that traffic in transit. However, certain features, including voice input, require Sesori and its sub-processors to receive and process your data in readable form. In particular, voice recordings submitted through the Service are transmitted to Sesori servers and processed by a third-party transcription sub-processor. Voice recordings and generated transcripts are not retained by Sesori after processing completes, except as described in Section 4.6. Additional limited data may be processed in connection with notifications, metadata, diagnostics, support flows, analytics, advertising attribution, campaign measurement, advertising audience matching, and other Service operations described in the Privacy Policy.
 
-7.2. Sesori may process account details, authentication data, connection metadata, device and app metadata, analytics, diagnostic information, support information, notification payloads, limited session metadata, voice and transcription data as described above, limited feature processing inputs and outputs, and other data reasonably necessary to provide, secure, support, maintain, and enforce the Service.
+7.2. Sesori may process account details, authentication data, connection metadata, device and app metadata, website activity, online and advertising identifiers, campaign and attribution information, analytics, diagnostic information, support information, notification payloads, limited session metadata, voice and transcription data as described above, limited feature processing inputs and outputs, account contact information used for advertising audience matching where permitted, and other data reasonably necessary to provide, secure, support, maintain, measure, market, and enforce the Service.
 
 7.3. Push notifications may contain limited session metadata, partial content, sender information, project information, or other snippets depending on your settings, platform behavior, notification routing, lock-screen visibility, or operating system controls. We cannot guarantee that notification content will remain hidden from device-level surfaces or other people with access to your device.
 
 7.4. Manual review of limited accessible data may occur when reasonably necessary for support, abuse prevention, security investigation, incident response, trust and safety review, or legal compliance.
 
-7.5. Third-party providers such as hosting, analytics, crash reporting, authentication, messaging, notification, infrastructure, customer support, app distribution, transcription, providers supporting limited feature processing you invoke, and security vendors may store, receive, or access limited data while providing their services to us. A current list of sub-processors is maintained in or linked from our Privacy Policy.
+7.5. Third-party recipients such as hosting, analytics, advertising, attribution, audience-matching, crash-reporting, authentication, messaging, notification, infrastructure, customer-support, app-distribution, transcription, limited feature-processing, and security providers may store, receive, or access limited data while providing services to us or under their own applicable terms. Some act solely on Sesori's behalf, while others may have separate responsibilities under applicable law.
 
-7.6. Our Privacy Policy, available at `sesori.com`, contains additional detail about what data we collect, how we use it, our sub-processors, data retention, international transfers, and your rights under applicable data protection law. The Privacy Policy is incorporated by reference into these Terms and Conditions.
+7.6. Our Privacy Policy and Cookie Statement, available at `sesori.com` or through the Service, contain additional detail about the data we collect, how we use it, service providers and technology recipients, cookies and similar technologies, consent controls, data retention, international transfers, and your rights under applicable data-protection law. The Privacy Policy and Cookie Statement are incorporated by reference into these Terms and Conditions.
 
 7.7. Although we take steps intended to protect the Service, we do not promise perfect privacy, perfect confidentiality, perfect end-to-end secrecy, or absolute security.
 
@@ -123,7 +123,7 @@ By accessing or using the Service, you agree to these Terms and Conditions. If y
 
 9.2. Sesori does not control, endorse, or assume responsibility for third-party products or services that you choose to connect or use, including any connected AI coding assistant or any output, action, failure, policy, or security issue arising from them.
 
-9.3. This Section 9 does not apply to sub-processors that Sesori itself engages to operate the Service, such as hosting, transcription, or analytics providers. Those sub-processors act on Sesori's behalf and are addressed in our Privacy Policy.
+9.3. This Section 9 does not limit processing by service providers, analytics providers, attribution providers, advertising platforms, or other technology recipients selected by Sesori to operate, measure, secure, or market the Service. Their respective roles and applicable terms are described in our Privacy Policy and Cookie Statement. Some act solely on Sesori's behalf, while others may have separate responsibilities under their own terms and applicable law.
 
 9.4. Your use of third-party services is at your own risk and may be subject to separate terms, privacy notices, and fees from those third parties.
 

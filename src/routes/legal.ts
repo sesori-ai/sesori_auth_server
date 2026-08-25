@@ -15,4 +15,8 @@ export const legalRoutes: FastifyPluginAsync<LegalRouteOptions> = async (fastify
   fastify.get<{ Reply: string }>("/privacy", async (_request, reply) => {
     reply.type("text/plain; charset=utf-8").send(legalDocumentService.getPrivacy());
   });
+
+  fastify.get<{ Reply: string }>("/cookies", async (_request, reply) => {
+    reply.type("text/plain; charset=utf-8").send(legalDocumentService.getCookies());
+  });
 };
