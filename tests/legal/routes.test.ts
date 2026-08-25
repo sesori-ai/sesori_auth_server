@@ -92,9 +92,9 @@ describe("Legal routes", () => {
     }
   });
 
-  it("serves the real privacy asset disclosing every AI sub-processor", async (t) => {
-    // The other route tests inject synthetic text, so nothing else proves the
-    // shipped asset actually discloses the providers we send audio to.
+  it("serves the real privacy asset with current external data disclosures", async (t) => {
+    // The other route tests inject synthetic text, so this is the contract for
+    // every provider and advertising use disclosed by the shipped policy.
     mockMongoHarness(t);
     const compositionRootUrl = new URL("../../src/index.ts", import.meta.url).href;
     const [termsText, privacyText] = await Promise.all([
@@ -109,9 +109,26 @@ describe("Legal routes", () => {
       const res = await ctx.app.inject({ method: "GET", url: "/privacy" });
 
       assert.equal(res.statusCode, 200);
-      for (const subProcessor of ["OpenAI", "Soniox", "Anthropic"]) {
-        assert.ok(res.body.includes(subProcessor), `privacy policy must disclose ${subProcessor}`);
+      for (const disclosure of [
+        "OpenAI",
+        "Soniox",
+        "Anthropic",
+        "Google Analytics 4",
+        "Meta Pixel",
+        "Singular Flutter SDK",
+        "Meta Customer List Custom Audiences",
+        "Lookalike Audience",
+      ]) {
+        assert.ok(res.body.includes(disclosure), `privacy policy must disclose ${disclosure}`);
       }
+      assert.ok(res.body.includes("G-5R35L8J3NT"));
+      assert.ok(res.body.includes("1619146889579169"));
+      assert.ok(res.body.includes("cryptographically hash the email address"));
+      assert.doesNotMatch(res.body, /currently does \*\*not\*\* use cookies or website analytics/i);
+      assert.ok(res.body.includes("email address associated with your Sesori account"));
+      assert.ok(res.body.includes("non-essential analytics and advertising tags remain disabled"));
+      assert.ok(res.body.includes("Global Privacy Control"));
+      assert.ok(res.body.includes("Official mobile release builds for which Sesori enables advertising attribution"));
       assert.ok(res.body.includes("United States (US regional project)"));
       assert.ok(
         res.body.includes("audio is processed and temporarily stored in Soniox's United States regional project"),
