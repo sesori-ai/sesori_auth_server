@@ -121,13 +121,19 @@ export const googleRoutes: FastifyPluginAsync<GoogleRouteOptions> = async (fasti
       throw new BadRequestError({ debugMessage: "Invalid or expired state" });
     }
 
-    return await authService.authenticateOAuth(OAuthProviderName.Google, googleClient, {
+    const result = await authService.authenticateOAuth(OAuthProviderName.Google, googleClient, {
       code,
       codeVerifier,
       redirectUri,
       clientId: config.GOOGLE_CLIENT_ID,
       clientSecret: config.GOOGLE_CLIENT_SECRET,
     });
+
+    return {
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      user: result.user,
+    };
   });
 
   fastify.get("/auth/google/callback", async (request, reply) => {

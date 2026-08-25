@@ -1,7 +1,7 @@
 import { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { BadRequestError } from "../../lib/errors.js";
-import type { AppleNativeBody, AuthTokensReply } from "../../models/api.js";
+import type { AppleNativeBody, AuthLoginReply } from "../../models/api.js";
 import type { AuthService } from "../../services/auth-service.js";
 import type { AppleNativeVerifier } from "../../services/apple-native-verifier.js";
 import type { Config } from "../../config.js";
@@ -20,7 +20,7 @@ export type AppleNativeRouteOptions = {
 export const appleNativeRoutes: FastifyPluginAsync<AppleNativeRouteOptions> = async (fastify, opts) => {
   const { authService, appleNativeVerifier, config } = opts;
 
-  fastify.post<{ Body: AppleNativeBody; Reply: AuthTokensReply }>("/auth/apple/native", async (request) => {
+  fastify.post<{ Body: AppleNativeBody; Reply: AuthLoginReply }>("/auth/apple/native", async (request) => {
     const bodyResult = appleNativeBodySchema.safeParse(request.body);
     if (!bodyResult.success) {
       throw new BadRequestError({ debugMessage: "Invalid request body", nestedError: bodyResult.error.issues });

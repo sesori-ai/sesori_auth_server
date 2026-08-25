@@ -5,6 +5,7 @@ import Fastify, { type FastifyInstance, type InjectOptions, type LightMyRequestR
 import { ApiError } from "../../src/lib/errors.js";
 import { sessionStatusRoutes } from "../../src/routes/auth/session-status.js";
 import { PendingAuthStore } from "../../src/services/pending-auth-store.js";
+import { AccountStatus } from "../../src/types/account.js";
 import { OAuthProviderName } from "../../src/types/oauth.js";
 
 const VALID_SESSION_TOKEN = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -64,7 +65,12 @@ describe("GET /auth/session/status", () => {
 
   it("returns a completed auth payload immediately without consuming before ACK", async () => {
     const tokenHash = createPendingSession({ sessionToken: VALID_SESSION_TOKEN });
-    pendingAuthStore.completeSession({ tokenHash, tokens: TEST_TOKENS, user: TEST_USER });
+    pendingAuthStore.completeSession({
+      tokenHash,
+      tokens: TEST_TOKENS,
+      user: TEST_USER,
+      accountStatus: AccountStatus.Created,
+    });
 
     const res = await injectWithKeepAlive({
       method: "GET",
@@ -78,13 +84,19 @@ describe("GET /auth/session/status", () => {
       accessToken: TEST_TOKENS.accessToken,
       refreshToken: TEST_TOKENS.refreshToken,
       user: TEST_USER,
+      accountStatus: AccountStatus.Created,
     });
     assert.equal(pendingAuthStore.getSessionByTokenHash(tokenHash)?.status, "complete");
   });
 
   it("returns the same completion until ACK, then returns 404", async () => {
     const tokenHash = createPendingSession({ sessionToken: VALID_SESSION_TOKEN });
-    pendingAuthStore.completeSession({ tokenHash, tokens: TEST_TOKENS, user: TEST_USER });
+    pendingAuthStore.completeSession({
+      tokenHash,
+      tokens: TEST_TOKENS,
+      user: TEST_USER,
+      accountStatus: AccountStatus.Existing,
+    });
 
     const firstResponse = await injectWithKeepAlive({
       method: "GET",
@@ -108,6 +120,7 @@ describe("GET /auth/session/status", () => {
     });
 
     assert.equal(firstResponse.statusCode, 200);
+    assert.equal(firstResponse.json<{ accountStatus: AccountStatus }>().accountStatus, AccountStatus.Existing);
     assert.deepEqual(secondResponse.json(), firstResponse.json());
     assert.equal(ackResponse.statusCode, 200);
     assert.deepEqual(ackResponse.json(), { success: true });
@@ -125,7 +138,12 @@ describe("GET /auth/session/status", () => {
     pendingRequest.destroy();
     await pendingRequest.closed;
 
-    pendingAuthStore.completeSession({ tokenHash, tokens: TEST_TOKENS, user: TEST_USER });
+    pendingAuthStore.completeSession({
+      tokenHash,
+      tokens: TEST_TOKENS,
+      user: TEST_USER,
+      accountStatus: AccountStatus.Created,
+    });
     await delay(10);
 
     assert.equal(pendingAuthStore.getSessionByTokenHash(tokenHash)?.status, "complete");
@@ -147,6 +165,7 @@ describe("GET /auth/session/status", () => {
       accessToken: TEST_TOKENS.accessToken,
       refreshToken: TEST_TOKENS.refreshToken,
       user: TEST_USER,
+      accountStatus: AccountStatus.Created,
     });
     assert.equal(replayResponse.statusCode, 200);
     assert.deepEqual(replayResponse.json(), retryResponse.json());
@@ -283,7 +302,12 @@ describe("GET /auth/session/status", () => {
 
   it("lets concurrent completed pollers receive the same payload before ACK", async () => {
     const tokenHash = createPendingSession({ sessionToken: VALID_SESSION_TOKEN });
-    pendingAuthStore.completeSession({ tokenHash, tokens: TEST_TOKENS, user: TEST_USER });
+    pendingAuthStore.completeSession({
+      tokenHash,
+      tokens: TEST_TOKENS,
+      user: TEST_USER,
+      accountStatus: AccountStatus.Created,
+    });
 
     const [a, b] = await Promise.all([
       injectWithKeepAlive({

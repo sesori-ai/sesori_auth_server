@@ -115,13 +115,19 @@ export const githubRoutes: FastifyPluginAsync<GithubRouteOptions> = async (fasti
       throw new BadRequestError({ debugMessage: "Invalid or expired state" });
     }
 
-    return await authService.authenticateOAuth(OAuthProviderName.Github, githubClient, {
+    const result = await authService.authenticateOAuth(OAuthProviderName.Github, githubClient, {
       code,
       codeVerifier,
       redirectUri,
       clientId: config.GITHUB_CLIENT_ID,
       clientSecret: config.GITHUB_CLIENT_SECRET,
     });
+
+    return {
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      user: result.user,
+    };
   });
 
   fastify.get("/auth/github/callback", async (request, reply) => {

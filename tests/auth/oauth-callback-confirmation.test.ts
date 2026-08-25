@@ -7,6 +7,7 @@ import { StateStore } from "../../src/lib/state-store.js";
 import { buildApp, type AppServices } from "../../src/server.js";
 import { OAuthClientType } from "../../src/models/api.js";
 import { PendingAuthStore } from "../../src/services/pending-auth-store.js";
+import { AccountStatus } from "../../src/types/account.js";
 import { ClientIpSource } from "../../src/types/client-ip.js";
 import { OAuthProviderName, type OAuthExchangeParams, type OAuthIdentity } from "../../src/types/oauth.js";
 import { AsyncTranscriptionProvider } from "../../src/types/transcription.js";
@@ -123,6 +124,7 @@ function createTestServices(params: {
 
       return {
         ...TEST_TOKENS,
+        accountStatus: AccountStatus.Created,
         user: {
           id: `${providerName}-user-123`,
           provider: providerName,
@@ -272,6 +274,7 @@ describe("OAuth callback confirmation flow", () => {
         providerUserId: TEST_IDENTITY.providerUserId,
         providerUsername: TEST_IDENTITY.providerUsername,
       },
+      accountStatus: AccountStatus.Created,
     });
   });
 

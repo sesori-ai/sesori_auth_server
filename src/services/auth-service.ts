@@ -1,4 +1,5 @@
 import type { OAuthClient } from "../clients/auth/oauth-client.js";
+import { AccountStatus } from "../types/account.js";
 import {
   AUTH_PROVIDER_EMAIL,
   OAuthProviderName,
@@ -15,7 +16,7 @@ import type { BridgeService } from "./bridge-service.js";
 import { TokenService } from "./token-service.js";
 import argon2 from "argon2";
 
-type AuthResult = {
+type AuthTokensResult = {
   accessToken: string;
   refreshToken: string;
   user: {
@@ -24,6 +25,10 @@ type AuthResult = {
     providerUserId: string;
     providerUsername: string | null;
   };
+};
+
+type AuthResult = AuthTokensResult & {
+  accountStatus: AccountStatus;
 };
 
 export class AuthService {
@@ -115,13 +120,16 @@ export class AuthService {
       throw new UnauthenticatedError({ debugMessage: "Invalid email or password" });
     }
 
-    return this.#signTokensForUser({
-      userId: account.userId.toHexString(),
-      provider: AUTH_PROVIDER_EMAIL,
-      providerUserId: account.userId.toHexString(),
-      providerUsername: account.email,
-      tokenVersion: user.tokenVersion ?? 0,
-    });
+    return {
+      ...this.#signTokensForUser({
+        userId: account.userId.toHexString(),
+        provider: AUTH_PROVIDER_EMAIL,
+        providerUserId: account.userId.toHexString(),
+        providerUsername: account.email,
+        tokenVersion: user.tokenVersion ?? 0,
+      }),
+      accountStatus: AccountStatus.Existing,
+    };
   }
 
   async #upsertFromOAuth(params: {
@@ -148,13 +156,16 @@ export class AuthService {
       tokenVersion = user?.tokenVersion ?? 0;
     }
 
-    return this.#signTokensForUser({
-      userId: accountUserId,
-      provider: params.provider,
-      providerUserId: params.providerUserId,
-      providerUsername: account.providerUsername,
-      tokenVersion,
-    });
+    return {
+      ...this.#signTokensForUser({
+        userId: accountUserId,
+        provider: params.provider,
+        providerUserId: params.providerUserId,
+        providerUsername: account.providerUsername,
+        tokenVersion,
+      }),
+      accountStatus: isNewUser ? AccountStatus.Created : AccountStatus.Existing,
+    };
   }
 
   #signTokensForUser(params: {
@@ -163,7 +174,7 @@ export class AuthService {
     providerUserId: string;
     providerUsername: string | null;
     tokenVersion: number;
-  }): AuthResult {
+  }): AuthTokensResult {
     const accessToken = this.#tokenService.signAccessToken({
       userId: params.userId,
       provider: params.provider,
@@ -186,7 +197,7 @@ export class AuthService {
     };
   }
 
-  async refreshAuthTokens(refreshToken: string): Promise<AuthResult> {
+  async refreshAuthTokens(refreshToken: string): Promise<AuthTokensResult> {
     let userId: string;
     let tokenVersion: number;
     try {

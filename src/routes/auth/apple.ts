@@ -139,12 +139,18 @@ export const appleRoutes: FastifyPluginAsync<AppleRouteOptions> = async (fastify
       if (!stateStore.validateState(state)) {
         throw new BadRequestError({ debugMessage: "Invalid or expired state" });
       }
-      return await authService.authenticateOAuth(OAuthProviderName.Apple, appleClient, {
+      const result = await authService.authenticateOAuth(OAuthProviderName.Apple, appleClient, {
         code,
         codeVerifier,
         redirectUri,
         clientId: config.APPLE_CLIENT_ID,
       });
+
+      return {
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        user: result.user,
+      };
     }
 
     const formResult = appleFormPostSchema.safeParse(request.body);

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
 import type { AppleNativeVerifier } from "../../src/services/apple-native-verifier.js";
 import { BadGatewayError } from "../../src/lib/errors.js";
+import { AccountStatus } from "../../src/types/account.js";
 
 const FAKE_IDENTITY = {
   providerUserId: "apple-user-123",
@@ -67,6 +68,7 @@ describe("Apple Native OAuth routes", () => {
         accessToken: string;
         refreshToken: string;
         user: { id: string; provider: string; providerUserId: string; providerUsername: string | null };
+        accountStatus: AccountStatus;
       }>();
       assert.ok(body.accessToken, "Should return access token");
       assert.ok(body.refreshToken, "Should return refresh token");
@@ -74,6 +76,7 @@ describe("Apple Native OAuth routes", () => {
       assert.equal(body.user.provider, "apple");
       assert.equal(body.user.providerUserId, FAKE_IDENTITY.providerUserId);
       assert.equal(body.user.providerUsername, FAKE_IDENTITY.providerUsername);
+      assert.equal(body.accountStatus, AccountStatus.Created);
     });
 
     it("returns same user on repeat login with same Apple account", async () => {
@@ -87,7 +90,7 @@ describe("Apple Native OAuth routes", () => {
         }),
       });
       assert.equal(res1.statusCode, 200);
-      const firstUserId = res1.json<{ user: { id: string } }>().user.id;
+      const firstBody = res1.json<{ user: { id: string } }>();
 
       const res2 = await ctx.app.inject({
         method: "POST",
@@ -99,9 +102,10 @@ describe("Apple Native OAuth routes", () => {
         }),
       });
       assert.equal(res2.statusCode, 200);
-      const secondUserId = res2.json<{ user: { id: string } }>().user.id;
+      const secondBody = res2.json<{ user: { id: string }; accountStatus: AccountStatus }>();
 
-      assert.equal(secondUserId, firstUserId, "Same Apple user should get same Sesori user");
+      assert.equal(secondBody.user.id, firstBody.user.id, "Same Apple user should get same Sesori user");
+      assert.equal(secondBody.accountStatus, AccountStatus.Existing);
     });
 
     it("returns 400 when idToken is missing", async () => {
