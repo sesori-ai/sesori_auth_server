@@ -28,7 +28,11 @@ describe("Legal routes", () => {
   async function createRouteTestApp(t: NodeTestContext): Promise<TestContext> {
     mockMongoHarness(t);
     return createTestApp({
-      legalDocumentService: new LegalDocumentService("# Terms\n\nTerms body\n", "# Privacy\n\nПоверителност body\n"),
+      legalDocumentService: new LegalDocumentService({
+        termsText: "# Terms\n\nTerms body\n",
+        privacyText: "# Privacy\n\nПоверителност body\n",
+        cookiesText: "# Cookies\n\nCookie body\n",
+      }),
     });
   }
 
@@ -64,6 +68,22 @@ describe("Legal routes", () => {
     }
   });
 
+  it("GET /cookies returns the Cookie Statement as plain text without auth", async (t) => {
+    const ctx = await createRouteTestApp(t);
+    try {
+      const res = await ctx.app.inject({
+        method: "GET",
+        url: "/cookies",
+      });
+
+      assert.equal(res.statusCode, 200);
+      assert.match(res.headers["content-type"] ?? "", /^text\/plain;\s*charset=utf-8\b/i);
+      assert.equal(res.body, "# Cookies\n\nCookie body\n");
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+
   it("POST /terms remains unregistered", async (t) => {
     const ctx = await createRouteTestApp(t);
     try {
@@ -92,23 +112,46 @@ describe("Legal routes", () => {
     }
   });
 
-  it("serves the real privacy asset with current external data disclosures", async (t) => {
+  it("POST /cookies remains unregistered", async (t) => {
+    const ctx = await createRouteTestApp(t);
+    try {
+      const res = await ctx.app.inject({
+        method: "POST",
+        url: "/cookies",
+      });
+
+      assert.equal(res.statusCode, 404);
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+
+  it("serves the real legal assets with current advertising disclosures", async (t) => {
     // The other route tests inject synthetic text, so this is the contract for
-    // every provider and advertising use disclosed by the shipped policy.
+    // every provider, advertising use, cookie, and legal cross-reference shipped in production.
     mockMongoHarness(t);
     const compositionRootUrl = new URL("../../src/index.ts", import.meta.url).href;
-    const [termsText, privacyText] = await Promise.all([
+    const [termsText, privacyText, cookiesText] = await Promise.all([
       readFile(getLegalDocumentUrl(compositionRootUrl, "terms"), "utf8"),
       readFile(getLegalDocumentUrl(compositionRootUrl, "privacy"), "utf8"),
+      readFile(getLegalDocumentUrl(compositionRootUrl, "cookies"), "utf8"),
     ]);
     const ctx = await createTestApp({
-      legalDocumentService: new LegalDocumentService(termsText, privacyText),
+      legalDocumentService: new LegalDocumentService({ termsText, privacyText, cookiesText }),
     });
 
     try {
-      const res = await ctx.app.inject({ method: "GET", url: "/privacy" });
+      const [termsRes, privacyRes, cookiesRes] = await Promise.all([
+        ctx.app.inject({ method: "GET", url: "/terms" }),
+        ctx.app.inject({ method: "GET", url: "/privacy" }),
+        ctx.app.inject({ method: "GET", url: "/cookies" }),
+      ]);
 
-      assert.equal(res.statusCode, 200);
+      assert.equal(termsRes.statusCode, 200);
+      assert.ok(termsRes.body.includes("Cookie Statement"));
+      assert.ok(termsRes.body.includes("advertising audience matching"));
+
+      assert.equal(privacyRes.statusCode, 200);
       for (const disclosure of [
         "OpenAI",
         "Soniox",
@@ -119,20 +162,34 @@ describe("Legal routes", () => {
         "Meta Customer List Custom Audiences",
         "Lookalike Audience",
       ]) {
-        assert.ok(res.body.includes(disclosure), `privacy policy must disclose ${disclosure}`);
+        assert.ok(privacyRes.body.includes(disclosure), `privacy policy must disclose ${disclosure}`);
       }
-      assert.ok(res.body.includes("G-5R35L8J3NT"));
-      assert.ok(res.body.includes("1619146889579169"));
-      assert.ok(res.body.includes("cryptographically hash the email address"));
-      assert.doesNotMatch(res.body, /currently does \*\*not\*\* use cookies or website analytics/i);
-      assert.ok(res.body.includes("email address associated with your Sesori account"));
-      assert.ok(res.body.includes("non-essential analytics and advertising tags remain disabled"));
-      assert.ok(res.body.includes("Global Privacy Control"));
-      assert.ok(res.body.includes("Official mobile release builds for which Sesori enables advertising attribution"));
-      assert.ok(res.body.includes("United States (US regional project)"));
+      assert.ok(privacyRes.body.includes("G-5R35L8J3NT"));
+      assert.ok(privacyRes.body.includes("1619146889579169"));
+      assert.ok(privacyRes.body.includes("cryptographically hash the email address"));
+      assert.doesNotMatch(privacyRes.body, /currently does \*\*not\*\* use cookies or website analytics/i);
+      assert.ok(privacyRes.body.includes("email address associated with your Sesori account"));
+      assert.ok(privacyRes.body.includes("non-essential analytics and advertising tags remain disabled"));
+      assert.ok(privacyRes.body.includes("Global Privacy Control"));
       assert.ok(
-        res.body.includes("audio is processed and temporarily stored in Soniox's United States regional project"),
+        privacyRes.body.includes("Official mobile release builds for which Sesori enables advertising attribution"),
       );
+      assert.ok(privacyRes.body.includes("United States (US regional project)"));
+      assert.ok(
+        privacyRes.body.includes(
+          "audio is processed and temporarily stored in Soniox's United States regional project",
+        ),
+      );
+
+      assert.equal(cookiesRes.statusCode, 200);
+      assert.ok(cookiesRes.body.includes("G-5R35L8J3NT"));
+      assert.ok(cookiesRes.body.includes("1619146889579169"));
+      for (const cookie of ["_ga", "_ga_*", "_fbp", "_fbc"]) {
+        assert.ok(cookiesRes.body.includes(`\`${cookie}\``), `Cookie Statement must disclose ${cookie}`);
+      }
+      assert.ok(cookiesRes.body.includes("Global Privacy Control"));
+      assert.ok(cookiesRes.body.includes("Meta Pixel and its `<noscript>` image fallback"));
+      assert.ok(cookiesRes.body.includes("Google Analytics and Meta Pixel do not load until"));
     } finally {
       await ctx.cleanup();
     }

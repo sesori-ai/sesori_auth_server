@@ -344,6 +344,8 @@ Where supported by our implementation, Singular controls can limit data sharing 
 
 You can accept, reject, or later change analytics and advertising choices through Cookie Settings. Where applicable, the website also provides a "Do Not Sell or Share My Personal Information" control and honors recognized opt-out preference signals such as Global Privacy Control for the browser or device that sends them. You can additionally block or delete cookies using browser controls, use [Google's Analytics opt-out tools](https://tools.google.com/dlpage/gaoptout), manage advertising preferences through [Meta's Ad Preferences](https://www.facebook.com/adpreferences/ad_settings), or submit a rights request using the contacts in Section 2. Rejecting these technologies may reduce the accuracy of campaign attribution but does not prevent access to Sesori's public website or core Service.
 
+The Sesori Cookie Statement provides the current website technology inventory, cookie categories, typical lifespans, provider controls, and additional details about changing or withdrawing website choices. It supplements this Privacy Policy.
+
 ## 15. Children's privacy
 
 The official Service is not directed to anyone under 16, except where applicable law in your jurisdiction allows valid consent to personal data processing at a lower age (in Bulgaria, the age is 14 under GDPR Article 8). If you are below the age at which you can validly consent to personal data processing under applicable law, you must not use the Service or submit personal data to us.

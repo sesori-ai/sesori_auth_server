@@ -1,4 +1,5 @@
 const LEGAL_DOCUMENT_FILES = {
+  cookies: "cookies.md",
   privacy: "privacy.md",
   terms: "terms.md",
 } as const;

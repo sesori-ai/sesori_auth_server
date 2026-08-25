@@ -11,9 +11,11 @@ describe("legal document path resolution", () => {
     const distModuleUrl = pathToFileURL(path.join(repoRoot, "dist/index.js")).href;
 
     const expectedTermsPath = path.join(repoRoot, "assets/legal/terms.md");
+    const expectedCookiesPath = path.join(repoRoot, "assets/legal/cookies.md");
     const expectedPrivacyPath = path.join(repoRoot, "assets/legal/privacy.md");
 
     for (const moduleUrl of [srcModuleUrl, distModuleUrl]) {
+      assert.equal(fileURLToPath(getLegalDocumentUrl(moduleUrl, "cookies")), expectedCookiesPath);
       assert.equal(fileURLToPath(getLegalDocumentUrl(moduleUrl, "terms")), expectedTermsPath);
       assert.equal(fileURLToPath(getLegalDocumentUrl(moduleUrl, "privacy")), expectedPrivacyPath);
     }
