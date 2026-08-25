@@ -135,7 +135,7 @@ Singular processes this information on our behalf and may send attribution data 
 
 ### 3.11 Meta Customer List and Lookalike Audiences
 
-We may use an email address that you submit directly to Sesori through an email-and-password account or a separate advertising-audience form to create advertising audiences on Meta platforms. We do **not** use an email claim received solely from Apple, Google, GitHub, or another OAuth or identity provider for advertising audience matching. An address used to authenticate an account is not automatically eligible for audience matching; we apply the separate consent or other lawful permission described below.
+We may use the email address associated with your Sesori account to create advertising audiences on Meta platforms where we have the consent or other lawful permission described below.
 
 Before transfer for customer-list matching, we normalize and cryptographically hash the email address. Hashing reduces direct exposure during transfer but does not make the information anonymous. Meta uses the hashed value to determine whether it matches a Meta account and to create a Customer List Custom Audience. Meta does not tell us which specific people matched.
 

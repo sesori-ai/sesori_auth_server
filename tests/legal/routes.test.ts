@@ -125,7 +125,7 @@ describe("Legal routes", () => {
       assert.ok(res.body.includes("1619146889579169"));
       assert.ok(res.body.includes("cryptographically hash the email address"));
       assert.doesNotMatch(res.body, /currently does \*\*not\*\* use cookies or website analytics/i);
-      assert.ok(res.body.includes("do **not** use an email claim received solely from Apple, Google, GitHub"));
+      assert.ok(res.body.includes("email address associated with your Sesori account"));
       assert.ok(res.body.includes("non-essential analytics and advertising tags remain disabled"));
       assert.ok(res.body.includes("Global Privacy Control"));
       assert.ok(res.body.includes("Official mobile release builds for which Sesori enables advertising attribution"));
