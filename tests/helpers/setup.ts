@@ -215,7 +215,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     pseudonymizationKey: testProductAnalyticsPseudonymizationKey,
   });
   const authService = new AuthService({ tokenService, userRepo, oauthAccountRepo, passwordAccountRepo, bridgeService });
-  const glossaryService = overrides?.glossaryService ?? new GlossaryService({ glossaryRepo });
+  const glossaryService = overrides?.glossaryService ?? new GlossaryService({ glossaryRepo, bridgeRepo });
   const voiceService =
     overrides?.voiceService ??
     new VoiceService({

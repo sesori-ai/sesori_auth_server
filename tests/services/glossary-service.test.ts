@@ -1,7 +1,8 @@
-import { describe, it, before, after, beforeEach } from "node:test";
+import { describe, it, before, after, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { ObjectId } from "mongodb";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
+import { BridgeRepository } from "../../src/repositories/bridge-repo.js";
 import { GlossaryEntryRepository } from "../../src/repositories/glossary-entry-repo.js";
 import { GlossaryService, glossaryPolicy } from "../../src/services/glossary-service.js";
 import type { GlossaryEntry } from "../../src/models/documents.js";
@@ -20,13 +21,15 @@ function words(prefix: string, count: number, start = 0): string[] {
 describe("GlossaryService", () => {
   let ctx: TestContext;
   let repo: GlossaryEntryRepository;
+  let bridgeRepo: BridgeRepository;
   let service: GlossaryService;
   let userId: string;
 
   before(async () => {
     ctx = await createTestApp();
     repo = new GlossaryEntryRepository(ctx.dbAccessor);
-    service = new GlossaryService({ glossaryRepo: repo });
+    bridgeRepo = new BridgeRepository(ctx.dbAccessor);
+    service = new GlossaryService({ glossaryRepo: repo, bridgeRepo });
   });
 
   after(async () => {
@@ -44,6 +47,42 @@ describe("GlossaryService", () => {
     const added = await service.addWords({ userId, projectKey: projectA, words: ["Beta", "Alpha", "Beta"] });
 
     assert.deepEqual(added, ["Beta", "Alpha"]);
+  });
+
+  it("rejects local glossary writes for an inactive bridge", async () => {
+    await assert.rejects(
+      () =>
+        service.addWords({
+          userId,
+          projectKey: projectA,
+          bridgeId: "br_missing0001",
+          words: ["Blocked"],
+        }),
+      BadRequestError,
+    );
+    assert.equal(await repo.countByUserAndProject({ userId, projectKey: projectA }), 0);
+  });
+
+  it("removes a raced local write when the bridge is revoked during insertion", async () => {
+    let activeChecks = 0;
+    const findByIdForUser = mock.fn(async () => (activeChecks++ === 0 ? {} : null));
+    const racingService = new GlossaryService({
+      glossaryRepo: repo,
+      bridgeRepo: { findByIdForUser } as unknown as BridgeRepository,
+    });
+
+    await assert.rejects(
+      () =>
+        racingService.addWords({
+          userId,
+          projectKey: projectA,
+          bridgeId: "br_bridge0001",
+          words: ["Raced"],
+        }),
+      BadRequestError,
+    );
+    assert.equal(findByIdForUser.mock.callCount(), 2);
+    assert.equal(await repo.countByUserAndProject({ userId, projectKey: projectA }), 0);
   });
 
   it("truncates to the remaining per-project capacity", async () => {
@@ -127,7 +166,7 @@ describe("GlossaryService", () => {
       insertMany: async () => [],
       deleteMany: async () => 0,
     } as unknown as GlossaryEntryRepository;
-    const spyService = new GlossaryService({ glossaryRepo: spyRepo });
+    const spyService = new GlossaryService({ glossaryRepo: spyRepo, bridgeRepo });
 
     await assert.rejects(
       () =>

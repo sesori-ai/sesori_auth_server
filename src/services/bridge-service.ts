@@ -95,16 +95,12 @@ export class BridgeService {
   }
 
   async revokeForUser(userId: string, bridgeId: string): Promise<boolean> {
-    const bridge = await this.#bridgeRepo.findByIdForUser(bridgeId, userId);
-    if (!bridge) {
-      return false;
-    }
-
-    // Delete first so a retry remains able to complete cleanup if revocation
-    // itself fails. Losing derived local vocabulary while the bridge remains
-    // active is safe: the bridge can repopulate it on the next project view.
-    await this.#glossaryRepo.deleteByUserAndBridge({ userId, bridgeId });
     const revoked = await this.#bridgeRepo.revoke(bridgeId, userId, new Date());
+
+    // Always clean after the revocation attempt. Successful revocation closes
+    // the active-bridge admission gate before deletion; a retry after a failed
+    // cleanup still removes stale rows even though revoke now returns false.
+    await this.#glossaryRepo.deleteByUserAndBridge({ userId, bridgeId });
     if (revoked) {
       this.#bridgeStateTracker.cancelPendingForBridge(userId, bridgeId);
     }
@@ -112,8 +108,8 @@ export class BridgeService {
   }
 
   async revokeAllForUser(userId: string): Promise<void> {
-    await this.#glossaryRepo.deleteAllBridgeLocalByUser({ userId });
     const bridges = await this.#bridgeRepo.revokeAllForUser(userId, new Date());
+    await this.#glossaryRepo.deleteAllBridgeLocalByUser({ userId });
     for (const bridge of bridges) {
       this.#bridgeStateTracker.cancelPendingForBridge(userId, bridge.bridgeId);
     }
