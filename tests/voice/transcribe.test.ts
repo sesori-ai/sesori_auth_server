@@ -529,7 +529,11 @@ describe("POST /voice/transcribe", () => {
     });
 
     assert.equal(res.statusCode, 429);
-    assert.deepEqual(res.json(), { error: "quota_exceeded", service: "transcription" });
+    assert.deepEqual(res.json(), {
+      error: "quota_exceeded",
+      service: "transcription",
+      retryable: false,
+    });
   });
 
   it("returns 200 even if usage recording fails (soft-fail)", async () => {

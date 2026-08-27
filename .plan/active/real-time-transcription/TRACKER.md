@@ -57,6 +57,8 @@
 
 ## Findings and Plan Deltas
 
+- 2026-08-27 — Voice-retry auth Step 2 is open as PR #77 from branch `plan/voice-transcription-retry/s02-retryable-async-failures`. The required architecture implementation review approved the composition-selected compatibility policy with no findings. Its initial CI test failure was a stale exact daily-quota response assertion; the assertion now includes additive `retryable: false`, the focused route suite passes 22/22, and the full suite passes 941 with one skipped and zero failures.
+
 - 2026-08-27 — Voice-retry plan PR #1144 merged in apps as `bd7ad4bc374d959309154d2a30697d698ec56970`. Product scope is async-only retained-file Retry: a pre-audio realtime failure may select async, while a post-audio realtime failure keeps confirmed partial text and has no full-recording Retry. PR #918 is now hard-blocked from merging until voice-retry client Steps 3–4 land, after which #918 must rebase onto the exact Step 4 SHA and reconcile voice API, platform capture/session, service/repository/Cubit, composer, localization, test, and regression-doc ownership.
 
 - 2026-08-24 — S02-W01-P01 merged through auth PR #70 as `0818bd18fa398c182bb353472f56326a634005f3`; its reviewed head was `afc585cbba246d1ea740e876a506d4fd2aa35f8f`. The auth-first merge barrier is satisfied, the current pointer advances to S03-W01-P01, and tracker PR #71 is reconciled onto the merged tree so it remains documentation-only.
