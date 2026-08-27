@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { bridgeIdSchema } from "./bridge.js";
 import {
   RealtimeAudioEncoding,
   RealtimeChannelCount,
@@ -21,14 +22,20 @@ export const glossaryWordSchema = z.string().trim().min(1).max(200);
 
 export const glossaryWordsSchema = z.array(glossaryWordSchema).min(1).max(100);
 
-export const glossaryAddBodySchema = z
+const glossaryWordsMutationBodySchema = z
   .object({
     projectKey: projectKeySchema,
     words: glossaryWordsSchema,
   })
   .strict();
 
-export const glossaryRemoveBodySchema = glossaryAddBodySchema;
+export const glossaryAddBodySchema = glossaryWordsMutationBodySchema
+  .extend({
+    bridgeId: bridgeIdSchema.optional(),
+  })
+  .strict();
+
+export const glossaryRemoveBodySchema = glossaryWordsMutationBodySchema;
 
 export const glossaryListQuerySchema = z
   .object({

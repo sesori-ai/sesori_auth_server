@@ -42,8 +42,13 @@ export class GlossaryEntryRepository {
     );
   }
 
-  async insertMany(args: { userId: string; projectKey: ProjectKey; words: string[] }): Promise<string[]> {
-    const { userId, projectKey, words } = args;
+  async insertMany(args: {
+    userId: string;
+    projectKey: ProjectKey;
+    bridgeId?: string;
+    words: string[];
+  }): Promise<string[]> {
+    const { userId, projectKey, bridgeId, words } = args;
     if (words.length === 0) {
       return [];
     }
@@ -54,6 +59,7 @@ export class GlossaryEntryRepository {
       _id: new ObjectId(),
       userId: objectUserId,
       projectKey,
+      ...(bridgeId === undefined ? {} : { bridgeId }),
       word,
       createdAt: now,
     }));
@@ -70,6 +76,22 @@ export class GlossaryEntryRepository {
       }
       throw error;
     }
+  }
+
+  async deleteByUserAndBridge(args: { userId: string; bridgeId: string }): Promise<number> {
+    const result = await this.#collection.deleteMany({
+      userId: new ObjectId(args.userId),
+      bridgeId: args.bridgeId,
+    });
+    return this.#parseCount(result.deletedCount);
+  }
+
+  async deleteAllBridgeLocalByUser(args: { userId: string }): Promise<number> {
+    const result = await this.#collection.deleteMany({
+      userId: new ObjectId(args.userId),
+      bridgeId: { $type: "string" },
+    });
+    return this.#parseCount(result.deletedCount);
   }
 
   async deleteMany(args: { userId: string; projectKey: ProjectKey; words: string[] }): Promise<number> {

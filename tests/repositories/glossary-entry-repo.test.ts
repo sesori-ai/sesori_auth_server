@@ -85,6 +85,35 @@ describe("GlossaryEntryRepository", () => {
     assert.equal(await repo.countByUserAndProject({ userId, projectKey: projectB }), 1);
   });
 
+  it("deletes bridge-local entries without touching shared repositories or other accounts", async () => {
+    const otherUserId = new ObjectId().toHexString();
+    const targetBridgeId = "br_bridge0001";
+    const otherBridgeId = "br_bridge0002";
+
+    await repo.insertMany({ userId, projectKey: projectA, bridgeId: targetBridgeId, words: ["Local"] });
+    await repo.insertMany({ userId, projectKey: projectB, words: ["Repository"] });
+    await repo.insertMany({ userId, projectKey: projectB, bridgeId: otherBridgeId, words: ["OtherBridge"] });
+    await repo.insertMany({
+      userId: otherUserId,
+      projectKey: projectA,
+      bridgeId: targetBridgeId,
+      words: ["OtherUser"],
+    });
+
+    assert.equal(await repo.deleteByUserAndBridge({ userId, bridgeId: targetBridgeId }), 1);
+    assert.deepEqual(await repo.findWordsByUserAndProject({ userId, projectKey: projectA }), []);
+    assert.deepEqual(await repo.findWordsByUserAndProject({ userId, projectKey: projectB }), [
+      "OtherBridge",
+      "Repository",
+    ]);
+    assert.deepEqual(await repo.findWordsByUserAndProject({ userId: otherUserId, projectKey: projectA }), [
+      "OtherUser",
+    ]);
+
+    assert.equal(await repo.deleteAllBridgeLocalByUser({ userId }), 1);
+    assert.deepEqual(await repo.findWordsByUserAndProject({ userId, projectKey: projectB }), ["Repository"]);
+  });
+
   it("performs no database work for empty word lists", async () => {
     assert.deepEqual(await repo.insertMany({ userId, projectKey: projectA, words: [] }), []);
     assert.equal(await repo.deleteMany({ userId, projectKey: projectA, words: [] }), 0);

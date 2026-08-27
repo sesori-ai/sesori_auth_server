@@ -209,6 +209,7 @@ export type GlossaryListReply = {
 
 export type GlossaryAddBody = {
   projectKey: string;
+  bridgeId?: string;
   words: string[];
 };
 

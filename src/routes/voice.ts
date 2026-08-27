@@ -255,6 +255,7 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRouteOptions> = async (fastify
       const added = await glossaryService.addWords({
         userId,
         projectKey: bodyResult.data.projectKey,
+        bridgeId: bodyResult.data.bridgeId,
         words: bodyResult.data.words,
       });
       return { added };
