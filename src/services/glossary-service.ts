@@ -24,7 +24,12 @@ export class GlossaryService {
     return this.#glossaryRepo.findWordsByUserAndProject(args);
   }
 
-  async addWords(args: { userId: string; projectKey: ProjectKey; words: string[] }): Promise<string[]> {
+  async addWords(args: {
+    userId: string;
+    projectKey: ProjectKey;
+    bridgeId?: string;
+    words: string[];
+  }): Promise<string[]> {
     // Validate before any database work so a rejected request costs no queries.
     const requested = this.#uniqueWords(args.words);
     const [existing, projectCount, userCount] = await Promise.all([

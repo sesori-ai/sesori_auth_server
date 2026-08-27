@@ -109,11 +109,12 @@ describe("Glossary routes", () => {
       assert.deepEqual((await listWords(user.accessToken, `?projectKey=${projectB}`)).json(), { words: ["Shared"] });
     });
 
-    it("returns 400 for missing/invalid project keys, empty words, and unknown fields", async () => {
+    it("returns 400 for invalid scope fields, empty words, and unknown fields", async () => {
       const user = await ctx.createUser();
       const invalidBodies = [
         { words: ["Test"] },
         { projectKey: "prj_v1_short", words: ["Test"] },
+        { projectKey: projectA, bridgeId: "not-a-bridge", words: ["Test"] },
         { projectKey: projectA, words: [] },
         { projectKey: projectA, words: ["   "] },
         { projectKey: projectA, words: ["Test"], unexpected: true },

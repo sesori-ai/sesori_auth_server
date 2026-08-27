@@ -63,6 +63,7 @@ export const glossaryEntrySchema = z
     _id: z.instanceof(ObjectId),
     userId: z.instanceof(ObjectId),
     projectKey: projectKeySchema,
+    bridgeId: bridgeIdSchema.optional(),
     word: z.string(),
     createdAt: z.date(),
   })

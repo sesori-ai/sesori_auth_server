@@ -30,7 +30,10 @@ const DATABASE_CONFIG: Record<MongoDbDatabase, DatabaseConfig<string>> = {
         { spec: { email: 1 }, options: { unique: true } },
         { spec: { userId: 1 }, options: { unique: true } },
       ],
-      [AuthDbCollection.GlossaryEntries]: [{ spec: { userId: 1, projectKey: 1, word: 1 }, options: { unique: true } }],
+      [AuthDbCollection.GlossaryEntries]: [
+        { spec: { userId: 1, projectKey: 1, word: 1 }, options: { unique: true } },
+        { spec: { userId: 1, bridgeId: 1 } },
+      ],
       [AuthDbCollection.DailyUsage]: [{ spec: { userId: 1, date: 1 }, options: { unique: true } }],
       [AuthDbCollection.DeviceTokens]: [
         { spec: { token: 1 }, options: { unique: true } },

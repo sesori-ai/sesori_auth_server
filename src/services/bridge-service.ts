@@ -3,6 +3,7 @@ import type { Bridge as BridgeDoc } from "../models/documents.js";
 import type { BridgePlatform, BridgeSummary } from "../models/api.js";
 import type { BridgeStatus } from "../models/bridge.js";
 import type { BridgeRepository } from "../repositories/bridge-repo.js";
+import type { GlossaryEntryRepository } from "../repositories/glossary-entry-repo.js";
 import type { BridgeStateTracker } from "./bridge-state-tracker.js";
 
 // Upper bound on non-revoked bridges per user. Registration is idempotent
@@ -27,10 +28,16 @@ export type RegisterBridgeResult = {
 
 export class BridgeService {
   readonly #bridgeRepo: BridgeRepository;
+  readonly #glossaryRepo: GlossaryEntryRepository;
   readonly #bridgeStateTracker: BridgeStateTracker;
 
-  constructor(deps: { bridgeRepo: BridgeRepository; bridgeStateTracker: BridgeStateTracker }) {
+  constructor(deps: {
+    bridgeRepo: BridgeRepository;
+    glossaryRepo: GlossaryEntryRepository;
+    bridgeStateTracker: BridgeStateTracker;
+  }) {
     this.#bridgeRepo = deps.bridgeRepo;
+    this.#glossaryRepo = deps.glossaryRepo;
     this.#bridgeStateTracker = deps.bridgeStateTracker;
   }
 
@@ -88,6 +95,15 @@ export class BridgeService {
   }
 
   async revokeForUser(userId: string, bridgeId: string): Promise<boolean> {
+    const bridge = await this.#bridgeRepo.findByIdForUser(bridgeId, userId);
+    if (!bridge) {
+      return false;
+    }
+
+    // Delete first so a retry remains able to complete cleanup if revocation
+    // itself fails. Losing derived local vocabulary while the bridge remains
+    // active is safe: the bridge can repopulate it on the next project view.
+    await this.#glossaryRepo.deleteByUserAndBridge({ userId, bridgeId });
     const revoked = await this.#bridgeRepo.revoke(bridgeId, userId, new Date());
     if (revoked) {
       this.#bridgeStateTracker.cancelPendingForBridge(userId, bridgeId);
@@ -96,6 +112,7 @@ export class BridgeService {
   }
 
   async revokeAllForUser(userId: string): Promise<void> {
+    await this.#glossaryRepo.deleteAllBridgeLocalByUser({ userId });
     const bridges = await this.#bridgeRepo.revokeAllForUser(userId, new Date());
     for (const bridge of bridges) {
       this.#bridgeStateTracker.cancelPendingForBridge(userId, bridge.bridgeId);
