@@ -675,6 +675,12 @@ failure reasons internally, but its compatibility policy preserves the released
 additive `retryable` boolean varies by reason, and that legacy policy adds no
 `Retry-After` header.
 
+Authenticated multipart validation and upload-limit failures preserve their
+existing `400`/`413` status and error text with `retryable: false`. The route's
+per-user `429` rate limit preserves its existing error text and `Retry-After`
+header with `retryable: true`. Authentication remains the shared `401` contract
+and is handled separately by clients.
+
 Each request deletes its provider-side transcription and then its uploaded file.
 A hard crash, or a job creation whose outcome never came back, can strand those
 resources, so audit them periodically:

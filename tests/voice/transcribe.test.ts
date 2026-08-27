@@ -82,6 +82,7 @@ describe("POST /voice/transcribe", () => {
     });
 
     assert.equal(res.statusCode, 400);
+    assert.deepEqual(res.json(), { error: "bad_request", retryable: false });
   });
 
   it("returns 400 when the audio file is empty", async () => {
@@ -104,6 +105,7 @@ describe("POST /voice/transcribe", () => {
     });
 
     assert.equal(res.statusCode, 400);
+    assert.deepEqual(res.json(), { error: "bad_request", retryable: false });
   });
 
   it("returns 400 when the audio MIME type is not supported", async () => {
@@ -126,6 +128,7 @@ describe("POST /voice/transcribe", () => {
     });
 
     assert.equal(res.statusCode, 400);
+    assert.deepEqual(res.json(), { error: "bad_request", retryable: false });
   });
 
   it("preserves the framework 413 when the audio file exceeds the size limit", async () => {
@@ -150,6 +153,7 @@ describe("POST /voice/transcribe", () => {
     });
 
     assert.equal(res.statusCode, 413);
+    assert.equal(res.json<{ retryable?: boolean }>().retryable, false);
   });
 
   it("rejects an unknown __proto__ multipart field instead of silently dropping it", async () => {
@@ -175,6 +179,7 @@ describe("POST /voice/transcribe", () => {
     });
 
     assert.equal(res.statusCode, 400);
+    assert.deepEqual(res.json(), { error: "bad_request", retryable: false });
     assert.equal(({} as Record<string, unknown>).polluted, undefined);
   });
 
@@ -203,6 +208,7 @@ describe("POST /voice/transcribe", () => {
     });
 
     assert.equal(res.statusCode, 400, "an unexpected extra file part must be a bounded 400");
+    assert.equal(res.json<{ retryable?: boolean }>().retryable, false);
   });
 
   it("returns transcribed text and dailySecondsRemaining on success", async () => {
@@ -236,6 +242,47 @@ describe("POST /voice/transcribe", () => {
     assert.equal(typeof json.dailySecondsRemaining, "number");
     // Default limit is 3600s; 10s used → 3590s remaining.
     assert.equal(json.dailySecondsRemaining, 3590);
+  });
+
+  it("marks the transcribe route rate limit as retryable", async () => {
+    const user = await ctx.createUser();
+    mock.method(OpenAIClient.prototype, "transcribe", async () => ({ text: "ok", durationSeconds: 1 }));
+    const { body, contentType } = buildMultipartPayload({
+      fieldName: "audio",
+      filename: "test.m4a",
+      content: Buffer.from("fake-audio-data-for-testing"),
+      contentType: "audio/m4a",
+    });
+
+    for (let requestNumber = 1; requestNumber <= 10; requestNumber++) {
+      const response = await ctx.app.inject({
+        method: "POST",
+        url: "/voice/transcribe",
+        remoteAddress: "203.0.113.10",
+        headers: {
+          authorization: `Bearer ${user.accessToken}`,
+          "content-type": contentType,
+        },
+        payload: body,
+      });
+      assert.equal(response.statusCode, 200, `request ${requestNumber}`);
+    }
+
+    const limited = await ctx.app.inject({
+      method: "POST",
+      url: "/voice/transcribe",
+      remoteAddress: "203.0.113.10",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": contentType,
+      },
+      payload: body,
+    });
+
+    assert.equal(limited.statusCode, 429);
+    assert.match(limited.json<{ error: string }>().error, /^Rate limit exceeded, retry in /);
+    assert.equal(limited.json<{ retryable?: boolean }>().retryable, true);
+    assert.equal(typeof limited.headers["retry-after"], "string");
   });
 
   async function seedGlossary(accessToken: string, projectKey: string, words: string[]): Promise<void> {
@@ -407,6 +454,7 @@ describe("POST /voice/transcribe", () => {
       });
 
       assert.equal(res.statusCode, 400, JSON.stringify(fields));
+      assert.equal(res.json<{ retryable?: boolean }>().retryable, false);
     }
   });
 
@@ -436,6 +484,7 @@ describe("POST /voice/transcribe", () => {
     });
 
     assert.equal(res.statusCode, 500);
+    assert.deepEqual(res.json(), { error: "internal_server_error", retryable: false });
   });
 
   it("preserves original status code when service throws an ApiError subclass", async () => {
@@ -491,6 +540,7 @@ describe("POST /voice/transcribe", () => {
     });
 
     assert.equal(res.statusCode, 500);
+    assert.deepEqual(res.json(), { error: "internal_server_error", retryable: false });
   });
 
   it("returns 429 when daily transcription quota is exceeded", async () => {

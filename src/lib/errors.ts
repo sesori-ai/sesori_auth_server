@@ -112,6 +112,20 @@ export class TranscriptionInvalidInputError extends ApiError {
   }
 }
 
+export class TranscriptionRequestError extends ApiError {
+  constructor(opts: { error: string; statusCode: number; debugMessage?: string; nestedError?: unknown }) {
+    super(opts.error, opts.statusCode, opts.debugMessage, opts.nestedError);
+    this.responseBody = { retryable: false };
+  }
+}
+
+export class TranscriptionRateLimitError extends ApiError {
+  constructor(opts: { error: string }) {
+    super(opts.error, 429);
+    this.responseBody = { retryable: true };
+  }
+}
+
 export class TranscriptionUnusableAudioError extends ApiError {
   constructor(opts?: { debugMessage?: string; nestedError?: unknown }) {
     super("transcription_provider_error", 502, opts?.debugMessage, opts?.nestedError);
