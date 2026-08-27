@@ -315,6 +315,20 @@ describe("/auth/bridges routes", () => {
     });
     assert.deepEqual(localList.json(), { words: [] });
     assert.deepEqual(repositoryList.json(), { words: ["RepositoryTerm"] });
+
+    const staleAdd = await ctx.app.inject({
+      method: "POST",
+      url: "/voice/glossary",
+      headers,
+      payload: JSON.stringify({ projectKey: localProjectKey, bridgeId: created.id, words: ["Recreated"] }),
+    });
+    assert.equal(staleAdd.statusCode, 400);
+    const localListAfterStaleWrite = await ctx.app.inject({
+      method: "GET",
+      url: `/voice/glossary?projectKey=${localProjectKey}`,
+      headers: { authorization: `Bearer ${user.accessToken}` },
+    });
+    assert.deepEqual(localListAfterStaleWrite.json(), { words: [] });
   });
 
   it("DELETE /auth/bridges/:bridgeId returns 404 for non-owner", async () => {

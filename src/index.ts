@@ -158,7 +158,7 @@ async function main() {
     deviceTokenRepo,
     bridgeService,
   });
-  const glossaryService = new GlossaryService({ glossaryRepo });
+  const glossaryService = new GlossaryService({ glossaryRepo, bridgeRepo });
 
   // Exactly one async provider is selected at startup; a failed request is
   // never retried against the other provider.
