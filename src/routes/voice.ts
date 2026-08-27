@@ -1,6 +1,12 @@
 import { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import multipart from "@fastify/multipart";
-import { ApiError, BadRequestError, InternalServerError, UnauthenticatedError } from "../lib/errors.js";
+import {
+  ApiError,
+  BadRequestError,
+  TranscriptionInternalError,
+  TranscriptionInvalidInputError,
+  UnauthenticatedError,
+} from "../lib/errors.js";
 import { createRequestCloseSignal, isClientConnectionOpen } from "../lib/request-close-signal.js";
 import type {
   TranscribeReply,
@@ -170,7 +176,7 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRouteOptions> = async (fastify
         });
 
         if (!text || text.trim().length === 0) {
-          throw new InternalServerError({ debugMessage: "Transcription returned empty text" });
+          throw new TranscriptionInternalError({ debugMessage: "Transcription returned empty text" });
         }
 
         return { text, dailySecondsRemaining };
@@ -185,7 +191,9 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRouteOptions> = async (fastify
             return reply;
           }
 
-          throw new BadRequestError({ debugMessage: "Transcription cancelled before completion" });
+          throw new TranscriptionInvalidInputError({
+            debugMessage: "Transcription cancelled before completion",
+          });
         }
 
         // Re-throw any ApiError subclass (BadRequestError, InternalServerError, QuotaExceededError, etc.)
@@ -193,7 +201,7 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRouteOptions> = async (fastify
         if (error instanceof ApiError) {
           throw error;
         }
-        throw new InternalServerError({
+        throw new TranscriptionInternalError({
           debugMessage: "Transcription failed",
           nestedError: error,
         });

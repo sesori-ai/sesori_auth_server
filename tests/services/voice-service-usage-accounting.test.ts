@@ -4,6 +4,7 @@ import { VoiceService } from "../../src/services/voice-service.js";
 import type { AsyncTranscriptionClient } from "../../src/clients/async-transcription-client.js";
 import type { GlossaryService } from "../../src/services/glossary-service.js";
 import type { DailyUsageRepository } from "../../src/repositories/daily-usage-repo.js";
+import { AsyncTranscriptionPublicErrorPolicy } from "../../src/types/transcription.js";
 
 /**
  * The usage-accounting tail of `VoiceService.transcribe` is reached only after a
@@ -45,6 +46,7 @@ function createService(usage: {
     glossaryService,
     dailyUsageRepo,
     dailyLimitSeconds: DAILY_LIMIT_SECONDS,
+    publicErrorPolicy: AsyncTranscriptionPublicErrorPolicy.DetailedV1,
   });
 }
 

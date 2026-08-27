@@ -118,20 +118,65 @@ describe("OpenAIClient as an AsyncTranscriptionClient", () => {
     );
   });
 
-  it("collapses every non-cancellation provider failure to internal", async (t) => {
+  it("classifies provider failures without choosing public HTTP behavior", async (t) => {
     let thrown: unknown = new Error("placeholder");
     t.mock.method(Transcriptions.prototype, "create", async () => {
       throw thrown;
     });
 
-    for (const candidate of [
-      Object.assign(new Error("rate limited"), { status: 429 }),
-      Object.assign(new Error("server error"), { status: 500 }),
-      Object.assign(new Error("bad audio"), { status: 400 }),
-      new Error("network down"),
-    ]) {
+    const cases: ReadonlyArray<readonly [unknown, TranscriptionFailureReason]> = [
+      [
+        Object.assign(new Error("timed out"), { name: "APIConnectionTimeoutError" }),
+        TranscriptionFailureReason.Timeout,
+      ],
+      [
+        Object.assign(new Error("connection failed"), { name: "APIConnectionError" }),
+        TranscriptionFailureReason.Unavailable,
+      ],
+      [
+        Object.assign(new Error("aborted internally"), { name: "APIUserAbortError" }),
+        TranscriptionFailureReason.Unavailable,
+      ],
+      [
+        Object.assign(new Error("quota"), { status: 429, code: "insufficient_quota" }),
+        TranscriptionFailureReason.QuotaExhausted,
+      ],
+      [
+        Object.assign(new Error("billing"), { status: 429, type: "billing_hard_limit_reached" }),
+        TranscriptionFailureReason.QuotaExhausted,
+      ],
+      [Object.assign(new Error("rate limited"), { status: 429 }), TranscriptionFailureReason.Capacity],
+      [Object.assign(new Error("request timeout"), { status: 408 }), TranscriptionFailureReason.Timeout],
+      [Object.assign(new Error("server error"), { status: 500 }), TranscriptionFailureReason.Unavailable],
+      [Object.assign(new Error("bad audio"), { status: 400 }), TranscriptionFailureReason.InvalidInput],
+      [Object.assign(new Error("unsupported audio"), { status: 415 }), TranscriptionFailureReason.InvalidInput],
+      [Object.assign(new Error("unauthorized"), { status: 401 }), TranscriptionFailureReason.ProviderRejected],
+      [new Error("unknown local failure"), TranscriptionFailureReason.Internal],
+    ];
+
+    for (const [candidate, expected] of cases) {
       thrown = candidate;
-      await expectReason(() => createClient().transcribe(request()), TranscriptionFailureReason.Internal);
+      await expectReason(() => createClient().transcribe(request()), expected);
+    }
+  });
+
+  it("classifies an empty successful transcript as unusable audio", async (t) => {
+    let text = "";
+    t.mock.method(Transcriptions.prototype, "create", async () => ({ text }));
+
+    for (const candidate of ["", "   ", "\n\t"]) {
+      text = candidate;
+      await expectReason(() => createClient().transcribe(request()), TranscriptionFailureReason.UnusableAudio);
+    }
+  });
+
+  it("classifies a malformed successful payload as malformed output", async (t) => {
+    let response: unknown = {};
+    t.mock.method(Transcriptions.prototype, "create", async () => response as never);
+
+    for (const candidate of [{}, { text: 42 }, null]) {
+      response = candidate;
+      await expectReason(() => createClient().transcribe(request()), TranscriptionFailureReason.MalformedOutput);
     }
   });
 

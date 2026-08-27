@@ -653,19 +653,27 @@ boolean that older apps may ignore:
 | Condition | Status | Error | Retryable |
 | --- | --- | --- | --- |
 | Provider rejected the audio | `400` | `bad_request` | no |
+| Provider returned no usable speech | `502` | `transcription_provider_error` | no |
+| Provider balance or budget is exhausted | `503` | `transcription_unavailable` | no |
 | Provider capacity or outage | `503` | `transcription_unavailable` | yes |
 | Provider exceeded the time budget | `504` | `transcription_timeout` | yes |
 | Provider rejected our credentials or configuration | `500` | `transcription_configuration_error` | no |
 | Provider returned an unparseable response | `502` | `transcription_provider_error` | yes |
+| Unexpected provider/client failure | `500` | `internal_server_error` | no |
 
 `Retry-After` accompanies the retryable statuses. When the provider states its
 own cooldown (a `Retry-After` on its 429) that value is honored, clamped to at
 most 300 seconds so a misconfigured provider cannot stall clients. A capacity
 rejection the provider did not quantify falls back to 5 seconds; every other
 retryable failure uses 1 second. The daily Sesori quota remains a separate
-`429 quota_exceeded` and is never reported as provider capacity. OpenAI
-deliberately keeps its shipped behavior of reporting every provider failure as
-`500 internal_server_error`.
+`429 quota_exceeded` with `retryable: false` and is never reported as provider
+capacity.
+
+The table is the Soniox detailed policy. OpenAI now classifies the same closed
+failure reasons internally, but its compatibility policy preserves the released
+`500 internal_server_error` status/error for every provider failure. Only the
+additive `retryable` boolean varies by reason, and that legacy policy adds no
+`Retry-After` header.
 
 Each request deletes its provider-side transcription and then its uploaded file.
 A hard crash, or a job creation whose outcome never came back, can strand those

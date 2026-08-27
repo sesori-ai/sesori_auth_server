@@ -6,6 +6,8 @@
 /** Closed set of transcription failures a provider client may report. */
 export enum TranscriptionFailureReason {
   InvalidInput = "invalid_input",
+  UnusableAudio = "unusable_audio",
+  QuotaExhausted = "quota_exhausted",
   Capacity = "capacity",
   Unavailable = "unavailable",
   Timeout = "timeout",
@@ -19,6 +21,12 @@ export enum TranscriptionFailureReason {
 export enum AsyncTranscriptionProvider {
   OpenAI = "openai",
   Soniox = "soniox",
+}
+
+/** Public HTTP compatibility policy selected alongside the async provider at composition. */
+export enum AsyncTranscriptionPublicErrorPolicy {
+  LegacyOpenAiV1 = "legacy_openai_v1",
+  DetailedV1 = "detailed_v1",
 }
 
 /** Soniox project regions supported by the server-owned endpoint allowlist. */

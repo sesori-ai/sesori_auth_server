@@ -326,6 +326,36 @@ describe("SonioxTranscriptionClient", () => {
     await expectReason(() => createClient(failing.sdk).transcribe(request()), TranscriptionFailureReason.InvalidInput);
   });
 
+  it("maps an empty completed transcript to unusable_audio", async () => {
+    const failing = createFakeSdk({ getTranscript: async () => ({ text: "   " }) });
+
+    await expectReason(() => createClient(failing.sdk).transcribe(request()), TranscriptionFailureReason.UnusableAudio);
+  });
+
+  it("maps provider balance exhaustion to quota_exhausted", async () => {
+    const failedJob = createFakeSdk({
+      wait: async () => ({
+        id: "tr_1",
+        status: "error",
+        error_type: "organization_balance_exhausted",
+      }),
+    });
+    const rejectedRequest = createFakeSdk({
+      create: async () => {
+        throw Object.assign(new Error("payment required"), { statusCode: 402 });
+      },
+    });
+
+    await expectReason(
+      () => createClient(failedJob.sdk).transcribe(request()),
+      TranscriptionFailureReason.QuotaExhausted,
+    );
+    await expectReason(
+      () => createClient(rejectedRequest.sdk).transcribe(request()),
+      TranscriptionFailureReason.QuotaExhausted,
+    );
+  });
+
   it("maps a malformed transcript to malformed_output", async () => {
     const failing = createFakeSdk({ getTranscript: async () => ({ text: 42 }) });
 

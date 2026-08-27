@@ -118,7 +118,7 @@ Push notifications debounce through `BridgeStateTracker` (120s), keyed per bridg
 
 ## ASYNC TRANSCRIPTION
 
-`POST /voice/transcribe` runs on exactly one provider, selected at startup by `ASYNC_TRANSCRIPTION_PROVIDER` and injected as an `AsyncTranscriptionClient`. There is no automatic fallback and no per-request provider choice; switching is a config change plus a restart. OpenAI is the default and deliberately collapses every non-cancellation failure to `internal` behind a `COMPATIBILITY` marker, because released apps expect HTTP 500 for any provider failure. Soniox uses the detailed failure enum.
+`POST /voice/transcribe` runs on exactly one provider, selected at startup by `ASYNC_TRANSCRIPTION_PROVIDER` and injected as an `AsyncTranscriptionClient`. There is no automatic fallback and no per-request provider choice; switching is a config change plus a restart. Both adapters classify the detailed provider-neutral failure enum. Composition injects `LegacyOpenAiV1` for OpenAI so released status/error values remain HTTP 500/`internal_server_error`, or `DetailedV1` for Soniox. `VoiceService` owns that public compatibility policy and every response includes an authoritative additive `retryable` boolean.
 
 `src/api/soniox-transcription-api.ts` is a mandatory validation boundary: every SDK status, ID, duration, transcript, and error payload passes through a `safeParse` helper before it reaches the client or the service. Do not consume a raw `@soniox/node` value anywhere else.
 
@@ -133,7 +133,7 @@ Four invariants in `SonioxTranscriptionClient` are load-bearing and easy to undo
 
 `npm run purge-soniox-transcription` audits residue and only deletes with `--apply`. It reports counts and a closed outcome enum, never IDs or transcript content. Deletes use bounded concurrency, and the file sweep is held back whenever any job delete or list item failed.
 
-Retryable failures carry `Retry-After`: a provider-stated cooldown when present (clamped to 300s), 5s for an unquantified capacity rejection, 1s otherwise.
+Retryable detailed-policy failures carry `Retry-After`: a provider-stated cooldown when present (clamped to 300s), 5s for an unquantified capacity rejection, 1s otherwise. Provider quota exhaustion and unusable audio are terminal and carry no cooldown. The legacy OpenAI policy preserves its released no-header behavior while adding only `retryable`.
 
 ## REALTIME TRANSCRIPTION
 

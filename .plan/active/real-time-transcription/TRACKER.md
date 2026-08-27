@@ -13,7 +13,7 @@
 
 - **Stage:** S03
 - **Wave:** W01
-- **Next action:** Reconfirm apps PR #918 against its current head and current `main`, address valid remaining review feedback, and merge S03-W01-P01. Its auth dependency is satisfied: PR #70 merged as `0818bd18fa398c182bb353472f56326a634005f3`. Then proceed to the S04 staging checkpoint; S05-W01-P01 remains blocked until its individual removal triggers fire.
+- **Next action:** Hold apps PR #918 at its current unmerged head `b3083b7`. Voice-retry plan PR #1144 merged as `bd7ad4bc`; its client ownership/retry Steps 3–4 must merge first. Then rebase #918 onto the exact Step 4 merge SHA, adopt the shared platform/service/session/Cubit ownership, preserve async Retry, keep post-audio realtime confirmed-partial/no-full-retry behavior, and return it to reviewed mergeable green state before S03 may merge.
 
 ## Plan Review
 
@@ -30,7 +30,7 @@
 | S01 | W01 | `sesori-ai/sesori_auth_server` | `master` | `287abb307f1e1cbd77c19bb81030b11749ff351b` | Assessed 2026-08-06: drift from the audited `9cc4953` tip is the merged plan-definition PR #59 only, which adds `.plan/active/real-time-transcription/` documentation and no runtime, schema, route, or composition change. Audited baseline remains valid. |
 | S01 | W02 | `sesori-ai/sesori_auth_server` | `master` | `1f1138be21fdbbd6a93ab256303307d5a766443f` | Assessed 2026-08-06: drift from the S01/W01 baseline is the merged S01-W01-P01 PR #61 plus the agent-config commit `65b1173`. Both are expected; no third-party change touched the voice, client, or config seams this step edits. |
 | S02 | W01 | `sesori-ai/sesori_auth_server` | `master` | `2ed90a743f348102a2c023e4b1aae934886abe2d` | Assessed 2026-08-13: PR #64 is merged as `2ed90a743f348102a2c023e4b1aae934886abe2d`, so S02 starts from the same SHA. Drift decisions carried into this implementation: realtime pre-auth limiting is process-wide and ignores forwarding headers, the post-auth limiter keys only verified `request.user.userId` with no IP fallback, route/service policy values are injected from config-derived immutable policies, and shutdown uses feature-owned drains rather than a broad admitted-handler tracker. |
-| S03 | W01 | `sesori-ai/sesori_apps_monorepo` | `main` | `d84b10cb30ff43965e0dacf708cee53308bdb8fa` | Assessed 2026-08-15: the branch was cut from `d84b10cb`, superseding the step file's stale audited base `5f98b320`. At assessment time, the 10 newer `main` commits were bridge-side and overlapped only the new-session screen and localization files, with no merge-tree conflict. Reassess drift against current `main` before merge. |
+| S03 | W01 | `sesori-ai/sesori_apps_monorepo` | `main` | pending voice-retry Step 4 merge SHA | The prior `d84b10cb` base is superseded. PR #918 remains open at `b3083b7` but must not merge until voice-retry Steps 3–4 land; then rebase and reassess every overlapping voice/DI/Cubit/test/doc seam against that exact merged base. |
 
 ## PR Steps
 
@@ -39,7 +39,7 @@
 | [x] | S01-W01-P01 | S01 | W01 | [#61](https://github.com/sesori-ai/sesori_auth_server/pull/61) | `real-time-config-next-step` | Merged `1f1138b`. Production index migration applied and verified before merge: documentCount 0, legacy absent, target exact. Implemented on the session-provided worktree branch instead of the planned branch name. |
 | [x] | S01-W02-P01 | S01 | W02 | [#64](https://github.com/sesori-ai/sesori_auth_server/pull/64) | `real-time-config-next-step` | Auth: provider boundary, Soniox async, legal/config/cleanup. Merged as `2ed90a743f348102a2c023e4b1aae934886abe2d`. Implemented on the session-provided worktree branch instead of the planned branch name. |
 | [x] | S02-W01-P01 | S02 | W01 | [#70](https://github.com/sesori-ai/sesori_auth_server/pull/70) | `plan/real-time-transcription/s02-w01-p01-realtime-voice-proxy` | Auth: protocol v1 proxy and minimal shutdown. Merged as `0818bd18fa398c182bb353472f56326a634005f3`. |
-| [ ] | S03-W01-P01 | S03 | W01 | [#918](https://github.com/sesori-ai/sesori_apps_monorepo/pull/918) | `plan/real-time-transcription/s03-w01-p01-stream-mobile-voice` | Apps: PCM streaming, preview, commit, async fallback. PR open and unmerged at `b3083b7`; recorded CI is green. Reconfirm review feedback and drift against current `main` before merge. |
+| [ ] | S03-W01-P01 | S03 | W01 | [#918](https://github.com/sesori-ai/sesori_apps_monorepo/pull/918) | `plan/real-time-transcription/s03-w01-p01-stream-mobile-voice` | Apps: PCM streaming, preview, commit, async fallback. Hard-held at unmerged head `b3083b7` until voice-retry Steps 3–4 merge. Rebase afterward, preserve async retained-file Retry, and keep post-audio realtime confirmed-partial/no-full-retry behavior. |
 | [ ] | S05-W01-P01 | S05 | W01 | — | `plan/real-time-transcription/s05-w01-p01-remove-scaffolding` | Auth: delete each piece of compatibility/migration scaffolding once its own trigger has fired, restating the trigger and leaving code untouched for any trigger that has not fired. Runs after S04 and may run more than once because the six triggers can fire independently; none has fired yet. |
 
 ## Manual Checkpoints
@@ -56,6 +56,8 @@
 - Production enablement requires Soniox contractual approval, dedicated US project configuration, and the glossary migration gate.
 
 ## Findings and Plan Deltas
+
+- 2026-08-27 — Voice-retry plan PR #1144 merged in apps as `bd7ad4bc374d959309154d2a30697d698ec56970`. Product scope is async-only retained-file Retry: a pre-audio realtime failure may select async, while a post-audio realtime failure keeps confirmed partial text and has no full-recording Retry. PR #918 is now hard-blocked from merging until voice-retry client Steps 3–4 land, after which #918 must rebase onto the exact Step 4 SHA and reconcile voice API, platform capture/session, service/repository/Cubit, composer, localization, test, and regression-doc ownership.
 
 - 2026-08-24 — S02-W01-P01 merged through auth PR #70 as `0818bd18fa398c182bb353472f56326a634005f3`; its reviewed head was `afc585cbba246d1ea740e876a506d4fd2aa35f8f`. The auth-first merge barrier is satisfied, the current pointer advances to S03-W01-P01, and tracker PR #71 is reconciled onto the merged tree so it remains documentation-only.
 
