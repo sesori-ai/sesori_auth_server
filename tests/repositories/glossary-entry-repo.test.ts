@@ -152,7 +152,8 @@ describe("GlossaryEntryRepository", () => {
       words: ["OtherUser"],
     });
 
-    assert.equal(await repo.deleteByUserAndBridge({ userId, bridgeId: targetBridgeId }), 1);
+    assert.deepEqual((await repo.findBridgeLocalOwnerIdsByUser({ userId })).sort(), [targetBridgeId, otherBridgeId]);
+    assert.equal(await repo.deleteByUserAndBridges({ userId, bridgeIds: [targetBridgeId] }), 1);
     assert.deepEqual(await repo.findWordsByUserAndProject({ userId, projectKey: projectA }), []);
     assert.deepEqual(await repo.findWordsByUserAndProject({ userId, projectKey: projectB }), [
       "OtherBridge",
@@ -163,10 +164,11 @@ describe("GlossaryEntryRepository", () => {
     ]);
   });
 
-  it("performs no database work for empty word lists", async () => {
+  it("performs no database work for empty word or bridge lists", async () => {
     const scope = repositoryScope(projectA);
     assert.deepEqual(await repo.insertMany({ userId, scope, words: [] }), []);
     assert.equal(await repo.deleteMany({ userId, scope, words: [] }), 0);
+    assert.equal(await repo.deleteByUserAndBridges({ userId, bridgeIds: [] }), 0);
   });
 
   it("fails closed on a malformed persisted document without leaking its content", async () => {

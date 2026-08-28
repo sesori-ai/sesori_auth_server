@@ -46,6 +46,22 @@ export class BridgeRepository {
     });
   }
 
+  async findRevokedIdsForUser(args: { userId: string; bridgeIds: string[] }): Promise<string[]> {
+    if (!ObjectId.isValid(args.userId) || args.bridgeIds.length === 0) {
+      return [];
+    }
+
+    const bridges = await this.#collection
+      .find({
+        userId: new ObjectId(args.userId),
+        bridgeId: { $in: args.bridgeIds },
+        revokedAt: { $ne: null },
+      })
+      .sort({ bridgeId: 1 })
+      .toArray();
+    return bridges.map((bridge) => bridge.bridgeId);
+  }
+
   async findByUserId(userId: string): Promise<Bridge[]> {
     if (!ObjectId.isValid(userId)) {
       return [];
@@ -185,16 +201,13 @@ export class BridgeRepository {
       return [];
     }
 
-    // Flip first, then return every revoked bridge for retryable lifecycle
-    // cleanup. A bridge registered between the two queries remains active and
-    // is excluded, while a retry can still clean residue for an older revoke.
+    // Flip first, then snapshot by the exact revocation timestamp: a bridge
+    // registered between the two queries remains active and is excluded.
     const objectUserId = new ObjectId(userId);
     await this.#collection.updateMany(
       { userId: objectUserId, revokedAt: null },
-      {
-        $set: { status: BridgeStatus.inactive, revokedAt: at, updatedAt: at },
-      },
+      { $set: { status: BridgeStatus.inactive, revokedAt: at, updatedAt: at } },
     );
-    return this.#collection.find({ userId: objectUserId, revokedAt: { $ne: null } }).toArray();
+    return this.#collection.find({ userId: objectUserId, revokedAt: at }).toArray();
   }
 }

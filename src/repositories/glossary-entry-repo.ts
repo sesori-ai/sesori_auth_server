@@ -4,9 +4,11 @@ import { MongoDbAccessor } from "../db/mongo-db-accessor.js";
 import { glossaryEntrySchema, type GlossaryEntry } from "../models/documents.js";
 import { ProjectGlossaryScopeType, type ProjectGlossaryScope, type ProjectKey } from "../models/voice.js";
 import { InternalServerError } from "../lib/errors.js";
+import { bridgeIdSchema } from "../models/bridge.js";
 import { MongoDbDatabase, AuthDbCollection } from "../types/mongo.js";
 
 const countSchema = z.number().int().nonnegative().safe();
+const bridgeIdsSchema = z.array(bridgeIdSchema);
 
 type ProjectGlossaryScopeFilter = {
   "scope.type": ProjectGlossaryScopeType;
@@ -91,11 +93,31 @@ export class GlossaryEntryRepository {
     }
   }
 
+  async findBridgeLocalOwnerIdsByUser(args: { userId: string }): Promise<string[]> {
+    const values = await this.#collection.distinct("scope.bridgeId", {
+      userId: new ObjectId(args.userId),
+      "scope.type": ProjectGlossaryScopeType.bridgeLocal,
+    });
+    const parsed = bridgeIdsSchema.safeParse(values);
+    if (!parsed.success) {
+      throw new InternalServerError({ debugMessage: "Invalid bridge-local glossary ownership persistence" });
+    }
+    return parsed.data;
+  }
+
   async deleteByUserAndBridge(args: { userId: string; bridgeId: string }): Promise<number> {
+    return this.deleteByUserAndBridges({ userId: args.userId, bridgeIds: [args.bridgeId] });
+  }
+
+  async deleteByUserAndBridges(args: { userId: string; bridgeIds: string[] }): Promise<number> {
+    if (args.bridgeIds.length === 0) {
+      return 0;
+    }
+
     const result = await this.#collection.deleteMany({
       userId: new ObjectId(args.userId),
       "scope.type": ProjectGlossaryScopeType.bridgeLocal,
-      "scope.bridgeId": args.bridgeId,
+      "scope.bridgeId": { $in: args.bridgeIds },
     });
     return this.#parseCount(result.deletedCount);
   }

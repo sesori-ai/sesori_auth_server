@@ -116,12 +116,13 @@ export class BridgeService {
       // cannot emit a notification for an already-revoked bridge.
       this.#bridgeStateTracker.cancelPendingForBridge(userId, bridge.bridgeId);
     }
-    for (const bridge of bridges) {
-      // Delete only rows whose owning bridge is confirmed revoked. A bridge
-      // registered concurrently remains active and keeps its local glossary;
-      // returning older revoked bridges makes cleanup retryable.
-      await this.#glossaryRepo.deleteByUserAndBridge({ userId, bridgeId: bridge.bridgeId });
-    }
+
+    // Candidate IDs come from bounded glossary storage, not unbounded bridge
+    // history. Rechecking revocation protects a bridge registered concurrently,
+    // while including older revoked candidates makes failed cleanup retryable.
+    const candidateIds = await this.#glossaryRepo.findBridgeLocalOwnerIdsByUser({ userId });
+    const revokedIds = await this.#bridgeRepo.findRevokedIdsForUser({ userId, bridgeIds: candidateIds });
+    await this.#glossaryRepo.deleteByUserAndBridges({ userId, bridgeIds: revokedIds });
   }
 
   // Atomically records a relay-reported status event. found=false means the

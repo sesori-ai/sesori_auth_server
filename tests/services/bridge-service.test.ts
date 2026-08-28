@@ -38,16 +38,24 @@ describe("BridgeService glossary cleanup", () => {
     assert.deepEqual(events, ["revoke", "cancel", "cleanup"]);
   });
 
-  it("cancels all revoked bridge timers before deleting only their local rows", async () => {
+  it("cancels new timers, filters bounded glossary owners, and bulk deletes only revoked rows", async () => {
     const events: string[] = [];
     const service = createService({
       bridgeRepo: {
         revokeAllForUser: async () => [{ bridgeId: "br_bridge0001" }, { bridgeId: "br_bridge0002" }],
+        findRevokedIdsForUser: async (args: { bridgeIds: string[] }) => {
+          events.push(`filter:${args.bridgeIds.join(",")}`);
+          return args.bridgeIds.filter((bridgeId) => bridgeId !== "br_concurrent");
+        },
       },
       glossaryRepo: {
-        deleteByUserAndBridge: async (args: { bridgeId: string }) => {
-          events.push(`cleanup:${args.bridgeId}`);
-          return 1;
+        findBridgeLocalOwnerIdsByUser: async () => {
+          events.push("candidates");
+          return ["br_bridge0001", "br_bridge0002", "br_concurrent"];
+        },
+        deleteByUserAndBridges: async (args: { bridgeIds: string[] }) => {
+          events.push(`cleanup:${args.bridgeIds.join(",")}`);
+          return 2;
         },
       },
       bridgeStateTracker: {
@@ -60,8 +68,9 @@ describe("BridgeService glossary cleanup", () => {
     assert.deepEqual(events, [
       "cancel:br_bridge0001",
       "cancel:br_bridge0002",
-      "cleanup:br_bridge0001",
-      "cleanup:br_bridge0002",
+      "candidates",
+      "filter:br_bridge0001,br_bridge0002,br_concurrent",
+      "cleanup:br_bridge0001,br_bridge0002",
     ]);
   });
 });
