@@ -55,7 +55,7 @@ export class GlossaryService {
       Math.min(this.#policy.maxWordsPerProject - projectCount, this.#policy.maxWordsPerUser - userCount),
     );
 
-    const added = await this.#glossaryRepo.insertMany({
+    const added = await this.#glossaryRepo.addWords({
       userId: args.userId,
       scope: args.scope,
       words: candidates.slice(0, remaining),
@@ -81,7 +81,7 @@ export class GlossaryService {
       await this.#requireActiveBridge({ userId: args.userId, bridgeId: args.scope.bridgeId });
     }
 
-    return this.#glossaryRepo.deleteMany({ userId: args.userId, scope: args.scope, words: requested });
+    return this.#glossaryRepo.removeWords({ userId: args.userId, scope: args.scope, words: requested });
   }
 
   async getContextWords(args: { userId: string; projectKey: ProjectKey | null }): Promise<string[]> {

@@ -550,7 +550,9 @@ only `{ type, projectKey }`, while bridge-local scope requires
 `{ type, projectKey, bridgeId }`. There is no nullable ownership field or
 fallback shape. The server validates active bridge ownership before and after a
 bridge-local insertion so revocation cannot race vocabulary back into storage.
-Repository rows survive bridge removal; bridge-local rows do not.
+Repository scope documents survive bridge removal; bridge-local scope documents
+do not. Each exact scope has one MongoDB document containing its `words` array;
+project reads flatten and deduplicate words across those ownership documents.
 
 Glossary CRUD requires a project key: `GET /voice/glossary?projectKey=…`, while
 `POST` and `DELETE /voice/glossary` use the exact `{ scope, words }` ownership
@@ -560,14 +562,14 @@ never falls back to a global glossary.
 Safety caps are 100 words per request, 500 per project, 5,000 per user, 200
 characters per word, and an 8,000-character provider context. Caps are checked
 per request rather than serialized, so concurrent requests may narrowly exceed
-them; the compound unique index still prevents duplicates.
+them. A compound unique index enforces one document per exact scope, and atomic
+`$addToSet`/`$pull` updates keep words idempotent within that document.
 
-The glossary endpoints and collection had no callers or persisted entries before
-project-specific voice glossary adoption. At startup, the runtime drops stale
-non-`_id` glossary indexes only after proving the collection is empty, then
-creates its strong scoped indexes directly. Unexpected data fails startup rather
-than being guessed, migrated, or deleted. There is no legacy glossary data
-migration or rollback procedure.
+This scope-document schema intentionally has no data migration. Before deploying
+it, purge or drop `glossaryEntries`; existing vocabulary will be republished by
+bridges. At startup, the runtime drops stale non-`_id` glossary indexes only after
+proving the collection is empty, then creates the scoped-document indexes.
+Unexpected data fails startup rather than being guessed, migrated, or deleted.
 
 ## Async transcription providers
 

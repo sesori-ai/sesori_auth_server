@@ -4,6 +4,18 @@ import { indexKeyMatches, indexMatchesDesired, type IndexDefinition } from "../.
 import { createTestApp } from "../helpers/setup.js";
 import { MongoDbDatabase, AuthDbCollection } from "../../src/types/mongo.js";
 
+const glossaryScopeIndex = {
+  userId: 1,
+  "scope.projectKey": 1,
+  "scope.type": 1,
+  "scope.bridgeId": 1,
+} as const;
+
+const legacyGlossaryWordIndex = {
+  ...glossaryScopeIndex,
+  word: 1,
+} as const;
+
 describe("indexKeyMatches", () => {
   it("returns true for identical single-field specs", () => {
     assert.equal(indexKeyMatches({ email: 1 }, { email: 1 }), true);
@@ -31,32 +43,15 @@ describe("indexKeyMatches", () => {
 });
 
 describe("fresh glossary index normalization", () => {
-  it("replaces stale indexes only while the glossary collection is empty", async () => {
+  it("replaces per-word indexes only while the glossary collection is empty", async () => {
     const ctx = await createTestApp();
     try {
       const collection = ctx.dbAccessor.getDb(MongoDbDatabase.Auth).collection(AuthDbCollection.GlossaryEntries);
-      const target = (await collection.indexes()).find((index) =>
-        indexKeyMatches(index.key, {
-          userId: 1,
-          "scope.projectKey": 1,
-          "scope.type": 1,
-          "scope.bridgeId": 1,
-          word: 1,
-        }),
-      );
+      const target = (await collection.indexes()).find((index) => indexKeyMatches(index.key, glossaryScopeIndex));
       assert.ok(target?.name);
       await collection.dropIndex(target.name);
       await collection.createIndex({ userId: 1, word: 1 }, { unique: true });
-      await collection.createIndex(
-        {
-          userId: 1,
-          "scope.projectKey": 1,
-          "scope.type": 1,
-          "scope.bridgeId": 1,
-          word: 1,
-        },
-        { unique: true, sparse: true },
-      );
+      await collection.createIndex(legacyGlossaryWordIndex, { unique: true, sparse: true });
 
       await ctx.dbAccessor.ensureIndexes();
 
@@ -65,42 +60,31 @@ describe("fresh glossary index normalization", () => {
         indexes.some((index) => indexKeyMatches(index.key, { userId: 1, word: 1 })),
         false,
       );
-      const normalizedTarget = indexes.find((index) =>
-        indexKeyMatches(index.key, {
-          userId: 1,
-          "scope.projectKey": 1,
-          "scope.type": 1,
-          "scope.bridgeId": 1,
-          word: 1,
-        }),
+      assert.equal(
+        indexes.some((index) => indexKeyMatches(index.key, legacyGlossaryWordIndex)),
+        false,
       );
+      const normalizedTarget = indexes.find((index) => indexKeyMatches(index.key, glossaryScopeIndex));
       assert.ok(normalizedTarget);
+      assert.equal(normalizedTarget.unique, true);
       assert.notEqual(normalizedTarget.sparse, true);
     } finally {
       await ctx.cleanup();
     }
   });
 
-  it("refuses to create a missing target index over unexpected glossary data", async () => {
+  it("requires the old collection to be purged before changing its schema", async () => {
     const ctx = await createTestApp();
     try {
       const collection = ctx.dbAccessor.getDb(MongoDbDatabase.Auth).collection(AuthDbCollection.GlossaryEntries);
-      const target = (await collection.indexes()).find((index) =>
-        indexKeyMatches(index.key, {
-          userId: 1,
-          "scope.projectKey": 1,
-          "scope.type": 1,
-          "scope.bridgeId": 1,
-          word: 1,
-        }),
-      );
+      const target = (await collection.indexes()).find((index) => indexKeyMatches(index.key, glossaryScopeIndex));
       assert.ok(target?.name);
       await collection.dropIndex(target.name);
       await collection.insertOne({ userId: "unexpected", word: "Sesori" });
 
       await assert.rejects(
         () => ctx.dbAccessor.ensureIndexes(),
-        /Glossary schema reset refused: the collection unexpectedly contains data/,
+        /Glossary schema reset refused: purge the collection before changing its schema/,
       );
     } finally {
       await ctx.cleanup();
