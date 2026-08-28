@@ -30,6 +30,75 @@ describe("indexKeyMatches", () => {
   });
 });
 
+describe("fresh glossary index normalization", () => {
+  it("replaces stale indexes only while the glossary collection is empty", async () => {
+    const ctx = await createTestApp();
+    try {
+      const collection = ctx.dbAccessor.getDb(MongoDbDatabase.Auth).collection(AuthDbCollection.GlossaryEntries);
+      const target = (await collection.indexes()).find((index) =>
+        indexKeyMatches(index.key, { userId: 1, projectKey: 1, word: 1 }),
+      );
+      assert.ok(target?.name);
+      await collection.dropIndex(target.name);
+      await collection.createIndex({ userId: 1, word: 1 }, { unique: true });
+      await collection.createIndex({ userId: 1, projectKey: 1, word: 1 }, { unique: true, sparse: true });
+
+      await ctx.dbAccessor.ensureIndexes();
+
+      const indexes = await collection.indexes();
+      assert.equal(
+        indexes.some((index) => indexKeyMatches(index.key, { userId: 1, word: 1 })),
+        false,
+      );
+      const normalizedTarget = indexes.find((index) =>
+        indexKeyMatches(index.key, { userId: 1, projectKey: 1, word: 1 }),
+      );
+      assert.ok(normalizedTarget);
+      assert.notEqual(normalizedTarget.sparse, true);
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+
+  it("refuses to create a missing target index over unexpected glossary data", async () => {
+    const ctx = await createTestApp();
+    try {
+      const collection = ctx.dbAccessor.getDb(MongoDbDatabase.Auth).collection(AuthDbCollection.GlossaryEntries);
+      const target = (await collection.indexes()).find((index) =>
+        indexKeyMatches(index.key, { userId: 1, projectKey: 1, word: 1 }),
+      );
+      assert.ok(target?.name);
+      await collection.dropIndex(target.name);
+      await collection.insertOne({ userId: "unexpected", word: "Sesori" });
+
+      await assert.rejects(
+        () => ctx.dbAccessor.ensureIndexes(),
+        /Glossary schema reset refused: the collection unexpectedly contains data/,
+      );
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+
+  it("refuses a collection with non-simple default collation", async () => {
+    const ctx = await createTestApp();
+    try {
+      const db = ctx.dbAccessor.getDb(MongoDbDatabase.Auth);
+      await db.dropCollection(AuthDbCollection.GlossaryEntries);
+      await db.createCollection(AuthDbCollection.GlossaryEntries, {
+        collation: { locale: "en", strength: 2 },
+      });
+
+      await assert.rejects(
+        () => ctx.dbAccessor.ensureIndexes(),
+        /Glossary schema reset refused: the collection has non-simple default collation/,
+      );
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+});
+
 describe("indexMatchesDesired", () => {
   it("returns true when key and unique option match", () => {
     const existing = { key: { email: 1 }, unique: true, name: "email_1", v: 2 };
@@ -59,78 +128,5 @@ describe("indexMatchesDesired", () => {
     const existing = { key: { userId: 1 }, unique: true, name: "userId_1", v: 2 };
     const desired: IndexDefinition = { spec: { userId: 1 } };
     assert.equal(indexMatchesDesired(existing, desired), false);
-  });
-});
-
-describe("glossary index cutover guard", () => {
-  it("refuses startup while the legacy glossary index survives beside the target", async () => {
-    const ctx = await createTestApp();
-    try {
-      await ctx.dbAccessor
-        .getDb(MongoDbDatabase.Auth)
-        .collection(AuthDbCollection.GlossaryEntries)
-        .createIndex({ userId: 1, word: 1 }, { unique: true });
-
-      await assert.rejects(() => ctx.dbAccessor.ensureIndexes(), /Glossary index migration incomplete/);
-    } finally {
-      await ctx.cleanup();
-    }
-  });
-
-  it("refuses startup when the target index exists but is semantically wrong", async () => {
-    const ctx = await createTestApp();
-    try {
-      const collection = ctx.dbAccessor.getDb(MongoDbDatabase.Auth).collection(AuthDbCollection.GlossaryEntries);
-      const target = (await collection.indexes()).find((index) => index.name === "userId_1_projectKey_1_word_1");
-      assert.ok(target?.name);
-      await collection.dropIndex(target.name);
-      await collection.createIndex(
-        { userId: 1, projectKey: 1, word: 1 },
-        { unique: true, sparse: true, name: "userId_1_projectKey_1_word_1" },
-      );
-
-      await assert.rejects(() => ctx.dbAccessor.ensureIndexes(), /Glossary index migration incomplete/);
-    } finally {
-      await ctx.cleanup();
-    }
-  });
-
-  it("refuses startup when two indexes share the target key", async () => {
-    const ctx = await createTestApp();
-    try {
-      await ctx.dbAccessor
-        .getDb(MongoDbDatabase.Auth)
-        .collection(AuthDbCollection.GlossaryEntries)
-        .createIndex(
-          { userId: 1, projectKey: 1, word: 1 },
-          { unique: true, name: "duplicate_target_key", collation: { locale: "en", strength: 2 } },
-        );
-
-      await assert.rejects(() => ctx.dbAccessor.ensureIndexes(), /Glossary index migration incomplete/);
-    } finally {
-      await ctx.cleanup();
-    }
-  });
-
-  it("refuses startup when the glossary collection has a non-simple default collation", async () => {
-    const ctx = await createTestApp();
-    try {
-      const db = ctx.dbAccessor.getDb(MongoDbDatabase.Auth);
-      await db.collection(AuthDbCollection.GlossaryEntries).drop();
-      await db.createCollection(AuthDbCollection.GlossaryEntries, { collation: { locale: "en", strength: 2 } });
-
-      await assert.rejects(() => ctx.dbAccessor.ensureIndexes(), /Glossary index migration incomplete/);
-    } finally {
-      await ctx.cleanup();
-    }
-  });
-
-  it("allows startup once only the project-scoped target index exists", async () => {
-    const ctx = await createTestApp();
-    try {
-      await assert.doesNotReject(() => ctx.dbAccessor.ensureIndexes());
-    } finally {
-      await ctx.cleanup();
-    }
   });
 });

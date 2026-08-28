@@ -18,8 +18,6 @@
 ## Checklist
 
 - [ ] Remove/stop the single auth instance and confirm no writer remains.
-- [ ] From that pinned auth root, run `sops exec-env env/app/prod.env 'npm run migrate-project-glossary-index'`; require `outcome: "completed"`, `documentCount: 0`, all invalid/duplicate counts zero, legacy exact, and target absent. Any other closed outcome/count stops rollout.
-- [ ] Run `sops exec-env env/app/prod.env 'npm run migrate-project-glossary-index -- --apply'`, then `sops exec-env env/app/prod.env 'npm run migrate-project-glossary-index -- --verify'`; require `outcome: "completed"`, target exact, legacy absent, and all invalid/duplicate counts zero. Any command error, `safe_to_rerun`, or `repair_required` stops rollout.
 - [ ] Start new auth with async OpenAI and `REALTIME_TRANSCRIPTION_ENABLED=false`; verify health and old/new app async behavior.
 - [ ] Run `sops exec-env env/app/prod.env 'npm run purge-soniox-transcription'`; continue only on its closed `completed` audit outcome. If residual counts are nonzero, run `sops exec-env env/app/prod.env 'npm run purge-soniox-transcription -- --apply'`, then rerun audit and require zero files/transcriptions. Any unknown/error outcome stops rollout.
 - [ ] Select Soniox async and restart; verify short production-backed smoke, latency, safe error outcome, and ordinary cleanup.
@@ -29,12 +27,11 @@
 - [ ] Remove the explicit realtime false override (or set `REALTIME_TRANSCRIPTION_ENABLED=true`), restart, confirm capability advertises enabled, and verify one authorized internal protocol 1 session before general exposure.
 - [ ] Observe safe logs, provider cost/concurrency/storage, process RSS, and error counts for the agreed initial window.
 - [ ] Confirm no secret/content/PII exposure and no relay change.
-- [ ] Confirm the OpenAI async rollback configuration remains deployable. If any scoped glossary row now exists, database rollback is forbidden; roll forward.
+- [ ] Confirm the OpenAI async rollback configuration remains deployable. Glossary schema defects always roll forward; no legacy glossary schema exists.
 
 ## Expected Evidence
 
 - Deployed auth/apps SHAs and timestamps.
-- Glossary command outcome enums/counts only.
 - Provider residual/concurrency/cost counts without content or identifiers.
 - Health, smoke, shutdown, and rollback-configuration confirmation.
 - The rollback owner and bounded evidence that OpenAI plus `SONIOX_REGION=eu` was active before any older binary started.
@@ -42,7 +39,7 @@
 
 ## Pass Criteria
 
-- Migration and both provider modes operate as planned.
+- Both provider modes operate as planned.
 - Client realtime traffic is enabled only after app and staging readiness.
 - Ordinary provider cleanup returns to zero and accepted residual policy is understood.
 - Configuration-first rollback to realtime-off, OpenAI async, and `SONIOX_REGION=eu` is rehearsed before any older binary is eligible, all without schema reversal.

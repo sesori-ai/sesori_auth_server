@@ -40,20 +40,20 @@
 | [x] | S01-W02-P01 | S01 | W02 | [#64](https://github.com/sesori-ai/sesori_auth_server/pull/64) | `real-time-config-next-step` | Auth: provider boundary, Soniox async, legal/config/cleanup. Merged as `2ed90a743f348102a2c023e4b1aae934886abe2d`. Implemented on the session-provided worktree branch instead of the planned branch name. |
 | [x] | S02-W01-P01 | S02 | W01 | [#70](https://github.com/sesori-ai/sesori_auth_server/pull/70) | `plan/real-time-transcription/s02-w01-p01-realtime-voice-proxy` | Auth: protocol v1 proxy and minimal shutdown. Merged as `0818bd18fa398c182bb353472f56326a634005f3`. |
 | [ ] | S03-W01-P01 | S03 | W01 | [#918](https://github.com/sesori-ai/sesori_apps_monorepo/pull/918) | `plan/real-time-transcription/s03-w01-p01-stream-mobile-voice` | Apps: PCM streaming, preview, commit, async fallback. Hard-held at unmerged head `b3083b7` until voice-retry Steps 3–4 merge. Rebase afterward, preserve async retained-file Retry, and keep post-audio realtime confirmed-partial/no-full-retry behavior. |
-| [ ] | S05-W01-P01 | S05 | W01 | — | `plan/real-time-transcription/s05-w01-p01-remove-scaffolding` | Auth: delete each piece of compatibility/migration scaffolding once its own trigger has fired, restating the trigger and leaving code untouched for any trigger that has not fired. Runs after S04 and may run more than once because the six triggers can fire independently; none has fired yet. |
+| [ ] | S05-W01-P01 | S05 | W01 | — | `plan/real-time-transcription/s05-w01-p01-remove-scaffolding` | Auth: delete each remaining compatibility path once its own trigger has fired, restating the trigger and leaving code untouched for any trigger that has not fired. Runs after S04 and may run more than once because the four triggers can fire independently; none has fired yet. |
 
 ## Manual Checkpoints
 
 | User | Worker | ID | Check | Evidence |
 |---|---|---|---|---|
 | [ ] | [ ] | S04-W01-M01 | Cross-repository staging and real-device verification | Pending |
-| [ ] | [ ] | S04-W02-M01 | Production migration, enablement, observation, and rollback readiness | Pending |
+| [ ] | [ ] | S04-W02-M01 | Production enablement, observation, and rollback readiness | Pending |
 
 ## Blockers and Staleness
 
 - Full-plan review is approved and the definition digest is recorded; implementation may begin from the pinned S01/W01 baseline.
 - Open auth PR #55 is explicitly superseded and must not be used as an implementation base.
-- Production enablement requires Soniox contractual approval, dedicated US project configuration, and the glossary migration gate.
+- Production enablement requires Soniox contractual approval and dedicated US project configuration. The unused glossary has no migration gate.
 
 ## Findings and Plan Deltas
 
@@ -79,7 +79,7 @@
 
 - 2026-08-07 — S01-W02-P01 implemented. Deltas from the step file: retryable failures no longer emit a fixed `Retry-After: 1`, because a provider that states its own cooldown on a 429 is better guidance than a constant — the shipped rule honors that value clamped to 300 s, falls back to 5 s for a capacity rejection the provider did not quantify, and uses 1 s otherwise. The step file described `durationSeconds` as positive whole seconds rounded up; the shipped `AsyncTranscriptionClient` contract instead permits fractional metadata precision, since the OpenAI adapter returns the parsed `music-metadata` duration and only its size-based fallback rounds up. The rule that an absent, non-positive, or absurd provider duration is `malformed_output` rather than a free request is unchanged, and the 24-hour ceiling is inclusive. The purge command was hardened past its step-file description: deletes run in bounded batches of five, the file sweep is held back whenever any transcription list item or delete is uncertain, and a list iterator that throws after yielding still flushes the IDs it already produced. Work used the session-provided worktree branch pushed to `real-time-config-next-step`.
 
-- 2026-08-06 — Added stage S05 to own removal of compatibility and migration scaffolding. The plan previously required retaining glossary rollback tooling and several `COMPATIBILITY` markers but never scheduled their deletion, so the debt was orphaned. S05-W01-P01 carries a per-item trigger inventory and an explicit retention list; legacy index *detection* and the startup guard are permanent, only *reversal* paths are in scope. Triggers are evidence-based, so the glossary rollback removal waits until a project-scoped document actually exists.
+- 2026-08-27 — Product confirmation established that no glossary endpoint was ever called and no glossary document exists. The glossary migration command, startup cutover guard, migration-only schemas, tests, and runbook are removed now rather than retained for S05; other compatibility cleanup remains scheduled there.
 
 - 2026-08-06 — S01-W01-P01 implementation review found one blocking defect and it was fixed before the PR: rewriting the multipart reader initially caught `FST_REQ_FILE_TOO_LARGE` inside the route and reported an oversized upload as HTTP 400 instead of the shipped 413. The reader now rethrows that framework error and a regression test asserts the preserved 413.
 - 2026-08-06 — S01-W01-P01 implemented. Deltas from the step file: the live `GlossaryEntry` schema is now strict and the migration-only project-scoped schema aliases it rather than re-extending a non-strict base, so one shape owns scoped documents; `src/db/glossary-index-migration.ts` needed no change; and the work uses the session-provided worktree branch. The repository fails closed on malformed persisted documents through `glossaryEntrySchema.safeParse` and returns `InternalServerError` without document content. Legacy unscoped rows are unreachable through scoped reads rather than erroring, so a stale row cannot break a valid project read.

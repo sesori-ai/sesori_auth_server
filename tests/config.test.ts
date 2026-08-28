@@ -1,11 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-  configSchema,
-  configSchemaForTest,
-  loadGlossaryMigrationConfig,
-  loadSonioxPurgeConfig,
-} from "../src/config.js";
+import { configSchema, configSchemaForTest, loadSonioxPurgeConfig } from "../src/config.js";
 import { createSonioxRealtimeSdkOptions } from "../src/clients/soniox-realtime-sdk-factory.js";
 import { ClientIpSource } from "../src/types/client-ip.js";
 import {
@@ -51,27 +46,6 @@ function validEnv(overrides: Record<string, string> = {}): Record<string, string
     ...overrides,
   };
 }
-
-describe("loadGlossaryMigrationConfig", () => {
-  it("returns only the validated MongoDB URI", () => {
-    assert.deepEqual(
-      loadGlossaryMigrationConfig({
-        MONGODB_URI: "mongodb://localhost:27017/oauth",
-        JWT_PRIVATE_KEY: "must-not-cross-the-cli-boundary",
-      }),
-      { mongodbUri: "mongodb://localhost:27017/oauth" },
-    );
-  });
-
-  it("rejects missing and empty MongoDB URIs without loading web config", () => {
-    assert.throws(() => loadGlossaryMigrationConfig({}), /GlossaryMigrationConfigError/);
-    assert.throws(() => loadGlossaryMigrationConfig({ MONGODB_URI: "" }), /GlossaryMigrationConfigError/);
-    assert.throws(
-      () => loadGlossaryMigrationConfig({ MONGODB_URI: "not-a-mongodb-uri" }),
-      /GlossaryMigrationConfigError/,
-    );
-  });
-});
 
 describe("loadSonioxPurgeConfig", () => {
   it("returns only the Soniox credentials the operator script needs and defaults to US", () => {

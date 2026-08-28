@@ -182,10 +182,6 @@ export type Config = z.infer<typeof configSchema>;
 /** Exposed so configuration rules can be asserted without mutating process env. */
 export const configSchemaForTest = configSchema;
 
-const glossaryMigrationConfigSchema = z.object({
-  MONGODB_URI: z.string().regex(/^mongodb(?:\+srv)?:\/\/\S+$/),
-});
-
 const sonioxPurgeConfigSchema = z.object({
   SONIOX_API_KEY: z.string().min(1),
   SONIOX_REGION: z.nativeEnum(SonioxRegion).default(SonioxRegion.Us),
@@ -202,15 +198,6 @@ export function loadSonioxPurgeConfig(env: NodeJS.ProcessEnv): { apiKey: string;
   }
 
   return { apiKey: result.data.SONIOX_API_KEY, region: result.data.SONIOX_REGION };
-}
-
-export function loadGlossaryMigrationConfig(env: NodeJS.ProcessEnv): { mongodbUri: string } {
-  const result = glossaryMigrationConfigSchema.safeParse(env);
-  if (!result.success) {
-    throw new Error("GlossaryMigrationConfigError");
-  }
-
-  return { mongodbUri: result.data.MONGODB_URI };
 }
 
 let cached: Config | null = null;
