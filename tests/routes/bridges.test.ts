@@ -5,6 +5,10 @@ import { ActivationStateRepository } from "../../src/repositories/activation-sta
 import { ActivationService } from "../../src/services/activation-service.js";
 import { BridgeStateTracker } from "../../src/services/bridge-state-tracker.js";
 import type { NotificationService } from "../../src/services/notification-service.js";
+import { ProjectGlossaryScopeType } from "../../src/models/voice.js";
+
+const localProjectKey = `prj_v1_${"L".repeat(43)}`;
+const repositoryProjectKey = `prj_v1_${"R".repeat(43)}`;
 
 type BridgeSummaryBody = {
   id: string;
@@ -270,6 +274,79 @@ describe("/auth/bridges routes", () => {
     const body = listRes.json<{ bridges: unknown[] }>();
     assert.deepEqual(body.bridges, []);
     assert.deepEqual(cancelledBridgeKeys, [{ userId: user.userId, bridgeId: created.id }]);
+  });
+
+  it("DELETE /auth/bridges/:bridgeId removes only that bridge's local glossary", async () => {
+    const user = await ctx.createUser();
+    const createRes = await registerBridge(user.accessToken, { name: "Glossary Bridge", platform: "macos" });
+    const created = createRes.json<{ id: string }>();
+    const headers = { authorization: `Bearer ${user.accessToken}`, "content-type": "application/json" };
+
+    const localAdd = await ctx.app.inject({
+      method: "POST",
+      url: "/voice/glossary",
+      headers,
+      payload: JSON.stringify({
+        scope: {
+          type: ProjectGlossaryScopeType.bridgeLocal,
+          projectKey: localProjectKey,
+          bridgeId: created.id,
+        },
+        words: ["LocalTerm"],
+      }),
+    });
+    const repositoryAdd = await ctx.app.inject({
+      method: "POST",
+      url: "/voice/glossary",
+      headers,
+      payload: JSON.stringify({
+        scope: { type: ProjectGlossaryScopeType.repository, projectKey: repositoryProjectKey },
+        words: ["RepositoryTerm"],
+      }),
+    });
+    assert.equal(localAdd.statusCode, 200);
+    assert.equal(repositoryAdd.statusCode, 200);
+
+    const delRes = await ctx.app.inject({
+      method: "DELETE",
+      url: `/auth/bridges/${encodeURIComponent(created.id)}`,
+      headers: { authorization: `Bearer ${user.accessToken}` },
+    });
+    assert.equal(delRes.statusCode, 200);
+
+    const localList = await ctx.app.inject({
+      method: "GET",
+      url: `/voice/glossary?projectKey=${localProjectKey}`,
+      headers: { authorization: `Bearer ${user.accessToken}` },
+    });
+    const repositoryList = await ctx.app.inject({
+      method: "GET",
+      url: `/voice/glossary?projectKey=${repositoryProjectKey}`,
+      headers: { authorization: `Bearer ${user.accessToken}` },
+    });
+    assert.deepEqual(localList.json(), { words: [] });
+    assert.deepEqual(repositoryList.json(), { words: ["RepositoryTerm"] });
+
+    const staleAdd = await ctx.app.inject({
+      method: "POST",
+      url: "/voice/glossary",
+      headers,
+      payload: JSON.stringify({
+        scope: {
+          type: ProjectGlossaryScopeType.bridgeLocal,
+          projectKey: localProjectKey,
+          bridgeId: created.id,
+        },
+        words: ["Recreated"],
+      }),
+    });
+    assert.equal(staleAdd.statusCode, 400);
+    const localListAfterStaleWrite = await ctx.app.inject({
+      method: "GET",
+      url: `/voice/glossary?projectKey=${localProjectKey}`,
+      headers: { authorization: `Bearer ${user.accessToken}` },
+    });
+    assert.deepEqual(localListAfterStaleWrite.json(), { words: [] });
   });
 
   it("DELETE /auth/bridges/:bridgeId returns 404 for non-owner", async () => {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { bridgeIdSchema } from "./bridge.js";
 import {
   RealtimeAudioEncoding,
   RealtimeChannelCount,
@@ -17,18 +18,50 @@ export const projectKeySchema = z
 
 export type ProjectKey = z.infer<typeof projectKeySchema>;
 
+export enum ProjectGlossaryScopeType {
+  repository = "repository",
+  bridgeLocal = "bridge_local",
+}
+
+const repositoryProjectGlossaryScopeSchema = z
+  .object({
+    type: z.literal(ProjectGlossaryScopeType.repository),
+    projectKey: projectKeySchema,
+  })
+  .strict();
+
+const bridgeLocalProjectGlossaryScopeSchema = z
+  .object({
+    type: z.literal(ProjectGlossaryScopeType.bridgeLocal),
+    projectKey: projectKeySchema,
+    bridgeId: bridgeIdSchema,
+  })
+  .strict();
+
+export const projectGlossaryScopeSchema = z.discriminatedUnion("type", [
+  repositoryProjectGlossaryScopeSchema,
+  bridgeLocalProjectGlossaryScopeSchema,
+]);
+
+export type ProjectGlossaryScope = z.infer<typeof projectGlossaryScopeSchema>;
+
 export const glossaryWordSchema = z.string().trim().min(1).max(200);
 
 export const glossaryWordsSchema = z.array(glossaryWordSchema).min(1).max(100);
 
 export const glossaryAddBodySchema = z
   .object({
-    projectKey: projectKeySchema,
+    scope: projectGlossaryScopeSchema,
     words: glossaryWordsSchema,
   })
   .strict();
 
-export const glossaryRemoveBodySchema = glossaryAddBodySchema;
+export const glossaryRemoveBodySchema = z
+  .object({
+    scope: projectGlossaryScopeSchema,
+    words: glossaryWordsSchema,
+  })
+  .strict();
 
 export const glossaryListQuerySchema = z
   .object({

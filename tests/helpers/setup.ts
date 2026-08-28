@@ -204,7 +204,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   const notificationService =
     overrides?.notificationService ?? new NotificationService(deviceTokenRepo, null, settingsService);
   const bridgeStateTracker = overrides?.bridgeStateTracker ?? new BridgeStateTracker(notificationService);
-  const bridgeService = overrides?.bridgeService ?? new BridgeService({ bridgeRepo, bridgeStateTracker });
+  const bridgeService = overrides?.bridgeService ?? new BridgeService({ bridgeRepo, glossaryRepo, bridgeStateTracker });
   const activationService =
     overrides?.activationService ??
     new ActivationService({ activationStateRepo, bridgeRepo, dailyUsageRepo, deviceTokenRepo, userRepo });
@@ -215,7 +215,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     pseudonymizationKey: testProductAnalyticsPseudonymizationKey,
   });
   const authService = new AuthService({ tokenService, userRepo, oauthAccountRepo, passwordAccountRepo, bridgeService });
-  const glossaryService = overrides?.glossaryService ?? new GlossaryService({ glossaryRepo });
+  const glossaryService = overrides?.glossaryService ?? new GlossaryService({ glossaryRepo, bridgeRepo });
   const voiceService =
     overrides?.voiceService ??
     new VoiceService({

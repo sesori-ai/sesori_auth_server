@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { inspect } from "node:util";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
 import type { AsyncTranscriptionClient } from "../../src/clients/async-transcription-client.js";
+import { ProjectGlossaryScopeType } from "../../src/models/voice.js";
 import {
   AsyncTranscriptionPublicErrorPolicy,
   TranscriptionFailure,
@@ -270,7 +271,10 @@ describe("VoiceService provider failure mapping", () => {
       method: "POST",
       url: "/voice/glossary",
       headers: { authorization: `Bearer ${user.accessToken}`, "content-type": "application/json" },
-      payload: JSON.stringify({ projectKey, words: ["Sesori"] }),
+      payload: JSON.stringify({
+        scope: { type: ProjectGlossaryScopeType.repository, projectKey },
+        words: ["Sesori"],
+      }),
     });
 
     const { body, contentType } = multipart();

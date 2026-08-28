@@ -2,11 +2,27 @@ import { Collection, MongoBulkWriteError, ObjectId } from "mongodb";
 import { z } from "zod";
 import { MongoDbAccessor } from "../db/mongo-db-accessor.js";
 import { glossaryEntrySchema, type GlossaryEntry } from "../models/documents.js";
-import type { ProjectKey } from "../models/voice.js";
+import { ProjectGlossaryScopeType, type ProjectGlossaryScope, type ProjectKey } from "../models/voice.js";
 import { InternalServerError } from "../lib/errors.js";
+import { bridgeIdSchema } from "../models/bridge.js";
 import { MongoDbDatabase, AuthDbCollection } from "../types/mongo.js";
 
 const countSchema = z.number().int().nonnegative().safe();
+const bridgeIdsSchema = z.array(bridgeIdSchema);
+
+type ProjectGlossaryScopeFilter = {
+  "scope.type": ProjectGlossaryScopeType;
+  "scope.projectKey": ProjectKey;
+  "scope.bridgeId"?: string;
+};
+
+function scopeFilter(scope: ProjectGlossaryScope): ProjectGlossaryScopeFilter {
+  const base = {
+    "scope.type": scope.type,
+    "scope.projectKey": scope.projectKey,
+  };
+  return scope.type === ProjectGlossaryScopeType.bridgeLocal ? { ...base, "scope.bridgeId": scope.bridgeId } : base;
+}
 
 export class GlossaryEntryRepository {
   readonly #collection: Collection<GlossaryEntry>;
@@ -18,7 +34,16 @@ export class GlossaryEntryRepository {
   /** Returns the project's words. Documents stay inside the repository boundary. */
   async findWordsByUserAndProject(args: { userId: string; projectKey: ProjectKey }): Promise<string[]> {
     const entries = await this.#collection
-      .find({ userId: new ObjectId(args.userId), projectKey: args.projectKey })
+      .find({ userId: new ObjectId(args.userId), "scope.projectKey": args.projectKey })
+      .sort({ word: 1 })
+      .toArray();
+
+    return [...new Set(entries.map((entry) => this.#parseEntry(entry).word))];
+  }
+
+  async findWordsByUserAndScope(args: { userId: string; scope: ProjectGlossaryScope }): Promise<string[]> {
+    const entries = await this.#collection
+      .find({ userId: new ObjectId(args.userId), ...scopeFilter(args.scope) })
       .sort({ word: 1 })
       .toArray();
 
@@ -27,23 +52,19 @@ export class GlossaryEntryRepository {
 
   async countByUserAndProject(args: { userId: string; projectKey: ProjectKey }): Promise<number> {
     return this.#parseCount(
-      await this.#collection.countDocuments({ userId: new ObjectId(args.userId), projectKey: args.projectKey }),
+      await this.#collection.countDocuments({
+        userId: new ObjectId(args.userId),
+        "scope.projectKey": args.projectKey,
+      }),
     );
   }
 
-  /**
-   * Counts a user's project-scoped terms. Unscoped legacy documents are excluded
-   * because scoped CRUD cannot list or delete them, so they must not permanently
-   * consume the per-user capacity.
-   */
   async countScopedByUserId(userId: string): Promise<number> {
-    return this.#parseCount(
-      await this.#collection.countDocuments({ userId: new ObjectId(userId), projectKey: { $type: "string" } }),
-    );
+    return this.#parseCount(await this.#collection.countDocuments({ userId: new ObjectId(userId) }));
   }
 
-  async insertMany(args: { userId: string; projectKey: ProjectKey; words: string[] }): Promise<string[]> {
-    const { userId, projectKey, words } = args;
+  async insertMany(args: { userId: string; scope: ProjectGlossaryScope; words: string[] }): Promise<string[]> {
+    const { userId, scope, words } = args;
     if (words.length === 0) {
       return [];
     }
@@ -53,7 +74,7 @@ export class GlossaryEntryRepository {
     const docs: GlossaryEntry[] = words.map((word) => ({
       _id: new ObjectId(),
       userId: objectUserId,
-      projectKey,
+      scope,
       word,
       createdAt: now,
     }));
@@ -72,15 +93,44 @@ export class GlossaryEntryRepository {
     }
   }
 
-  async deleteMany(args: { userId: string; projectKey: ProjectKey; words: string[] }): Promise<number> {
-    const { userId, projectKey, words } = args;
+  async findBridgeLocalOwnerIdsByUser(args: { userId: string }): Promise<string[]> {
+    const values = await this.#collection.distinct("scope.bridgeId", {
+      userId: new ObjectId(args.userId),
+      "scope.type": ProjectGlossaryScopeType.bridgeLocal,
+    });
+    const parsed = bridgeIdsSchema.safeParse(values);
+    if (!parsed.success) {
+      throw new InternalServerError({ debugMessage: "Invalid bridge-local glossary ownership persistence" });
+    }
+    return parsed.data;
+  }
+
+  async deleteByUserAndBridge(args: { userId: string; bridgeId: string }): Promise<number> {
+    return this.deleteByUserAndBridges({ userId: args.userId, bridgeIds: [args.bridgeId] });
+  }
+
+  async deleteByUserAndBridges(args: { userId: string; bridgeIds: string[] }): Promise<number> {
+    if (args.bridgeIds.length === 0) {
+      return 0;
+    }
+
+    const result = await this.#collection.deleteMany({
+      userId: new ObjectId(args.userId),
+      "scope.type": ProjectGlossaryScopeType.bridgeLocal,
+      "scope.bridgeId": { $in: args.bridgeIds },
+    });
+    return this.#parseCount(result.deletedCount);
+  }
+
+  async deleteMany(args: { userId: string; scope: ProjectGlossaryScope; words: string[] }): Promise<number> {
+    const { userId, scope, words } = args;
     if (words.length === 0) {
       return 0;
     }
 
     const result = await this.#collection.deleteMany({
       userId: new ObjectId(userId),
-      projectKey,
+      ...scopeFilter(scope),
       word: { $in: words },
     });
     return this.#parseCount(result.deletedCount);

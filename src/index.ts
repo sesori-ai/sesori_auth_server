@@ -113,7 +113,7 @@ async function main() {
   const settingsService = new SettingsService({ settingsRepo });
   const notificationService = new NotificationService(deviceTokenRepo, messaging, settingsService);
   const bridgeStateTracker = new BridgeStateTracker(notificationService);
-  const bridgeService = new BridgeService({ bridgeRepo, bridgeStateTracker });
+  const bridgeService = new BridgeService({ bridgeRepo, glossaryRepo, bridgeStateTracker });
   const activationService = new ActivationService({
     activationStateRepo,
     bridgeRepo,
@@ -162,7 +162,7 @@ async function main() {
     deviceTokenRepo,
     bridgeService,
   });
-  const glossaryService = new GlossaryService({ glossaryRepo });
+  const glossaryService = new GlossaryService({ glossaryRepo, bridgeRepo });
 
   // Exactly one async provider is selected at startup; a failed request is
   // never retried against the other provider.

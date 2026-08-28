@@ -1,6 +1,7 @@
 import { BadRequestError } from "../lib/errors.js";
-import type { ProjectKey } from "../models/voice.js";
+import { ProjectGlossaryScopeType, type ProjectGlossaryScope, type ProjectKey } from "../models/voice.js";
 import { TRANSCRIPTION_PROMPT_PREFIX, TRANSCRIPTION_PROMPT_SUFFIX } from "../types/transcription.js";
+import type { BridgeRepository } from "../repositories/bridge-repo.js";
 import { GlossaryEntryRepository } from "../repositories/glossary-entry-repo.js";
 
 export const glossaryPolicy = {
@@ -13,10 +14,16 @@ export const glossaryPolicy = {
 
 export class GlossaryService {
   readonly #glossaryRepo: GlossaryEntryRepository;
+  readonly #bridgeRepo: BridgeRepository;
   readonly #policy: typeof glossaryPolicy;
 
-  constructor(deps: { glossaryRepo: GlossaryEntryRepository; policy?: typeof glossaryPolicy }) {
+  constructor(deps: {
+    glossaryRepo: GlossaryEntryRepository;
+    bridgeRepo: BridgeRepository;
+    policy?: typeof glossaryPolicy;
+  }) {
     this.#glossaryRepo = deps.glossaryRepo;
+    this.#bridgeRepo = deps.bridgeRepo;
     this.#policy = deps.policy ?? glossaryPolicy;
   }
 
@@ -24,12 +31,18 @@ export class GlossaryService {
     return this.#glossaryRepo.findWordsByUserAndProject(args);
   }
 
-  async addWords(args: { userId: string; projectKey: ProjectKey; words: string[] }): Promise<string[]> {
-    // Validate before any database work so a rejected request costs no queries.
+  async addWords(args: { userId: string; scope: ProjectGlossaryScope; words: string[] }): Promise<string[]> {
+    // Validate before glossary database work so a rejected request cannot
+    // recreate local rows for an unknown, foreign, or revoked bridge.
     const requested = this.#uniqueWords(args.words);
+    if (args.scope.type === ProjectGlossaryScopeType.bridgeLocal) {
+      await this.#requireActiveBridge({ userId: args.userId, bridgeId: args.scope.bridgeId });
+    }
+
+    const project = { userId: args.userId, projectKey: args.scope.projectKey };
     const [existing, projectCount, userCount] = await Promise.all([
-      this.listWords(args),
-      this.#glossaryRepo.countByUserAndProject(args),
+      this.#glossaryRepo.findWordsByUserAndScope({ userId: args.userId, scope: args.scope }),
+      this.#glossaryRepo.countByUserAndProject(project),
       this.#glossaryRepo.countScopedByUserId(args.userId),
     ]);
 
@@ -42,11 +55,33 @@ export class GlossaryService {
       Math.min(this.#policy.maxWordsPerProject - projectCount, this.#policy.maxWordsPerUser - userCount),
     );
 
-    return this.#glossaryRepo.insertMany({ ...args, words: candidates.slice(0, remaining) });
+    const added = await this.#glossaryRepo.insertMany({
+      userId: args.userId,
+      scope: args.scope,
+      words: candidates.slice(0, remaining),
+    });
+
+    if (args.scope.type === ProjectGlossaryScopeType.bridgeLocal) {
+      const activeBridge = await this.#bridgeRepo.findByIdForUser(args.scope.bridgeId, args.userId);
+      if (!activeBridge) {
+        // Revocation can race between the first ownership check and insertion.
+        // Delete every local row for the now-inactive bridge before refusing the
+        // request so stale credentials cannot recreate deleted vocabulary.
+        await this.#glossaryRepo.deleteByUserAndBridge({ userId: args.userId, bridgeId: args.scope.bridgeId });
+        throw new BadRequestError({ debugMessage: "Bridge not found or revoked" });
+      }
+    }
+
+    return added;
   }
 
-  async removeWords(args: { userId: string; projectKey: ProjectKey; words: string[] }): Promise<number> {
-    return this.#glossaryRepo.deleteMany({ ...args, words: this.#uniqueWords(args.words) });
+  async removeWords(args: { userId: string; scope: ProjectGlossaryScope; words: string[] }): Promise<number> {
+    const requested = this.#uniqueWords(args.words);
+    if (args.scope.type === ProjectGlossaryScopeType.bridgeLocal) {
+      await this.#requireActiveBridge({ userId: args.userId, bridgeId: args.scope.bridgeId });
+    }
+
+    return this.#glossaryRepo.deleteMany({ userId: args.userId, scope: args.scope, words: requested });
   }
 
   async getContextWords(args: { userId: string; projectKey: ProjectKey | null }): Promise<string[]> {
@@ -55,7 +90,7 @@ export class GlossaryService {
     }
 
     const words = await this.listWords({ userId: args.userId, projectKey: args.projectKey });
-    const sorted = [...words].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+    const sorted = [...new Set(words)].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
     const budget =
       this.#policy.maxContextCharacters - TRANSCRIPTION_PROMPT_PREFIX.length - TRANSCRIPTION_PROMPT_SUFFIX.length;
     const context: string[] = [];
@@ -72,6 +107,13 @@ export class GlossaryService {
     }
 
     return context;
+  }
+
+  async #requireActiveBridge(args: { userId: string; bridgeId: string }): Promise<void> {
+    const bridge = await this.#bridgeRepo.findByIdForUser(args.bridgeId, args.userId);
+    if (!bridge) {
+      throw new BadRequestError({ debugMessage: "Bridge not found or revoked" });
+    }
   }
 
   /**

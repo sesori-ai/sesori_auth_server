@@ -3,6 +3,7 @@ import type { Bridge as BridgeDoc } from "../models/documents.js";
 import type { BridgePlatform, BridgeSummary } from "../models/api.js";
 import type { BridgeStatus } from "../models/bridge.js";
 import type { BridgeRepository } from "../repositories/bridge-repo.js";
+import type { GlossaryEntryRepository } from "../repositories/glossary-entry-repo.js";
 import type { BridgeStateTracker } from "./bridge-state-tracker.js";
 
 // Upper bound on non-revoked bridges per user. Registration is idempotent
@@ -27,10 +28,16 @@ export type RegisterBridgeResult = {
 
 export class BridgeService {
   readonly #bridgeRepo: BridgeRepository;
+  readonly #glossaryRepo: GlossaryEntryRepository;
   readonly #bridgeStateTracker: BridgeStateTracker;
 
-  constructor(deps: { bridgeRepo: BridgeRepository; bridgeStateTracker: BridgeStateTracker }) {
+  constructor(deps: {
+    bridgeRepo: BridgeRepository;
+    glossaryRepo: GlossaryEntryRepository;
+    bridgeStateTracker: BridgeStateTracker;
+  }) {
     this.#bridgeRepo = deps.bridgeRepo;
+    this.#glossaryRepo = deps.glossaryRepo;
     this.#bridgeStateTracker = deps.bridgeStateTracker;
   }
 
@@ -90,16 +97,32 @@ export class BridgeService {
   async revokeForUser(userId: string, bridgeId: string): Promise<boolean> {
     const revoked = await this.#bridgeRepo.revoke(bridgeId, userId, new Date());
     if (revoked) {
+      // Revocation owns timer cancellation; glossary cleanup failure must not
+      // leave a notification queued for a bridge that is already inactive.
       this.#bridgeStateTracker.cancelPendingForBridge(userId, bridgeId);
     }
+
+    // Always clean after the revocation attempt. Successful revocation closes
+    // the active-bridge admission gate before deletion; a retry after a failed
+    // cleanup still removes stale rows even though revoke now returns false.
+    await this.#glossaryRepo.deleteByUserAndBridge({ userId, bridgeId });
     return revoked;
   }
 
   async revokeAllForUser(userId: string): Promise<void> {
     const bridges = await this.#bridgeRepo.revokeAllForUser(userId, new Date());
     for (const bridge of bridges) {
+      // Cancel every timer before persistence cleanup so a cleanup failure
+      // cannot emit a notification for an already-revoked bridge.
       this.#bridgeStateTracker.cancelPendingForBridge(userId, bridge.bridgeId);
     }
+
+    // Candidate IDs come from bounded glossary storage, not unbounded bridge
+    // history. Rechecking revocation protects a bridge registered concurrently,
+    // while including older revoked candidates makes failed cleanup retryable.
+    const candidateIds = await this.#glossaryRepo.findBridgeLocalOwnerIdsByUser({ userId });
+    const revokedIds = await this.#bridgeRepo.findRevokedIdsForUser({ userId, bridgeIds: candidateIds });
+    await this.#glossaryRepo.deleteByUserAndBridges({ userId, bridgeIds: revokedIds });
   }
 
   // Atomically records a relay-reported status event. found=false means the

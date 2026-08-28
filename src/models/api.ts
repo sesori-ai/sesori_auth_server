@@ -3,6 +3,7 @@ import { BridgePlatform, bridgeIdSchema, bridgePlatformSchema } from "./bridge.j
 import { devicePlatformSchema } from "./device.js";
 import { CLIENT_SENDABLE_NOTIFICATION_CATEGORIES } from "./notification.js";
 import { deviceIdSchema } from "./settings.js";
+import type { ProjectGlossaryScope } from "./voice.js";
 import type { AccountStatus } from "../types/account.js";
 import {
   productAnalyticsExpectedRevisionSchema,
@@ -208,7 +209,7 @@ export type GlossaryListReply = {
 };
 
 export type GlossaryAddBody = {
-  projectKey: string;
+  scope: ProjectGlossaryScope;
   words: string[];
 };
 
@@ -217,7 +218,7 @@ export type GlossaryAddReply = {
 };
 
 export type GlossaryRemoveBody = {
-  projectKey: string;
+  scope: ProjectGlossaryScope;
   words: string[];
 };
 
