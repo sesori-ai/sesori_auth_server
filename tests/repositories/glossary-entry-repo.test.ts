@@ -159,6 +159,25 @@ describe("GlossaryEntryRepository", () => {
     assert.equal(attempts, 4);
   });
 
+  it("bounds retries for a persistent exact-scope uniqueness conflict", async () => {
+    let attempts = 0;
+    const duplicateKeyError = new MongoServerError({ ok: 0, code: 11000, errmsg: "persistent conflict" });
+    const retryingRepo = new GlossaryEntryRepository({
+      getCollection: () => ({
+        findOneAndUpdate: async () => {
+          attempts += 1;
+          throw duplicateKeyError;
+        },
+      }),
+    } as unknown as MongoDbAccessor);
+
+    await assert.rejects(
+      () => retryingRepo.addWords({ userId, scope: repositoryScope(projectA), words: ["Shared"] }),
+      (error: unknown) => error === duplicateKeyError,
+    );
+    assert.equal(attempts, 5);
+  });
+
   it("counts per project and per user", async () => {
     await repo.addWords({ userId, scope: repositoryScope(projectA), words: ["Alpha", "Beta"] });
     await repo.addWords({ userId, scope: repositoryScope(projectB), words: ["Gamma"] });
@@ -175,6 +194,26 @@ describe("GlossaryEntryRepository", () => {
     assert.equal(await repo.removeWords({ userId, scope: scopeA, words: ["Alpha"] }), 1);
     assert.equal(await repo.countByUserAndProject({ userId, projectKey: projectA }), 1);
     assert.equal(await repo.countByUserAndProject({ userId, projectKey: projectB }), 1);
+  });
+
+  it("cleans up an already-empty scope document when removal is retried", async () => {
+    const scope = repositoryScope(projectA);
+    await insertRaw({
+      _id: new ObjectId(),
+      userId: new ObjectId(userId),
+      scope,
+      words: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    assert.equal(await repo.removeWords({ userId, scope, words: ["AlreadyRemoved"] }), 0);
+    assert.equal(
+      await ctx.dbAccessor
+        .getCollection<GlossaryEntry>(MongoDbDatabase.Auth, AuthDbCollection.GlossaryEntries)
+        .countDocuments({ userId: new ObjectId(userId), "scope.projectKey": projectA }),
+      0,
+    );
   });
 
   it("deletes bridge-local entries without touching shared repositories or other accounts", async () => {

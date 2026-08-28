@@ -9,6 +9,7 @@ import { MongoDbDatabase, AuthDbCollection } from "../types/mongo.js";
 
 const countSchema = z.number().int().nonnegative().safe();
 const bridgeIdsSchema = z.array(bridgeIdSchema);
+const MAX_SCOPE_UPSERT_ATTEMPTS = 5;
 
 type ProjectGlossaryScopeFilter = {
   "scope.type": ProjectGlossaryScopeType;
@@ -79,6 +80,7 @@ export class GlossaryEntryRepository {
       scope: args.scope,
       words: requested,
       now: new Date(),
+      attemptsRemaining: MAX_SCOPE_UPSERT_ATTEMPTS,
     });
   }
 
@@ -117,10 +119,13 @@ export class GlossaryEntryRepository {
       return 0;
     }
 
+    const exactScopeFilter = {
+      userId: new ObjectId(args.userId),
+      ...scopeFilter(args.scope),
+    };
     const before = await this.#collection.findOneAndUpdate(
       {
-        userId: new ObjectId(args.userId),
-        ...scopeFilter(args.scope),
+        ...exactScopeFilter,
         words: { $in: requested },
       },
       {
@@ -130,6 +135,9 @@ export class GlossaryEntryRepository {
       { returnDocument: "before" },
     );
     if (!before) {
+      // A previous removal can have committed its $pull but failed before
+      // deleting the empty document. A retry must complete that cleanup.
+      await this.#collection.deleteOne({ ...exactScopeFilter, words: { $size: 0 } });
       return 0;
     }
 
@@ -145,15 +153,20 @@ export class GlossaryEntryRepository {
     scope: ProjectGlossaryScope;
     words: string[];
     now: Date;
+    attemptsRemaining: number;
   }): Promise<string[]> {
     try {
       return await this.#addWordsToScope(args);
     } catch (error: unknown) {
-      if (error instanceof MongoServerError && error.code === 11000) {
+      if (error instanceof MongoServerError && error.code === 11000 && args.attemptsRemaining > 1) {
         // A first-write upsert can lose the exact-scope unique-index race. The
         // winner can also remove the last word before this caller retries, so
-        // continue until one atomic upsert observes or creates the document.
-        return this.#addWordsToScopeWithRetry(args);
+        // allow several races to settle without retrying a persistent conflict
+        // forever.
+        return this.#addWordsToScopeWithRetry({
+          ...args,
+          attemptsRemaining: args.attemptsRemaining - 1,
+        });
       }
       throw error;
     }
