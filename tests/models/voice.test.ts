@@ -1,8 +1,41 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { projectKeySchema } from "../../src/models/voice.js";
+import { ProjectGlossaryScopeType, projectGlossaryScopeSchema, projectKeySchema } from "../../src/models/voice.js";
 
 const validProjectKey = `prj_v1_${"A".repeat(43)}`;
+
+describe("projectGlossaryScopeSchema", () => {
+  it("accepts complete repository and bridge-local variants", () => {
+    assert.equal(
+      projectGlossaryScopeSchema.safeParse({
+        type: ProjectGlossaryScopeType.repository,
+        projectKey: validProjectKey,
+      }).success,
+      true,
+    );
+    assert.equal(
+      projectGlossaryScopeSchema.safeParse({
+        type: ProjectGlossaryScopeType.bridgeLocal,
+        projectKey: validProjectKey,
+        bridgeId: "br_bridge0001",
+      }).success,
+      true,
+    );
+  });
+
+  it("rejects missing, misplaced, and nullable bridge ownership", () => {
+    const invalid = [
+      { type: ProjectGlossaryScopeType.bridgeLocal, projectKey: validProjectKey },
+      { type: ProjectGlossaryScopeType.bridgeLocal, projectKey: validProjectKey, bridgeId: null },
+      { type: ProjectGlossaryScopeType.repository, projectKey: validProjectKey, bridgeId: "br_bridge0001" },
+      { type: "unknown", projectKey: validProjectKey },
+    ];
+
+    for (const scope of invalid) {
+      assert.equal(projectGlossaryScopeSchema.safeParse(scope).success, false, JSON.stringify(scope));
+    }
+  });
+});
 
 describe("projectKeySchema", () => {
   it("accepts exactly the versioned base64url SHA-256 shape", () => {

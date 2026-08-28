@@ -1,6 +1,7 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
+import { ProjectGlossaryScopeType } from "../../src/models/voice.js";
 
 const projectA = `prj_v1_${"A".repeat(43)}`;
 const projectB = `prj_v1_${"B".repeat(43)}`;
@@ -21,7 +22,7 @@ describe("Glossary routes", () => {
       method: "POST",
       url: "/voice/glossary",
       headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
-      payload: JSON.stringify({ projectKey, words }),
+      payload: JSON.stringify({ scope: { type: ProjectGlossaryScopeType.repository, projectKey }, words }),
     });
   }
 
@@ -113,12 +114,26 @@ describe("Glossary routes", () => {
       const user = await ctx.createUser();
       const invalidBodies = [
         { words: ["Test"] },
-        { projectKey: "prj_v1_short", words: ["Test"] },
-        { projectKey: projectA, bridgeId: "not-a-bridge", words: ["Test"] },
-        { projectKey: projectA, words: [] },
-        { projectKey: projectA, words: ["   "] },
-        { projectKey: projectA, words: ["Test"], unexpected: true },
-        { projectKey: projectA, words: [`${"x".repeat(201)}`] },
+        { scope: { type: ProjectGlossaryScopeType.repository, projectKey: "prj_v1_short" }, words: ["Test"] },
+        {
+          scope: { type: ProjectGlossaryScopeType.bridgeLocal, projectKey: projectA },
+          words: ["Test"],
+        },
+        {
+          scope: { type: ProjectGlossaryScopeType.bridgeLocal, projectKey: projectA, bridgeId: "not-a-bridge" },
+          words: ["Test"],
+        },
+        { scope: { type: ProjectGlossaryScopeType.repository, projectKey: projectA }, words: [] },
+        { scope: { type: ProjectGlossaryScopeType.repository, projectKey: projectA }, words: ["   "] },
+        {
+          scope: { type: ProjectGlossaryScopeType.repository, projectKey: projectA },
+          words: ["Test"],
+          unexpected: true,
+        },
+        {
+          scope: { type: ProjectGlossaryScopeType.repository, projectKey: projectA },
+          words: [`${"x".repeat(201)}`],
+        },
       ];
 
       for (const body of invalidBodies) {

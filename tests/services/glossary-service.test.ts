@@ -6,13 +6,26 @@ import { BridgeRepository } from "../../src/repositories/bridge-repo.js";
 import { GlossaryEntryRepository } from "../../src/repositories/glossary-entry-repo.js";
 import { GlossaryService, glossaryPolicy } from "../../src/services/glossary-service.js";
 import type { GlossaryEntry } from "../../src/models/documents.js";
-import { projectKeySchema } from "../../src/models/voice.js";
+import {
+  ProjectGlossaryScopeType,
+  projectKeySchema,
+  type ProjectGlossaryScope,
+  type ProjectKey,
+} from "../../src/models/voice.js";
 import { BadRequestError } from "../../src/lib/errors.js";
 import { renderTranscriptionPrompt } from "../../src/types/transcription.js";
 import { MongoDbDatabase, AuthDbCollection } from "../../src/types/mongo.js";
 
 const projectA = projectKeySchema.parse(`prj_v1_${"A".repeat(43)}`);
 const projectB = projectKeySchema.parse(`prj_v1_${"B".repeat(43)}`);
+
+function repositoryScope(projectKey: ProjectKey): ProjectGlossaryScope {
+  return { type: ProjectGlossaryScopeType.repository, projectKey };
+}
+
+function bridgeLocalScope(args: { projectKey: ProjectKey; bridgeId: string }): ProjectGlossaryScope {
+  return { type: ProjectGlossaryScopeType.bridgeLocal, ...args };
+}
 
 function words(prefix: string, count: number, start = 0): string[] {
   return Array.from({ length: count }, (_, index) => `${prefix}${String(start + index).padStart(5, "0")}`);
@@ -44,7 +57,11 @@ describe("GlossaryService", () => {
   });
 
   it("deduplicates a request while preserving first occurrence order", async () => {
-    const added = await service.addWords({ userId, projectKey: projectA, words: ["Beta", "Alpha", "Beta"] });
+    const added = await service.addWords({
+      userId,
+      scope: repositoryScope(projectA),
+      words: ["Beta", "Alpha", "Beta"],
+    });
 
     assert.deepEqual(added, ["Beta", "Alpha"]);
   });
@@ -54,8 +71,7 @@ describe("GlossaryService", () => {
       () =>
         service.addWords({
           userId,
-          projectKey: projectA,
-          bridgeId: "br_missing0001",
+          scope: bridgeLocalScope({ projectKey: projectA, bridgeId: "br_missing0001" }),
           words: ["Blocked"],
         }),
       BadRequestError,
@@ -75,8 +91,7 @@ describe("GlossaryService", () => {
       () =>
         racingService.addWords({
           userId,
-          projectKey: projectA,
-          bridgeId: "br_bridge0001",
+          scope: bridgeLocalScope({ projectKey: projectA, bridgeId: "br_bridge0001" }),
           words: ["Raced"],
         }),
       BadRequestError,
@@ -86,9 +101,13 @@ describe("GlossaryService", () => {
   });
 
   it("truncates to the remaining per-project capacity", async () => {
-    await repo.insertMany({ userId, projectKey: projectA, words: words("p", glossaryPolicy.maxWordsPerProject - 2) });
+    await repo.insertMany({
+      userId,
+      scope: repositoryScope(projectA),
+      words: words("p", glossaryPolicy.maxWordsPerProject - 2),
+    });
 
-    const added = await service.addWords({ userId, projectKey: projectA, words: ["One", "Two", "Three"] });
+    const added = await service.addWords({ userId, scope: repositoryScope(projectA), words: ["One", "Two", "Three"] });
 
     assert.deepEqual(added, ["One", "Two"]);
     assert.equal(await repo.countByUserAndProject({ userId, projectKey: projectA }), glossaryPolicy.maxWordsPerProject);
@@ -100,11 +119,11 @@ describe("GlossaryService", () => {
       projectKeySchema.parse(`prj_v1_${String(index).repeat(43)}`),
     );
     for (const [index, projectKey] of projects.entries()) {
-      await repo.insertMany({ userId, projectKey, words: words(`u${index}_`, perProject) });
+      await repo.insertMany({ userId, scope: repositoryScope(projectKey), words: words(`u${index}_`, perProject) });
     }
-    await repo.insertMany({ userId, projectKey: projectA, words: words("tail_", 499) });
+    await repo.insertMany({ userId, scope: repositoryScope(projectA), words: words("tail_", 499) });
 
-    const added = await service.addWords({ userId, projectKey: projectA, words: ["Last", "Overflow"] });
+    const added = await service.addWords({ userId, scope: repositoryScope(projectA), words: ["Last", "Overflow"] });
 
     assert.deepEqual(added, ["Last"]);
     assert.equal(await repo.countScopedByUserId(userId), glossaryPolicy.maxWordsPerUser);
@@ -113,11 +132,11 @@ describe("GlossaryService", () => {
   it("adds nothing and never passes a negative limit when a cap is already exceeded", async () => {
     await repo.insertMany({
       userId,
-      projectKey: projectA,
+      scope: repositoryScope(projectA),
       words: words("over", glossaryPolicy.maxWordsPerProject + 5),
     });
 
-    const added = await service.addWords({ userId, projectKey: projectA, words: ["Blocked"] });
+    const added = await service.addWords({ userId, scope: repositoryScope(projectA), words: ["Blocked"] });
 
     assert.deepEqual(added, []);
     assert.equal(
@@ -129,23 +148,13 @@ describe("GlossaryService", () => {
   it("does not let an already-stored word consume the last free capacity slot", async () => {
     await repo.insertMany({
       userId,
-      projectKey: projectA,
+      scope: repositoryScope(projectA),
       words: [...words("w", glossaryPolicy.maxWordsPerProject - 2), "Dup"],
     });
 
-    const added = await service.addWords({ userId, projectKey: projectA, words: ["Dup", "BrandNew"] });
+    const added = await service.addWords({ userId, scope: repositoryScope(projectA), words: ["Dup", "BrandNew"] });
 
     assert.deepEqual(added, ["BrandNew"]);
-  });
-
-  it("excludes unscoped legacy rows from the per-user capacity", async () => {
-    await ctx.dbAccessor
-      .getDb(MongoDbDatabase.Auth)
-      .collection(AuthDbCollection.GlossaryEntries)
-      .insertOne({ _id: new ObjectId(), userId: new ObjectId(userId), word: "Legacy", createdAt: new Date() });
-
-    assert.equal(await repo.countScopedByUserId(userId), 0);
-    assert.deepEqual(await service.addWords({ userId, projectKey: projectA, words: ["Scoped"] }), ["Scoped"]);
   });
 
   it("rejects an invalid request before performing any database work", async () => {
@@ -172,7 +181,7 @@ describe("GlossaryService", () => {
       () =>
         spyService.addWords({
           userId,
-          projectKey: projectA,
+          scope: repositoryScope(projectA),
           words: words("x", glossaryPolicy.maxWordsPerRequest + 1),
         }),
       BadRequestError,
@@ -183,15 +192,26 @@ describe("GlossaryService", () => {
   it("enforces request and word-length caps for non-route callers", async () => {
     await assert.rejects(
       () =>
-        service.addWords({ userId, projectKey: projectA, words: words("x", glossaryPolicy.maxWordsPerRequest + 1) }),
+        service.addWords({
+          userId,
+          scope: repositoryScope(projectA),
+          words: words("x", glossaryPolicy.maxWordsPerRequest + 1),
+        }),
       BadRequestError,
     );
     await assert.rejects(
       () =>
-        service.addWords({ userId, projectKey: projectA, words: ["y".repeat(glossaryPolicy.maxWordCharacters + 1)] }),
+        service.addWords({
+          userId,
+          scope: repositoryScope(projectA),
+          words: ["y".repeat(glossaryPolicy.maxWordCharacters + 1)],
+        }),
       BadRequestError,
     );
-    await assert.rejects(() => service.addWords({ userId, projectKey: projectA, words: ["   "] }), BadRequestError);
+    await assert.rejects(
+      () => service.addWords({ userId, scope: repositoryScope(projectA), words: ["   "] }),
+      BadRequestError,
+    );
     await assert.rejects(
       () =>
         service.removeWords({ userId, projectKey: projectA, words: words("z", glossaryPolicy.maxWordsPerRequest + 1) }),
@@ -203,7 +223,7 @@ describe("GlossaryService", () => {
     const term = "x".repeat(glossaryPolicy.maxWordCharacters);
     await repo.insertMany({
       userId,
-      projectKey: projectA,
+      scope: repositoryScope(projectA),
       words: Array.from({ length: 90 }, (_, index) => `${String(index).padStart(3, "0")}${term}`),
     });
 
@@ -222,8 +242,8 @@ describe("GlossaryService", () => {
   });
 
   it("lists and removes only within one project", async () => {
-    await service.addWords({ userId, projectKey: projectA, words: ["Alpha", "Beta"] });
-    await service.addWords({ userId, projectKey: projectB, words: ["Alpha"] });
+    await service.addWords({ userId, scope: repositoryScope(projectA), words: ["Alpha", "Beta"] });
+    await service.addWords({ userId, scope: repositoryScope(projectB), words: ["Alpha"] });
 
     assert.deepEqual(await service.listWords({ userId, projectKey: projectA }), ["Alpha", "Beta"]);
     assert.equal(await service.removeWords({ userId, projectKey: projectA, words: ["Alpha", "Alpha"] }), 1);
@@ -232,13 +252,17 @@ describe("GlossaryService", () => {
   });
 
   it("returns no context when project scope is absent", async () => {
-    await service.addWords({ userId, projectKey: projectA, words: ["Alpha"] });
+    await service.addWords({ userId, scope: repositoryScope(projectA), words: ["Alpha"] });
 
     assert.deepEqual(await service.getContextWords({ userId, projectKey: null }), []);
   });
 
   it("selects context by code-unit order without locale collation", async () => {
-    await service.addWords({ userId, projectKey: projectA, words: ["Zebra", "apple", "Émile", "Apple"] });
+    await service.addWords({
+      userId,
+      scope: repositoryScope(projectA),
+      words: ["Zebra", "apple", "Émile", "Apple"],
+    });
 
     assert.deepEqual(await service.getContextWords({ userId, projectKey: projectA }), [
       "Apple",
@@ -253,7 +277,7 @@ describe("GlossaryService", () => {
     const stored = words("", 0).concat(
       Array.from({ length: 120 }, (_, index) => `${String(index).padStart(3, "0")}${term}`),
     );
-    await repo.insertMany({ userId, projectKey: projectA, words: stored });
+    await repo.insertMany({ userId, scope: repositoryScope(projectA), words: stored });
 
     const context = await service.getContextWords({ userId, projectKey: projectA });
 

@@ -7,6 +7,7 @@ import { VoiceService } from "../../src/services/voice-service.js";
 import { BadGatewayError } from "../../src/lib/errors.js";
 import { todayUtcDateKey, DailyUsageRepository } from "../../src/repositories/daily-usage-repo.js";
 import type { DailyUsage } from "../../src/models/documents.js";
+import { ProjectGlossaryScopeType } from "../../src/models/voice.js";
 import { MongoDbDatabase, AuthDbCollection } from "../../src/types/mongo.js";
 
 const BOUNDARY = "----TestBoundary9876543210";
@@ -290,7 +291,7 @@ describe("POST /voice/transcribe", () => {
       method: "POST",
       url: "/voice/glossary",
       headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
-      payload: JSON.stringify({ projectKey, words }),
+      payload: JSON.stringify({ scope: { type: ProjectGlossaryScopeType.repository, projectKey }, words }),
     });
     assert.equal(res.statusCode, 200);
   }

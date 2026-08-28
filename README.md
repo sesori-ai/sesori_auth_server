@@ -536,29 +536,27 @@ fatal, as does the hard deadline. Treat a nonzero exit on shutdown as a real
 fault to investigate; treat a `disposal degraded` log line on an otherwise clean
 exit as informational.
 
-## Project-scoped glossary migration
+## Project-scoped glossary
 
-Glossary ownership uses an opaque, stable client-derived project key rather than
-a filesystem path or raw bridge project ID:
+The bridge derives opaque `prj_v1_` keys without sending repository origins or
+local paths to auth. A project with a network `origin` hashes the canonical
+origin and uses an account-scoped `repository` variant shared by that account's
+bridges. Other projects hash bridge identity plus normalized local path and use
+a `bridge_local` variant whose required `bridgeId` enables deletion when that
+bridge is removed.
 
-```text
-digestInput = "sesori-project-glossary-v1\0" + projectId
-projectKey = "prj_v1_" + base64url(sha256(utf8(digestInput)))
-```
+Persisted and mutation scopes are discriminated variants: repository scope has
+only `{ type, projectKey }`, while bridge-local scope requires
+`{ type, projectKey, bridgeId }`. There is no nullable ownership field or
+fallback shape. The server validates active bridge ownership before and after a
+bridge-local insertion so revocation cannot race vocabulary back into storage.
+Repository rows survive bridge removal; bridge-local rows do not.
 
-The result is exactly `prj_v1_` plus a 43-character unpadded base64url digest.
-The canonical cross-repository vector is project ID `project-123` →
-`prj_v1_xgjNDm_yyduAKisFHr498ZgcjIU1FACdyEj68wSmbhc`. Using stable `Project.id`
-keeps the key unchanged when a directory moves. The server validates only this
-opaque shape and scopes it to the authenticated user; the key is not an
-authorization credential. It never accepts or persists a raw path for glossary
-ownership. Equal project IDs on two bridges deliberately share one glossary for
-that user, because the composer flow does not carry bridge identity.
-
-Glossary CRUD requires a project key: `GET /voice/glossary?projectKey=…` and
-`POST`/`DELETE /voice/glossary` with `{ projectKey, words }`. `POST
-/voice/transcribe` accepts an optional `projectKey` multipart field; omission
-means no glossary context is applied and never falls back to a global glossary.
+Glossary CRUD requires a project key: `GET /voice/glossary?projectKey=…`, `POST
+/voice/glossary` with `{ scope, words }`, and `DELETE /voice/glossary` with
+`{ projectKey, words }`. `POST /voice/transcribe` accepts an optional
+`projectKey` multipart field; omission means no glossary context is applied and
+never falls back to a global glossary.
 Safety caps are 100 words per request, 500 per project, 5,000 per user, 200
 characters per word, and an 8,000-character provider context. Caps are checked
 per request rather than serialized, so concurrent requests may narrowly exceed

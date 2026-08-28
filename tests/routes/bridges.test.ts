@@ -5,6 +5,7 @@ import { ActivationStateRepository } from "../../src/repositories/activation-sta
 import { ActivationService } from "../../src/services/activation-service.js";
 import { BridgeStateTracker } from "../../src/services/bridge-state-tracker.js";
 import type { NotificationService } from "../../src/services/notification-service.js";
+import { ProjectGlossaryScopeType } from "../../src/models/voice.js";
 
 const localProjectKey = `prj_v1_${"L".repeat(43)}`;
 const repositoryProjectKey = `prj_v1_${"R".repeat(43)}`;
@@ -285,13 +286,23 @@ describe("/auth/bridges routes", () => {
       method: "POST",
       url: "/voice/glossary",
       headers,
-      payload: JSON.stringify({ projectKey: localProjectKey, bridgeId: created.id, words: ["LocalTerm"] }),
+      payload: JSON.stringify({
+        scope: {
+          type: ProjectGlossaryScopeType.bridgeLocal,
+          projectKey: localProjectKey,
+          bridgeId: created.id,
+        },
+        words: ["LocalTerm"],
+      }),
     });
     const repositoryAdd = await ctx.app.inject({
       method: "POST",
       url: "/voice/glossary",
       headers,
-      payload: JSON.stringify({ projectKey: repositoryProjectKey, words: ["RepositoryTerm"] }),
+      payload: JSON.stringify({
+        scope: { type: ProjectGlossaryScopeType.repository, projectKey: repositoryProjectKey },
+        words: ["RepositoryTerm"],
+      }),
     });
     assert.equal(localAdd.statusCode, 200);
     assert.equal(repositoryAdd.statusCode, 200);
@@ -320,7 +331,14 @@ describe("/auth/bridges routes", () => {
       method: "POST",
       url: "/voice/glossary",
       headers,
-      payload: JSON.stringify({ projectKey: localProjectKey, bridgeId: created.id, words: ["Recreated"] }),
+      payload: JSON.stringify({
+        scope: {
+          type: ProjectGlossaryScopeType.bridgeLocal,
+          projectKey: localProjectKey,
+          bridgeId: created.id,
+        },
+        words: ["Recreated"],
+      }),
     });
     assert.equal(staleAdd.statusCode, 400);
     const localListAfterStaleWrite = await ctx.app.inject({

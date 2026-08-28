@@ -8,7 +8,7 @@ import {
   productAnalyticsPreferenceRevisionSchema,
   productAnalyticsPreferenceSchema,
 } from "../types/product-analytics.js";
-import { projectKeySchema } from "./voice.js";
+import { projectGlossaryScopeSchema } from "./voice.js";
 
 export const userSchema = z.object({
   _id: z.instanceof(ObjectId),
@@ -62,8 +62,7 @@ export const glossaryEntrySchema = z
   .object({
     _id: z.instanceof(ObjectId),
     userId: z.instanceof(ObjectId),
-    projectKey: projectKeySchema,
-    bridgeId: bridgeIdSchema.optional(),
+    scope: projectGlossaryScopeSchema,
     word: z.string(),
     createdAt: z.date(),
   })

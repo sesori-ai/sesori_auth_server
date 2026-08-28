@@ -5,11 +5,24 @@ import { createTestApp, type TestContext } from "../helpers/setup.js";
 import { GlossaryEntryRepository } from "../../src/repositories/glossary-entry-repo.js";
 import { InternalServerError } from "../../src/lib/errors.js";
 import type { GlossaryEntry } from "../../src/models/documents.js";
-import { projectKeySchema } from "../../src/models/voice.js";
+import {
+  ProjectGlossaryScopeType,
+  projectKeySchema,
+  type ProjectGlossaryScope,
+  type ProjectKey,
+} from "../../src/models/voice.js";
 import { MongoDbDatabase, AuthDbCollection } from "../../src/types/mongo.js";
 
 const projectA = projectKeySchema.parse(`prj_v1_${"A".repeat(43)}`);
 const projectB = projectKeySchema.parse(`prj_v1_${"B".repeat(43)}`);
+
+function repositoryScope(projectKey: ProjectKey): ProjectGlossaryScope {
+  return { type: ProjectGlossaryScopeType.repository, projectKey };
+}
+
+function bridgeLocalScope(args: { projectKey: ProjectKey; bridgeId: string }): ProjectGlossaryScope {
+  return { type: ProjectGlossaryScopeType.bridgeLocal, ...args };
+}
 
 describe("GlossaryEntryRepository", () => {
   let ctx: TestContext;
@@ -37,8 +50,8 @@ describe("GlossaryEntryRepository", () => {
   }
 
   it("persists project scope and returns only the requested project's words", async () => {
-    await repo.insertMany({ userId, projectKey: projectA, words: ["Beta", "Alpha"] });
-    await repo.insertMany({ userId, projectKey: projectB, words: ["Gamma"] });
+    await repo.insertMany({ userId, scope: repositoryScope(projectA), words: ["Beta", "Alpha"] });
+    await repo.insertMany({ userId, scope: repositoryScope(projectB), words: ["Gamma"] });
 
     const words = await repo.findWordsByUserAndProject({ userId, projectKey: projectA });
 
@@ -52,33 +65,42 @@ describe("GlossaryEntryRepository", () => {
   it("keeps the same word independent across projects and users", async () => {
     const otherUserId = new ObjectId().toHexString();
 
-    assert.deepEqual(await repo.insertMany({ userId, projectKey: projectA, words: ["Shared"] }), ["Shared"]);
-    assert.deepEqual(await repo.insertMany({ userId, projectKey: projectB, words: ["Shared"] }), ["Shared"]);
-    assert.deepEqual(await repo.insertMany({ userId: otherUserId, projectKey: projectA, words: ["Shared"] }), [
+    assert.deepEqual(await repo.insertMany({ userId, scope: repositoryScope(projectA), words: ["Shared"] }), [
       "Shared",
     ]);
+    assert.deepEqual(await repo.insertMany({ userId, scope: repositoryScope(projectB), words: ["Shared"] }), [
+      "Shared",
+    ]);
+    assert.deepEqual(
+      await repo.insertMany({ userId: otherUserId, scope: repositoryScope(projectA), words: ["Shared"] }),
+      ["Shared"],
+    );
   });
 
   it("treats a repeated word in the same project as an idempotent duplicate", async () => {
-    await repo.insertMany({ userId, projectKey: projectA, words: ["Alpha"] });
+    await repo.insertMany({ userId, scope: repositoryScope(projectA), words: ["Alpha"] });
 
-    const inserted = await repo.insertMany({ userId, projectKey: projectA, words: ["Alpha", "Beta"] });
+    const inserted = await repo.insertMany({
+      userId,
+      scope: repositoryScope(projectA),
+      words: ["Alpha", "Beta"],
+    });
 
     assert.deepEqual(inserted, ["Beta"]);
     assert.equal(await repo.countByUserAndProject({ userId, projectKey: projectA }), 2);
   });
 
   it("counts per project and per user", async () => {
-    await repo.insertMany({ userId, projectKey: projectA, words: ["Alpha", "Beta"] });
-    await repo.insertMany({ userId, projectKey: projectB, words: ["Gamma"] });
+    await repo.insertMany({ userId, scope: repositoryScope(projectA), words: ["Alpha", "Beta"] });
+    await repo.insertMany({ userId, scope: repositoryScope(projectB), words: ["Gamma"] });
 
     assert.equal(await repo.countByUserAndProject({ userId, projectKey: projectA }), 2);
     assert.equal(await repo.countScopedByUserId(userId), 3);
   });
 
   it("deletes only words within the requested project", async () => {
-    await repo.insertMany({ userId, projectKey: projectA, words: ["Alpha", "Beta"] });
-    await repo.insertMany({ userId, projectKey: projectB, words: ["Alpha"] });
+    await repo.insertMany({ userId, scope: repositoryScope(projectA), words: ["Alpha", "Beta"] });
+    await repo.insertMany({ userId, scope: repositoryScope(projectB), words: ["Alpha"] });
 
     assert.equal(await repo.deleteMany({ userId, projectKey: projectA, words: ["Alpha"] }), 1);
     assert.equal(await repo.countByUserAndProject({ userId, projectKey: projectA }), 1);
@@ -90,13 +112,20 @@ describe("GlossaryEntryRepository", () => {
     const targetBridgeId = "br_bridge0001";
     const otherBridgeId = "br_bridge0002";
 
-    await repo.insertMany({ userId, projectKey: projectA, bridgeId: targetBridgeId, words: ["Local"] });
-    await repo.insertMany({ userId, projectKey: projectB, words: ["Repository"] });
-    await repo.insertMany({ userId, projectKey: projectB, bridgeId: otherBridgeId, words: ["OtherBridge"] });
+    await repo.insertMany({
+      userId,
+      scope: bridgeLocalScope({ projectKey: projectA, bridgeId: targetBridgeId }),
+      words: ["Local"],
+    });
+    await repo.insertMany({ userId, scope: repositoryScope(projectB), words: ["Repository"] });
+    await repo.insertMany({
+      userId,
+      scope: bridgeLocalScope({ projectKey: projectB, bridgeId: otherBridgeId }),
+      words: ["OtherBridge"],
+    });
     await repo.insertMany({
       userId: otherUserId,
-      projectKey: projectA,
-      bridgeId: targetBridgeId,
+      scope: bridgeLocalScope({ projectKey: projectA, bridgeId: targetBridgeId }),
       words: ["OtherUser"],
     });
 
@@ -115,22 +144,15 @@ describe("GlossaryEntryRepository", () => {
   });
 
   it("performs no database work for empty word lists", async () => {
-    assert.deepEqual(await repo.insertMany({ userId, projectKey: projectA, words: [] }), []);
+    assert.deepEqual(await repo.insertMany({ userId, scope: repositoryScope(projectA), words: [] }), []);
     assert.equal(await repo.deleteMany({ userId, projectKey: projectA, words: [] }), 0);
-  });
-
-  it("never returns unscoped legacy documents through a scoped read", async () => {
-    await insertRaw({ _id: new ObjectId(), userId: new ObjectId(userId), word: "Legacy", createdAt: new Date() });
-
-    assert.deepEqual(await repo.findWordsByUserAndProject({ userId, projectKey: projectA }), []);
-    assert.equal(await repo.countByUserAndProject({ userId, projectKey: projectA }), 0);
   });
 
   it("fails closed on a malformed persisted document without leaking its content", async () => {
     await insertRaw({
       _id: new ObjectId(),
       userId: new ObjectId(userId),
-      projectKey: projectA,
+      scope: repositoryScope(projectA),
       word: "Broken",
       createdAt: new Date(),
       unexpected: "SecretValue",

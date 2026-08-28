@@ -36,12 +36,15 @@ describe("fresh glossary index normalization", () => {
     try {
       const collection = ctx.dbAccessor.getDb(MongoDbDatabase.Auth).collection(AuthDbCollection.GlossaryEntries);
       const target = (await collection.indexes()).find((index) =>
-        indexKeyMatches(index.key, { userId: 1, projectKey: 1, word: 1 }),
+        indexKeyMatches(index.key, { userId: 1, "scope.projectKey": 1, word: 1 }),
       );
       assert.ok(target?.name);
       await collection.dropIndex(target.name);
       await collection.createIndex({ userId: 1, word: 1 }, { unique: true });
-      await collection.createIndex({ userId: 1, projectKey: 1, word: 1 }, { unique: true, sparse: true });
+      await collection.createIndex(
+        { userId: 1, "scope.projectKey": 1, word: 1 },
+        { unique: true, sparse: true },
+      );
 
       await ctx.dbAccessor.ensureIndexes();
 
@@ -51,7 +54,7 @@ describe("fresh glossary index normalization", () => {
         false,
       );
       const normalizedTarget = indexes.find((index) =>
-        indexKeyMatches(index.key, { userId: 1, projectKey: 1, word: 1 }),
+        indexKeyMatches(index.key, { userId: 1, "scope.projectKey": 1, word: 1 }),
       );
       assert.ok(normalizedTarget);
       assert.notEqual(normalizedTarget.sparse, true);
@@ -65,7 +68,7 @@ describe("fresh glossary index normalization", () => {
     try {
       const collection = ctx.dbAccessor.getDb(MongoDbDatabase.Auth).collection(AuthDbCollection.GlossaryEntries);
       const target = (await collection.indexes()).find((index) =>
-        indexKeyMatches(index.key, { userId: 1, projectKey: 1, word: 1 }),
+        indexKeyMatches(index.key, { userId: 1, "scope.projectKey": 1, word: 1 }),
       );
       assert.ok(target?.name);
       await collection.dropIndex(target.name);
