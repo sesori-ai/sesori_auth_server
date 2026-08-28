@@ -41,6 +41,7 @@ describe("fresh glossary index normalization", () => {
       assert.ok(target?.name);
       await collection.dropIndex(target.name);
       await collection.createIndex({ userId: 1, word: 1 }, { unique: true });
+      await collection.createIndex({ userId: 1, projectKey: 1, word: 1 }, { unique: true, sparse: true });
 
       await ctx.dbAccessor.ensureIndexes();
 
@@ -49,10 +50,11 @@ describe("fresh glossary index normalization", () => {
         indexes.some((index) => indexKeyMatches(index.key, { userId: 1, word: 1 })),
         false,
       );
-      assert.equal(
-        indexes.some((index) => indexKeyMatches(index.key, { userId: 1, projectKey: 1, word: 1 })),
-        true,
+      const normalizedTarget = indexes.find((index) =>
+        indexKeyMatches(index.key, { userId: 1, projectKey: 1, word: 1 }),
       );
+      assert.ok(normalizedTarget);
+      assert.notEqual(normalizedTarget.sparse, true);
     } finally {
       await ctx.cleanup();
     }
@@ -73,6 +75,24 @@ describe("fresh glossary index normalization", () => {
       await assert.rejects(
         () => ctx.dbAccessor.ensureIndexes(),
         /Glossary schema reset refused: the collection unexpectedly contains data/,
+      );
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+
+  it("refuses a collection with non-simple default collation", async () => {
+    const ctx = await createTestApp();
+    try {
+      const db = ctx.dbAccessor.getDb(MongoDbDatabase.Auth);
+      await db.dropCollection(AuthDbCollection.GlossaryEntries);
+      await db.createCollection(AuthDbCollection.GlossaryEntries, {
+        collation: { locale: "en", strength: 2 },
+      });
+
+      await assert.rejects(
+        () => ctx.dbAccessor.ensureIndexes(),
+        /Glossary schema reset refused: the collection has non-simple default collation/,
       );
     } finally {
       await ctx.cleanup();

@@ -84,13 +84,30 @@ export function indexMatchesDesired(existing: Record<string, unknown>, desired: 
   return true;
 }
 
+function exactGlossaryIndexMatches(existing: Record<string, unknown>, desired: IndexDefinition): boolean {
+  const standardKeys = new Set(["v", "key", "name", "ns", "unique", "collation"]);
+  const collation = existing.collation as { locale?: unknown } | undefined;
+  return (
+    indexMatchesDesired(existing, desired) &&
+    existing.v === 2 &&
+    (collation === undefined || collation.locale === "simple") &&
+    Object.keys(existing).every((key) => standardKeys.has(key))
+  );
+}
+
 async function normalizeEmptyGlossaryIndexes(args: {
   collection: Collection;
   desiredIndexes: IndexDefinition[];
 }): Promise<void> {
+  const collectionCollation = (await args.collection.options()).collation;
+  if (collectionCollation && collectionCollation.locale !== "simple") {
+    throw new Error("Glossary schema reset refused: the collection has non-simple default collation");
+  }
+
   const existingIndexes = await args.collection.indexes();
   const unexpectedIndexes = existingIndexes.filter(
-    (index) => index.name !== "_id_" && !args.desiredIndexes.some((desired) => indexMatchesDesired(index, desired)),
+    (index) =>
+      index.name !== "_id_" && !args.desiredIndexes.some((desired) => exactGlossaryIndexMatches(index, desired)),
   );
   if (unexpectedIndexes.length === 0) {
     return;
