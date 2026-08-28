@@ -84,6 +84,31 @@ export function indexMatchesDesired(existing: Record<string, unknown>, desired: 
   return true;
 }
 
+async function normalizeEmptyGlossaryIndexes(args: {
+  collection: Collection;
+  desiredIndexes: IndexDefinition[];
+}): Promise<void> {
+  const existingIndexes = await args.collection.indexes();
+  const unexpectedIndexes = existingIndexes.filter(
+    (index) => index.name !== "_id_" && !args.desiredIndexes.some((desired) => indexMatchesDesired(index, desired)),
+  );
+  if (unexpectedIndexes.length === 0) {
+    return;
+  }
+
+  const existingDocument = await args.collection.findOne({}, { projection: { _id: 1 } });
+  if (existingDocument) {
+    throw new Error("Glossary schema reset refused: the collection unexpectedly contains data");
+  }
+
+  for (const index of unexpectedIndexes) {
+    if (!index.name) {
+      throw new Error("Glossary schema reset refused: an unexpected index has no name");
+    }
+    await args.collection.dropIndex(index.name);
+  }
+}
+
 export class MongoDbAccessor {
   readonly #connector: MongoDbConnector;
 
@@ -112,6 +137,9 @@ export class MongoDbAccessor {
         }
 
         const collection = db.collection(collectionName);
+        if (dbName === MongoDbDatabase.Auth && collectionName === AuthDbCollection.GlossaryEntries) {
+          await normalizeEmptyGlossaryIndexes({ collection, desiredIndexes: indexes });
+        }
         const existingIndexes = await collection.indexes();
 
         for (const desired of indexes) {

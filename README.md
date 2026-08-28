@@ -565,9 +565,11 @@ per request rather than serialized, so concurrent requests may narrowly exceed
 them; the compound unique index still prevents duplicates.
 
 The glossary endpoints and collection had no callers or persisted entries before
-project-specific voice glossary adoption. The runtime therefore creates its
-strong scoped index directly; there is no legacy glossary migration or rollback
-procedure.
+project-specific voice glossary adoption. At startup, the runtime drops stale
+non-`_id` glossary indexes only after proving the collection is empty, then
+creates its strong scoped indexes directly. Unexpected data fails startup rather
+than being guessed, migrated, or deleted. There is no legacy glossary data
+migration or rollback procedure.
 
 ## Async transcription providers
 

@@ -196,7 +196,7 @@ The canonical cross-repository vector is project ID `project-123`, digest input 
 
 1. Complete Soniox DPA/subprocessor approval, provision a dedicated US project/key, and publish updated legal disclosure.
 2. Deploy the additive realtime endpoint; current and older apps ignore it and remain on async transcription until S03 adoption. Set `REALTIME_TRANSCRIPTION_ENABLED=false` only where operations need to hold endpoint registration despite a configured Soniox key.
-3. Stop the single auth instance, rerun glossary dry-run, apply/verify the target index only if the collection remains valid, and deploy the new auth binary with async OpenAI. Verify capability discovery matches the resolved key-aware configuration.
+3. Deploy the auth binary with async OpenAI. Startup may replace stale glossary indexes only after proving the collection is empty and otherwise fails closed; verify the direct scoped index and capability discovery.
 4. Run the safe Soniox residual audit/purge command before sending production audio.
 5. Select Soniox async, verify ordinary deletion/latency/error logs, then begin approved protocol 1 client traffic.
 6. Observe safe outcome counts, provider cost/concurrency, process memory, and cleanup residual counts. Do not log content or identifiers.

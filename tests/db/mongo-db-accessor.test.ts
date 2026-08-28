@@ -1,6 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { indexKeyMatches, indexMatchesDesired, type IndexDefinition } from "../../src/db/mongo-db-accessor.js";
+import { createTestApp } from "../helpers/setup.js";
+import { MongoDbDatabase, AuthDbCollection } from "../../src/types/mongo.js";
 
 describe("indexKeyMatches", () => {
   it("returns true for identical single-field specs", () => {
@@ -25,6 +27,56 @@ describe("indexKeyMatches", () => {
 
   it("returns false when key count differs", () => {
     assert.equal(indexKeyMatches({ email: 1 }, { email: 1, userId: 1 }), false);
+  });
+});
+
+describe("fresh glossary index normalization", () => {
+  it("replaces stale indexes only while the glossary collection is empty", async () => {
+    const ctx = await createTestApp();
+    try {
+      const collection = ctx.dbAccessor.getDb(MongoDbDatabase.Auth).collection(AuthDbCollection.GlossaryEntries);
+      const target = (await collection.indexes()).find((index) =>
+        indexKeyMatches(index.key, { userId: 1, projectKey: 1, word: 1 }),
+      );
+      assert.ok(target?.name);
+      await collection.dropIndex(target.name);
+      await collection.createIndex({ userId: 1, word: 1 }, { unique: true });
+
+      await ctx.dbAccessor.ensureIndexes();
+
+      const indexes = await collection.indexes();
+      assert.equal(
+        indexes.some((index) => indexKeyMatches(index.key, { userId: 1, word: 1 })),
+        false,
+      );
+      assert.equal(
+        indexes.some((index) => indexKeyMatches(index.key, { userId: 1, projectKey: 1, word: 1 })),
+        true,
+      );
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+
+  it("refuses to normalize stale indexes when unexpected glossary data exists", async () => {
+    const ctx = await createTestApp();
+    try {
+      const collection = ctx.dbAccessor.getDb(MongoDbDatabase.Auth).collection(AuthDbCollection.GlossaryEntries);
+      const target = (await collection.indexes()).find((index) =>
+        indexKeyMatches(index.key, { userId: 1, projectKey: 1, word: 1 }),
+      );
+      assert.ok(target?.name);
+      await collection.dropIndex(target.name);
+      await collection.createIndex({ userId: 1, word: 1 }, { unique: true });
+      await collection.insertOne({ userId: "unexpected", word: "Sesori" });
+
+      await assert.rejects(
+        () => ctx.dbAccessor.ensureIndexes(),
+        /Glossary schema reset refused: the collection unexpectedly contains data/,
+      );
+    } finally {
+      await ctx.cleanup();
+    }
   });
 });
 
