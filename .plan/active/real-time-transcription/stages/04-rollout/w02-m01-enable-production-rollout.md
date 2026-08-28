@@ -32,7 +32,6 @@
 ## Expected Evidence
 
 - Deployed auth/apps SHAs and timestamps.
-- Glossary command outcome enums/counts only.
 - Provider residual/concurrency/cost counts without content or identifiers.
 - Health, smoke, shutdown, and rollback-configuration confirmation.
 - The rollback owner and bounded evidence that OpenAI plus `SONIOX_REGION=eu` was active before any older binary started.

@@ -109,7 +109,10 @@ async function normalizeEmptyGlossaryIndexes(args: {
     (index) =>
       index.name !== "_id_" && !args.desiredIndexes.some((desired) => exactGlossaryIndexMatches(index, desired)),
   );
-  if (unexpectedIndexes.length === 0) {
+  const allDesiredIndexesExist = args.desiredIndexes.every((desired) =>
+    existingIndexes.some((index) => exactGlossaryIndexMatches(index, desired)),
+  );
+  if (allDesiredIndexesExist && unexpectedIndexes.length === 0) {
     return;
   }
 

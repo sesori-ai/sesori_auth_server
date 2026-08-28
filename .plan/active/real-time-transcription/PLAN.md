@@ -247,7 +247,7 @@ Deferred systems are not placeholders: receipts, reconcilers, leases, exact cap 
 | S02 | Provider-neutral realtime auth proxy | 1 | 0 |
 | S03 | Mobile realtime adoption | 1 | 0 |
 | S04 | Cross-repository verification and production enablement | 0 | 2 |
-| S05 | Compatibility and migration scaffolding removal | 1 | 0 |
+| S05 | Compatibility scaffolding removal | 1 | 0 |
 
 ## 11. Evidence-Based Safeguard Disposition
 

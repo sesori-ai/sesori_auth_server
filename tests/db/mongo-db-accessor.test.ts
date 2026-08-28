@@ -60,7 +60,7 @@ describe("fresh glossary index normalization", () => {
     }
   });
 
-  it("refuses to normalize stale indexes when unexpected glossary data exists", async () => {
+  it("refuses to create a missing target index over unexpected glossary data", async () => {
     const ctx = await createTestApp();
     try {
       const collection = ctx.dbAccessor.getDb(MongoDbDatabase.Auth).collection(AuthDbCollection.GlossaryEntries);
@@ -69,7 +69,6 @@ describe("fresh glossary index normalization", () => {
       );
       assert.ok(target?.name);
       await collection.dropIndex(target.name);
-      await collection.createIndex({ userId: 1, word: 1 }, { unique: true });
       await collection.insertOne({ userId: "unexpected", word: "Sesori" });
 
       await assert.rejects(

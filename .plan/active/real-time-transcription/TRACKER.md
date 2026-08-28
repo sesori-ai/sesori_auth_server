@@ -40,14 +40,14 @@
 | [x] | S01-W02-P01 | S01 | W02 | [#64](https://github.com/sesori-ai/sesori_auth_server/pull/64) | `real-time-config-next-step` | Auth: provider boundary, Soniox async, legal/config/cleanup. Merged as `2ed90a743f348102a2c023e4b1aae934886abe2d`. Implemented on the session-provided worktree branch instead of the planned branch name. |
 | [x] | S02-W01-P01 | S02 | W01 | [#70](https://github.com/sesori-ai/sesori_auth_server/pull/70) | `plan/real-time-transcription/s02-w01-p01-realtime-voice-proxy` | Auth: protocol v1 proxy and minimal shutdown. Merged as `0818bd18fa398c182bb353472f56326a634005f3`. |
 | [ ] | S03-W01-P01 | S03 | W01 | [#918](https://github.com/sesori-ai/sesori_apps_monorepo/pull/918) | `plan/real-time-transcription/s03-w01-p01-stream-mobile-voice` | Apps: PCM streaming, preview, commit, async fallback. PR open and unmerged at `b3083b7`; recorded CI is green. Reconfirm review feedback and drift against current `main` before merge. |
-| [ ] | S05-W01-P01 | S05 | W01 | — | `plan/real-time-transcription/s05-w01-p01-remove-scaffolding` | Auth: delete each piece of compatibility/migration scaffolding once its own trigger has fired, restating the trigger and leaving code untouched for any trigger that has not fired. Runs after S04 and may run more than once because the six triggers can fire independently; none has fired yet. |
+| [ ] | S05-W01-P01 | S05 | W01 | — | `plan/real-time-transcription/s05-w01-p01-remove-scaffolding` | Auth: delete each remaining compatibility path once its own trigger has fired, restating the trigger and leaving code untouched for any trigger that has not fired. Runs after S04 and may run more than once because the four triggers can fire independently; none has fired yet. |
 
 ## Manual Checkpoints
 
 | User | Worker | ID | Check | Evidence |
 |---|---|---|---|---|
 | [ ] | [ ] | S04-W01-M01 | Cross-repository staging and real-device verification | Pending |
-| [ ] | [ ] | S04-W02-M01 | Production migration, enablement, observation, and rollback readiness | Pending |
+| [ ] | [ ] | S04-W02-M01 | Production enablement, observation, and rollback readiness | Pending |
 
 ## Blockers and Staleness
 
