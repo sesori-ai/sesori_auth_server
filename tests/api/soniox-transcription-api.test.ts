@@ -66,6 +66,19 @@ describe("soniox transcription api", () => {
       );
     });
 
+    it("maps documented provider balance and budget exhaustion to terminal quota", () => {
+      for (const errorType of [
+        "organization_balance_exhausted",
+        "organization_monthly_budget_exhausted",
+        "project_monthly_budget_exhausted",
+      ]) {
+        expectReason(
+          () => parseTranscription({ id: "t1", status: "error", error_type: errorType }, "t1"),
+          TranscriptionFailureReason.QuotaExhausted,
+        );
+      }
+    });
+
     it("treats an unfinished status as a timeout", () => {
       for (const status of ["queued", "processing"]) {
         expectReason(() => parseTranscription({ id: "t1", status }, "t1"), TranscriptionFailureReason.Timeout);
@@ -154,9 +167,9 @@ describe("soniox transcription api", () => {
       assert.equal(parseTranscriptText({ text: "hello" }), "hello");
     });
 
-    it("rejects empty or whitespace-only text before it can be billed", () => {
+    it("classifies empty or whitespace-only text as unusable audio before it can be billed", () => {
       for (const text of ["", "   ", "\n\t "]) {
-        expectReason(() => parseTranscriptText({ text }), TranscriptionFailureReason.MalformedOutput);
+        expectReason(() => parseTranscriptText({ text }), TranscriptionFailureReason.UnusableAudio);
       }
     });
 
@@ -227,6 +240,7 @@ describe("soniox transcription api", () => {
 
     it("maps HTTP status codes to provider-neutral reasons", () => {
       const cases: [number, TranscriptionFailureReason][] = [
+        [402, TranscriptionFailureReason.QuotaExhausted],
         [429, TranscriptionFailureReason.Capacity],
         [400, TranscriptionFailureReason.InvalidInput],
         [413, TranscriptionFailureReason.InvalidInput],
@@ -243,6 +257,13 @@ describe("soniox transcription api", () => {
       for (const [statusCode, expected] of cases) {
         assert.equal(toFailureReason(Object.assign(new Error("x"), { statusCode })), expected, String(statusCode));
       }
+    });
+
+    it("recognizes explicit quota metadata before generic HTTP capacity", () => {
+      assert.equal(
+        toFailureReason(Object.assign(new Error("quota"), { code: "quota_exceeded", statusCode: 429 })),
+        TranscriptionFailureReason.QuotaExhausted,
+      );
     });
 
     it("treats an unrecognized error as unavailable rather than leaking it", () => {

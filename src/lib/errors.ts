@@ -40,9 +40,12 @@ export class InternalServerError extends ApiError {
 }
 
 export class QuotaExceededError extends ApiError {
-  constructor(opts: { service: string; debugMessage?: string; nestedError?: unknown }) {
+  constructor(opts: { service: string; retryable?: boolean; debugMessage?: string; nestedError?: unknown }) {
     super("quota_exceeded", 429, opts.debugMessage, opts.nestedError);
-    this.responseBody = { service: opts.service };
+    this.responseBody = {
+      service: opts.service,
+      ...(opts.retryable === undefined ? {} : { retryable: opts.retryable }),
+    };
   }
 }
 
@@ -102,6 +105,55 @@ export class ServiceRestartingError extends ApiError {
  * client can distinguish a transient outage from a permanent rejection; the
  * additive field is safe for released apps to ignore.
  */
+export class TranscriptionInvalidInputError extends ApiError {
+  constructor(opts?: { debugMessage?: string; nestedError?: unknown }) {
+    super("bad_request", 400, opts?.debugMessage, opts?.nestedError);
+    this.responseBody = { retryable: false };
+  }
+}
+
+export class TranscriptionRequestError extends ApiError {
+  constructor(opts: { error: string; statusCode: number; debugMessage?: string; nestedError?: unknown }) {
+    super(opts.error, opts.statusCode, opts.debugMessage, opts.nestedError);
+    this.responseBody = { retryable: false };
+  }
+}
+
+export class TranscriptionRateLimitError extends ApiError {
+  constructor(opts: { error: string }) {
+    super(opts.error, 429);
+    this.responseBody = { retryable: true };
+  }
+}
+
+export class TranscriptionUnusableAudioError extends ApiError {
+  constructor(opts?: { debugMessage?: string; nestedError?: unknown }) {
+    super("transcription_provider_error", 502, opts?.debugMessage, opts?.nestedError);
+    this.responseBody = { retryable: false };
+  }
+}
+
+export class TranscriptionQuotaExhaustedError extends ApiError {
+  constructor(opts?: { debugMessage?: string; nestedError?: unknown }) {
+    super("transcription_unavailable", 503, opts?.debugMessage, opts?.nestedError);
+    this.responseBody = { retryable: false };
+  }
+}
+
+export class TranscriptionInternalError extends ApiError {
+  constructor(opts?: { debugMessage?: string; nestedError?: unknown }) {
+    super("internal_server_error", 500, opts?.debugMessage, opts?.nestedError);
+    this.responseBody = { retryable: false };
+  }
+}
+
+export class LegacyTranscriptionError extends ApiError {
+  constructor(opts: { retryable: boolean; debugMessage?: string; nestedError?: unknown }) {
+    super("internal_server_error", 500, opts.debugMessage, opts.nestedError);
+    this.responseBody = { retryable: opts.retryable };
+  }
+}
+
 export class TranscriptionUnavailableError extends ApiError {
   public readonly retryAfterSeconds: number;
 

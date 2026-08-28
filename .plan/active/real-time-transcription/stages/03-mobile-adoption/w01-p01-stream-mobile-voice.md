@@ -6,7 +6,7 @@
 - **Repository:** `sesori-ai/sesori_apps_monorepo`
 - **Worktree:** worker-created `sesori_apps_monorepo/.worktrees/real-time-transcription-s03-w01-p01`
 - **Base branch:** `main`
-- **Audited base tip:** `5f98b3207c40d264b48c4265216fb32a18546846` (2026-08-04 16:51:43 +0300)
+- **Required rebase tip:** exact merged apps voice-retry Step 4 SHA (pending); the prior audited base is superseded
 - **Branch:** `plan/real-time-transcription/s03-w01-p01-stream-mobile-voice`
 
 ## Goal and Cohesion
@@ -16,7 +16,8 @@ Adopt Sesori realtime voice protocol version 1 in the existing mobile interactio
 ## Dependencies
 
 - S02-W01-P01 merged.
-- S03/W01 apps `main` baseline pinned after drift assessment.
+- Voice-retry client Steps 3–4 merged, establishing shared platform/session/repository/service/Cubit ownership and async retained-file Retry.
+- PR #918 rebased onto the exact voice-retry Step 4 merge SHA with every overlapping voice/DI/composer/test/doc seam reconciled.
 - Auth staging can advertise enabled/disabled protocol 1.
 
 ## Scope
@@ -24,28 +25,31 @@ Adopt Sesori realtime voice protocol version 1 in the existing mobile interactio
 - Derive the opaque project key from the existing project ID without exposing the raw ID to auth.
 - Extend `VoiceApi` with capability discovery and optional async `projectKey`; increase the async request budget from 30 seconds to exactly 120 seconds for Soniox rollout.
 - Add a provider-neutral realtime voice WebSocket client in `module_core`, using `AuthTokenProvider` and `web_socket_channel`.
-- Extend the Flutter voice service to choose mode before capture, stream PCM16, expose live preview, finalize/cancel, and map errors.
-- Render interaction-local confirmed/provisional preview in `PromptInput` and commit through `ComposerDraftCalculator` only at terminal outcome.
-- Preserve async file capture for old/disabled servers.
+- Extend the module_core voice repository/service-session/Cubit flow to choose mode before capture, stream PCM16, expose live preview, finalize/cancel, and map errors.
+- Render Cubit-owned confirmed/provisional preview in `PromptInput` and commit through `ComposerDraftCalculator` only at terminal outcome.
+- Preserve async file capture and retained-file Retry for old/disabled servers and pre-audio fallback.
 
 ## Non-Goals
 
 - Soniox names, URLs, models, credentials, SDKs, or errors in app code.
 - Direct provider streaming or relay carriage.
 - Recording file and stream simultaneously.
-- Automatic retry/reconnect after audio has begun.
+- Automatic retry/reconnect or full-recording Retry after realtime audio has begun.
+- Dual file/stream capture or hidden post-audio async upload.
 - Live mutation of the editable draft.
 - Desktop voice integration or a general client feature-flag framework.
 
 ## Audited Current Code and Assumptions
 
-- `VoiceTranscriptionService` is an app-layer singleton around `AudioRecorder`, `VoiceApi`, wake lock, amplitude, local file cleanup, and 15-minute timer.
-- `VoiceApi` is a `module_core` HTTP API using `AuthenticatedHttpApiClient` and a 30-second timeout.
+- The original PR #918 implementation was built around an app-layer singleton; that baseline is superseded by the voice-retry plan's platform capability, HTTP repository, lazy service with per-composer state session, and `VoiceInputCubit` ownership.
+- The rebase must use the then-merged module_core `VoiceApi`/`VoiceRepository` and async timeout rather than restoring PR #918's older API shape.
 - `AuthTokenProvider` exposes a fresh access token without importing concrete auth types into app code.
 - `PromptInput` owns recording/transcribing UI and already guards stale/cancelled interactions with a monotonic ID.
 - `record` 7.1.1 supports PCM16 streaming across target mobile platforms and reports configuration adjustment through its API.
 
 ## Touched Modules and Files
+
+The list below records PR #918's existing overlap surface. During the required rebase, recalculate exact paths from the merged voice-retry architecture; do not restore a removed app-layer singleton or bypass its repository/service/Cubit flow solely to preserve these historical paths.
 
 - `client/module_core/lib/src/capabilities/voice/voice_api.dart`
 - `client/module_core/lib/src/capabilities/voice/voice_capabilities.dart` (new)
@@ -75,19 +79,19 @@ Adopt Sesori realtime voice protocol version 1 in the existing mobile interactio
 
 - `VoiceCapabilities` parses only the auth-owned enabled flag and supported protocol versions. `VoiceApi` owns HTTP capability discovery and async multipart requests.
 - `module_core` defines `RealtimeWebSocketConnector` as a pure-Dart platform interface and constructor-injects it into `RealtimeVoiceApi`; core tests supply a fake. The app's `IoRealtimeWebSocketConnector` wraps `IOWebSocketChannel.connect` and sends the fresh access token only as the `Authorization: Bearer` upgrade header on supported iOS/Android. App DI registers this platform adapter before core initialization. `RealtimeVoiceApi` owns token acquisition, strict start/control frames, binary sends, protocol parsing, and socket close, and exposes sealed provider-neutral interaction events.
-- `VoiceTranscriptionService` owns mode selection, `AudioRecorder.startStream`, interaction cancellation/lifecycle, confirmed/provisional accumulation, and the terminal result. It depends on `VoiceApi` and `RealtimeVoiceApi`; widgets do not call transport APIs.
-- `PromptInput` owns only gesture/UI preview and the existing `ComposerDraftCalculator.appendVoiceTranscript` commit. Its two callers provide the raw local project ID; only `project_glossary_key.dart` hashes it, and only the resulting opaque key reaches auth APIs.
+- `VoiceApi`/`RealtimeVoiceApi` remain Layer 1; the voice repository maps transport outcomes; the lazy `VoiceTranscriptionService` owns mode selection and orchestration parameterized by its per-composer state session; `VoiceInputCubit` owns that session and renderable interaction state.
+- `PromptInput` owns only gesture/presentation/controller concerns and the existing `ComposerDraftCalculator.appendVoiceTranscript` effect. Its owner supplies the raw local project ID; only the project-key helper hashes it, and only the resulting opaque key reaches auth APIs.
 
 ## Data Flow and Ownership
 
-1. `PromptInput` supplies its project ID to the voice service; a pure helper derives `prj_v1_ + base64url(SHA-256(versioned project ID))`. Its canonical test vector is `project-123` -> `prj_v1_xgjNDm_yyduAKisFHr498ZgcjIU1FACdyEj68wSmbhc`.
+1. The voice Cubit/service flow receives the project ID; a pure helper derives `prj_v1_ + base64url(SHA-256(versioned project ID))`. Its canonical test vector is `project-123` -> `prj_v1_xgjNDm_yyduAKisFHr498ZgcjIU1FACdyEj68wSmbhc`.
 2. Prewarm/capability discovery selects async unless enabled protocol 1 is confirmed.
 3. Realtime setup registers `AudioRecorder.setOnConfigChanged`, calls `startStream` with PCM16/mono/16 kHz, immediately pauses the native recorder, and discards any pre-pause chunks. Because the config-change callback is delivered during platform start, the resolved `startStream` future establishes the final effective `RecordConfig`; validate its PCM16 encoding, mono channel count, and sample rate against `16000|24000|44100|48000`.
 4. Only after that validation does setup get a fresh Sesori token, open auth WSS with the bearer upgrade header, and send `start.audio` from the effective config. It waits for `ready`, then switches the existing stream subscription from discard to direct socket forwarding and resumes the recorder. No pre-ready audio is queued or retained.
 5. Any later config-change callback that differs from the announced format terminates setup/session before sending another audio frame; the app never lies about stream format and never resamples.
 6. `transcript` events update an immutable interaction preview: append `confirmedDelta`, replace `provisional`.
 7. `complete` returns the confirmed text to `PromptInput`, which appends one voice-origin span. A failure returns confirmed text plus a typed error; UI commits confirmed text, drops provisional, and shows the localized error.
-8. Async mode preserves current file cleanup and response path, now including project context.
+8. Async mode preserves the voice-retry retained-artifact lifecycle and response path, now including project context.
 
 ## Error, Cancellation, Concurrency, and Lifecycle
 
@@ -99,7 +103,7 @@ Adopt Sesori realtime voice protocol version 1 in the existing mobile interactio
 - Release stops the recorder, waits for stream closure, sends `finish`, and applies a bounded finish deadline.
 - App background/disposal cancels the active interaction and releases recorder, config-change callback, channel, subscriptions, wake lock, and timers. Realtime duration/minimum-hold timers begin only when `ready` is accepted and the recorder resumes.
 - Existing interaction generation prevents stale events from a prior session mutating a newer draft.
-- One voice interaction remains active per singleton service; no new global queue or retry manager.
+- One voice interaction remains active per composer-owned Cubit/service session; no new global queue or retry manager.
 
 ## Backward Compatibility
 
@@ -122,7 +126,7 @@ Adopt Sesori realtime voice protocol version 1 in the existing mobile interactio
 - Capability enabled, disabled, malformed, 404, timeout, and compatibility fallback.
 - Realtime protocol parsing, token acquisition, ready/update/complete/error, binary send, and close.
 - Parse the matching protocol-v1 fixture with strict unknown/omitted-field rejection, all sample rates/bounds/error codes, fixed retryability/close mapping, and no access token in any JSON fixture.
-- Pre-audio realtime failure selects async; post-audio failure never invokes async upload.
+- Pre-audio realtime failure selects async and keeps its retained-file Retry behavior; post-audio failure never invokes async upload or exposes the async Retry control.
 - Confirmed append, provisional replacement, finish commit, confirmed-partial failure commit, cancel discard, and empty transcript.
 - Stale session events cannot modify a later draft.
 - Recorder start-paused ordering, callback-before-start-frame effective format, pre-ready discard/no queue, supported adjustment, unsupported/late adjustment termination, callback cleanup, amplitude, wake lock, max duration, background/disposal, and all existing async cases.

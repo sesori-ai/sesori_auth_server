@@ -4,6 +4,7 @@ import { inspect } from "node:util";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
 import type { AsyncTranscriptionClient } from "../../src/clients/async-transcription-client.js";
 import {
+  AsyncTranscriptionPublicErrorPolicy,
   TranscriptionFailure,
   TranscriptionFailureReason,
   type TranscriptionResult,
@@ -39,13 +40,22 @@ function multipart(): { body: Buffer; contentType: string } {
 
 describe("VoiceService provider failure mapping", () => {
   let ctx: TestContext;
+  let legacyCtx: TestContext;
   const provider = new StubTranscriptionClient();
 
   before(async () => {
-    ctx = await createTestApp({ asyncTranscriptionClient: provider });
+    ctx = await createTestApp({
+      asyncTranscriptionClient: provider,
+      asyncTranscriptionPublicErrorPolicy: AsyncTranscriptionPublicErrorPolicy.DetailedV1,
+    });
+    legacyCtx = await createTestApp({
+      asyncTranscriptionClient: provider,
+      asyncTranscriptionPublicErrorPolicy: AsyncTranscriptionPublicErrorPolicy.LegacyOpenAiV1,
+    });
   });
 
   after(async () => {
+    await legacyCtx.cleanup();
     await ctx.cleanup();
   });
 
@@ -54,12 +64,12 @@ describe("VoiceService provider failure mapping", () => {
     provider.lastTerms = null;
   });
 
-  async function post(accessToken: string) {
+  async function post(args: { accessToken: string; context?: TestContext }) {
     const { body, contentType } = multipart();
-    return ctx.app.inject({
+    return (args.context ?? ctx).app.inject({
       method: "POST",
       url: "/voice/transcribe",
-      headers: { authorization: `Bearer ${accessToken}`, "content-type": contentType },
+      headers: { authorization: `Bearer ${args.accessToken}`, "content-type": contentType },
       payload: body,
     });
   }
@@ -67,14 +77,16 @@ describe("VoiceService provider failure mapping", () => {
   // The expected Retry-After is the exact header value, not just its presence:
   // a capacity rejection the provider did not quantify uses a deliberately
   // longer cadence than a generic transient failure.
-  const cases: [TranscriptionFailureReason, number, string, boolean | undefined, string | undefined][] = [
-    [TranscriptionFailureReason.InvalidInput, 400, "bad_request", undefined, undefined],
+  const cases: [TranscriptionFailureReason, number, string, boolean, string | undefined][] = [
+    [TranscriptionFailureReason.InvalidInput, 400, "bad_request", false, undefined],
+    [TranscriptionFailureReason.UnusableAudio, 502, "transcription_provider_error", false, undefined],
+    [TranscriptionFailureReason.QuotaExhausted, 503, "transcription_unavailable", false, undefined],
     [TranscriptionFailureReason.Capacity, 503, "transcription_unavailable", true, "5"],
     [TranscriptionFailureReason.Unavailable, 503, "transcription_unavailable", true, "1"],
     [TranscriptionFailureReason.Timeout, 504, "transcription_timeout", true, "1"],
     [TranscriptionFailureReason.ProviderRejected, 500, "transcription_configuration_error", false, undefined],
     [TranscriptionFailureReason.MalformedOutput, 502, "transcription_provider_error", true, "1"],
-    [TranscriptionFailureReason.Internal, 500, "internal_server_error", undefined, undefined],
+    [TranscriptionFailureReason.Internal, 500, "internal_server_error", false, undefined],
   ];
 
   for (const [reason, status, errorCode, retryable, expectedRetryAfter] of cases) {
@@ -84,12 +96,45 @@ describe("VoiceService provider failure mapping", () => {
         throw new TranscriptionFailure(reason);
       };
 
-      const res = await post(user.accessToken);
+      const res = await post({ accessToken: user.accessToken });
 
       assert.equal(res.statusCode, status);
-      assert.equal(res.json<{ error: string }>().error, errorCode);
-      assert.equal(res.json<{ retryable?: boolean }>().retryable, retryable);
+      assert.deepEqual(res.json(), { error: errorCode, retryable });
       assert.equal(res.headers["retry-after"], expectedRetryAfter, `Retry-After for ${reason}`);
+    });
+  }
+
+  for (const [reason, , , retryable] of cases) {
+    it(`preserves the legacy OpenAI HTTP contract for ${reason}`, async () => {
+      const user = await legacyCtx.createUser();
+      provider.next = async () => {
+        throw new TranscriptionFailure(reason);
+      };
+
+      const res = await post({ accessToken: user.accessToken, context: legacyCtx });
+
+      assert.equal(res.statusCode, 500);
+      assert.deepEqual(res.json(), { error: "internal_server_error", retryable });
+      assert.equal(res.headers["retry-after"], undefined);
+    });
+  }
+
+  for (const [name, context] of [
+    ["detailed", () => ctx],
+    ["legacy", () => legacyCtx],
+  ] as const) {
+    it(`maps an unexpected ${name} provider error to terminal internal failure`, async () => {
+      const target = context();
+      const user = await target.createUser();
+      provider.next = async () => {
+        throw new Error("unexpected provider failure");
+      };
+
+      const res = await post({ accessToken: user.accessToken, context: target });
+
+      assert.equal(res.statusCode, 500);
+      assert.deepEqual(res.json(), { error: "internal_server_error", retryable: false });
+      assert.equal(res.headers["retry-after"], undefined);
     });
   }
 
@@ -101,14 +146,27 @@ describe("VoiceService provider failure mapping", () => {
       throw new TranscriptionFailure(TranscriptionFailureReason.Cancelled);
     };
 
-    const res = await post(user.accessToken);
+    const res = await post({ accessToken: user.accessToken });
 
     assert.equal(res.statusCode, 400);
     assert.equal(res.json<{ error: string }>().error, "bad_request");
 
-    // Cancellation is the caller's own doing, so it is neither advertised as
-    // retryable nor given a cooldown.
-    assert.equal(res.json<{ retryable?: boolean }>().retryable, undefined);
+    // Cancellation is the caller's own doing, so it is explicitly terminal
+    // and has no cooldown.
+    assert.equal(res.json<{ retryable?: boolean }>().retryable, false);
+    assert.equal(res.headers["retry-after"], undefined);
+  });
+
+  it("keeps connected cancellation terminal under the legacy policy", async () => {
+    const user = await legacyCtx.createUser();
+    provider.next = async () => {
+      throw new TranscriptionFailure(TranscriptionFailureReason.Cancelled);
+    };
+
+    const res = await post({ accessToken: user.accessToken, context: legacyCtx });
+
+    assert.equal(res.statusCode, 400);
+    assert.deepEqual(res.json(), { error: "bad_request", retryable: false });
     assert.equal(res.headers["retry-after"], undefined);
   });
 
@@ -118,7 +176,7 @@ describe("VoiceService provider failure mapping", () => {
       throw new TranscriptionFailure(TranscriptionFailureReason.Capacity, { retryAfterSeconds: 42 });
     };
 
-    const res = await post(user.accessToken);
+    const res = await post({ accessToken: user.accessToken });
 
     assert.equal(res.statusCode, 503);
     assert.equal(res.headers["retry-after"], "42");
@@ -160,7 +218,7 @@ describe("VoiceService provider failure mapping", () => {
         throw new TranscriptionFailure(TranscriptionFailureReason.ProviderRejected, { cause: providerCause });
       };
 
-      const res = await post(user.accessToken);
+      const res = await post({ accessToken: user.accessToken });
 
       assert.equal(res.statusCode, 500);
       assert.deepEqual(res.json(), { error: "transcription_configuration_error", retryable: false });
@@ -184,7 +242,7 @@ describe("VoiceService provider failure mapping", () => {
       throw new TranscriptionFailure(TranscriptionFailureReason.Capacity, { retryAfterSeconds: 86_400 });
     };
 
-    const res = await post(user.accessToken);
+    const res = await post({ accessToken: user.accessToken });
 
     assert.equal(res.headers["retry-after"], "300");
   });
@@ -193,11 +251,15 @@ describe("VoiceService provider failure mapping", () => {
     const user = await ctx.createUser();
     provider.next = async () => ({ text: "ok", durationSeconds: 3_600 });
 
-    assert.equal((await post(user.accessToken)).statusCode, 200);
-    const exhausted = await post(user.accessToken);
+    assert.equal((await post({ accessToken: user.accessToken })).statusCode, 200);
+    const exhausted = await post({ accessToken: user.accessToken });
 
     assert.equal(exhausted.statusCode, 429);
-    assert.deepEqual(exhausted.json(), { error: "quota_exceeded", service: "transcription" });
+    assert.deepEqual(exhausted.json(), {
+      error: "quota_exceeded",
+      service: "transcription",
+      retryable: false,
+    });
     assert.equal(exhausted.headers["retry-after"], undefined);
   });
 
@@ -231,7 +293,7 @@ describe("VoiceService provider failure mapping", () => {
   it("sends no terms when the request omits a project key", async () => {
     const user = await ctx.createUser();
 
-    assert.equal((await post(user.accessToken)).statusCode, 200);
+    assert.equal((await post({ accessToken: user.accessToken })).statusCode, 200);
     assert.deepEqual(provider.lastTerms, []);
   });
 });

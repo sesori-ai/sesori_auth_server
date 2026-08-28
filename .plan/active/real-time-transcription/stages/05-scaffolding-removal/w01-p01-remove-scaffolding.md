@@ -25,7 +25,7 @@ Each row is independent. Remove a row only when its trigger has fired; otherwise
 | # | Scaffolding | Location | Trigger |
 |---|---|---|---|
 | 1 | Optional transcribe project key | `COMPATIBILITY 2026-08-06` markers in `src/models/voice.ts` and `src/routes/voice.ts`, the optional schema member, the omission-to-`null` normalization, and the legacy-omission test | Minimum supported app always sends project context |
-| 2 | OpenAI async compatibility error mapping | `COMPATIBILITY` marker and legacy mapping in `src/clients/openai-client.ts` | OpenAI async rollback support explicitly retired, or a breaking error-contract rollout approved |
+| 2 | OpenAI async compatibility error mapping | `COMPATIBILITY` marker and `LegacyOpenAiV1` branch in `src/services/voice-service.ts`, the policy enum, composition selection, and policy-specific tests | OpenAI async rollback support explicitly retired, or a breaking error-contract rollout approved |
 | 3 | OpenAI async adapter and provider branch | OpenAI transcription adapter, `ASYNC_TRANSCRIPTION_PROVIDER` branch and config | Soniox is the only intentionally supported async provider. Preserve the independent OpenAI metadata client |
 | 4 | Capability-absent app fallback | Apps-monorepo `COMPATIBILITY` fallback to async when capability discovery fails | All supported auth deployments expose capability protocol 1. Apps-repo change; coordinate separately |
 

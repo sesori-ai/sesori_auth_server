@@ -45,6 +45,7 @@ import { ProductAnalyticsPreferenceService } from "../../src/services/product-an
 import { SettingsService } from "../../src/services/settings-service.js";
 import { loadConfig, type Config } from "../../src/config.js";
 import { ProductAnalyticsPreference } from "../../src/types/product-analytics.js";
+import { AsyncTranscriptionPublicErrorPolicy } from "../../src/types/transcription.js";
 
 export type TestUser = {
   userId: string;
@@ -90,6 +91,7 @@ export type TestAppOverrides = {
   voiceService?: VoiceService;
   realtimeService?: RealtimeRouteService;
   asyncTranscriptionClient?: AsyncTranscriptionClient;
+  asyncTranscriptionPublicErrorPolicy?: AsyncTranscriptionPublicErrorPolicy;
   configOverrides?: Partial<Config>;
 };
 
@@ -221,6 +223,8 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
       glossaryService,
       dailyUsageRepo,
       dailyLimitSeconds: effectiveConfig.DAILY_TRANSCRIPTION_LIMIT_SECONDS,
+      publicErrorPolicy:
+        overrides?.asyncTranscriptionPublicErrorPolicy ?? AsyncTranscriptionPublicErrorPolicy.DetailedV1,
     });
   const sessionMetadataService =
     overrides?.sessionMetadataService ?? new SessionMetadataService({ openai, dailyUsageRepo, model: "gpt-4o-mini" });

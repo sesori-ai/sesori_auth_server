@@ -9,6 +9,7 @@
 - **Plan host:** `sesori-ai/sesori_auth_server`
 - **Selected implementation base:** `master`
 - **Active plan slug:** `real-time-transcription`
+- **Async-retry amendment:** 2026-08-27 product decision — retained-file Retry applies only to async recording; realtime after audio begins keeps confirmed partial text without retaining or replaying the full recording
 - **Legacy context:** This canonical plan supersedes the oversized legacy definition in `.plans/real-time-transcription/`. The legacy files remain historical evidence, not execution authority.
 - **Invocation context:** Planning is being performed from local worktree branch `real-time-transcription-pr2a-shutdown-foundation` at `020afc0c456bdbf4edd13bbea56b2e95410bec29` (open PR #55). That branch is evidence only. Every auth implementation wave starts from the selected remote `master` branch after its own drift assessment; it must not inherit the invocation branch.
 
@@ -28,8 +29,8 @@ The same provider boundary also permits the existing file-upload endpoint to sel
 
 1. New mobile clients can use protocol version 1 without containing a Soniox URL, key, SDK type, model name, error name, or provider-specific message.
 2. A normal iOS and Android hold-to-talk session displays confirmed and provisional text before release; a staging screen recording shows the first non-empty update within two seconds in at least 9 of 10 short dictation trials per platform.
-3. Successful release appends one final voice-origin span to the existing draft. Drag cancellation appends nothing. A mid-session failure appends only already-confirmed text and presents a retryable error.
-4. Older apps continue using `POST /voice/transcribe`. New apps choose realtime or async before capture from a Sesori capability response and fall back to async when an older server lacks that response.
+3. Successful release appends one final voice-origin span to the existing draft. Drag cancellation appends nothing. A mid-session failure appends only already-confirmed text and presents its typed error; it does not offer a retained full-recording Retry after audio has begun.
+4. Older apps continue using `POST /voice/transcribe`. New apps choose realtime or async before capture from a Sesori capability response and fall back to async when an older server lacks that response. File-based async mode separately retains retryable failures for manual Retry.
 5. `POST /voice/transcribe` can use either configured async provider. Realtime initially has a Soniox adapter but no provider detail escapes its server-side interface.
 6. Audio, transcripts, provisional text, glossary words, JWTs, provider keys, raw project IDs, and raw user IDs are absent from persistence and logs. Soniox content uses the approved US project and endpoints.
 7. Daily quota behavior remains explicitly best effort: precheck before provider work, bounded realtime duration, one post-use atomic increment, and measured/logged persistence failure. No receipt or reconciliation collection is added.
@@ -137,7 +138,7 @@ The canonical cross-repository vector is project ID `project-123`, digest input 
 4. The server replies `ready`; the app starts `record.startStream` and sends naturally paced PCM16 binary frames.
 5. The Soniox adapter emits validated results. The service converts final tokens to an append-only `confirmedDelta` and each result's non-final tokens to one replacement `provisional` string.
 6. The app displays confirmed plus provisional text in interaction-local recording UI. The editable draft remains unchanged.
-7. `finish` gracefully finishes the provider and commits the final transcript. `cancel` discards the interaction. Unexpected failure retains only confirmed text already delivered to the app.
+7. `finish` gracefully finishes the provider and commits the final transcript. `cancel` discards the interaction. Unexpected failure retains only confirmed text already delivered to the app; after streaming starts there is no full recording to retry through async.
 8. Realtime usage is the ceiling of accepted PCM duration, reconciled upward by validated provider progress when larger, and is incremented once on terminal cleanup. Failure of that write remains best effort.
 
 ### Public protocol version 1
@@ -166,8 +167,8 @@ The canonical cross-repository vector is project ID `project-123`, digest input 
 4. Include both auth and apps repositories in this plan; relay has no implementation change.
 5. Quota accounting is bounded best effort, not a strict entitlement boundary.
 6. Glossary limits are proportional safety bounds, not exact concurrent entitlements.
-7. The app chooses realtime or async before capture. There is no mid-session file fallback.
-8. Live text is preview-only until commit; confirmed partial text survives a failed session, while provisional text does not.
+7. The app chooses realtime or async before capture. There is no mid-session file fallback, dual recording, or full-recording Retry after streaming starts. A failure before audio starts may still select the file-based async path.
+8. Live text is preview-only until commit; confirmed partial text survives a failed session, while provisional text does not. Manual retained-file Retry belongs only to async mode.
 9. Async provider cleanup is immediate on ordinary paths plus operator/startup-window purge, with hard-crash residue accepted rather than persisted reconciliation.
 10. Preserve the 15-minute product session cap, English as a non-strict hint, explicit hold-to-talk finish, and no initial diarization/translation/endpoint detection.
 
@@ -190,7 +191,8 @@ The canonical cross-repository vector is project ID `project-123`, digest input 
 1. Project-scoped glossary runtime.
 2. Provider-neutral async Soniox support, still defaulting to OpenAI.
 3. Realtime auth proxy, key-aware by default with an explicit opt-out for environments that need to hold endpoint registration.
-4. Mobile realtime adoption with async fallback.
+4. Async retained-file retry ownership and behavior merge in the apps repository.
+5. Mobile realtime adoption rebases onto that ownership and preserves async Retry without adding post-audio realtime Retry.
 
 ### Production order
 
@@ -232,7 +234,7 @@ The canonical cross-repository vector is project ID `project-123`, digest input 
 | SDK `sendAudio` exposes no acknowledgement and may buffer during provider/network stalls | Recorder-paced audio, provider disconnect behavior, 15-minute cap, memory observation | Reproduced RSS growth or OOM |
 | Hard crash can leave Soniox async artifacts | Dedicated US project, immediate ordinary cleanup, residual audit/operator purge | Residuals recur or approach provider limits |
 | Equal project IDs on two bridges share glossary scope | User partition plus opaque project digest; no bridge-ID plumbing | Demonstrated cross-bridge glossary conflict |
-| Process restart loses realtime sessions and feature-owned in-memory state | Single-instance deployment and client retry/confirmed partial behavior | Horizontal scaling or restart-loss product harm |
+| Process restart loses realtime sessions and feature-owned in-memory state | Single-instance deployment and confirmed-partial behavior; the next interaction may use async | Horizontal scaling or restart-loss product harm |
 | No automatic provider failover | Explicit deploy-time rollback | Availability objective requires multi-provider continuity |
 | Slow clients can lose undelivered provisional text | Confirmed deltas prioritized; close on bounded outbound buffer | Ordinary clients hit the threshold |
 | PR #55's broad shutdown machinery is abandoned | Retain only reproduced long-poll release and feature-owned realtime shutdown | A concrete uncovered shutdown failure is reproduced |

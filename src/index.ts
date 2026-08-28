@@ -9,7 +9,11 @@ import { SonioxTranscriptionClient, type SonioxAsyncSdk } from "./clients/soniox
 import { SonioxRealtimeClient } from "./clients/soniox-realtime-transcription-client.js";
 import { createSonioxRealtimeSdk, createSonioxRealtimeSdkOptions } from "./clients/soniox-realtime-sdk-factory.js";
 import type { AsyncTranscriptionClient } from "./clients/async-transcription-client.js";
-import { AsyncTranscriptionProvider, SONIOX_REST_URL_BY_REGION } from "./types/transcription.js";
+import {
+  AsyncTranscriptionProvider,
+  AsyncTranscriptionPublicErrorPolicy,
+  SONIOX_REST_URL_BY_REGION,
+} from "./types/transcription.js";
 import { loadConfig } from "./config.js";
 import { MongoDbAccessor } from "./db/mongo-db-accessor.js";
 import { MongoDbConnector } from "./db/mongo-db-connector.js";
@@ -163,6 +167,7 @@ async function main() {
   // Exactly one async provider is selected at startup; a failed request is
   // never retried against the other provider.
   let transcriptionClient: AsyncTranscriptionClient = openai;
+  let transcriptionPublicErrorPolicy = AsyncTranscriptionPublicErrorPolicy.LegacyOpenAiV1;
   if (config.ASYNC_TRANSCRIPTION_PROVIDER === AsyncTranscriptionProvider.Soniox) {
     const { SonioxNodeClient } = await import("@soniox/node");
     // `base_url` is the SDK's highest-precedence endpoint source. `region` alone
@@ -180,6 +185,7 @@ async function main() {
       timeoutMs: config.SONIOX_ASYNC_TIMEOUT_MS,
       cleanupTimeoutMs: config.SONIOX_CLEANUP_TIMEOUT_MS,
     });
+    transcriptionPublicErrorPolicy = AsyncTranscriptionPublicErrorPolicy.DetailedV1;
     console.log(
       `Soniox async transcription selected (model: ${config.SONIOX_ASYNC_MODEL}, region: ${config.SONIOX_REGION})`,
     );
@@ -190,6 +196,7 @@ async function main() {
     glossaryService,
     dailyUsageRepo,
     dailyLimitSeconds: config.DAILY_TRANSCRIPTION_LIMIT_SECONDS,
+    publicErrorPolicy: transcriptionPublicErrorPolicy,
   });
 
   const realtime = config.REALTIME_TRANSCRIPTION_ENABLED

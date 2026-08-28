@@ -1,6 +1,14 @@
 import { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import multipart from "@fastify/multipart";
-import { ApiError, BadRequestError, InternalServerError, UnauthenticatedError } from "../lib/errors.js";
+import {
+  ApiError,
+  BadRequestError,
+  TranscriptionInternalError,
+  TranscriptionInvalidInputError,
+  TranscriptionRateLimitError,
+  TranscriptionRequestError,
+  UnauthenticatedError,
+} from "../lib/errors.js";
 import { createRequestCloseSignal, isClientConnectionOpen } from "../lib/request-close-signal.js";
 import type {
   TranscribeReply,
@@ -44,6 +52,8 @@ const TRANSCRIBE_RATE_LIMIT = {
   max: 10,
   timeWindow: "1 minute",
   keyGenerator: (request: FastifyRequest) => request.headers.authorization ?? request.ip,
+  errorResponseBuilder: (_request: FastifyRequest, context: { after: string }) =>
+    new TranscriptionRateLimitError({ error: `Rate limit exceeded, retry in ${context.after}` }),
 };
 
 export type VoiceRouteOptions = {
@@ -156,10 +166,9 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRouteOptions> = async (fastify
     "/voice/transcribe",
     { preHandler: requireAuth, config: { rateLimit: TRANSCRIBE_RATE_LIMIT } },
     async (request, reply) => {
-      const { audio, projectKey } = await readTranscribeRequest(request);
-      const userId = getUserId(request);
-
       try {
+        const { audio, projectKey } = await readTranscribeRequest(request);
+        const userId = getUserId(request);
         const { text, dailySecondsRemaining } = await voiceService.transcribe({
           userId,
           projectKey,
@@ -170,7 +179,7 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRouteOptions> = async (fastify
         });
 
         if (!text || text.trim().length === 0) {
-          throw new InternalServerError({ debugMessage: "Transcription returned empty text" });
+          throw new TranscriptionInternalError({ debugMessage: "Transcription returned empty text" });
         }
 
         return { text, dailySecondsRemaining };
@@ -185,15 +194,32 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRouteOptions> = async (fastify
             return reply;
           }
 
-          throw new BadRequestError({ debugMessage: "Transcription cancelled before completion" });
+          throw new TranscriptionInvalidInputError({
+            debugMessage: "Transcription cancelled before completion",
+          });
         }
 
-        // Re-throw any ApiError subclass (BadRequestError, InternalServerError, QuotaExceededError, etc.)
-        // so the global error handler returns the correct status code.
+        if (error instanceof BadRequestError) {
+          throw new TranscriptionInvalidInputError({
+            debugMessage: error.debugMessage,
+            nestedError: error.nestedError,
+          });
+        }
+
+        if (isFileTooLargeError(error)) {
+          throw new TranscriptionRequestError({
+            error: error instanceof Error ? error.message : "Request file too large",
+            statusCode: 413,
+            nestedError: error,
+          });
+        }
+
+        // Re-throw typed transcription/quota/auth errors so the global handler
+        // retains their exact status/error and additive retryability metadata.
         if (error instanceof ApiError) {
           throw error;
         }
-        throw new InternalServerError({
+        throw new TranscriptionInternalError({
           debugMessage: "Transcription failed",
           nestedError: error,
         });

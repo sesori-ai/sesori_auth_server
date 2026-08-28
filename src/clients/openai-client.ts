@@ -42,13 +42,16 @@ export class OpenAIClient implements AsyncTranscriptionClient {
         OpenAIClient.parseAudioDuration(request.audio, request.mimeType),
       ]);
 
-      return { text: response.text, durationSeconds };
+      return { text: parseOpenAITranscriptText(response), durationSeconds };
     } catch (error) {
-      // COMPATIBILITY 2026-08-06 (v0.1.0): OpenAI is the shipped default async provider and released apps expect HTTP 500 for every provider failure, so timeout, capacity, and malformed-response failures deliberately collapse to `internal` here instead of using the detailed enum Soniox uses. Only caller cancellation is distinguished. Remove this mapping and classify OpenAI failures like Soniox once OpenAI async rollback support is retired or a breaking error-contract rollout is approved.
-      throw new TranscriptionFailure(
-        request.signal?.aborted ? TranscriptionFailureReason.Cancelled : TranscriptionFailureReason.Internal,
-        { cause: error },
-      );
+      if (error instanceof TranscriptionFailure) {
+        throw error;
+      }
+
+      const reason = request.signal?.aborted
+        ? TranscriptionFailureReason.Cancelled
+        : toOpenAITranscriptionFailureReason(error);
+      throw new TranscriptionFailure(reason, { cause: error });
     }
   }
 
@@ -121,4 +124,84 @@ export class OpenAIClient implements AsyncTranscriptionClient {
     const bytesPerSecond = isUncompressed ? 96_000 : 16_000;
     return Math.ceil(bytes / bytesPerSecond);
   }
+}
+
+const OPENAI_QUOTA_ERROR_CODES = new Set(["insufficient_quota", "billing_hard_limit_reached"]);
+
+function parseOpenAITranscriptText(response: unknown): string {
+  if (typeof response !== "object" || response === null || !("text" in response)) {
+    throw new TranscriptionFailure(TranscriptionFailureReason.MalformedOutput);
+  }
+
+  const { text } = response as { text?: unknown };
+  if (typeof text !== "string") {
+    throw new TranscriptionFailure(TranscriptionFailureReason.MalformedOutput);
+  }
+
+  if (text.trim().length === 0) {
+    throw new TranscriptionFailure(TranscriptionFailureReason.UnusableAudio);
+  }
+
+  return text;
+}
+
+function toOpenAITranscriptionFailureReason(error: unknown): TranscriptionFailureReason {
+  const name = error instanceof Error ? error.name : undefined;
+  if (error instanceof OpenAI.APIConnectionTimeoutError || name === "APIConnectionTimeoutError") {
+    return TranscriptionFailureReason.Timeout;
+  }
+
+  if (error instanceof OpenAI.APIConnectionError || name === "APIConnectionError" || name === "APIUserAbortError") {
+    return TranscriptionFailureReason.Unavailable;
+  }
+
+  const code = readOpenAIErrorString({ error, property: "code" });
+  const type = readOpenAIErrorString({ error, property: "type" });
+  if (
+    (code !== undefined && OPENAI_QUOTA_ERROR_CODES.has(code)) ||
+    (type !== undefined && OPENAI_QUOTA_ERROR_CODES.has(type))
+  ) {
+    return TranscriptionFailureReason.QuotaExhausted;
+  }
+
+  const status = readOpenAIErrorStatus({ error });
+  if (status === 408) {
+    return TranscriptionFailureReason.Timeout;
+  }
+
+  if (status === 429) {
+    return TranscriptionFailureReason.Capacity;
+  }
+
+  if (status === 400 || status === 413 || status === 415 || status === 422) {
+    return TranscriptionFailureReason.InvalidInput;
+  }
+
+  if (status === 401 || status === 403 || status === 404) {
+    return TranscriptionFailureReason.ProviderRejected;
+  }
+
+  if (status !== undefined && status >= 500) {
+    return TranscriptionFailureReason.Unavailable;
+  }
+
+  return TranscriptionFailureReason.Internal;
+}
+
+function readOpenAIErrorString(input: { error: unknown; property: "code" | "type" }): string | undefined {
+  if (typeof input.error !== "object" || input.error === null) {
+    return undefined;
+  }
+
+  const value = Reflect.get(input.error, input.property);
+  return typeof value === "string" ? value : undefined;
+}
+
+function readOpenAIErrorStatus(input: { error: unknown }): number | undefined {
+  if (typeof input.error !== "object" || input.error === null) {
+    return undefined;
+  }
+
+  const status = Reflect.get(input.error, "status");
+  return typeof status === "number" && Number.isInteger(status) ? status : undefined;
 }

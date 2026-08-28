@@ -1,17 +1,24 @@
 import { DailyUsageRepository } from "../repositories/daily-usage-repo.js";
 import type { AsyncTranscriptionClient } from "../clients/async-transcription-client.js";
 import {
-  BadRequestError,
-  InternalServerError,
+  LegacyTranscriptionError,
   QuotaExceededError,
   TranscriptionConfigurationError,
+  TranscriptionInternalError,
+  TranscriptionInvalidInputError,
   TranscriptionProviderError,
+  TranscriptionQuotaExhaustedError,
   TranscriptionTimeoutError,
   TranscriptionUnavailableError,
+  TranscriptionUnusableAudioError,
 } from "../lib/errors.js";
 import { GlossaryService } from "./glossary-service.js";
 import type { ProjectKey } from "../models/voice.js";
-import { TranscriptionFailure, TranscriptionFailureReason } from "../types/transcription.js";
+import {
+  AsyncTranscriptionPublicErrorPolicy,
+  TranscriptionFailure,
+  TranscriptionFailureReason,
+} from "../types/transcription.js";
 
 /**
  * Fallback cooldown for a capacity rejection the provider did not quantify.
@@ -34,17 +41,20 @@ export class VoiceService {
   readonly #glossaryService: GlossaryService;
   readonly #dailyUsageRepo: DailyUsageRepository;
   readonly #dailyLimitSeconds: number;
+  readonly #publicErrorPolicy: AsyncTranscriptionPublicErrorPolicy;
 
   constructor(deps: {
     transcriptionClient: AsyncTranscriptionClient;
     glossaryService: GlossaryService;
     dailyUsageRepo: DailyUsageRepository;
     dailyLimitSeconds: number;
+    publicErrorPolicy: AsyncTranscriptionPublicErrorPolicy;
   }) {
     this.#transcriptionClient = deps.transcriptionClient;
     this.#glossaryService = deps.glossaryService;
     this.#dailyUsageRepo = deps.dailyUsageRepo;
     this.#dailyLimitSeconds = deps.dailyLimitSeconds;
+    this.#publicErrorPolicy = deps.publicErrorPolicy;
   }
 
   /**
@@ -73,6 +83,7 @@ export class VoiceService {
     if (usedSeconds >= this.#dailyLimitSeconds) {
       throw new QuotaExceededError({
         service: "transcription",
+        retryable: false,
         debugMessage: `Daily transcription limit reached: ${usedSeconds}/${this.#dailyLimitSeconds}s`,
       });
     }
@@ -93,7 +104,7 @@ export class VoiceService {
         signal: args.signal,
       }));
     } catch (error) {
-      throw VoiceService.#toApiError(error);
+      throw VoiceService.#toApiError({ error, publicErrorPolicy: this.#publicErrorPolicy });
     }
 
     let dailySecondsRemaining: number;
@@ -122,60 +133,120 @@ export class VoiceService {
     return { text, dailySecondsRemaining };
   }
 
-  /** Maps the closed provider-neutral failure enum onto the public API contract. */
-  static #toApiError(error: unknown): Error {
-    if (!(error instanceof TranscriptionFailure)) {
-      return new InternalServerError({ debugMessage: "Transcription failed", nestedError: error });
+  /** Maps the closed provider-neutral failure enum onto the configured public API contract. */
+  static #toApiError(input: { error: unknown; publicErrorPolicy: AsyncTranscriptionPublicErrorPolicy }): Error {
+    if (!(input.error instanceof TranscriptionFailure)) {
+      return new TranscriptionInternalError({
+        debugMessage: "Transcription failed",
+        nestedError: redactProviderCause({ cause: input.error }),
+      });
     }
 
-    const cause = redactProviderCause({ cause: error.cause });
+    if (input.error.reason === TranscriptionFailureReason.Cancelled) {
+      return new TranscriptionCancelledError();
+    }
 
-    switch (error.reason) {
+    const cause = redactProviderCause({ cause: input.error.cause });
+    switch (input.publicErrorPolicy) {
+      // COMPATIBILITY 2026-08-27 (v0.1.0): Released apps expect every OpenAI provider failure to retain
+      // HTTP 500/internal_server_error. Keep the detailed reason only for the additive retryable boolean. Remove this
+      // branch once OpenAI async rollback support is explicitly retired or a breaking error-contract rollout is approved.
+      case AsyncTranscriptionPublicErrorPolicy.LegacyOpenAiV1:
+        return new LegacyTranscriptionError({
+          retryable: VoiceService.#isRetryable(input.error.reason),
+          debugMessage: "Transcription failed",
+          nestedError: cause,
+        });
+      case AsyncTranscriptionPublicErrorPolicy.DetailedV1:
+        return VoiceService.#toDetailedApiError({ error: input.error, cause });
+      default:
+        return VoiceService.#assertNeverPublicErrorPolicy(input.publicErrorPolicy);
+    }
+  }
+
+  static #toDetailedApiError(input: { error: TranscriptionFailure; cause: unknown }): Error {
+    switch (input.error.reason) {
       case TranscriptionFailureReason.InvalidInput:
-        return new BadRequestError({ debugMessage: "Provider rejected the audio input", nestedError: cause });
+        return new TranscriptionInvalidInputError({
+          debugMessage: "Provider rejected the audio input",
+          nestedError: input.cause,
+        });
+      case TranscriptionFailureReason.UnusableAudio:
+        return new TranscriptionUnusableAudioError({
+          debugMessage: "Transcription provider returned no usable speech",
+          nestedError: input.cause,
+        });
+      case TranscriptionFailureReason.QuotaExhausted:
+        return new TranscriptionQuotaExhaustedError({
+          debugMessage: "Transcription provider quota exhausted",
+          nestedError: input.cause,
+        });
       case TranscriptionFailureReason.Capacity:
         // A rate limit the provider did not put a number on still must not be
         // retried at the generic transient cadence: doing so extends the very
         // cooldown the caller is waiting out.
         return new TranscriptionUnavailableError({
           debugMessage: "Transcription provider capacity exhausted",
-          nestedError: cause,
-          retryAfterSeconds: error.retryAfterSeconds ?? CAPACITY_FALLBACK_RETRY_AFTER_SECONDS,
+          nestedError: input.cause,
+          retryAfterSeconds: input.error.retryAfterSeconds ?? CAPACITY_FALLBACK_RETRY_AFTER_SECONDS,
         });
       case TranscriptionFailureReason.Unavailable:
         return new TranscriptionUnavailableError({
           debugMessage: "Transcription provider unavailable",
-          nestedError: cause,
-          retryAfterSeconds: error.retryAfterSeconds,
+          nestedError: input.cause,
+          retryAfterSeconds: input.error.retryAfterSeconds,
         });
       case TranscriptionFailureReason.Timeout:
         return new TranscriptionTimeoutError({
           debugMessage: "Transcription provider timed out",
-          nestedError: cause,
-          retryAfterSeconds: error.retryAfterSeconds,
+          nestedError: input.cause,
+          retryAfterSeconds: input.error.retryAfterSeconds,
         });
       case TranscriptionFailureReason.ProviderRejected:
         return new TranscriptionConfigurationError({
           debugMessage: "Transcription provider rejected the request",
-          nestedError: cause,
+          nestedError: input.cause,
         });
       case TranscriptionFailureReason.MalformedOutput:
         return new TranscriptionProviderError({
           debugMessage: "Transcription provider returned malformed output",
-          nestedError: cause,
-          retryAfterSeconds: error.retryAfterSeconds,
+          nestedError: input.cause,
+          retryAfterSeconds: input.error.retryAfterSeconds,
         });
+      case TranscriptionFailureReason.Internal:
+        return new TranscriptionInternalError({ debugMessage: "Transcription failed", nestedError: input.cause });
       case TranscriptionFailureReason.Cancelled:
         return new TranscriptionCancelledError();
-      case TranscriptionFailureReason.Internal:
-        return new InternalServerError({ debugMessage: "Transcription failed", nestedError: cause });
       default:
-        return VoiceService.#assertNeverTranscriptionFailureReason(error.reason);
+        return VoiceService.#assertNeverTranscriptionFailureReason(input.error.reason);
+    }
+  }
+
+  static #isRetryable(reason: TranscriptionFailureReason): boolean {
+    switch (reason) {
+      case TranscriptionFailureReason.Capacity:
+      case TranscriptionFailureReason.Unavailable:
+      case TranscriptionFailureReason.Timeout:
+      case TranscriptionFailureReason.MalformedOutput:
+        return true;
+      case TranscriptionFailureReason.InvalidInput:
+      case TranscriptionFailureReason.UnusableAudio:
+      case TranscriptionFailureReason.QuotaExhausted:
+      case TranscriptionFailureReason.ProviderRejected:
+      case TranscriptionFailureReason.Cancelled:
+      case TranscriptionFailureReason.Internal:
+        return false;
+      default:
+        return VoiceService.#assertNeverTranscriptionFailureReason(reason);
     }
   }
 
   static #assertNeverTranscriptionFailureReason(reason: never): never {
-    throw new InternalServerError({ debugMessage: `Unhandled transcription failure reason: ${reason}` });
+    throw new TranscriptionInternalError({ debugMessage: `Unhandled transcription failure reason: ${reason}` });
+  }
+
+  static #assertNeverPublicErrorPolicy(policy: never): never {
+    throw new TranscriptionInternalError({ debugMessage: `Unhandled transcription public error policy: ${policy}` });
   }
 }
 

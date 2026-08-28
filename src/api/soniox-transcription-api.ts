@@ -28,12 +28,7 @@ const maxAudioDurationMs = 86_400_000;
 
 const transcriptSchema = z
   .object({
-    // A completed job with no usable text is malformed provider output. Failing
-    // here keeps it from consuming quota and surfacing as a late generic 500.
-    text: z
-      .string()
-      .max(maxTranscriptCharacters)
-      .refine((text) => text.trim().length > 0),
+    text: z.string().max(maxTranscriptCharacters),
   })
   .loose();
 
@@ -73,8 +68,18 @@ const audioRejectionErrorTypes = new Set([
   "audio_too_long",
 ]);
 
+const quotaExhaustionErrorTypes = new Set([
+  "organization_balance_exhausted",
+  "organization_monthly_budget_exhausted",
+  "project_monthly_budget_exhausted",
+]);
+
 function isAudioRejection(errorType: string | null | undefined): boolean {
   return typeof errorType === "string" && audioRejectionErrorTypes.has(errorType);
+}
+
+function isQuotaExhaustion(errorType: string | null | undefined): boolean {
+  return typeof errorType === "string" && quotaExhaustionErrorTypes.has(errorType);
 }
 
 /** Validates an uploaded file and returns only its ID. */
@@ -124,6 +129,10 @@ export function parseTranscription(value: unknown, expectedId: string): Validate
   }
 
   if (status === "error") {
+    if (isQuotaExhaustion(errorType)) {
+      fail(TranscriptionFailureReason.QuotaExhausted);
+    }
+
     // Distinguish "this audio is unusable" from "our credentials/config are
     // wrong": the former is the caller's 400, the latter an operator 500.
     fail(
@@ -158,6 +167,10 @@ export function parseTranscriptText(value: unknown): string {
   const result = transcriptSchema.safeParse(value);
   if (!result.success) {
     fail(TranscriptionFailureReason.MalformedOutput, result.error.issues);
+  }
+
+  if (result.data.text.trim().length === 0) {
+    fail(TranscriptionFailureReason.UnusableAudio);
   }
 
   return result.data.text;
@@ -199,9 +212,17 @@ export function toFailureReason(error: unknown): TranscriptionFailureReason {
     return TranscriptionFailureReason.Timeout;
   }
 
+  if (readCode(error) === "quota_exceeded") {
+    return TranscriptionFailureReason.QuotaExhausted;
+  }
+
   const statusCode = readStatusCode(error);
   if (statusCode === undefined) {
     return TranscriptionFailureReason.Unavailable;
+  }
+
+  if (statusCode === 402) {
+    return TranscriptionFailureReason.QuotaExhausted;
   }
 
   if (statusCode === 429) {
