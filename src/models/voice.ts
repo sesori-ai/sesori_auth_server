@@ -45,7 +45,13 @@ export const projectGlossaryScopeSchema = z.discriminatedUnion("type", [
 
 export type ProjectGlossaryScope = z.infer<typeof projectGlossaryScopeSchema>;
 
-export const glossaryWordSchema = z.string().trim().min(1).max(200);
+export const normalizedGlossaryWordSchema = z
+  .string()
+  .min(1)
+  .max(200)
+  .refine((word) => word === word.trim(), { message: "Glossary word must already be normalized" });
+
+export const glossaryWordSchema = z.string().trim().pipe(normalizedGlossaryWordSchema);
 
 export const glossaryWordsSchema = z.array(glossaryWordSchema).min(1).max(100);
 

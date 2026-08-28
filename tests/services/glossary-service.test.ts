@@ -126,7 +126,7 @@ describe("GlossaryService", () => {
   });
 
   it("truncates to the remaining per-project capacity", async () => {
-    await repo.insertMany({
+    await repo.addWords({
       userId,
       scope: repositoryScope(projectA),
       words: words("p", glossaryPolicy.maxWordsPerProject - 2),
@@ -144,9 +144,9 @@ describe("GlossaryService", () => {
       projectKeySchema.parse(`prj_v1_${String(index).repeat(43)}`),
     );
     for (const [index, projectKey] of projects.entries()) {
-      await repo.insertMany({ userId, scope: repositoryScope(projectKey), words: words(`u${index}_`, perProject) });
+      await repo.addWords({ userId, scope: repositoryScope(projectKey), words: words(`u${index}_`, perProject) });
     }
-    await repo.insertMany({ userId, scope: repositoryScope(projectA), words: words("tail_", 499) });
+    await repo.addWords({ userId, scope: repositoryScope(projectA), words: words("tail_", 499) });
 
     const added = await service.addWords({ userId, scope: repositoryScope(projectA), words: ["Last", "Overflow"] });
 
@@ -155,7 +155,7 @@ describe("GlossaryService", () => {
   });
 
   it("adds nothing and never passes a negative limit when a cap is already exceeded", async () => {
-    await repo.insertMany({
+    await repo.addWords({
       userId,
       scope: repositoryScope(projectA),
       words: words("over", glossaryPolicy.maxWordsPerProject + 5),
@@ -171,7 +171,7 @@ describe("GlossaryService", () => {
   });
 
   it("does not let an already-stored word consume the last free capacity slot", async () => {
-    await repo.insertMany({
+    await repo.addWords({
       userId,
       scope: repositoryScope(projectA),
       words: [...words("w", glossaryPolicy.maxWordsPerProject - 2), "Dup"],
@@ -197,8 +197,8 @@ describe("GlossaryService", () => {
         queried = true;
         return 0;
       },
-      insertMany: async () => [],
-      deleteMany: async () => 0,
+      addWords: async () => [],
+      removeWords: async () => 0,
     } as unknown as GlossaryEntryRepository;
     const spyService = new GlossaryService({ glossaryRepo: spyRepo, bridgeRepo });
 
@@ -249,11 +249,11 @@ describe("GlossaryService", () => {
   });
 
   it("keeps the rendered prompt within the context budget", async () => {
-    const term = "x".repeat(glossaryPolicy.maxWordCharacters);
-    await repo.insertMany({
+    const termSuffix = "x".repeat(glossaryPolicy.maxWordCharacters - 3);
+    await repo.addWords({
       userId,
       scope: repositoryScope(projectA),
-      words: Array.from({ length: 90 }, (_, index) => `${String(index).padStart(3, "0")}${term}`),
+      words: Array.from({ length: 90 }, (_, index) => `${String(index).padStart(3, "0")}${termSuffix}`),
     });
 
     const prompt = renderTranscriptionPrompt(await service.getContextWords({ userId, projectKey: projectA }));
@@ -307,7 +307,7 @@ describe("GlossaryService", () => {
     const stored = words("", 0).concat(
       Array.from({ length: 120 }, (_, index) => `${String(index).padStart(3, "0")}${term}`),
     );
-    await repo.insertMany({ userId, scope: repositoryScope(projectA), words: stored });
+    await repo.addWords({ userId, scope: repositoryScope(projectA), words: stored });
 
     const context = await service.getContextWords({ userId, projectKey: projectA });
 

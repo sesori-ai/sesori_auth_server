@@ -37,7 +37,6 @@ const DATABASE_CONFIG: Record<MongoDbDatabase, DatabaseConfig<string>> = {
             "scope.projectKey": 1,
             "scope.type": 1,
             "scope.bridgeId": 1,
-            word: 1,
           },
           options: { unique: true },
         },
@@ -130,7 +129,7 @@ async function normalizeEmptyGlossaryIndexes(args: {
 
   const existingDocument = await args.collection.findOne({}, { projection: { _id: 1 } });
   if (existingDocument) {
-    throw new Error("Glossary schema reset refused: the collection unexpectedly contains data");
+    throw new Error("Glossary schema reset refused: purge the collection before changing its schema");
   }
 
   for (const index of unexpectedIndexes) {
