@@ -70,10 +70,6 @@ export const glossaryEntrySchema = z
 
 export type GlossaryEntry = z.infer<typeof glossaryEntrySchema>;
 
-// COMPATIBILITY 2026-08-02 (v0.1.0): Supports auditing pre-PR2 unscoped glossary documents during project-scope cutover and rollback. After PR2 is verified in production, its rollback window closes, and no pre-PR2 binary can be deployed, remove this schema; the legacy document audit, index constants/classification, apply-drop, and rollback paths in glossary-index-migration.ts; the CLI rollback mode/runbook if no longer operationally needed; and their model/migration tests.
-export const legacyGlossaryEntryMigrationSchema = glossaryEntrySchema.omit({ projectKey: true });
-export const projectScopedGlossaryEntryMigrationSchema = glossaryEntrySchema;
-
 export const dailyUsageSchema = z.object({
   _id: z.instanceof(ObjectId),
   userId: z.instanceof(ObjectId),
