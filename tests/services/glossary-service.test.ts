@@ -13,6 +13,7 @@ import {
   type ProjectKey,
 } from "../../src/models/voice.js";
 import { BadRequestError } from "../../src/lib/errors.js";
+import { BridgePlatform } from "../../src/models/bridge.js";
 import { renderTranscriptionPrompt } from "../../src/types/transcription.js";
 import { MongoDbDatabase, AuthDbCollection } from "../../src/types/mongo.js";
 
@@ -66,16 +67,10 @@ describe("GlossaryService", () => {
     assert.deepEqual(added, ["Beta", "Alpha"]);
   });
 
-  it("rejects local glossary writes for an inactive bridge", async () => {
-    await assert.rejects(
-      () =>
-        service.addWords({
-          userId,
-          scope: bridgeLocalScope({ projectKey: projectA, bridgeId: "br_missing0001" }),
-          words: ["Blocked"],
-        }),
-      BadRequestError,
-    );
+  it("rejects local glossary mutations for an inactive bridge", async () => {
+    const scope = bridgeLocalScope({ projectKey: projectA, bridgeId: "br_missing0001" });
+    await assert.rejects(() => service.addWords({ userId, scope, words: ["Blocked"] }), BadRequestError);
+    await assert.rejects(() => service.removeWords({ userId, scope, words: ["Blocked"] }), BadRequestError);
     assert.equal(await repo.countByUserAndProject({ userId, projectKey: projectA }), 0);
   });
 
@@ -98,6 +93,36 @@ describe("GlossaryService", () => {
     );
     assert.equal(findByIdForUser.mock.callCount(), 2);
     assert.equal(await repo.countByUserAndProject({ userId, projectKey: projectA }), 0);
+  });
+
+  it("keeps idempotency and removal exact while aggregating shared vocabulary", async () => {
+    const firstBridge = await bridgeRepo.register({
+      userId,
+      name: "First",
+      platform: BridgePlatform.macos,
+    });
+    const secondBridge = await bridgeRepo.register({
+      userId,
+      name: "Second",
+      platform: BridgePlatform.linux,
+    });
+    const repository = repositoryScope(projectA);
+    const firstLocal = bridgeLocalScope({ projectKey: projectA, bridgeId: firstBridge.bridgeId });
+    const secondLocal = bridgeLocalScope({ projectKey: projectA, bridgeId: secondBridge.bridgeId });
+
+    assert.deepEqual(await service.addWords({ userId, scope: repository, words: ["Shared"] }), ["Shared"]);
+    assert.deepEqual(await service.addWords({ userId, scope: firstLocal, words: ["Shared"] }), ["Shared"]);
+    assert.deepEqual(await service.addWords({ userId, scope: firstLocal, words: ["Shared"] }), []);
+    assert.deepEqual(await service.addWords({ userId, scope: secondLocal, words: ["Shared"] }), ["Shared"]);
+    assert.deepEqual(await service.listWords({ userId, projectKey: projectA }), ["Shared"]);
+    assert.deepEqual(await service.getContextWords({ userId, projectKey: projectA }), ["Shared"]);
+
+    assert.equal(await service.removeWords({ userId, scope: repository, words: ["Shared"] }), 1);
+    assert.deepEqual(await service.listWords({ userId, projectKey: projectA }), ["Shared"]);
+    assert.equal(await service.removeWords({ userId, scope: firstLocal, words: ["Shared"] }), 1);
+    assert.deepEqual(await service.listWords({ userId, projectKey: projectA }), ["Shared"]);
+    assert.equal(await service.removeWords({ userId, scope: secondLocal, words: ["Shared"] }), 1);
+    assert.deepEqual(await service.listWords({ userId, projectKey: projectA }), []);
   });
 
   it("truncates to the remaining per-project capacity", async () => {
@@ -160,7 +185,7 @@ describe("GlossaryService", () => {
   it("rejects an invalid request before performing any database work", async () => {
     let queried = false;
     const spyRepo = {
-      findWordsByUserAndProject: async () => {
+      findWordsByUserAndScope: async () => {
         queried = true;
         return [];
       },
@@ -214,7 +239,11 @@ describe("GlossaryService", () => {
     );
     await assert.rejects(
       () =>
-        service.removeWords({ userId, projectKey: projectA, words: words("z", glossaryPolicy.maxWordsPerRequest + 1) }),
+        service.removeWords({
+          userId,
+          scope: repositoryScope(projectA),
+          words: words("z", glossaryPolicy.maxWordsPerRequest + 1),
+        }),
       BadRequestError,
     );
   });
@@ -241,12 +270,13 @@ describe("GlossaryService", () => {
     assert.equal(renderTranscriptionPrompt(await service.getContextWords({ userId, projectKey: projectA })), null);
   });
 
-  it("lists and removes only within one project", async () => {
-    await service.addWords({ userId, scope: repositoryScope(projectA), words: ["Alpha", "Beta"] });
+  it("lists by project and removes only within one exact scope", async () => {
+    const scopeA = repositoryScope(projectA);
+    await service.addWords({ userId, scope: scopeA, words: ["Alpha", "Beta"] });
     await service.addWords({ userId, scope: repositoryScope(projectB), words: ["Alpha"] });
 
     assert.deepEqual(await service.listWords({ userId, projectKey: projectA }), ["Alpha", "Beta"]);
-    assert.equal(await service.removeWords({ userId, projectKey: projectA, words: ["Alpha", "Alpha"] }), 1);
+    assert.equal(await service.removeWords({ userId, scope: scopeA, words: ["Alpha", "Alpha"] }), 1);
     assert.deepEqual(await service.listWords({ userId, projectKey: projectA }), ["Beta"]);
     assert.deepEqual(await service.listWords({ userId, projectKey: projectB }), ["Alpha"]);
   });

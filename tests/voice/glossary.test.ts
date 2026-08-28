@@ -1,10 +1,19 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
-import { ProjectGlossaryScopeType } from "../../src/models/voice.js";
+import {
+  ProjectGlossaryScopeType,
+  projectKeySchema,
+  type ProjectGlossaryScope,
+  type ProjectKey,
+} from "../../src/models/voice.js";
 
-const projectA = `prj_v1_${"A".repeat(43)}`;
-const projectB = `prj_v1_${"B".repeat(43)}`;
+const projectA = projectKeySchema.parse(`prj_v1_${"A".repeat(43)}`);
+const projectB = projectKeySchema.parse(`prj_v1_${"B".repeat(43)}`);
+
+function repositoryScope(projectKey: ProjectKey): ProjectGlossaryScope {
+  return { type: ProjectGlossaryScopeType.repository, projectKey };
+}
 
 describe("Glossary routes", () => {
   let ctx: TestContext;
@@ -17,13 +26,17 @@ describe("Glossary routes", () => {
     await ctx.cleanup();
   });
 
-  async function addWords(accessToken: string, projectKey: string, words: string[]) {
+  async function addScopedWords(accessToken: string, scope: ProjectGlossaryScope, words: string[]) {
     return ctx.app.inject({
       method: "POST",
       url: "/voice/glossary",
       headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
-      payload: JSON.stringify({ scope: { type: ProjectGlossaryScopeType.repository, projectKey }, words }),
+      payload: JSON.stringify({ scope, words }),
     });
+  }
+
+  async function addWords(accessToken: string, projectKey: ProjectKey, words: string[]) {
+    return addScopedWords(accessToken, repositoryScope(projectKey), words);
   }
 
   async function listWords(accessToken: string, query: string) {
@@ -34,13 +47,24 @@ describe("Glossary routes", () => {
     });
   }
 
-  async function removeWords(accessToken: string, projectKey: string, words: string[]) {
+  async function removeWords(accessToken: string, scope: ProjectGlossaryScope, words: string[]) {
     return ctx.app.inject({
       method: "DELETE",
       url: "/voice/glossary",
       headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
-      payload: JSON.stringify({ projectKey, words }),
+      payload: JSON.stringify({ scope, words }),
     });
+  }
+
+  async function registerBridge(accessToken: string): Promise<string> {
+    const response = await ctx.app.inject({
+      method: "POST",
+      url: "/auth/bridges",
+      headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+      payload: JSON.stringify({ name: "Glossary Bridge", platform: "macos" }),
+    });
+    assert.equal(response.statusCode, 201);
+    return response.json<{ id: string }>().id;
   }
 
   describe("GET /voice/glossary", () => {
@@ -152,7 +176,7 @@ describe("Glossary routes", () => {
         method: "POST",
         url: "/voice/glossary",
         headers: { "content-type": "application/json" },
-        payload: JSON.stringify({ projectKey: projectA, words: ["Test"] }),
+        payload: JSON.stringify({ scope: repositoryScope(projectA), words: ["Test"] }),
       });
 
       assert.equal(res.statusCode, 401);
@@ -165,7 +189,7 @@ describe("Glossary routes", () => {
       await addWords(user.accessToken, projectA, ["ToRemove", "ToKeep"]);
       await addWords(user.accessToken, projectB, ["ToRemove"]);
 
-      const res = await removeWords(user.accessToken, projectA, ["ToRemove"]);
+      const res = await removeWords(user.accessToken, repositoryScope(projectA), ["ToRemove"]);
 
       assert.equal(res.statusCode, 200);
       assert.deepEqual(res.json(), { removed: 1 });
@@ -173,16 +197,38 @@ describe("Glossary routes", () => {
       assert.deepEqual((await listWords(user.accessToken, `?projectKey=${projectB}`)).json(), { words: ["ToRemove"] });
     });
 
+    it("deletes only the exact ownership scope while project reads stay deduplicated", async () => {
+      const user = await ctx.createUser();
+      const bridgeId = await registerBridge(user.accessToken);
+      const repository = repositoryScope(projectA);
+      const local: ProjectGlossaryScope = {
+        type: ProjectGlossaryScopeType.bridgeLocal,
+        projectKey: projectA,
+        bridgeId,
+      };
+
+      assert.deepEqual((await addScopedWords(user.accessToken, repository, ["Shared"])).json(), {
+        added: ["Shared"],
+      });
+      assert.deepEqual((await addScopedWords(user.accessToken, local, ["Shared"])).json(), { added: ["Shared"] });
+      assert.deepEqual((await listWords(user.accessToken, `?projectKey=${projectA}`)).json(), { words: ["Shared"] });
+
+      assert.deepEqual((await removeWords(user.accessToken, repository, ["Shared"])).json(), { removed: 1 });
+      assert.deepEqual((await listWords(user.accessToken, `?projectKey=${projectA}`)).json(), { words: ["Shared"] });
+      assert.deepEqual((await removeWords(user.accessToken, local, ["Shared"])).json(), { removed: 1 });
+      assert.deepEqual((await listWords(user.accessToken, `?projectKey=${projectA}`)).json(), { words: [] });
+    });
+
     it("returns 0 when removing words that do not exist", async () => {
       const user = await ctx.createUser();
 
-      const res = await removeWords(user.accessToken, projectA, ["NonExistent"]);
+      const res = await removeWords(user.accessToken, repositoryScope(projectA), ["NonExistent"]);
 
       assert.equal(res.statusCode, 200);
       assert.deepEqual(res.json(), { removed: 0 });
     });
 
-    it("returns 400 when the project key is missing", async () => {
+    it("returns 400 when the scope is missing", async () => {
       const user = await ctx.createUser();
 
       const res = await ctx.app.inject({
@@ -200,7 +246,7 @@ describe("Glossary routes", () => {
         method: "DELETE",
         url: "/voice/glossary",
         headers: { "content-type": "application/json" },
-        payload: JSON.stringify({ projectKey: projectA, words: ["Test"] }),
+        payload: JSON.stringify({ scope: repositoryScope(projectA), words: ["Test"] }),
       });
 
       assert.equal(res.statusCode, 401);
@@ -231,7 +277,9 @@ describe("Glossary routes", () => {
         words: ["Fastify", "MongoDB", "Zod"],
       });
 
-      assert.deepEqual((await removeWords(user.accessToken, projectA, ["MongoDB"])).json(), { removed: 1 });
+      assert.deepEqual((await removeWords(user.accessToken, repositoryScope(projectA), ["MongoDB"])).json(), {
+        removed: 1,
+      });
       assert.deepEqual((await listWords(user.accessToken, `?projectKey=${projectA}`)).json(), {
         words: ["Fastify", "Zod"],
       });

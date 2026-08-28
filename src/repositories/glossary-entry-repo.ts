@@ -8,6 +8,20 @@ import { MongoDbDatabase, AuthDbCollection } from "../types/mongo.js";
 
 const countSchema = z.number().int().nonnegative().safe();
 
+type ProjectGlossaryScopeFilter = {
+  "scope.type": ProjectGlossaryScopeType;
+  "scope.projectKey": ProjectKey;
+  "scope.bridgeId"?: string;
+};
+
+function scopeFilter(scope: ProjectGlossaryScope): ProjectGlossaryScopeFilter {
+  const base = {
+    "scope.type": scope.type,
+    "scope.projectKey": scope.projectKey,
+  };
+  return scope.type === ProjectGlossaryScopeType.bridgeLocal ? { ...base, "scope.bridgeId": scope.bridgeId } : base;
+}
+
 export class GlossaryEntryRepository {
   readonly #collection: Collection<GlossaryEntry>;
 
@@ -19,6 +33,15 @@ export class GlossaryEntryRepository {
   async findWordsByUserAndProject(args: { userId: string; projectKey: ProjectKey }): Promise<string[]> {
     const entries = await this.#collection
       .find({ userId: new ObjectId(args.userId), "scope.projectKey": args.projectKey })
+      .sort({ word: 1 })
+      .toArray();
+
+    return [...new Set(entries.map((entry) => this.#parseEntry(entry).word))];
+  }
+
+  async findWordsByUserAndScope(args: { userId: string; scope: ProjectGlossaryScope }): Promise<string[]> {
+    const entries = await this.#collection
+      .find({ userId: new ObjectId(args.userId), ...scopeFilter(args.scope) })
       .sort({ word: 1 })
       .toArray();
 
@@ -85,15 +108,15 @@ export class GlossaryEntryRepository {
     return this.#parseCount(result.deletedCount);
   }
 
-  async deleteMany(args: { userId: string; projectKey: ProjectKey; words: string[] }): Promise<number> {
-    const { userId, projectKey, words } = args;
+  async deleteMany(args: { userId: string; scope: ProjectGlossaryScope; words: string[] }): Promise<number> {
+    const { userId, scope, words } = args;
     if (words.length === 0) {
       return 0;
     }
 
     const result = await this.#collection.deleteMany({
       userId: new ObjectId(userId),
-      "scope.projectKey": projectKey,
+      ...scopeFilter(scope),
       word: { $in: words },
     });
     return this.#parseCount(result.deletedCount);

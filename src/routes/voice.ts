@@ -273,7 +273,7 @@ export const voiceRoutes: FastifyPluginAsync<VoiceRouteOptions> = async (fastify
       const userId = getUserId(request);
       const removed = await glossaryService.removeWords({
         userId,
-        projectKey: bodyResult.data.projectKey,
+        scope: bodyResult.data.scope,
         words: bodyResult.data.words,
       });
       return { removed };

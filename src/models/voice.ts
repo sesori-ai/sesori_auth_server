@@ -58,7 +58,7 @@ export const glossaryAddBodySchema = z
 
 export const glossaryRemoveBodySchema = z
   .object({
-    projectKey: projectKeySchema,
+    scope: projectGlossaryScopeSchema,
     words: glossaryWordsSchema,
   })
   .strict();

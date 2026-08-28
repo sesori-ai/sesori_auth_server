@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { ProjectGlossaryScopeType, projectGlossaryScopeSchema, projectKeySchema } from "../../src/models/voice.js";
+import {
+  ProjectGlossaryScopeType,
+  glossaryAddBodySchema,
+  glossaryRemoveBodySchema,
+  projectGlossaryScopeSchema,
+  projectKeySchema,
+} from "../../src/models/voice.js";
 
 const validProjectKey = `prj_v1_${"A".repeat(43)}`;
 
@@ -34,6 +40,20 @@ describe("projectGlossaryScopeSchema", () => {
     for (const scope of invalid) {
       assert.equal(projectGlossaryScopeSchema.safeParse(scope).success, false, JSON.stringify(scope));
     }
+  });
+});
+
+describe("glossary mutation schemas", () => {
+  it("requires the strong scope variant for add and remove", () => {
+    const request = {
+      scope: { type: ProjectGlossaryScopeType.repository, projectKey: validProjectKey },
+      words: ["Sesori"],
+    };
+
+    assert.equal(glossaryAddBodySchema.safeParse(request).success, true);
+    assert.equal(glossaryRemoveBodySchema.safeParse(request).success, true);
+    assert.equal(glossaryAddBodySchema.safeParse({ projectKey: validProjectKey, words: ["Sesori"] }).success, false);
+    assert.equal(glossaryRemoveBodySchema.safeParse({ projectKey: validProjectKey, words: ["Sesori"] }).success, false);
   });
 });
 

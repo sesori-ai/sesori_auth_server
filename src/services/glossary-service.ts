@@ -41,7 +41,7 @@ export class GlossaryService {
 
     const project = { userId: args.userId, projectKey: args.scope.projectKey };
     const [existing, projectCount, userCount] = await Promise.all([
-      this.listWords(project),
+      this.#glossaryRepo.findWordsByUserAndScope({ userId: args.userId, scope: args.scope }),
       this.#glossaryRepo.countByUserAndProject(project),
       this.#glossaryRepo.countScopedByUserId(args.userId),
     ]);
@@ -75,8 +75,13 @@ export class GlossaryService {
     return added;
   }
 
-  async removeWords(args: { userId: string; projectKey: ProjectKey; words: string[] }): Promise<number> {
-    return this.#glossaryRepo.deleteMany({ ...args, words: this.#uniqueWords(args.words) });
+  async removeWords(args: { userId: string; scope: ProjectGlossaryScope; words: string[] }): Promise<number> {
+    const requested = this.#uniqueWords(args.words);
+    if (args.scope.type === ProjectGlossaryScopeType.bridgeLocal) {
+      await this.#requireActiveBridge({ userId: args.userId, bridgeId: args.scope.bridgeId });
+    }
+
+    return this.#glossaryRepo.deleteMany({ userId: args.userId, scope: args.scope, words: requested });
   }
 
   async getContextWords(args: { userId: string; projectKey: ProjectKey | null }): Promise<string[]> {
@@ -85,7 +90,7 @@ export class GlossaryService {
     }
 
     const words = await this.listWords({ userId: args.userId, projectKey: args.projectKey });
-    const sorted = [...words].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+    const sorted = [...new Set(words)].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
     const budget =
       this.#policy.maxContextCharacters - TRANSCRIPTION_PROMPT_PREFIX.length - TRANSCRIPTION_PROMPT_SUFFIX.length;
     const context: string[] = [];

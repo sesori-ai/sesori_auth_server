@@ -77,7 +77,29 @@ describe("GlossaryEntryRepository", () => {
     );
   });
 
-  it("treats a repeated word in the same project as an idempotent duplicate", async () => {
+  it("keeps the same word independent across exact ownership scopes", async () => {
+    const repository = repositoryScope(projectA);
+    const firstLocal = bridgeLocalScope({ projectKey: projectA, bridgeId: "br_bridge0001" });
+    const secondLocal = bridgeLocalScope({ projectKey: projectA, bridgeId: "br_bridge0002" });
+
+    assert.deepEqual(await repo.insertMany({ userId, scope: repository, words: ["Shared"] }), ["Shared"]);
+    assert.deepEqual(await repo.insertMany({ userId, scope: firstLocal, words: ["Shared"] }), ["Shared"]);
+    assert.deepEqual(await repo.insertMany({ userId, scope: secondLocal, words: ["Shared"] }), ["Shared"]);
+
+    assert.deepEqual(await repo.findWordsByUserAndProject({ userId, projectKey: projectA }), ["Shared"]);
+    assert.deepEqual(await repo.findWordsByUserAndScope({ userId, scope: repository }), ["Shared"]);
+    assert.deepEqual(await repo.findWordsByUserAndScope({ userId, scope: firstLocal }), ["Shared"]);
+    assert.equal(await repo.countByUserAndProject({ userId, projectKey: projectA }), 3);
+
+    assert.equal(await repo.deleteMany({ userId, scope: repository, words: ["Shared"] }), 1);
+    assert.deepEqual(await repo.findWordsByUserAndProject({ userId, projectKey: projectA }), ["Shared"]);
+    assert.equal(await repo.deleteMany({ userId, scope: firstLocal, words: ["Shared"] }), 1);
+    assert.deepEqual(await repo.findWordsByUserAndProject({ userId, projectKey: projectA }), ["Shared"]);
+    assert.equal(await repo.deleteMany({ userId, scope: secondLocal, words: ["Shared"] }), 1);
+    assert.deepEqual(await repo.findWordsByUserAndProject({ userId, projectKey: projectA }), []);
+  });
+
+  it("treats a repeated word in the same exact scope as an idempotent duplicate", async () => {
     await repo.insertMany({ userId, scope: repositoryScope(projectA), words: ["Alpha"] });
 
     const inserted = await repo.insertMany({
@@ -98,11 +120,12 @@ describe("GlossaryEntryRepository", () => {
     assert.equal(await repo.countScopedByUserId(userId), 3);
   });
 
-  it("deletes only words within the requested project", async () => {
-    await repo.insertMany({ userId, scope: repositoryScope(projectA), words: ["Alpha", "Beta"] });
+  it("deletes only words within the requested scope", async () => {
+    const scopeA = repositoryScope(projectA);
+    await repo.insertMany({ userId, scope: scopeA, words: ["Alpha", "Beta"] });
     await repo.insertMany({ userId, scope: repositoryScope(projectB), words: ["Alpha"] });
 
-    assert.equal(await repo.deleteMany({ userId, projectKey: projectA, words: ["Alpha"] }), 1);
+    assert.equal(await repo.deleteMany({ userId, scope: scopeA, words: ["Alpha"] }), 1);
     assert.equal(await repo.countByUserAndProject({ userId, projectKey: projectA }), 1);
     assert.equal(await repo.countByUserAndProject({ userId, projectKey: projectB }), 1);
   });
@@ -144,8 +167,9 @@ describe("GlossaryEntryRepository", () => {
   });
 
   it("performs no database work for empty word lists", async () => {
-    assert.deepEqual(await repo.insertMany({ userId, scope: repositoryScope(projectA), words: [] }), []);
-    assert.equal(await repo.deleteMany({ userId, projectKey: projectA, words: [] }), 0);
+    const scope = repositoryScope(projectA);
+    assert.deepEqual(await repo.insertMany({ userId, scope, words: [] }), []);
+    assert.equal(await repo.deleteMany({ userId, scope, words: [] }), 0);
   });
 
   it("fails closed on a malformed persisted document without leaking its content", async () => {

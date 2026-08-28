@@ -218,7 +218,7 @@ export type GlossaryAddReply = {
 };
 
 export type GlossaryRemoveBody = {
-  projectKey: string;
+  scope: ProjectGlossaryScope;
   words: string[];
 };
 

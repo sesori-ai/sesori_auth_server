@@ -552,9 +552,9 @@ fallback shape. The server validates active bridge ownership before and after a
 bridge-local insertion so revocation cannot race vocabulary back into storage.
 Repository rows survive bridge removal; bridge-local rows do not.
 
-Glossary CRUD requires a project key: `GET /voice/glossary?projectKey=…`, `POST
-/voice/glossary` with `{ scope, words }`, and `DELETE /voice/glossary` with
-`{ projectKey, words }`. `POST /voice/transcribe` accepts an optional
+Glossary CRUD requires a project key: `GET /voice/glossary?projectKey=…`, while
+`POST` and `DELETE /voice/glossary` use the exact `{ scope, words }` ownership
+variant. `POST /voice/transcribe` accepts an optional
 `projectKey` multipart field; omission means no glossary context is applied and
 never falls back to a global glossary.
 Safety caps are 100 words per request, 500 per project, 5,000 per user, 200
