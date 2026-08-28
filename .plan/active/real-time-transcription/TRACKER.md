@@ -13,7 +13,7 @@
 
 - **Stage:** S03
 - **Wave:** W01
-- **Next action:** Hold apps PR #918 at its current unmerged head `b3083b7`. Voice-retry plan PR #1144 merged as `bd7ad4bc`; its client ownership/retry Steps 3–4 must merge first. Then rebase #918 onto the exact Step 4 merge SHA, adopt the shared platform/service/session/Cubit ownership, preserve async Retry, keep post-audio realtime confirmed-partial/no-full-retry behavior, and return it to reviewed mergeable green state before S03 may merge.
+- **Next action:** Drive apps PR #918 from reconciled head `48ce35bf3a` to reviewed, mergeable, CI-green state. It is rebased onto exact voice-retry Step 4 merge SHA `1a6007228f`, adopts the shared platform/service/session/Cubit ownership, preserves async retained Retry, and keeps post-audio realtime confirmed-partial/no-full-retry behavior.
 
 ## Plan Review
 
@@ -30,7 +30,7 @@
 | S01 | W01 | `sesori-ai/sesori_auth_server` | `master` | `287abb307f1e1cbd77c19bb81030b11749ff351b` | Assessed 2026-08-06: drift from the audited `9cc4953` tip is the merged plan-definition PR #59 only, which adds `.plan/active/real-time-transcription/` documentation and no runtime, schema, route, or composition change. Audited baseline remains valid. |
 | S01 | W02 | `sesori-ai/sesori_auth_server` | `master` | `1f1138be21fdbbd6a93ab256303307d5a766443f` | Assessed 2026-08-06: drift from the S01/W01 baseline is the merged S01-W01-P01 PR #61 plus the agent-config commit `65b1173`. Both are expected; no third-party change touched the voice, client, or config seams this step edits. |
 | S02 | W01 | `sesori-ai/sesori_auth_server` | `master` | `2ed90a743f348102a2c023e4b1aae934886abe2d` | Assessed 2026-08-13: PR #64 is merged as `2ed90a743f348102a2c023e4b1aae934886abe2d`, so S02 starts from the same SHA. Drift decisions carried into this implementation: realtime pre-auth limiting is process-wide and ignores forwarding headers, the post-auth limiter keys only verified `request.user.userId` with no IP fallback, route/service policy values are injected from config-derived immutable policies, and shutdown uses feature-owned drains rather than a broad admitted-handler tracker. |
-| S03 | W01 | `sesori-ai/sesori_apps_monorepo` | `main` | pending voice-retry Step 4 merge SHA | The prior `d84b10cb` base is superseded. PR #918 remains open at `b3083b7` but must not merge until voice-retry Steps 3–4 land; then rebase and reassess every overlapping voice/DI/Cubit/test/doc seam against that exact merged base. |
+| S03 | W01 | `sesori-ai/sesori_apps_monorepo` | `main` | `1a6007228f` | Reconciled 2026-08-28: voice-retry Step 4 merged through PR #1172 as `1a6007228f`. PR #918 was squashed/rebased from held head `b3083b7` onto that exact SHA and rewritten as `48ce35bf3a`; voice API, repository, platform capture/session, service/Cubit, composer, localization, tests, and regression docs were reassessed together. |
 
 ## PR Steps
 
@@ -39,7 +39,7 @@
 | [x] | S01-W01-P01 | S01 | W01 | [#61](https://github.com/sesori-ai/sesori_auth_server/pull/61) | `real-time-config-next-step` | Merged `1f1138b`. Production index migration applied and verified before merge: documentCount 0, legacy absent, target exact. Implemented on the session-provided worktree branch instead of the planned branch name. |
 | [x] | S01-W02-P01 | S01 | W02 | [#64](https://github.com/sesori-ai/sesori_auth_server/pull/64) | `real-time-config-next-step` | Auth: provider boundary, Soniox async, legal/config/cleanup. Merged as `2ed90a743f348102a2c023e4b1aae934886abe2d`. Implemented on the session-provided worktree branch instead of the planned branch name. |
 | [x] | S02-W01-P01 | S02 | W01 | [#70](https://github.com/sesori-ai/sesori_auth_server/pull/70) | `plan/real-time-transcription/s02-w01-p01-realtime-voice-proxy` | Auth: protocol v1 proxy and minimal shutdown. Merged as `0818bd18fa398c182bb353472f56326a634005f3`. |
-| [ ] | S03-W01-P01 | S03 | W01 | [#918](https://github.com/sesori-ai/sesori_apps_monorepo/pull/918) | `plan/real-time-transcription/s03-w01-p01-stream-mobile-voice` | Apps: PCM streaming, preview, commit, async fallback. Hard-held at unmerged head `b3083b7` until voice-retry Steps 3–4 merge. Rebase afterward, preserve async retained-file Retry, and keep post-audio realtime confirmed-partial/no-full-retry behavior. |
+| [ ] | S03-W01-P01 | S03 | W01 | [#918](https://github.com/sesori-ai/sesori_apps_monorepo/pull/918) | `plan/real-time-transcription/s03-w01-p01-stream-mobile-voice` | Apps: PCM streaming, preview, commit, async fallback. Rebased from held head `b3083b7` onto exact Step 4 SHA `1a6007228f`; current head `48ce35bf3a` preserves async retained Retry and post-audio confirmed-partial/no-full-retry behavior. Final architecture review approved; focused verification passes. |
 | [ ] | S05-W01-P01 | S05 | W01 | — | `plan/real-time-transcription/s05-w01-p01-remove-scaffolding` | Auth: delete each remaining compatibility path once its own trigger has fired, restating the trigger and leaving code untouched for any trigger that has not fired. Runs after S04 and may run more than once because the four triggers can fire independently; none has fired yet. |
 
 ## Manual Checkpoints
@@ -56,6 +56,8 @@
 - Production enablement requires Soniox contractual approval and dedicated US project configuration. The unused glossary has no migration gate.
 
 ## Findings and Plan Deltas
+
+- 2026-08-28 — Voice-retry client Step 4 merged through apps PR #1172 as exact SHA `1a6007228f`. Apps PR #918 was then squashed/rebased from held head `b3083b7` onto that SHA and rewritten as `48ce35bf3a`. The reconciliation removed the obsolete app-shell voice service, adopted per-composer platform/session/service/Cubit ownership, preserved authoritative async Retry/Discard and omitted-metadata fallback, and kept realtime pre-audio async fallback versus post-audio confirmed-partial/no-full-retry behavior. Two-pass architecture implementation review ended approved after moving capability policy/wire mapping below API/presentation boundaries. Strict module_core/app analysis, 82 core voice tests, 198 app voice/platform/composer/downstream tests, generation, and diff checks pass.
 
 - 2026-08-27 — Voice-retry auth Step 2 is open as PR #77 from branch `plan/voice-transcription-retry/s02-retryable-async-failures`. The required architecture implementation review approved the composition-selected compatibility policy with no findings. Its initial CI test failure was a stale exact daily-quota response assertion; the assertion now includes additive `retryable: false`, and the full suite passes 941 with one skipped and zero failures. Codex review then found authenticated multipart/upload/rate-limit failures lacked the authoritative field; validation and upload-limit failures now preserve status/error with `retryable: false`, the route 429 preserves error/header with `retryable: true`, and the combined route/service suite passes 51/51.
 
