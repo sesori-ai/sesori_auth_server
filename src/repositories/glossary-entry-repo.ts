@@ -100,14 +100,6 @@ export class GlossaryEntryRepository {
     return this.#parseCount(result.deletedCount);
   }
 
-  async deleteAllBridgeLocalByUser(args: { userId: string }): Promise<number> {
-    const result = await this.#collection.deleteMany({
-      userId: new ObjectId(args.userId),
-      "scope.type": ProjectGlossaryScopeType.bridgeLocal,
-    });
-    return this.#parseCount(result.deletedCount);
-  }
-
   async deleteMany(args: { userId: string; scope: ProjectGlossaryScope; words: string[] }): Promise<number> {
     const { userId, scope, words } = args;
     if (words.length === 0) {

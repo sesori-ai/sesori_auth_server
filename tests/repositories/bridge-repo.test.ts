@@ -298,7 +298,7 @@ describe("BridgeRepository", () => {
     assert.equal(result, false);
   });
 
-  it("revokeAllForUser revokes only the user's non-revoked bridges", async () => {
+  it("revokeAllForUser returns all of the user's revoked bridges for cleanup retries", async () => {
     const user = await ctx.createUser();
     const otherUser = await ctx.createUser();
     const repo = new BridgeRepository(ctx.dbAccessor);
@@ -312,10 +312,7 @@ describe("BridgeRepository", () => {
     const afterSecond = await repo.findById(second.bridgeId);
     const afterOther = await repo.findById(other.bridgeId);
 
-    assert.deepEqual(
-      revoked.map((bridge) => bridge.bridgeId),
-      [first.bridgeId],
-    );
+    assert.deepEqual(revoked.map((bridge) => bridge.bridgeId).sort(), [first.bridgeId, second.bridgeId].sort());
     assert.equal(afterFirst?.status, "inactive");
     assert.ok(afterFirst?.revokedAt instanceof Date);
     assert.equal(afterSecond?.revokedAt?.toISOString(), "2026-06-08T10:00:00.000Z");

@@ -185,15 +185,16 @@ export class BridgeRepository {
       return [];
     }
 
-    // Flip first, then snapshot by the exact revocation timestamp: a bridge
-    // registered between the two queries is simply not part of this revoke,
-    // and every bridge this call DID revoke is guaranteed to be in the
-    // returned set — so its tracker timer gets cancelled (no ghost
-    // notifications after account revoke).
-    const filter = { userId: new ObjectId(userId), revokedAt: null };
-    await this.#collection.updateMany(filter, {
-      $set: { status: BridgeStatus.inactive, revokedAt: at, updatedAt: at },
-    });
-    return this.#collection.find({ userId: new ObjectId(userId), revokedAt: at }).toArray();
+    // Flip first, then return every revoked bridge for retryable lifecycle
+    // cleanup. A bridge registered between the two queries remains active and
+    // is excluded, while a retry can still clean residue for an older revoke.
+    const objectUserId = new ObjectId(userId);
+    await this.#collection.updateMany(
+      { userId: objectUserId, revokedAt: null },
+      {
+        $set: { status: BridgeStatus.inactive, revokedAt: at, updatedAt: at },
+      },
+    );
+    return this.#collection.find({ userId: objectUserId, revokedAt: { $ne: null } }).toArray();
   }
 }

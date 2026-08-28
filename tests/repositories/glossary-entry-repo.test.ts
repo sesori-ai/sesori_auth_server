@@ -161,9 +161,6 @@ describe("GlossaryEntryRepository", () => {
     assert.deepEqual(await repo.findWordsByUserAndProject({ userId: otherUserId, projectKey: projectA }), [
       "OtherUser",
     ]);
-
-    assert.equal(await repo.deleteAllBridgeLocalByUser({ userId }), 1);
-    assert.deepEqual(await repo.findWordsByUserAndProject({ userId, projectKey: projectB }), ["Repository"]);
   });
 
   it("performs no database work for empty word lists", async () => {
