@@ -9,7 +9,7 @@
 
 ## 1. Outcome
 
-The merged feature is verified against real US Soniox, staging ingress, physical iOS/Android devices, old/new app-server combinations, migration rules, shutdown, privacy, and rollback before production enablement.
+The merged feature is verified against real US Soniox, staging ingress, physical iOS/Android devices, old/new app-server combinations, shutdown, privacy, and rollback before production enablement.
 
 ## 2. Entry Criteria and Baseline
 
@@ -30,7 +30,7 @@ The merged feature is verified against real US Soniox, staging ingress, physical
 | Wave | Step | Owner | Blocking semantics | Outcome |
 |---|---|---|---|---|
 | W01 | S04-W01-M01 | User + Worker | Advisory checkpoint; production policy prerequisite for W02 | Staging, device, compatibility, privacy, and shutdown evidence |
-| W02 | S04-W02-M01 | User + Worker if deployment access exists | Advisory checkpoint; execute only after W01 pass evidence | Controlled production migration and enablement evidence |
+| W02 | S04-W02-M01 | User + Worker if deployment access exists | Advisory checkpoint; execute only after W01 pass evidence | Controlled production enablement evidence |
 
 Manual checkpoints are audited separately for User and Worker and do not create merge barriers. The waves encode required operational order: W02 has no code/merge dependency, but its own setup and production policy prohibit execution until W01 evidence passes.
 
@@ -43,7 +43,6 @@ Manual checkpoints are audited separately for User and Worker and do not create 
 ## 6. Exit Criteria
 
 - Both User and applicable Worker boxes are audited in `TRACKER.md` with evidence, and W01 pass evidence predates W02 execution.
-- Glossary index migration is verified before scoped runtime starts.
 - Async Soniox and realtime protocol 1 are enabled only after their gates pass.
 - Rollback flags and roll-forward database rule are confirmed.
 - No unresolved production blocker remains.

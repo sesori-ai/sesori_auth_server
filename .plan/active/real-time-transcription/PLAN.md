@@ -177,12 +177,11 @@ The canonical cross-repository vector is project ID `project-123`, digest input 
 - The multipart `projectKey` is optional at the transport boundary for old apps. Omission honestly normalizes to `null`, and modern internal methods receive an explicit nullable project context. No global glossary fallback is invented.
 - `GET /voice/capabilities` is additive. The app's old-server 404/unavailable fallback to async is compatibility-only and must carry the required `COMPATIBILITY` source comment using the implementation date and then-current app version.
 - The optional async `projectKey` normalization is compatibility-only and must carry the required marker in the auth route/model seam using auth version `0.1.0` unless `package.json` changes before implementation.
-- Project-scoped glossary CRUD intentionally requires a project key. Repository history found no caller, and the production dry-run found zero rows; any nonzero rerun stops rollout rather than guessing ownership.
-- Use the merged `migrate-project-glossary-index` command. Production apply occurs with the single auth instance stopped, followed by verify before starting the scoped runtime. Once a scoped row exists, rollback to the old index is forbidden.
+- Project-scoped glossary CRUD intentionally requires a project key. Product confirmation established that the endpoints were never called and the collection has no entries, so the server uses the strong scoped schema directly with no compatibility migration or rollback path.
 - Async provider remains `openai` by default until the new app timeout and rollout checks are complete. Switching to Soniox is configuration, not an automatic fallback.
 - Realtime defaults from Soniox key presence: omitted configuration enables it when `SONIOX_API_KEY` exists and disables it otherwise. Explicit `false` is available as a rollout hold for credentialed environments. Older apps ignore the additive endpoint; app adoption remains a separate stage.
 - Exact cleanup of compatibility branches is authorized only after the minimum supported app always sends project context and all supported auth deployments expose capability protocol 1. Relevant PR files name the mechanical cleanup.
-- Compatibility and migration scaffolding is retained deliberately, not indefinitely. S05 owns its removal so the debt is scheduled rather than orphaned; every marker added by this plan names its trigger, and S05-W01-P01 deletes exactly those whose triggers have fired. Nothing is removed while its rollback path is still the documented recovery route.
+- Compatibility scaffolding unrelated to the unused glossary remains scheduled under S05. Glossary migration scaffolding is removed immediately because product confirmation established that no caller or persisted data ever existed.
 
 ## 8. Rollout and Verification
 
@@ -197,7 +196,7 @@ The canonical cross-repository vector is project ID `project-123`, digest input 
 
 1. Complete Soniox DPA/subprocessor approval, provision a dedicated US project/key, and publish updated legal disclosure.
 2. Deploy the additive realtime endpoint; current and older apps ignore it and remain on async transcription until S03 adoption. Set `REALTIME_TRANSCRIPTION_ENABLED=false` only where operations need to hold endpoint registration despite a configured Soniox key.
-3. Stop the single auth instance, rerun glossary dry-run, apply/verify the target index only if the collection remains valid, and deploy the new auth binary with async OpenAI. Verify capability discovery matches the resolved key-aware configuration.
+3. Deploy the auth binary with async OpenAI. Startup may replace stale glossary indexes only after proving the collection is empty and otherwise fails closed; verify the direct scoped index and capability discovery.
 4. Run the safe Soniox residual audit/purge command before sending production audio.
 5. Select Soniox async, verify ordinary deletion/latency/error logs, then begin approved protocol 1 client traffic.
 6. Observe safe outcome counts, provider cost/concurrency, process memory, and cleanup residual counts. Do not log content or identifiers.
@@ -207,7 +206,7 @@ The canonical cross-repository vector is project ID `project-123`, digest input 
 - Disable realtime in auth; new apps select async on their next capability read.
 - The deployment operator owns configuration-first binary rollback. While the region-aware binary is still running, set `ASYNC_TRANSCRIPTION_PROVIDER=openai` and `SONIOX_REGION=eu`, restart, then verify `/health` and one authenticated OpenAI transcription. A binary predating US-region support rejects `SONIOX_REGION=us`, so it must never start with the US configuration still present.
 - After Soniox traffic is drained, run the residual audit against `SONIOX_REGION=us` with the region-aware binary and clear any residue under the normal purge rules. Only then may an older binary replace it.
-- Roll forward for any code defect after scoped glossary rows exist. Database rollback is allowed only under the existing empty-collection migration rule.
+- Roll forward for glossary defects; there is no legacy glossary schema or database rollback path.
 - A provider outage returns bounded retryable errors; it does not route audio through relay or directly from the app to the provider.
 
 ### Automated verification
@@ -248,7 +247,7 @@ Deferred systems are not placeholders: receipts, reconcilers, leases, exact cap 
 | S02 | Provider-neutral realtime auth proxy | 1 | 0 |
 | S03 | Mobile realtime adoption | 1 | 0 |
 | S04 | Cross-repository verification and production enablement | 0 | 2 |
-| S05 | Compatibility and migration scaffolding removal | 1 | 0 |
+| S05 | Compatibility scaffolding removal | 1 | 0 |
 
 ## 11. Evidence-Based Safeguard Disposition
 

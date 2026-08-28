@@ -564,69 +564,12 @@ characters per word, and an 8,000-character provider context. Caps are checked
 per request rather than serialized, so concurrent requests may narrowly exceed
 them; the compound unique index still prevents duplicates.
 
-The scoped runtime and the `{userId, projectKey, word}` startup index
-configuration ship together; the previously merged migration command owns the
-destructive index cutover. The command defaults to a read-only dry-run and
-reports only counts and closed state enums, never words, user IDs, project keys,
-documents, or index names:
-
-```bash
-sops exec-env env/app/prod.env \
-  'npm run migrate-project-glossary-index'
-```
-
-The expected production preview is `documentCount: 0`, no invalid/duplicate
-counts, `legacyIndexState: "exact"`, `targetIndexState: "absent"`, and
-`outcome: "completed"`. Any document, malformed metadata, non-simple collection
-collation, index mismatch, or `repair_required` outcome stops the rollout and
-requires a separately reviewed data/index plan. Do not infer a project key or
-delete production terms ad hoc.
-
-Do **not** deploy the scoped runtime before applying the index. Mutation happens
-with the single auth instance stopped, in a maintenance window. For that cutover:
-
-1. Remove the single auth instance from ingress, stop it, and confirm no glossary
-   writer remains. Permit exactly one migration command and no manual index DDL.
-2. Run `--apply` from the reviewed scoped-runtime artifact:
-
-   ```bash
-   sops exec-env env/app/prod.env \
-     'npm run migrate-project-glossary-index -- --apply'
-   ```
-
-3. Keep auth stopped while handling the closed outcome:
-   - `completed`: proceed to read-only `--verify`.
-   - `safe_to_rerun`: rerun the same mode; this is limited to valid data with
-     absent/exact indexes, such as interruption before the destructive drop.
-   - `repair_required`: do not rerun blindly or start either binary. Restore DB
-     observability if needed and obtain a separately reviewed repair.
-4. Run `--verify` and require target `exact`, legacy `absent`, every invalid/
-   duplicate count zero, and `completed` before starting the scoped runtime:
-
-   ```bash
-   sops exec-env env/app/prod.env \
-     'npm run migrate-project-glossary-index -- --verify'
-   ```
-
-The maintenance/no-DDL exclusion remains held through each command's exit and
-capture of its report. Apply creates and reload-verifies the target unique index,
-re-audits all data/index metadata, drops the old index, and performs the complete
-audit again. An exact-both interruption is resumable. Post-drop invalid data,
-mismatched DDL, or unknown state is `repair_required`, not automatically
-recoverable.
-
-Rollback is allowed only while the glossary collection is empty. If the scoped
-runtime fails before any project-scoped term is written, keep it stopped and run:
-
-```bash
-sops exec-env env/app/prod.env \
-  'npm run migrate-project-glossary-index -- --rollback'
-```
-
-Require the rollback report itself to show legacy `exact`, target `absent`, zero
-documents, and `completed` before restoring the old binary. Do not use forward
-`--verify` after rollback. Once any scoped term exists, rollback is forbidden;
-repair or roll forward with the scoped runtime.
+The glossary endpoints and collection had no callers or persisted entries before
+project-specific voice glossary adoption. At startup, the runtime drops stale
+non-`_id` glossary indexes only after proving the collection is empty, then
+creates its strong scoped indexes directly. Unexpected data fails startup rather
+than being guessed, migrated, or deleted. There is no legacy glossary data
+migration or rollback procedure.
 
 ## Async transcription providers
 
@@ -897,7 +840,6 @@ the restricted target dataset/table and deletion identity exist.
 | `npm run backfill-product-analytics-preference` | Validate preference migration; pass `-- --apply` to persist bounded batches |
 | `npm run export-product-analytics` | Run one isolated auth-private export using ADC (unscheduled until analytics IAM exists) |
 | `npm run suppress-product-analytics-export` | Read one protected suppression request from stdin and hand off a restricted deletion target |
-| `npm run migrate-project-glossary-index` | Dry-run glossary index migration; mutation flags require the documented maintenance window |
 | `npm run purge-soniox-transcription` | Audit Soniox async residue; `-- --apply` deletes it. Reports counts only |
 
 ## Project structure

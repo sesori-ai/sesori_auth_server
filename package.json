@@ -27,7 +27,6 @@
     "backfill-product-analytics-preference": "tsx src/scripts/backfill-product-analytics-preference.ts",
     "export-product-analytics": "tsx src/scripts/export-product-analytics.ts",
     "suppress-product-analytics-export": "tsx src/scripts/suppress-product-analytics-export.ts",
-    "migrate-project-glossary-index": "tsx src/scripts/migrate-project-glossary-index.ts",
     "purge-soniox-transcription": "tsx src/scripts/purge-soniox-transcription.ts",
     "circular-dependencies": "madge --circular --ts-config ./tsconfig.json ./src/index.ts"
   },

@@ -84,38 +84,49 @@ export function indexMatchesDesired(existing: Record<string, unknown>, desired: 
   return true;
 }
 
-/**
- * Rejects every glossary target-index option that changes duplicate or lookup
- * semantics; `indexMatchesDesired` compares only key and `unique`, which is too
- * weak for this guard. This deliberately covers semantics, not the migration's
- * complete metadata audit: `--verify` additionally rejects `v: 1`, storage-engine
- * options, and type-specific fields, all of which leave duplicate behavior
- * unchanged. Startup therefore never accepts an index whose behavior differs
- * from the migrated state, but the operator command remains the authority on
- * exact index shape. Keep these predicates aligned when either side changes.
- */
-function isExactGlossaryTargetIndex(index: Record<string, unknown>): boolean {
-  const collation = index.collation as { locale?: unknown } | undefined;
-
+function exactGlossaryIndexMatches(existing: Record<string, unknown>, desired: IndexDefinition): boolean {
+  const standardKeys = new Set(["v", "key", "name", "ns", "unique", "collation"]);
+  const collation = existing.collation as { locale?: unknown } | undefined;
   return (
-    indexKeyMatches(index.key as IndexSpecification, { userId: 1, projectKey: 1, word: 1 }) &&
-    index.unique === true &&
-    index.sparse !== true &&
-    index.hidden !== true &&
-    index.prepareUnique !== true &&
-    index.partialFilterExpression === undefined &&
-    index.expireAfterSeconds === undefined &&
-    isSimpleCollationLocale(collation?.locale)
+    indexMatchesDesired(existing, desired) &&
+    existing.v === 2 &&
+    (collation === undefined || collation.locale === "simple") &&
+    Object.keys(existing).every((key) => standardKeys.has(key))
   );
 }
 
-/**
- * Binary/simple collation is the only accepted state for the glossary index and
- * its collection: anything else changes term comparison. Mirrors
- * `isSimpleCollation` in glossary-index-migration.ts.
- */
-function isSimpleCollationLocale(locale: unknown): boolean {
-  return locale === undefined || locale === "simple";
+async function normalizeEmptyGlossaryIndexes(args: {
+  collection: Collection;
+  desiredIndexes: IndexDefinition[];
+}): Promise<void> {
+  const collectionCollation = (await args.collection.options()).collation;
+  if (collectionCollation && collectionCollation.locale !== "simple") {
+    throw new Error("Glossary schema reset refused: the collection has non-simple default collation");
+  }
+
+  const existingIndexes = await args.collection.indexes();
+  const unexpectedIndexes = existingIndexes.filter(
+    (index) =>
+      index.name !== "_id_" && !args.desiredIndexes.some((desired) => exactGlossaryIndexMatches(index, desired)),
+  );
+  const allDesiredIndexesExist = args.desiredIndexes.every((desired) =>
+    existingIndexes.some((index) => exactGlossaryIndexMatches(index, desired)),
+  );
+  if (allDesiredIndexesExist && unexpectedIndexes.length === 0) {
+    return;
+  }
+
+  const existingDocument = await args.collection.findOne({}, { projection: { _id: 1 } });
+  if (existingDocument) {
+    throw new Error("Glossary schema reset refused: the collection unexpectedly contains data");
+  }
+
+  for (const index of unexpectedIndexes) {
+    if (!index.name) {
+      throw new Error("Glossary schema reset refused: an unexpected index has no name");
+    }
+    await args.collection.dropIndex(index.name);
+  }
 }
 
 export class MongoDbAccessor {
@@ -146,6 +157,9 @@ export class MongoDbAccessor {
         }
 
         const collection = db.collection(collectionName);
+        if (dbName === MongoDbDatabase.Auth && collectionName === AuthDbCollection.GlossaryEntries) {
+          await normalizeEmptyGlossaryIndexes({ collection, desiredIndexes: indexes });
+        }
         const existingIndexes = await collection.indexes();
 
         for (const desired of indexes) {
@@ -163,39 +177,6 @@ export class MongoDbAccessor {
               continue;
             }
             throw error;
-          }
-        }
-
-        // A partial glossary cutover leaves the legacy {userId, word} unique
-        // index in place, which rejects the same term in a second project and
-        // makes the repository report it as an ordinary duplicate — silent word
-        // loss. Refuse to serve until the operator migration finished. Index
-        // ownership stays with the migration command; startup never drops here.
-        if (dbName === MongoDbDatabase.Auth && collectionName === AuthDbCollection.GlossaryEntries) {
-          const currentIndexes = await collection.indexes();
-          const legacyIndex = currentIndexes.find((index) =>
-            indexKeyMatches(index.key as IndexSpecification, { userId: 1, word: 1 }),
-          );
-          // Exactly one index may own the target key: duplicates on the same key
-          // are a mismatched cutover state that `--verify` also refuses.
-          const targetKeyIndexes = currentIndexes.filter((index) =>
-            indexKeyMatches(index.key as IndexSpecification, { userId: 1, projectKey: 1, word: 1 }),
-          );
-          const targetExists = targetKeyIndexes.length === 1 && isExactGlossaryTargetIndex(targetKeyIndexes[0]);
-          // A non-simple default collation is inherited by lookups such as the
-          // repository's `word: { $in: [...] }` delete, silently changing match
-          // semantics, so the collection itself must be simple.
-          const [collectionMetadata] = await db
-            .listCollections({ name: collectionName }, { nameOnly: false })
-            .toArray();
-          const collectionLocale = collectionMetadata?.options?.collation?.locale;
-          const collationIsSimple = isSimpleCollationLocale(collectionLocale);
-
-          if (legacyIndex || !targetExists || !collationIsSimple) {
-            throw new Error(
-              "Glossary index migration incomplete: expected only the unique {userId, projectKey, word} index. " +
-                "Run `npm run migrate-project-glossary-index -- --apply` with this instance stopped, then --verify.",
-            );
           }
         }
 
