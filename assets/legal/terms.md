@@ -1,8 +1,8 @@
 # Sesori Terms and Conditions
 
-_Last updated: August 25, 2026_
+_Last updated: August 29, 2026_
 
-These Sesori Terms and Conditions, together with any additional terms, policies, notices, or product-specific rules that we make available for the official Sesori services, form a legally binding agreement between you and **Digitalblock Labs LTD** ("**Sesori**," "**Company**," "we," "us," or "our"). These terms apply when you access, install, use, or interact with Sesori's official apps and services, including the Sesori mobile app, the official local bridge software, relay services, authentication and account services, push notification services, voice input and transcription features, `sesori.com`, website analytics and advertising technologies, mobile advertising attribution, advertising audience services, and related hosted features that we provide (collectively, the "**Service**").
+These Sesori Terms and Conditions, together with any additional terms, policies, notices, or product-specific rules that we make available for the official Sesori services, form a legally binding agreement between you and **Digitalblock Labs LTD** ("**Sesori**," "**Company**," "we," "us," or "our"). These terms apply when you access, install, use, or interact with Sesori's official apps and services, including the Sesori mobile app, the official local bridge software, relay services, authentication and account services, push notification services, voice input and transcription features, project-scoped glossary features, `sesori.com`, website analytics and advertising technologies, mobile advertising attribution, advertising audience services, and related hosted features that we provide (collectively, the "**Service**").
 
 By accessing or using the Service, you agree to these Terms and Conditions. If you do not agree, do not access or use the Service.
 
@@ -20,7 +20,7 @@ By accessing or using the Service, you agree to these Terms and Conditions. If y
 
 2.1. The Service is designed to let you connect compatible AI coding assistants running on your own host system with your mobile device so that you can browse projects, review sessions, receive real-time updates, respond to prompts, use voice input, and use related official Sesori features.
 
-2.2. The Service may include, without limitation, local bridge software running on your host system, relay transport, account and authentication features, push notification delivery, mobile clients, websites, voice input and server-side transcription features, diagnostics, support tools, product and website analytics, advertising technologies, mobile attribution, advertising audience services, and related hosted components.
+2.2. The Service may include, without limitation, local bridge software running on your host system, relay transport, account and authentication features, push notification delivery, mobile clients, websites, voice input and server-side transcription features, project-scoped glossary features, diagnostics, support tools, product and website analytics, advertising technologies, mobile attribution, advertising audience services, and related hosted components.
 
 2.3. The Service may depend on your own devices, local host environment, internet connectivity, AI tools, operating systems, app stores, notification providers, and other third-party services. Those dependencies are outside our control.
 
@@ -52,10 +52,10 @@ By accessing or using the Service, you agree to these Terms and Conditions. If y
 
 1. In ordinary operation, Sesori infrastructure may route encrypted relay traffic between your devices and does not ordinarily have plaintext access to that relay payload in transit.
 2. Certain features, including voice input, require Sesori and its sub-processors to receive, process, and transcribe audio recordings you submit through the Service. Voice recordings and generated transcripts are not retained by Sesori after processing completes, except to the limited extent reasonably necessary for service operation, abuse prevention, security, diagnostics, incident response, or as required by law. Transcription and related processing may be performed by one or more third-party providers acting as Sesori's sub-processors. A current list of sub-processors is maintained in or linked from our Privacy Policy.
-3. Limited additional data may be processed in connection with notifications, account and authentication, device and app metadata, product and website analytics, advertising attribution, campaign measurement, advertising audience matching, diagnostics, support, and limited feature processing that you invoke.
+3. Limited additional data may be processed in connection with notifications, account and authentication, device and app metadata, product and website analytics, advertising attribution, campaign measurement, advertising audience matching, diagnostics, support, and limited feature processing that you invoke. Project glossary features may cause the local Bridge to derive a bounded set of terms from project names, repository names, tracked or local path names, and selected project metadata files when a project is loaded or viewed, send selected terms, an opaque project key, and, where applicable, a bridge identifier to Sesori, and let Sesori store them and include selected terms in a voice transcription request. The raw repository origin, filesystem path, and source-file or metadata-file contents are not sent as part of glossary publication, but derived terms may still disclose project, personal, or confidential information.
 4. No networked system is risk free, and some data exposure, loss, corruption, delay, or misdelivery may still occur.
 
-4.7. You are responsible for deciding whether the Service is appropriate for your workflow, data sensitivity, compliance obligations, and operational risk tolerance.
+4.7. You are responsible for deciding whether the Service is appropriate for your workflow, data sensitivity, compliance obligations, and operational risk tolerance. You should disable or avoid glossary publication for projects whose derived terms may contain information that you are not authorized to disclose to Sesori or its transcription providers, including trade secrets, personal data, credentials, or regulated information.
 
 ## 5. Access rights and official service boundaries
 
@@ -67,7 +67,7 @@ By accessing or using the Service, you agree to these Terms and Conditions. If y
 
 ## 6. User content and service data
 
-6.1. "**User Content**" means prompts, messages, project names, session metadata, voice recordings, generated transcripts, support requests, diagnostic submissions, feedback, limited feature processing inputs and outputs, notification content, and other data or material that you or your systems make available to Sesori in readable form through the Service. User Content does not include encrypted relay traffic that Sesori infrastructure merely routes between your devices unless a specific hosted feature requires Sesori-side readable processing of that data.
+6.1. "**User Content**" means prompts, messages, project names, derived project glossary terms, session metadata, voice recordings, generated transcripts, support requests, diagnostic submissions, feedback, limited feature processing inputs and outputs, notification content, opaque project-scope identifiers, and other data or material that you or your systems make available to Sesori in readable form through the Service. User Content does not include encrypted relay traffic that Sesori infrastructure merely routes between your devices unless a specific hosted feature requires Sesori-side readable processing of that data.
 
 6.2. As between you and Sesori, you retain ownership of your User Content, subject to the rights you grant in these Terms and Conditions.
 
@@ -75,7 +75,7 @@ By accessing or using the Service, you agree to these Terms and Conditions. If y
 
 6.4. The license above includes the right to process User Content through automated systems and manual workflows where reasonably necessary for support, abuse prevention, security monitoring and investigation, incident response, legal compliance, troubleshooting, feature operation, and service administration.
 
-6.5. Sesori will not use your User Content, including voice recordings or transcripts, to train machine learning or AI models, whether general-purpose or Sesori-specific.
+6.5. Sesori will not use your User Content, including voice recordings, transcripts, or project glossary terms, to train machine learning or AI models, whether general-purpose or Sesori-specific. Sesori will not use project glossary terms for advertising, audience matching, or account-linked product analytics.
 
 6.6. You represent and warrant that you have all rights, consents, and permissions needed to submit User Content and to grant the rights described in these Terms and Conditions.
 
@@ -83,7 +83,9 @@ By accessing or using the Service, you agree to these Terms and Conditions. If y
 
 7.1. The Service is designed so that ordinary routing of encrypted relay traffic between your devices does not ordinarily require Sesori to have plaintext access to that traffic in transit. However, certain features, including voice input, require Sesori and its sub-processors to receive and process your data in readable form. In particular, voice recordings submitted through the Service are transmitted to Sesori servers and processed by a third-party transcription sub-processor. Voice recordings and generated transcripts are not retained by Sesori after processing completes, except as described in Section 4.6. Additional limited data may be processed in connection with notifications, metadata, diagnostics, support flows, analytics, advertising attribution, campaign measurement, advertising audience matching, and other Service operations described in the Privacy Policy.
 
-7.2. Sesori may process account details, authentication data, connection metadata, device and app metadata, website activity, online and advertising identifiers, campaign and attribution information, analytics, diagnostic information, support information, notification payloads, limited session metadata, voice and transcription data as described above, limited feature processing inputs and outputs, account contact information used for advertising audience matching where permitted, and other data reasonably necessary to provide, secure, support, maintain, measure, market, and enforce the Service.
+Project glossary features may cause the local Bridge to derive a bounded set of terms from project names, repository names, tracked or local path names, and selected project metadata files when a project is loaded or viewed, send selected terms, an opaque project key, and, where applicable, a bridge identifier to Sesori, and allow Sesori to store them and include selected terms in a voice transcription request. The raw repository origin, filesystem path, and source-file or metadata-file contents are not sent as part of glossary publication, but derived terms may still disclose project, personal, or confidential information. Glossary terms may be retained as described in the Privacy Policy and are not covered by the voice-recording and transcript deletion statement above.
+
+7.2. Sesori may process account details, authentication data, connection metadata, device and app metadata, website activity, online and advertising identifiers, campaign and attribution information, analytics, diagnostic information, support information, notification payloads, limited session metadata, project glossary terms and scope metadata, voice and transcription data as described above, limited feature processing inputs and outputs, account contact information used for advertising audience matching where permitted, and other data reasonably necessary to provide, secure, support, maintain, measure, market, and enforce the Service.
 
 7.3. Push notifications may contain limited session metadata, partial content, sender information, project information, or other snippets depending on your settings, platform behavior, notification routing, lock-screen visibility, or operating system controls. We cannot guarantee that notification content will remain hidden from device-level surfaces or other people with access to your device.
 
