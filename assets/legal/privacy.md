@@ -1,8 +1,8 @@
 # Sesori Privacy Policy
 
-_Last updated: August 25, 2026_
+_Last updated: August 29, 2026_
 
-This Privacy Policy explains how **Digitalblock Labs LTD** ("**Sesori**," "**Company**," "we," "us," or "our") collects, uses, stores, shares, and otherwise processes personal data when you use Sesori's official apps and services. It applies only to the official Sesori services, including the Sesori mobile app, the official local bridge software, relay services, account and authentication services, push notification services, `sesori.com`, voice input and server-side transcription features, diagnostics, analytics, mobile advertising attribution, website analytics and advertising technologies, support channels, and related hosted features we provide (collectively, the "**Service**").
+This Privacy Policy explains how **Digitalblock Labs LTD** ("**Sesori**," "**Company**," "we," "us," or "our") collects, uses, stores, shares, and otherwise processes personal data when you use Sesori's official apps and services. It applies only to the official Sesori services, including the Sesori mobile app, the official local bridge software, relay services, account and authentication services, push notification services, `sesori.com`, voice input and server-side transcription features, project-scoped glossary features, diagnostics, analytics, mobile advertising attribution, website analytics and advertising technologies, support channels, and related hosted features we provide (collectively, the "**Service**").
 
 This Privacy Policy does **not** apply to source builds, self-hosted deployments, unofficial builds, modified versions, forks, community distributions, or other non-official deployments, except to the extent those versions connect to an official Sesori-hosted feature. In that case, this Privacy Policy applies only to the official hosted feature interaction.
 
@@ -10,7 +10,7 @@ This Privacy Policy does **not** apply to source builds, self-hosted deployments
 
 Sesori is designed to help you monitor and interact with compatible AI coding assistants running on your own host system from your phone. The Service may include a local bridge running on your device, relay infrastructure, account and authentication services, push notifications, websites, diagnostics, product and website analytics, mobile advertising attribution, advertising audience tools, voice input, server-side transcription, and other related hosted features.
 
-In ordinary operation, Sesori infrastructure routes encrypted relay traffic between your devices. That ordinary relay routing does **not ordinarily require Sesori to have plaintext access** to relay payloads in transit. Some specific features you invoke do require Sesori or its sub-processors to receive readable data, including voice input and server-side transcription, short text feature processing such as session title naming and branch naming, push payload snippets, and support or diagnostic review.
+In ordinary operation, Sesori infrastructure routes encrypted relay traffic between your devices. That ordinary relay routing does **not ordinarily require Sesori to have plaintext access** to relay payloads in transit. Some specific features you use, or that operate as part of the Service, do require Sesori or its sub-processors to receive readable data, including voice input and server-side transcription, project glossary features, short text feature processing such as session title naming and branch naming, push payload snippets, and support or diagnostic review.
 
 ## 2. Controller and contacts
 
@@ -98,10 +98,14 @@ Support is currently provided by email only.
 
 Voice recordings are transmitted to Sesori servers and a third-party transcription sub-processor for processing. We do not retain voice recordings or generated transcripts after processing completes, except to the limited extent reasonably necessary for service operation, abuse prevention, security, incident response, or as required by law.
 
-### 3.8 Limited readable feature-processing data
+### 3.8 Limited readable feature-processing and project glossary data
 
 - limited readable inputs and outputs needed to operate specific invoked features, such as session title naming, branch naming, or similar short text feature processing
 - limited readable snippets needed for push notifications, support, diagnostics, abuse review, or security investigation
+- bounded project glossary terms (keywords) derived locally by the Bridge from project names, repository names, tracked or local path names, and selected project metadata files, or otherwise supplied through a glossary feature
+- opaque project-scope keys and, for bridge-local projects, a bridge identifier associated with those terms
+
+For the glossary feature, which the Bridge may populate when a project is loaded or viewed, the Bridge sends selected derived terms, an opaque project key, and, where applicable, a bridge identifier to Sesori. The project key is a pseudonymous identifier linked to your account, not anonymous data. It does not send the raw repository origin, filesystem path, or source-file or metadata-file contents as part of glossary publication. Derived terms can nevertheless reveal project characteristics, technical identifiers, names, or other personal or confidential information; credential filtering is heuristic and is not a guarantee. Sesori stores the terms in an account- and project-scoped glossary and may send selected terms to the configured transcription provider as context when you use voice transcription for that project. Glossary terms are not sent to website analytics, advertising, or account-linked product-analytics events.
 
 ### 3.9 Website analytics and advertising data
 
@@ -155,6 +159,7 @@ We collect personal data from the following sources:
 
 - directly from you, such as when you create or use an account, send us an email, submit voice input, or contact support
 - from your devices and apps when they connect to or interact with the Service
+- from the local Bridge, which derives bounded project glossary terms from local project names, path names, and selected metadata files before publishing selected terms to the Service
 - from your chosen identity provider, such as Apple, Google, or GitHub, when you use that sign-in option
 - from our service providers and infrastructure providers that help us operate the Service
 - from automated logs, analytics, crash reporting, and security systems generated during Service operation
@@ -169,6 +174,7 @@ We use personal data for the following purposes:
 - authenticating users and managing accounts
 - routing connections, delivering notifications, and operating relay or hosted features
 - operating voice input and server-side transcription features
+- maintaining project-specific glossary context and applying selected terms to voice transcription requests
 - performing limited feature processing you invoke, such as session title naming, branch naming, or similar processing
 - securing the Service, preventing abuse, investigating suspicious activity, and responding to incidents
 - monitoring reliability, diagnosing failures, fixing bugs, and improving performance
@@ -188,6 +194,7 @@ Sesori does **not** ordinarily have plaintext access to encrypted relay payloads
 Sesori and its sub-processors process readable data in limited situations where readable processing is required for a feature you use or for operational needs, including:
 
 - voice input and server-side transcription
+- project glossary publication, storage, and context selection
 - short text feature processing, such as session title naming and branch naming
 - push notification payload snippets or limited metadata
 - support, troubleshooting, diagnostics, abuse prevention, trust and safety review, security investigation, or incident response
@@ -213,10 +220,10 @@ We use service providers, analytics providers, attribution providers, and advert
 
 | Provider                               | Role                                                                                                                                                                       | Location of processing                                                                                          |
 | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| DigitalOcean, LLC                      | Hosting, infrastructure, and databases                                                                                                                                     | European Union (Sesori-controlled servers are currently EU-hosted); provider headquartered in the United States |
+| DigitalOcean, LLC                      | Hosting, infrastructure, and databases, including project glossary storage                                                                                                  | European Union (Sesori-controlled servers are currently EU-hosted); provider headquartered in the United States |
 | Cloudflare, Inc.                       | Reverse proxy, DNS, security edge services, and related network infrastructure                                                                                            | Global edge network; provider headquartered in the United States                                                |
-| OpenAI, L.L.C.                         | Voice transcription and short text feature processing (e.g., session title naming)                                                                                         | United States                                                                                                   |
-| Soniox, Inc.                           | Voice transcription                                                                                                                                                        | United States (US regional project)                                                                              |
+| OpenAI, L.L.C.                         | Voice transcription and short text feature processing, including glossary context supplied with a voice request                                                            | United States                                                                                                   |
+| Soniox, Inc.                           | Voice transcription, including glossary context supplied with a voice request                                                                                              | United States (US regional project)                                                                              |
 | Anthropic, PBC                         | Short text feature processing (e.g., session title naming)                                                                                                                 | United States                                                                                                   |
 | Google LLC (Firebase, Google Cloud, and Google Analytics) | Push notifications, app and website analytics, campaign measurement, restricted analytics storage and processing via BigQuery, and Crashlytics                            | United States and Google global infrastructure                                                                  |
 | Meta Platforms Ireland Limited and Meta Platforms, Inc. | Meta Pixel, advertising measurement and optimization, Customer List Custom Audiences, Lookalike Audiences, and related Meta advertising services                          | European Union, United States, and Meta global infrastructure                                                    |
@@ -270,6 +277,7 @@ Indicative retention practices:
 
 - **Ordinary relay traffic**: designed to be routed in encrypted form and is ephemeral from Sesori's perspective
 - **Voice recordings and generated transcripts**: deleted after processing completes, typically within seconds of the processing flow, except to the limited extent reasonably needed for operations, abuse prevention, security, incident response, or legal compliance
+- **Project glossary terms and associated scope metadata**: retained in the account- and project-scoped glossary while needed to provide project-specific voice features. Bridge-local terms are removed when their bridge scope is revoked; repository-scoped terms may remain after a bridge disconnects until you or the Bridge removes them, the project is reconciled, or we process a verified erasure request. All glossary terms and associated scope metadata belonging to an account are purged when that account is deleted. There is currently no fixed time-based expiration for an active repository-scoped glossary. Separate security, legal, support, or dispute records that do not contain glossary data may be retained as reasonably needed
 - **Account and authentication data**: retained while your account exists and thereafter for a reasonable period, typically up to 24 months, for security, fraud prevention, legal compliance, dispute handling, or enforcement
 - **Push notification tokens**: retained while needed for notification delivery and removed or allowed to expire when you log out, rotate tokens, uninstall the app, or when the token becomes stale
 - **Google Analytics website and product analytics data**: upstream event and user data retention is configured to two months
@@ -294,9 +302,9 @@ If we become aware of a personal data breach that creates a risk to your rights 
 
 ## 12. Model training
 
-Sesori will **not** use your content, including voice recordings and transcripts, to train machine learning or AI models, whether general-purpose or Sesori-specific.
+Sesori will **not** use your content, including voice recordings, transcripts, or project glossary terms, to train machine learning or AI models, whether general-purpose or Sesori-specific.
 
-We use third-party AI sub-processors (currently OpenAI, Soniox, and Anthropic) for voice transcription and short text feature processing. Our agreements with these sub-processors prohibit them from using your inputs or outputs processed on our behalf to train their general-purpose or foundation models. We rely on the API and enterprise data processing terms offered by these providers, which include no-training commitments for data submitted through their APIs.
+OpenAI and Soniox may receive selected project glossary terms as context with a voice transcription request; Anthropic is used for short text feature processing. Our agreements with these sub-processors prohibit them from using your inputs or outputs processed on our behalf to train their general-purpose or foundation models. We rely on the API and enterprise data processing terms offered by these providers, which include no-training commitments for data submitted through their APIs.
 
 Voice transcription is served by one configured provider at a time. When Soniox is configured for the official Service, audio is processed and temporarily stored in Soniox's United States regional project. Audio submitted for file-based transcription is stored by the provider only for as long as the transcription job requires and is deleted immediately after the transcript is returned; in rare cases such as an unexpected server restart, residual audio may persist briefly until an operator cleanup removes it. If live transcription is enabled later, live transcription audio will be processed in transit and not retained by the provider. Sesori does not store your audio or transcripts.
 
@@ -373,7 +381,7 @@ If GDPR or UK GDPR applies to you, you have the right to:
 
 To exercise any of these rights, contact us by email at [gdpr@sesori.com](mailto:gdpr@sesori.com) or [contact@sesori.com](mailto:contact@sesori.com). We may ask for information needed to verify your identity before responding.
 
-When we act on a verified account-deletion or analytics-erasure request, we can permanently suppress future account-linked product analytics reporting for that account and target associated keyed analytics data for deletion. Because a supported installation may upload an event after the initial deletion process, our deletion process repeatedly targets later uploads carrying the same pseudonymous account key.
+When we act on a verified account-deletion or analytics-erasure request, we can permanently suppress future account-linked product analytics reporting for that account and target associated keyed analytics data for deletion. Account deletion purges all project glossary terms and their associated scope metadata belonging to the deleted account. A verified erasure request may also cover glossary data without account deletion; because project keys are opaque, we identify those records through the account that owns them rather than requiring the raw repository path. Because a supported installation may upload an event after the initial deletion process, our deletion process repeatedly targets later uploads carrying the same pseudonymous account key.
 
 Data from an automatic-only installation that never emitted an account-keyed event cannot be linked back to an account by design. We therefore cannot identify that installation's automatic data in response to an account request. It remains subject to Google Analytics' two-month upstream retention period, and an already-exported row in the restricted raw BigQuery dataset may remain until its 90-day expiration.
 

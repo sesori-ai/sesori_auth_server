@@ -126,7 +126,7 @@ describe("Legal routes", () => {
     }
   });
 
-  it("serves the real legal assets with current advertising disclosures", async (t) => {
+  it("serves the real legal assets with current service disclosures", async (t) => {
     // The other route tests inject synthetic text, so this is the contract for
     // every provider, advertising use, cookie, and legal cross-reference shipped in production.
     mockMongoHarness(t);
@@ -149,6 +149,10 @@ describe("Legal routes", () => {
 
       assert.equal(termsRes.statusCode, 200);
       assert.ok(termsRes.body.includes("Cookie Statement"));
+      assert.ok(termsRes.body.includes("derived project glossary terms"));
+      assert.ok(termsRes.body.includes("The raw repository origin"));
+      assert.ok(termsRes.body.includes("not covered by the voice-recording and transcript deletion statement"));
+      assert.ok(termsRes.body.includes("Account deletion purges all project glossary terms"));
       assert.ok(termsRes.body.includes("advertising audience matching"));
 
       assert.equal(privacyRes.statusCode, 200);
@@ -175,6 +179,13 @@ describe("Legal routes", () => {
         privacyRes.body.includes("Official mobile release builds for which Sesori enables advertising attribution"),
       );
       assert.ok(privacyRes.body.includes("United States (US regional project)"));
+      assert.ok(privacyRes.body.includes("bounded project glossary terms (keywords)"));
+      assert.ok(privacyRes.body.includes("not sent to website analytics"));
+      assert.ok(privacyRes.body.includes("Project glossary terms and associated scope metadata"));
+      assert.ok(
+        privacyRes.body.includes("All glossary terms and associated scope metadata belonging to an account are purged"),
+      );
+      assert.ok(privacyRes.body.includes("glossary context supplied with a voice request"));
       assert.ok(
         privacyRes.body.includes(
           "audio is processed and temporarily stored in Soniox's United States regional project",
