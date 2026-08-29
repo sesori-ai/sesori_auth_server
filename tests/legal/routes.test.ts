@@ -152,6 +152,7 @@ describe("Legal routes", () => {
       assert.ok(termsRes.body.includes("derived project glossary terms"));
       assert.ok(termsRes.body.includes("The raw repository origin"));
       assert.ok(termsRes.body.includes("not covered by the voice-recording and transcript deletion statement"));
+      assert.ok(termsRes.body.includes("Account deletion purges all project glossary terms"));
       assert.ok(termsRes.body.includes("advertising audience matching"));
 
       assert.equal(privacyRes.statusCode, 200);
@@ -181,6 +182,9 @@ describe("Legal routes", () => {
       assert.ok(privacyRes.body.includes("bounded project glossary terms (keywords)"));
       assert.ok(privacyRes.body.includes("not sent to website analytics"));
       assert.ok(privacyRes.body.includes("Project glossary terms and associated scope metadata"));
+      assert.ok(
+        privacyRes.body.includes("All glossary terms and associated scope metadata belonging to an account are purged"),
+      );
       assert.ok(privacyRes.body.includes("glossary context supplied with a voice request"));
       assert.ok(
         privacyRes.body.includes(
