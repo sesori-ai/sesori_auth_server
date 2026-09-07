@@ -7,22 +7,6 @@ export enum OptionalEmailDryRunMode {
   DryRun = "dry_run",
 }
 
-export enum OptionalEmailRecipientStatus {
-  Unique = "unique",
-  MissingUser = "missing_user",
-  MissingRecipient = "missing_recipient",
-  AmbiguousRecipient = "ambiguous_recipient",
-}
-
-export type OptionalEmailRecipientResolution =
-  | { status: OptionalEmailRecipientStatus.Unique; email: string }
-  | {
-      status:
-        | OptionalEmailRecipientStatus.MissingUser
-        | OptionalEmailRecipientStatus.MissingRecipient
-        | OptionalEmailRecipientStatus.AmbiguousRecipient;
-    };
-
 export enum OptionalEmailSuppressionReason {
   HardBounce = "hard_bounce",
   Complaint = "complaint",
@@ -58,6 +42,7 @@ export enum OptionalEmailBlockReason {
 export enum OptionalEmailSendBlockReason {
   SendingDisabled = "sending_disabled",
   RecipientBasisUnapproved = "recipient_basis_unapproved",
+  RecipientSafetyUnverified = "recipient_safety_unverified",
   MissingUser = "missing_user",
   MissingRecipient = "missing_recipient",
   AmbiguousRecipient = "ambiguous_recipient",

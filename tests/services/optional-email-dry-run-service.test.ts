@@ -19,7 +19,12 @@ describe("OptionalEmailDryRunService", () => {
         },
       },
       activationStates: { findByUserId: async () => null },
-      eligibility: { evaluateDryRun: async () => ({ eligible: true }) },
+      eligibility: {
+        evaluateDryRun: async () => ({
+          eligible: false,
+          reason: OptionalEmailSendBlockReason.RecipientSafetyUnverified,
+        }),
+      },
       policy: {
         sendingEnabled: false,
         recipientBasis: OptionalEmailRecipientBasis.Unapproved,
@@ -36,7 +41,7 @@ describe("OptionalEmailDryRunService", () => {
   it("returns fixed-cohort aggregate stage and block counts without identifiers or addresses", async () => {
     const userIds = ["000000000000000000000001", "000000000000000000000002", "000000000000000000000003"];
     const states = new Map([
-      [userIds[0], null],
+      [userIds[0], { bridgeSetupAt: null, firstSessionAt: null }],
       [userIds[1], { bridgeSetupAt: new Date("2026-09-02T00:00:00.000Z"), firstSessionAt: null }],
       [
         userIds[2],
@@ -64,7 +69,7 @@ describe("OptionalEmailDryRunService", () => {
         evaluateDryRun: async (input) => {
           eligibilityInputs.push(input);
           return input.reminderKind === OptionalEmailReminderKind.BridgeSetup
-            ? { eligible: true }
+            ? { eligible: false, reason: OptionalEmailSendBlockReason.RecipientSafetyUnverified }
             : { eligible: false, reason: OptionalEmailSendBlockReason.Suppressed };
         },
       },
@@ -90,16 +95,27 @@ describe("OptionalEmailDryRunService", () => {
         [OptionalEmailReminderKind.BridgeSetup]: 1,
         [OptionalEmailReminderKind.FirstSession]: 1,
       },
-      eligible: 1,
-      blockedByReason: { [OptionalEmailSendBlockReason.Suppressed]: 1 },
+      eligible: 0,
+      blockedByReason: {
+        [OptionalEmailSendBlockReason.RecipientSafetyUnverified]: 1,
+        [OptionalEmailSendBlockReason.Suppressed]: 1,
+      },
     });
     assert.deepEqual(pageInputs, [
       { afterUserId: null, batchLimit: 2, createdAtOrBefore: new Date("2026-09-06T16:00:00.000Z") },
       { afterUserId: userIds[1], batchLimit: 2, createdAtOrBefore: new Date("2026-09-06T16:00:00.000Z") },
     ]);
     assert.deepEqual(eligibilityInputs, [
-      { userId: userIds[0], reminderKind: OptionalEmailReminderKind.BridgeSetup },
-      { userId: userIds[1], reminderKind: OptionalEmailReminderKind.FirstSession },
+      {
+        userId: userIds[0],
+        reminderKind: OptionalEmailReminderKind.BridgeSetup,
+        activationState: states.get(userIds[0]),
+      },
+      {
+        userId: userIds[1],
+        reminderKind: OptionalEmailReminderKind.FirstSession,
+        activationState: states.get(userIds[1]),
+      },
     ]);
 
     const serialized = JSON.stringify(report);

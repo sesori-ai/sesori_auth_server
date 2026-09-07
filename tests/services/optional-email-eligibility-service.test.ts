@@ -4,7 +4,6 @@ import { OptionalEmailEligibilityService } from "../../src/services/optional-ema
 import {
   OptionalEmailBlockReason,
   OptionalEmailRecipientBasis,
-  OptionalEmailRecipientStatus,
   OptionalEmailReminderKind,
   OptionalEmailSendBlockReason,
 } from "../../src/types/optional-email.js";
@@ -28,12 +27,6 @@ describe("OptionalEmailEligibilityService", () => {
         policy: {
           sendingEnabled: testCase.sendingEnabled,
           recipientBasis: testCase.recipientBasis,
-        },
-        recipients: {
-          resolve: async () => {
-            downstreamReads += 1;
-            return { status: OptionalEmailRecipientStatus.MissingUser };
-          },
         },
         preferences: {
           findBlockReason: async () => {
@@ -60,7 +53,7 @@ describe("OptionalEmailEligibilityService", () => {
     }
   });
 
-  it("blocks durable unsubscribe and suppression before milestone or recipient reads", async () => {
+  it("blocks durable unsubscribe and suppression before milestone reads", async () => {
     for (const blockReason of [OptionalEmailBlockReason.Unsubscribed, OptionalEmailBlockReason.Suppressed]) {
       let downstreamReads = 0;
       const service = new OptionalEmailEligibilityService({
@@ -75,12 +68,6 @@ describe("OptionalEmailEligibilityService", () => {
             return null;
           },
         },
-        recipients: {
-          resolve: async () => {
-            downstreamReads += 1;
-            return { status: OptionalEmailRecipientStatus.MissingUser };
-          },
-        },
       });
 
       assert.deepEqual(
@@ -92,6 +79,25 @@ describe("OptionalEmailEligibilityService", () => {
       );
       assert.equal(downstreamReads, 0);
     }
+  });
+
+  it("blocks normal eligibility when the current user no longer exists", async () => {
+    const service = new OptionalEmailEligibilityService({
+      policy: {
+        sendingEnabled: true,
+        recipientBasis: OptionalEmailRecipientBasis.AccountActivityApproved,
+      },
+      preferences: { findBlockReason: async () => null },
+      activationStates: { findByUserId: async () => null },
+    });
+
+    assert.deepEqual(
+      await service.evaluate({
+        userId: "000000000000000000000001",
+        reminderKind: OptionalEmailReminderKind.BridgeSetup,
+      }),
+      { eligible: false, reason: OptionalEmailSendBlockReason.MissingUser },
+    );
   });
 
   it("stops obsolete setup reminders from canonical activation milestones", async () => {
@@ -114,7 +120,6 @@ describe("OptionalEmailEligibilityService", () => {
     ];
 
     for (const testCase of cases) {
-      let recipientReads = 0;
       const service = new OptionalEmailEligibilityService({
         policy: {
           sendingEnabled: true,
@@ -122,12 +127,6 @@ describe("OptionalEmailEligibilityService", () => {
         },
         preferences: { findBlockReason: async () => null },
         activationStates: { findByUserId: async () => testCase.activationState },
-        recipients: {
-          resolve: async () => {
-            recipientReads += 1;
-            return { status: OptionalEmailRecipientStatus.MissingUser };
-          },
-        },
       });
 
       assert.deepEqual(
@@ -137,56 +136,35 @@ describe("OptionalEmailEligibilityService", () => {
         }),
         { eligible: false, reason: testCase.reason },
       );
-      assert.equal(recipientReads, 0);
     }
   });
 
-  it("fails closed unless account identities resolve to one normalized recipient", async () => {
-    const cases = [
-      {
-        resolution: { status: OptionalEmailRecipientStatus.MissingUser } as const,
-        result: { eligible: false, reason: OptionalEmailSendBlockReason.MissingUser } as const,
+  it("fails closed when recipient safety is unverified after the policy, preference, and milestone gates", async () => {
+    const service = new OptionalEmailEligibilityService({
+      policy: {
+        sendingEnabled: true,
+        recipientBasis: OptionalEmailRecipientBasis.AccountActivityApproved,
       },
-      {
-        resolution: { status: OptionalEmailRecipientStatus.MissingRecipient } as const,
-        result: { eligible: false, reason: OptionalEmailSendBlockReason.MissingRecipient } as const,
+      preferences: { findBlockReason: async () => null },
+      activationStates: {
+        findByUserId: async () => ({ bridgeSetupAt: null, firstSessionAt: null }),
       },
-      {
-        resolution: { status: OptionalEmailRecipientStatus.AmbiguousRecipient } as const,
-        result: { eligible: false, reason: OptionalEmailSendBlockReason.AmbiguousRecipient } as const,
-      },
-      {
-        resolution: { status: OptionalEmailRecipientStatus.Unique, email: "one@example.test" } as const,
-        result: { eligible: true, recipient: "one@example.test" } as const,
-      },
-    ];
+    });
 
-    for (const testCase of cases) {
-      const service = new OptionalEmailEligibilityService({
-        policy: {
-          sendingEnabled: true,
-          recipientBasis: OptionalEmailRecipientBasis.AccountActivityApproved,
-        },
-        preferences: { findBlockReason: async () => null },
-        activationStates: { findByUserId: async () => null },
-        recipients: { resolve: async () => testCase.resolution },
-      });
-
-      assert.deepEqual(
-        await service.evaluate({
-          userId: "000000000000000000000001",
-          reminderKind: OptionalEmailReminderKind.BridgeSetup,
-        }),
-        testCase.result,
-      );
-    }
+    assert.deepEqual(
+      await service.evaluate({
+        userId: "000000000000000000000001",
+        reminderKind: OptionalEmailReminderKind.BridgeSetup,
+      }),
+      { eligible: false, reason: OptionalEmailSendBlockReason.RecipientSafetyUnverified },
+    );
   });
 
-  it("ignores only the send switch in dry-run and never returns the recipient", async () => {
-    let recipientReads = 0;
+  it("ignores only the send switch in dry-run and otherwise fails closed", async () => {
     const input = {
       userId: "000000000000000000000001",
       reminderKind: OptionalEmailReminderKind.BridgeSetup,
+      activationState: { bridgeSetupAt: null, firstSessionAt: null },
     };
     const approved = new OptionalEmailEligibilityService({
       policy: {
@@ -195,31 +173,22 @@ describe("OptionalEmailEligibilityService", () => {
       },
       preferences: { findBlockReason: async () => null },
       activationStates: { findByUserId: async () => null },
-      recipients: {
-        resolve: async () => {
-          recipientReads += 1;
-          return { status: OptionalEmailRecipientStatus.Unique, email: "must-not-escape@example.test" };
-        },
-      },
     });
 
     assert.deepEqual(await approved.evaluate(input), {
       eligible: false,
       reason: OptionalEmailSendBlockReason.SendingDisabled,
     });
-    assert.deepEqual(await approved.evaluateDryRun(input), { eligible: true });
-    assert.equal(recipientReads, 1);
-    assert.doesNotMatch(JSON.stringify(await approved.evaluateDryRun(input)), /@|must-not-escape/);
+    assert.deepEqual(await approved.evaluateDryRun(input), {
+      eligible: false,
+      reason: OptionalEmailSendBlockReason.RecipientSafetyUnverified,
+    });
+    assert.doesNotMatch(JSON.stringify(await approved.evaluateDryRun(input)), /"(?:recipient|email)"\s*:|@/i);
 
     const unapproved = new OptionalEmailEligibilityService({
       policy: { sendingEnabled: false, recipientBasis: OptionalEmailRecipientBasis.Unapproved },
       preferences: { findBlockReason: async () => null },
       activationStates: { findByUserId: async () => null },
-      recipients: {
-        resolve: async () => {
-          throw new Error("recipient must not be read without an approved basis");
-        },
-      },
     });
     assert.deepEqual(await unapproved.evaluateDryRun(input), {
       eligible: false,
@@ -227,9 +196,39 @@ describe("OptionalEmailEligibilityService", () => {
     });
   });
 
+  it("uses the caller activation snapshot for dry-run eligibility", async () => {
+    let activationReads = 0;
+    const service = new OptionalEmailEligibilityService({
+      policy: {
+        sendingEnabled: false,
+        recipientBasis: OptionalEmailRecipientBasis.AccountActivityApproved,
+      },
+      preferences: { findBlockReason: async () => null },
+      activationStates: {
+        findByUserId: async () => {
+          activationReads += 1;
+          return { bridgeSetupAt: new Date(1), firstSessionAt: null };
+        },
+      },
+    });
+
+    assert.deepEqual(
+      await service.evaluateDryRun({
+        userId: "000000000000000000000001",
+        reminderKind: OptionalEmailReminderKind.BridgeSetup,
+        activationState: { bridgeSetupAt: null, firstSessionAt: null },
+      }),
+      { eligible: false, reason: OptionalEmailSendBlockReason.RecipientSafetyUnverified },
+    );
+    assert.equal(activationReads, 0);
+  });
+
   it("rechecks durable preference and milestone state on every evaluation", async () => {
     let blockReason: OptionalEmailBlockReason | null = null;
-    let activationState: { bridgeSetupAt: Date | null; firstSessionAt: Date | null } | null = null;
+    let activationState: { bridgeSetupAt: Date | null; firstSessionAt: Date | null } | null = {
+      bridgeSetupAt: null,
+      firstSessionAt: null,
+    };
     const service = new OptionalEmailEligibilityService({
       policy: {
         sendingEnabled: true,
@@ -237,19 +236,16 @@ describe("OptionalEmailEligibilityService", () => {
       },
       preferences: { findBlockReason: async () => blockReason },
       activationStates: { findByUserId: async () => activationState },
-      recipients: {
-        resolve: async () => ({
-          status: OptionalEmailRecipientStatus.Unique,
-          email: "one@example.test",
-        }),
-      },
     });
     const bridgeInput = {
       userId: "000000000000000000000001",
       reminderKind: OptionalEmailReminderKind.BridgeSetup,
     };
 
-    assert.deepEqual(await service.evaluate(bridgeInput), { eligible: true, recipient: "one@example.test" });
+    assert.deepEqual(await service.evaluate(bridgeInput), {
+      eligible: false,
+      reason: OptionalEmailSendBlockReason.RecipientSafetyUnverified,
+    });
     blockReason = OptionalEmailBlockReason.Unsubscribed;
     assert.deepEqual(await service.evaluate(bridgeInput), {
       eligible: false,
@@ -264,7 +260,10 @@ describe("OptionalEmailEligibilityService", () => {
     });
 
     const sessionInput = { ...bridgeInput, reminderKind: OptionalEmailReminderKind.FirstSession };
-    assert.deepEqual(await service.evaluate(sessionInput), { eligible: true, recipient: "one@example.test" });
+    assert.deepEqual(await service.evaluate(sessionInput), {
+      eligible: false,
+      reason: OptionalEmailSendBlockReason.RecipientSafetyUnverified,
+    });
     activationState = { bridgeSetupAt: new Date(1), firstSessionAt: new Date(2) };
     assert.deepEqual(await service.evaluate(sessionInput), {
       eligible: false,

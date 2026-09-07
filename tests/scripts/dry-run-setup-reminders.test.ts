@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { after, before, describe, it } from "node:test";
+import { BridgePlatform } from "../../src/models/bridge.js";
+import { BridgeRepository } from "../../src/repositories/bridge-repo.js";
 import {
   createOptionalEmailDryRunRuntime,
   parseOptionalEmailDryRunArgs,
@@ -195,33 +197,43 @@ describe("dry-run-setup-reminders CLI", () => {
 
     it("evaluates aggregate eligibility without provider dependencies or writes", async () => {
       const user = await ctx.createUser();
+      const bridgeUser = await ctx.createUser();
+      await new BridgeRepository(ctx.dbAccessor).register({
+        userId: bridgeUser.userId,
+        name: "Authoritative evidence only",
+        platform: BridgePlatform.macos,
+      });
       const mongoUri = process.env.MONGODB_URI;
       assert.ok(mongoUri);
       const preferences = ctx.dbAccessor.getCollection(MongoDbDatabase.Auth, AuthDbCollection.OptionalEmailPreferences);
+      const activationStates = ctx.dbAccessor.getCollection(MongoDbDatabase.Auth, AuthDbCollection.ActivationStates);
       const beforeCount = await preferences.countDocuments();
+      const beforeActivationStateCount = await activationStates.countDocuments();
       const runtime = await createOptionalEmailDryRunRuntime({
         mongoUri,
         sendingEnabled: false,
-        recipientBasis: OptionalEmailRecipientBasis.Unapproved,
+        recipientBasis: OptionalEmailRecipientBasis.AccountActivityApproved,
         dailyCap: 80,
       });
 
       try {
         const report = await runtime.run({ batchLimit: 10 });
-        assert.equal(report.usersScanned, 1);
-        assert.equal(report.candidates, 1);
+        assert.equal(report.usersScanned, 2);
+        assert.equal(report.candidates, 2);
         assert.deepEqual(report.segments, {
           [OptionalEmailReminderKind.BridgeSetup]: 1,
-          [OptionalEmailReminderKind.FirstSession]: 0,
+          [OptionalEmailReminderKind.FirstSession]: 1,
         });
         assert.equal(report.eligible, 0);
         assert.deepEqual(report.blockedByReason, {
-          [OptionalEmailSendBlockReason.RecipientBasisUnapproved]: 1,
+          [OptionalEmailSendBlockReason.RecipientSafetyUnverified]: 2,
         });
         assert.equal(await preferences.countDocuments(), beforeCount);
+        assert.equal(await activationStates.countDocuments(), beforeActivationStateCount);
         const serialized = JSON.stringify(report);
         assert.doesNotMatch(serialized, /"(?:userId|recipient|email)"\s*:/i);
         assert.doesNotMatch(serialized, new RegExp(user.userId));
+        assert.doesNotMatch(serialized, new RegExp(bridgeUser.userId));
         assert.doesNotMatch(serialized, /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
       } finally {
         await runtime.close();

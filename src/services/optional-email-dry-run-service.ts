@@ -1,4 +1,7 @@
-import type { OptionalEmailDryRunEligibilityResult } from "./optional-email-eligibility-service.js";
+import type {
+  OptionalEmailActivationStateSnapshot,
+  OptionalEmailDryRunEligibilityResult,
+} from "./optional-email-eligibility-service.js";
 import type { OptionalEmailRecipientBasis, OptionalEmailSendBlockReason } from "../types/optional-email.js";
 import { OptionalEmailDryRunMode, OptionalEmailReminderKind } from "../types/optional-email.js";
 
@@ -7,13 +10,14 @@ interface OptionalEmailDryRunUserLookup {
 }
 
 interface OptionalEmailDryRunActivationLookup {
-  findByUserId(input: { userId: string }): Promise<{ bridgeSetupAt: Date | null; firstSessionAt: Date | null } | null>;
+  findByUserId(input: { userId: string }): Promise<OptionalEmailActivationStateSnapshot | null>;
 }
 
 interface OptionalEmailDryRunEligibility {
   evaluateDryRun(input: {
     userId: string;
     reminderKind: OptionalEmailReminderKind;
+    activationState: OptionalEmailActivationStateSnapshot | null;
   }): Promise<OptionalEmailDryRunEligibilityResult>;
 }
 
@@ -104,12 +108,12 @@ export class OptionalEmailDryRunService {
           : OptionalEmailReminderKind.BridgeSetup;
         report.candidates += 1;
         report.segments[reminderKind] += 1;
-        const eligibility = await this.#eligibility.evaluateDryRun({ userId, reminderKind });
-        if (eligibility.eligible) {
-          report.eligible += 1;
-        } else {
-          report.blockedByReason[eligibility.reason] = (report.blockedByReason[eligibility.reason] ?? 0) + 1;
-        }
+        const eligibility = await this.#eligibility.evaluateDryRun({
+          userId,
+          reminderKind,
+          activationState: state,
+        });
+        report.blockedByReason[eligibility.reason] = (report.blockedByReason[eligibility.reason] ?? 0) + 1;
       }
 
       afterUserId = userIds.at(-1) ?? null;

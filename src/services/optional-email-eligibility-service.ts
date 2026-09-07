@@ -1,42 +1,38 @@
-import type { OptionalEmailRecipientResolution } from "../types/optional-email.js";
 import {
   OptionalEmailBlockReason,
   OptionalEmailRecipientBasis,
-  OptionalEmailRecipientStatus,
   OptionalEmailReminderKind,
   OptionalEmailSendBlockReason,
 } from "../types/optional-email.js";
-
-export interface OptionalEmailRecipientLookup {
-  resolve(input: { userId: string }): Promise<OptionalEmailRecipientResolution>;
-}
 
 export interface OptionalEmailPreferenceLookup {
   findBlockReason(input: { userId: string }): Promise<OptionalEmailBlockReason | null>;
 }
 
+export type OptionalEmailActivationStateSnapshot = {
+  bridgeSetupAt: Date | null;
+  firstSessionAt: Date | null;
+};
+
 export interface OptionalEmailActivationStateLookup {
-  findByUserId(input: { userId: string }): Promise<{ bridgeSetupAt: Date | null; firstSessionAt: Date | null } | null>;
+  findByUserId(input: { userId: string }): Promise<OptionalEmailActivationStateSnapshot | null>;
 }
 
 export type OptionalEmailIneligibleResult = { eligible: false; reason: OptionalEmailSendBlockReason };
-export type OptionalEmailEligibilityResult = { eligible: true; recipient: string } | OptionalEmailIneligibleResult;
-export type OptionalEmailDryRunEligibilityResult = { eligible: true } | OptionalEmailIneligibleResult;
+export type OptionalEmailEligibilityResult = OptionalEmailIneligibleResult;
+export type OptionalEmailDryRunEligibilityResult = OptionalEmailIneligibleResult;
 
 export class OptionalEmailEligibilityService {
   readonly #policy: { sendingEnabled: boolean; recipientBasis: OptionalEmailRecipientBasis };
-  readonly #recipients: OptionalEmailRecipientLookup;
   readonly #preferences: OptionalEmailPreferenceLookup;
   readonly #activationStates: OptionalEmailActivationStateLookup;
 
   constructor(input: {
     policy: { sendingEnabled: boolean; recipientBasis: OptionalEmailRecipientBasis };
-    recipients: OptionalEmailRecipientLookup;
     preferences: OptionalEmailPreferenceLookup;
     activationStates: OptionalEmailActivationStateLookup;
   }) {
     this.#policy = input.policy;
-    this.#recipients = input.recipients;
     this.#preferences = input.preferences;
     this.#activationStates = input.activationStates;
   }
@@ -45,22 +41,27 @@ export class OptionalEmailEligibilityService {
     userId: string;
     reminderKind: OptionalEmailReminderKind;
   }): Promise<OptionalEmailEligibilityResult> {
-    return this.#evaluate(input, true);
+    return this.#evaluate(input, { enforceSendingEnabled: true });
   }
 
   async evaluateDryRun(input: {
     userId: string;
     reminderKind: OptionalEmailReminderKind;
+    activationState: OptionalEmailActivationStateSnapshot | null;
   }): Promise<OptionalEmailDryRunEligibilityResult> {
-    const result = await this.#evaluate(input, false);
-    return result.eligible ? { eligible: true } : result;
+    return this.#evaluate(input, {
+      enforceSendingEnabled: false,
+      activationState: input.activationState,
+    });
   }
 
   async #evaluate(
     input: { userId: string; reminderKind: OptionalEmailReminderKind },
-    enforceSendingEnabled: boolean,
+    options:
+      | { enforceSendingEnabled: true }
+      | { enforceSendingEnabled: false; activationState: OptionalEmailActivationStateSnapshot | null },
   ): Promise<OptionalEmailEligibilityResult> {
-    if (enforceSendingEnabled && !this.#policy.sendingEnabled) {
+    if (options.enforceSendingEnabled && !this.#policy.sendingEnabled) {
       return { eligible: false, reason: OptionalEmailSendBlockReason.SendingDisabled };
     }
 
@@ -77,8 +78,15 @@ export class OptionalEmailEligibilityService {
       return { eligible: false, reason: OptionalEmailSendBlockReason.Suppressed };
     }
 
-    const activationState = await this.#activationStates.findByUserId({ userId: input.userId });
-    if (input.reminderKind === OptionalEmailReminderKind.BridgeSetup && activationState?.bridgeSetupAt) {
+    const activationState =
+      "activationState" in options
+        ? options.activationState
+        : await this.#activationStates.findByUserId({ userId: input.userId });
+    if (!activationState) {
+      return { eligible: false, reason: OptionalEmailSendBlockReason.MissingUser };
+    }
+
+    if (input.reminderKind === OptionalEmailReminderKind.BridgeSetup && activationState.bridgeSetupAt) {
       return { eligible: false, reason: OptionalEmailSendBlockReason.MilestoneCompleted };
     }
 
@@ -92,16 +100,6 @@ export class OptionalEmailEligibilityService {
       }
     }
 
-    const recipient = await this.#recipients.resolve({ userId: input.userId });
-    switch (recipient.status) {
-      case OptionalEmailRecipientStatus.Unique:
-        return { eligible: true, recipient: recipient.email };
-      case OptionalEmailRecipientStatus.MissingUser:
-        return { eligible: false, reason: OptionalEmailSendBlockReason.MissingUser };
-      case OptionalEmailRecipientStatus.MissingRecipient:
-        return { eligible: false, reason: OptionalEmailSendBlockReason.MissingRecipient };
-      case OptionalEmailRecipientStatus.AmbiguousRecipient:
-        return { eligible: false, reason: OptionalEmailSendBlockReason.AmbiguousRecipient };
-    }
+    return { eligible: false, reason: OptionalEmailSendBlockReason.RecipientSafetyUnverified };
   }
 }

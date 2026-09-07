@@ -1,9 +1,11 @@
 import { MongoDbAccessor } from "../db/mongo-db-accessor.js";
 import { MongoDbConnector } from "../db/mongo-db-connector.js";
 import { ActivationStateRepository } from "../repositories/activation-state-repo.js";
+import { BridgeRepository } from "../repositories/bridge-repo.js";
+import { DailyUsageRepository } from "../repositories/daily-usage-repo.js";
 import { OptionalEmailPreferenceRepository } from "../repositories/optional-email-preference-repo.js";
-import { OptionalEmailRecipientRepository } from "../repositories/optional-email-recipient-repo.js";
 import { UserRepository } from "../repositories/user-repo.js";
+import { OptionalEmailActivationSnapshotService } from "../services/optional-email-activation-snapshot-service.js";
 import {
   OptionalEmailDryRunService,
   type OptionalEmailDryRunReport,
@@ -65,25 +67,30 @@ export async function createOptionalEmailDryRunRuntime(
   const dbAccessor = new MongoDbAccessor(connector);
   const users = new UserRepository(dbAccessor);
   const activationStates = new ActivationStateRepository(dbAccessor);
+  const bridges = new BridgeRepository(dbAccessor);
+  const dailyUsage = new DailyUsageRepository(dbAccessor);
+  const activationSnapshot = new OptionalEmailActivationSnapshotService({
+    users: { findById: ({ userId }) => users.findById(userId) },
+    activationStates: { findByUserId: ({ userId }) => activationStates.findByUserId(userId) },
+    bridges: { findEarliestAddedAt: ({ userId }) => bridges.findEarliestAddedAt(userId) },
+    dailyUsage: {
+      findEarliestMetadataRequestAt: ({ userId }) => dailyUsage.findEarliestMetadataRequestAt(userId),
+    },
+  });
   const eligibility = new OptionalEmailEligibilityService({
     policy: {
       sendingEnabled: config.sendingEnabled,
       recipientBasis: config.recipientBasis,
     },
-    recipients: new OptionalEmailRecipientRepository(dbAccessor),
     preferences: new OptionalEmailPreferenceRepository(dbAccessor),
-    activationStates: {
-      findByUserId: ({ userId }) => activationStates.findByUserId(userId),
-    },
+    activationStates: activationSnapshot,
   });
   const service = new OptionalEmailDryRunService({
     users: {
       findIdBatch: ({ afterUserId, batchLimit, createdAtOrBefore }) =>
         users.findIdBatch(afterUserId, batchLimit, createdAtOrBefore),
     },
-    activationStates: {
-      findByUserId: ({ userId }) => activationStates.findByUserId(userId),
-    },
+    activationStates: activationSnapshot,
     eligibility,
     policy: {
       sendingEnabled: config.sendingEnabled,
