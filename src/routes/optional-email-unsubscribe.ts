@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { OptionalEmailUnsubscribeService } from "../services/optional-email-unsubscribe-service.js";
 
 const querySchema = z.object({ token: z.string().min(1).max(2_048) }).strict();
+const oneClickBodySchema = z.object({ "List-Unsubscribe": z.literal("One-Click") }).strict();
 
 export type OptionalEmailUnsubscribeRouteOptions = {
   service: OptionalEmailUnsubscribeService;
@@ -56,12 +57,10 @@ export const optionalEmailUnsubscribeRoutes: FastifyPluginAsync<OptionalEmailUns
     setSafetyHeaders(reply);
     const query = querySchema.safeParse(request.query);
     const body = typeof request.body === "string" ? new URLSearchParams(request.body) : null;
-    const validBody =
-      body !== null &&
-      [...body.keys()].length === 1 &&
-      body.getAll("List-Unsubscribe").length === 1 &&
-      body.get("List-Unsubscribe") === "One-Click";
-    if (!query.success || !validBody || !(await options.service.unsubscribe({ token: query.data.token }))) {
+    const parsedBody = oneClickBodySchema.safeParse(
+      body !== null && [...body.keys()].length === 1 ? Object.fromEntries(body.entries()) : null,
+    );
+    if (!query.success || !parsedBody.success || !(await options.service.unsubscribe({ token: query.data.token }))) {
       return reply.status(400).type("text/plain; charset=utf-8").send("Invalid unsubscribe request");
     }
 

@@ -50,7 +50,11 @@ export class OptionalEmailUnsubscribeTokenService {
     const unsigned = `${parts[0]}.${parts[1]}`;
     const expected = Buffer.from(this.#signatureFor(unsigned), "base64url");
     const actual = Buffer.from(encodedSignature, "base64url");
-    if (actual.byteLength !== expected.byteLength || !timingSafeEqual(actual, expected)) {
+    if (
+      actual.toString("base64url") !== encodedSignature ||
+      actual.byteLength !== expected.byteLength ||
+      !timingSafeEqual(actual, expected)
+    ) {
       return null;
     }
 

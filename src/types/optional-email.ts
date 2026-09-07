@@ -9,6 +9,10 @@ export enum OptionalEmailSuppressionReason {
   ProviderSuppressed = "provider_suppressed",
 }
 
+export enum OptionalEmailCategory {
+  SetupReminder = "optional_setup_reminder",
+}
+
 export enum OptionalEmailWebhookEventType {
   Bounced = "email.bounced",
   Complained = "email.complained",

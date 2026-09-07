@@ -14,6 +14,13 @@ import { createTestApp, type TestContext } from "../helpers/setup.js";
 const SECRET = Buffer.alloc(32, 7);
 const NOW = new Date("2026-09-06T12:00:00.000Z");
 
+function nonCanonicalSignatureAlias(token: string): string {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  const canonicalIndex = alphabet.indexOf(token.at(-1) ?? "");
+  assert.equal(canonicalIndex % 4, 0);
+  return `${token.slice(0, -1)}${alphabet[canonicalIndex + 1]}`;
+}
+
 describe("optional email unsubscribe token and headers", () => {
   it("rejects weak signing secrets and malformed user ids", () => {
     assert.throws(
@@ -127,7 +134,7 @@ describe("optional email unsubscribe routes", () => {
   it("rejects a tampered token and malformed one-click body without writing", async () => {
     const user = await ctx.createUser();
     const token = tokens.create({ userId: user.userId });
-    const tampered = `${token.slice(0, -1)}${token.endsWith("a") ? "b" : "a"}`;
+    const tampered = nonCanonicalSignatureAlias(token);
 
     const badToken = await app.inject({
       method: "POST",

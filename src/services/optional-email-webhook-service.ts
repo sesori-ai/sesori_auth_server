@@ -2,13 +2,12 @@ import { z } from "zod";
 import type { OptionalEmailPreferenceRepository } from "../repositories/optional-email-preference-repo.js";
 import type { OptionalEmailWebhookEventRepository } from "../repositories/optional-email-webhook-event-repo.js";
 import {
+  OptionalEmailCategory,
   OptionalEmailSuppressionReason,
   OptionalEmailWebhookEventType,
   OptionalEmailWebhookOutcome,
   OptionalEmailWebhookStatus,
 } from "../types/optional-email.js";
-
-const OPTIONAL_EMAIL_CATEGORY = "optional_setup_reminder";
 const webhookEventSchema = z
   .object({
     type: z.string().min(1).max(128),
@@ -70,7 +69,7 @@ export class OptionalEmailWebhookService {
     }
 
     const event = parsed.data;
-    const optionalEvent = event.data.tags?.category === OPTIONAL_EMAIL_CATEGORY;
+    const optionalEvent = event.data.tags?.category === OptionalEmailCategory.SetupReminder;
     const reason = this.#suppressionReason(event);
     if (!optionalEvent || !reason) {
       const inserted = await this.#eventRepo.recordProcessed({
@@ -105,12 +104,15 @@ export class OptionalEmailWebhookService {
     if (event.type === OptionalEmailWebhookEventType.Bounced && event.data.bounce?.type === "Permanent") {
       return OptionalEmailSuppressionReason.HardBounce;
     }
+
     if (event.type === OptionalEmailWebhookEventType.Complained) {
       return OptionalEmailSuppressionReason.Complaint;
     }
+
     if (event.type === OptionalEmailWebhookEventType.Suppressed) {
       return OptionalEmailSuppressionReason.ProviderSuppressed;
     }
+
     return null;
   }
 }
