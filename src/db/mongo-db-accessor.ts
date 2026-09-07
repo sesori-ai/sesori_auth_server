@@ -67,6 +67,13 @@ const DATABASE_CONFIG: Record<MongoDbDatabase, DatabaseConfig<string>> = {
       // One settings document per (user, device): the unique compound key both
       // enforces that invariant and serves the sole read path (findByUserAndDevice).
       [AuthDbCollection.SettingsConfiguration]: [{ spec: { userId: 1, deviceId: 1 }, options: { unique: true } }],
+      [AuthDbCollection.OptionalEmailPreferences]: [{ spec: { userId: 1 }, options: { unique: true } }],
+      [AuthDbCollection.OptionalEmailWebhookEvents]: [{ spec: { eventId: 1 }, options: { unique: true } }],
+      [AuthDbCollection.OptionalEmailSends]: [
+        { spec: { sendKey: 1 }, options: { unique: true } },
+        { spec: { providerEmailId: 1 }, options: { unique: true, sparse: true } },
+      ],
+      [AuthDbCollection.OptionalEmailDailyQuota]: [],
     },
   } satisfies DatabaseConfig<AuthDbCollection>,
 };
