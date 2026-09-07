@@ -2,6 +2,7 @@ import { z } from "zod";
 import { AsyncTranscriptionProvider, SonioxRegion } from "./types/transcription.js";
 import { clientIpSourceSchema, ClientIpSource, trustedIngressCidrsSchema } from "./types/client-ip.js";
 import { productAnalyticsPseudonymizationKeySchema } from "./types/product-analytics.js";
+import { OPTIONAL_EMAIL_MAX_DAILY_CAP, OptionalEmailRecipientBasis } from "./types/optional-email.js";
 
 const appleConfigSchema = z.object({
   APPLE_CLIENT_ID: z.string().min(1, "APPLE_CLIENT_ID is required"),
@@ -73,6 +74,29 @@ const baseConfigSchema = z.object({
   ACTIVATION_BRIDGE_REMINDER_2_DELAY_MS: z.coerce.number().int().positive().default(86_400_000),
   ACTIVATION_SESSION_REMINDER_DELAY_MS: z.coerce.number().int().positive().default(86_400_000),
   ACTIVATION_SWEEP_BATCH_LIMIT: z.coerce.number().int().positive().default(100),
+  OPTIONAL_EMAIL_SENDING_ENABLED: z
+    .union([z.literal("true"), z.literal("false"), z.literal("1"), z.literal("0")])
+    .optional()
+    .transform((value) => value === "true" || value === "1"),
+  OPTIONAL_EMAIL_TEST_SEND_ENABLED: z
+    .union([z.literal("true"), z.literal("false"), z.literal("1"), z.literal("0")])
+    .optional()
+    .transform((value) => value === "true" || value === "1"),
+  OPTIONAL_EMAIL_RECIPIENT_BASIS: z
+    .nativeEnum(OptionalEmailRecipientBasis)
+    .default(OptionalEmailRecipientBasis.Unapproved),
+  OPTIONAL_EMAIL_DAILY_CAP: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(OPTIONAL_EMAIL_MAX_DAILY_CAP)
+    .default(OPTIONAL_EMAIL_MAX_DAILY_CAP),
+  RESEND_API_KEY: z.string().min(1).optional(),
+  RESEND_WEBHOOK_SECRET: z.string().min(32).optional(),
+  OPTIONAL_EMAIL_UNSUBSCRIBE_SIGNING_SECRET: z.string().min(32).optional(),
+  RESEND_FROM: z.literal("Sesori <hello@updates.sesori.com>").default("Sesori <hello@updates.sesori.com>"),
+  RESEND_REPLY_TO: z.literal("hello@sesori.com").default("hello@sesori.com"),
+  RESEND_TEST_RECIPIENT: z.literal("alex@sesori.com").default("alex@sesori.com"),
   OPENAI_API_KEY: z.string().min(1, "OPENAI_API_KEY is required"),
   OPENAI_TRANSCRIPTION_MODEL: z.string().min(1).default("gpt-4o-mini-transcribe"),
   OPENAI_METADATA_MODEL: z.string().min(1).default("gpt-5-nano"),
@@ -168,6 +192,41 @@ const validatedConfigSchema = baseConfigSchema.superRefine((config, ctx) => {
       code: "custom",
       path: ["REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER"],
       message: "REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER cannot exceed REALTIME_MAX_CONCURRENT_SESSIONS",
+    });
+  }
+
+  if (
+    config.OPTIONAL_EMAIL_SENDING_ENABLED &&
+    config.OPTIONAL_EMAIL_RECIPIENT_BASIS !== OptionalEmailRecipientBasis.AccountActivityApproved
+  ) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["OPTIONAL_EMAIL_RECIPIENT_BASIS"],
+      message: "OPTIONAL_EMAIL_RECIPIENT_BASIS must be explicitly approved before sending",
+    });
+  }
+
+  if (config.OPTIONAL_EMAIL_SENDING_ENABLED) {
+    for (const key of [
+      "RESEND_API_KEY",
+      "RESEND_WEBHOOK_SECRET",
+      "OPTIONAL_EMAIL_UNSUBSCRIBE_SIGNING_SECRET",
+    ] as const) {
+      if (config[key] === undefined) {
+        ctx.addIssue({
+          code: "custom",
+          path: [key],
+          message: `${key} is required when optional email sending is enabled`,
+        });
+      }
+    }
+  }
+
+  if (config.OPTIONAL_EMAIL_TEST_SEND_ENABLED && !config.OPTIONAL_EMAIL_SENDING_ENABLED) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["OPTIONAL_EMAIL_TEST_SEND_ENABLED"],
+      message: "OPTIONAL_EMAIL_TEST_SEND_ENABLED requires OPTIONAL_EMAIL_SENDING_ENABLED",
     });
   }
 });

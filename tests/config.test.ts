@@ -367,6 +367,91 @@ function restoreEnv(name: string, value: string | undefined): void {
   process.env[name] = value;
 }
 
+describe("optional setup email configuration", () => {
+  it("defaults every send path off while pinning sender identity and free-plan headroom", () => {
+    const result = configSchema.safeParse(validEnv());
+
+    assert.equal(result.success, true);
+    if (!result.success) {
+      throw new Error("expected config parse success");
+    }
+
+    const config = result.data as Record<string, unknown>;
+    assert.equal(config.OPTIONAL_EMAIL_SENDING_ENABLED, false);
+    assert.equal(config.OPTIONAL_EMAIL_TEST_SEND_ENABLED, false);
+    assert.equal(config.OPTIONAL_EMAIL_RECIPIENT_BASIS, "unapproved");
+    assert.equal(config.RESEND_FROM, "Sesori <hello@updates.sesori.com>");
+    assert.equal(config.RESEND_REPLY_TO, "hello@sesori.com");
+    assert.equal(config.RESEND_TEST_RECIPIENT, "alex@sesori.com");
+    assert.equal(config.OPTIONAL_EMAIL_DAILY_CAP, 80);
+  });
+
+  it("fails closed when real sending lacks an approved recipient basis or safety secrets", () => {
+    const missingBasis = configSchema.safeParse(
+      validEnv({
+        OPTIONAL_EMAIL_SENDING_ENABLED: "true",
+        RESEND_API_KEY: "test-resend-key",
+        RESEND_WEBHOOK_SECRET: "whsec_test-webhook-secret-at-least-32",
+        OPTIONAL_EMAIL_UNSUBSCRIBE_SIGNING_SECRET: "test-unsubscribe-secret-at-least-32",
+      }),
+    );
+    assert.equal(missingBasis.success, false);
+    assert.ok(missingBasis.error?.issues.some((issue) => issue.path.includes("OPTIONAL_EMAIL_RECIPIENT_BASIS")));
+
+    const missingSecrets = configSchema.safeParse(
+      validEnv({
+        OPTIONAL_EMAIL_SENDING_ENABLED: "true",
+        OPTIONAL_EMAIL_RECIPIENT_BASIS: "account_activity_approved",
+      }),
+    );
+    assert.equal(missingSecrets.success, false);
+    for (const path of ["RESEND_API_KEY", "RESEND_WEBHOOK_SECRET", "OPTIONAL_EMAIL_UNSUBSCRIBE_SIGNING_SECRET"]) {
+      assert.ok(
+        missingSecrets.error?.issues.some((issue) => issue.path.includes(path)),
+        `missing ${path} issue`,
+      );
+    }
+  });
+
+  it("accepts an explicitly approved, fully configured sender without enabling the test path", () => {
+    const result = configSchema.safeParse(
+      validEnv({
+        OPTIONAL_EMAIL_SENDING_ENABLED: "true",
+        OPTIONAL_EMAIL_RECIPIENT_BASIS: "account_activity_approved",
+        RESEND_API_KEY: "test-resend-key",
+        RESEND_WEBHOOK_SECRET: "whsec_test-webhook-secret-at-least-32",
+        OPTIONAL_EMAIL_UNSUBSCRIBE_SIGNING_SECRET: "test-unsubscribe-secret-at-least-32",
+      }),
+    );
+
+    assert.equal(result.success, true);
+    if (!result.success) {
+      throw new Error("expected configured optional email sender");
+    }
+    const config = result.data as Record<string, unknown>;
+    assert.equal(config.OPTIONAL_EMAIL_SENDING_ENABLED, true);
+    assert.equal(config.OPTIONAL_EMAIL_TEST_SEND_ENABLED, false);
+  });
+
+  it("requires the global gate for the allowlisted test path and rejects drift from the approved recipient", () => {
+    const testWithoutGlobal = configSchema.safeParse(validEnv({ OPTIONAL_EMAIL_TEST_SEND_ENABLED: "true" }));
+    assert.equal(testWithoutGlobal.success, false);
+    assert.ok(testWithoutGlobal.error?.issues.some((issue) => issue.path.includes("OPTIONAL_EMAIL_TEST_SEND_ENABLED")));
+
+    const wrongRecipient = configSchema.safeParse(validEnv({ RESEND_TEST_RECIPIENT: "other@example.com" }));
+    assert.equal(wrongRecipient.success, false);
+  });
+
+  it("rejects non-literal switches, an unapproved basis, and a cap above the 80-send safety ceiling", () => {
+    for (const value of ["TRUE", "yes", "", " true", "2"]) {
+      assert.equal(configSchema.safeParse(validEnv({ OPTIONAL_EMAIL_SENDING_ENABLED: value })).success, false);
+    }
+    assert.equal(configSchema.safeParse(validEnv({ OPTIONAL_EMAIL_RECIPIENT_BASIS: "account_email" })).success, false);
+    assert.equal(configSchema.safeParse(validEnv({ OPTIONAL_EMAIL_DAILY_CAP: "81" })).success, false);
+    assert.equal(configSchema.safeParse(validEnv({ OPTIONAL_EMAIL_DAILY_CAP: "80" })).success, true);
+  });
+});
+
 describe("configSchema", () => {
   it("accepts the baseline environment", () => {
     assert.equal(configSchema.safeParse(validEnv()).success, true);

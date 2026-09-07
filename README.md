@@ -422,8 +422,62 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 | `ACTIVATION_BRIDGE_REMINDER_2_DELAY_MS` | Delay from the bridge reminder baseline to the second bridge reminder. Default `86400000` (24 hours).                                                                                        |
 | `ACTIVATION_SESSION_REMINDER_DELAY_MS` | Delay from the session reminder baseline to the first-session reminder. Default `86400000` (24 hours).                                                                                       |
 | `ACTIVATION_SWEEP_BATCH_LIMIT` | Maximum candidates queried per reminder kind per sweep. Default `100`; delivery is sequential, so raise only after measuring FCM latency.                                                    |
+| `OPTIONAL_EMAIL_SENDING_ENABLED` | Master switch for every real optional-email send. Default `false`. Credentials alone never enable sending. |
+| `OPTIONAL_EMAIL_TEST_SEND_ENABLED` | Additional gate for the one-recipient test command. Default `false`; startup validation requires the master switch too. |
+| `OPTIONAL_EMAIL_RECIPIENT_BASIS` | Recipient-basis decision: `unapproved` (default) or `account_activity_approved`. Sending fails closed unless the approved value is set after founder/legal/privacy review. |
+| `OPTIONAL_EMAIL_DAILY_CAP` | Atomic UTC-day reservation cap for optional emails. Default and hard maximum `80`, reserving 20 messages of headroom under Resend's 100/day free-plan allowance. |
+| `RESEND_API_KEY` | Resend API key. Optional while sending is off; required when the master switch is on. Store only in the SOPS-encrypted environment. |
+| `RESEND_WEBHOOK_SECRET` | Resend signing secret for `/webhooks/resend`. Optional while the route is not configured; required before sending. Store only in SOPS. |
+| `OPTIONAL_EMAIL_UNSUBSCRIBE_SIGNING_SECRET` | At least 32 characters of random signing material for durable no-login unsubscribe tokens. Optional while unconfigured; required before sending. Store only in SOPS. |
+| `RESEND_FROM` | Pinned sender identity. Default and only accepted value: `Sesori <hello@updates.sesori.com>`. This is configuration, not send authorization. |
+| `RESEND_REPLY_TO` | Pinned reply address. Default and only accepted value: `hello@sesori.com`. |
+| `RESEND_TEST_RECIPIENT` | Pinned test allowlist. Default and only accepted value: `alex@sesori.com`. |
 
 Relay reports to `POST /internal/bridge-status` must include the registered `bridgeId`; missing or malformed IDs are rejected with `400`.
+
+### Optional setup email foundation
+
+The Resend foundation is deliberately inert after deployment:
+
+- the auth server constructs no Resend send client and starts no email scheduler or bulk campaign;
+- `OPTIONAL_EMAIL_SENDING_ENABLED`, `OPTIONAL_EMAIL_TEST_SEND_ENABLED`, and the recipient basis all fail closed by default;
+- provider credentials do not imply recipient consent and do not enable sending;
+- optional-message opt-out/suppression state lives in MongoDB and is not a Resend audience/contact-list enrollment;
+- essential security/account mail must use a separate delivery policy and must never consult or overwrite optional-reminder preferences.
+
+Use `npm run env:edit` to add secret values to the SOPS-encrypted production environment. Do not place real values in README, `.env`, shell history, or Git. The non-secret shape is:
+
+```text
+OPTIONAL_EMAIL_SENDING_ENABLED=false
+OPTIONAL_EMAIL_TEST_SEND_ENABLED=false
+OPTIONAL_EMAIL_RECIPIENT_BASIS=unapproved
+OPTIONAL_EMAIL_DAILY_CAP=80
+RESEND_FROM=Sesori <hello@updates.sesori.com>
+RESEND_REPLY_TO=hello@sesori.com
+RESEND_TEST_RECIPIENT=alex@sesori.com
+RESEND_API_KEY=<SOPS-managed secret>
+RESEND_WEBHOOK_SECRET=<SOPS-managed secret>
+OPTIONAL_EMAIL_UNSUBSCRIBE_SIGNING_SECRET=<SOPS-managed random secret>
+```
+
+When their signing secrets are configured, the server exposes:
+
+- `GET /email/optional/unsubscribe?token=…` — no-login confirmation page;
+- `POST /email/optional/unsubscribe?token=…` — RFC 8058 one-click body `List-Unsubscribe=One-Click`;
+- `POST /webhooks/resend` — raw-body signature verification plus idempotent handling for permanent bounce, complaint, and provider suppression events.
+
+Every reminder send rechecks global policy, user existence, recipient uniqueness, Mongo opt-out/suppression, and the relevant activation milestone before reservation and again immediately before the provider call. Bridge reminders stop after `bridgeSetupAt`; first-session reminders require `bridgeSetupAt` and stop after `firstSessionAt`. Send history contains user/campaign/kind/provider IDs but no recipient address. Stable idempotency keys and the provider's idempotency header block duplicate acceptance; the local retry window is capped at 23 hours.
+
+Aggregate feasibility only (no addresses or user IDs in output, no writes, and no send path):
+
+```bash
+sops exec-env env/app/prod.env \
+  'npm run optional-email:dry-run -- --batch-limit 500'
+```
+
+The only executable send path is a single-recipient operator test. It additionally requires both send gates, the approved recipient-basis value, complete provider/signing configuration, an existing user whose sole normalized account address is the pinned test address, a unique operation slug, and the literal `SEND_ONE_TEST_EMAIL` confirmation. Do not run it until explicit send authorization is recorded. Inspect its arguments without configuration via `npm run optional-email:test-send -- --help`.
+
+Known atomicity boundary: Mongo reservation, the final eligibility check, the external Resend request, and the accepted-history update cannot be one transaction. An unsubscribe or milestone can land in the narrow interval after the final check but before the request. A process crash after Resend accepts a request but before Mongo records the provider ID leaves an in-flight row; automatic retries remain blocked rather than risking a duplicate, so operator reconciliation is required. Quota reservations are conservative and are not refunded after a later block or provider failure.
 
 ### Client IP source and rate limiting
 
@@ -855,6 +909,8 @@ the restricted target dataset/table and deletion identity exist.
 | `npm run export-product-analytics` | Run one isolated auth-private export using ADC (unscheduled until analytics IAM exists) |
 | `npm run suppress-product-analytics-export` | Read one protected suppression request from stdin and hand off a restricted deletion target |
 | `npm run purge-soniox-transcription` | Audit Soniox async residue; `-- --apply` deletes it. Reports counts only |
+| `npm run optional-email:dry-run` | Count setup-reminder segments/outcomes only; no addresses, writes, or send mode |
+| `npm run optional-email:test-send` | Guarded one-recipient test path; disabled by default and requires explicit authorization/config/confirmations |
 
 ## Project structure
 

@@ -50,6 +50,7 @@ import { AppClientPresenceService } from "./services/app-client-presence-service
 import { ProductAnalyticsPreferenceService } from "./services/product-analytics-preference-service.js";
 import { SettingsService } from "./services/settings-service.js";
 import { createShutdownHandler } from "./shutdown.js";
+import { createOptionalEmailRouteServices } from "./optional-email-composition.js";
 
 async function main() {
   const config = loadConfig();
@@ -69,6 +70,12 @@ async function main() {
   });
 
   const dbAccessor = new MongoDbAccessor(dbConnector);
+
+  const optionalEmail = createOptionalEmailRouteServices({
+    dbAccessor,
+    unsubscribeSigningSecret: config.OPTIONAL_EMAIL_UNSUBSCRIBE_SIGNING_SECRET,
+    webhookSigningSecret: config.RESEND_WEBHOOK_SECRET,
+  });
 
   console.log("Creating indexes...");
   await dbAccessor.ensureIndexes();
@@ -270,6 +277,7 @@ async function main() {
     appleNativeVerifier,
     pendingAuthStore,
     productAnalyticsPreferenceService,
+    optionalEmail,
     realtime,
   });
 
