@@ -9,6 +9,24 @@ import {
   productAnalyticsPreferenceSchema,
 } from "../types/product-analytics.js";
 import { normalizedGlossaryWordSchema, projectGlossaryScopeSchema } from "./voice.js";
+import {
+  OptionalEmailReminderKind,
+  OptionalEmailSendBlockReason,
+  OptionalEmailSendDeferralReason,
+  OptionalEmailSendStatus,
+  OptionalEmailSuppressionReason,
+} from "../types/optional-email.js";
+
+const utcCalendarDateSchema = z.string().refine(
+  (value) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return false;
+    }
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  },
+  { message: "must be a valid UTC calendar date" },
+);
 
 export const userSchema = z.object({
   _id: z.instanceof(ObjectId),
@@ -152,3 +170,59 @@ export const settingsConfigurationSchema = z.object({
 });
 
 export type SettingsConfiguration = z.infer<typeof settingsConfigurationSchema>;
+
+/**
+ * Optional setup/reactivation mail only. This state must never gate password,
+ * security, deletion, or other essential account messages.
+ */
+export const optionalEmailPreferenceSchema = z.object({
+  _id: z.instanceof(ObjectId),
+  userId: z.instanceof(ObjectId),
+  unsubscribedAt: z.date().optional(),
+  suppressedAt: z.date().optional(),
+  suppressionReason: z.nativeEnum(OptionalEmailSuppressionReason).optional(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
+export type OptionalEmailPreference = z.infer<typeof optionalEmailPreferenceSchema>;
+
+export const optionalEmailWebhookEventSchema = z.object({
+  _id: z.instanceof(ObjectId),
+  eventId: z.string().min(1).max(256),
+  eventType: z.string().min(1).max(128),
+  processedAt: z.date(),
+});
+
+export type OptionalEmailWebhookEvent = z.infer<typeof optionalEmailWebhookEventSchema>;
+
+export const optionalEmailSendSchema = z.object({
+  _id: z.instanceof(ObjectId),
+  sendKey: z.string().min(1).max(256),
+  userId: z.instanceof(ObjectId),
+  campaignId: z.string().min(1).max(64),
+  reminderKind: z.nativeEnum(OptionalEmailReminderKind),
+  status: z.nativeEnum(OptionalEmailSendStatus),
+  activeLeaseId: z.instanceof(ObjectId).optional(),
+  attemptCount: z.number().int().nonnegative(),
+  firstProviderAttemptAt: z.date().optional(),
+  lastProviderAttemptAt: z.date().optional(),
+  providerEmailId: z.string().min(1).max(256).optional(),
+  acceptedAt: z.date().optional(),
+  lastFailureCode: z.string().min(1).max(64).optional(),
+  lastBlockReason: z.nativeEnum(OptionalEmailSendBlockReason).optional(),
+  lastDeferralReason: z.nativeEnum(OptionalEmailSendDeferralReason).optional(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
+export type OptionalEmailSend = z.infer<typeof optionalEmailSendSchema>;
+
+export const optionalEmailDailyQuotaSchema = z.object({
+  _id: utcCalendarDateSchema,
+  used: z.number().int().nonnegative(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
+export type OptionalEmailDailyQuota = z.infer<typeof optionalEmailDailyQuotaSchema>;

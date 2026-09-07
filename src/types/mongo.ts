@@ -12,4 +12,8 @@ export enum AuthDbCollection {
   Bridges = "bridges",
   ActivationStates = "activationStates",
   SettingsConfiguration = "settingsConfiguration",
+  OptionalEmailPreferences = "optionalEmailPreferences",
+  OptionalEmailWebhookEvents = "optionalEmailWebhookEvents",
+  OptionalEmailSends = "optionalEmailSends",
+  OptionalEmailDailyQuota = "optionalEmailDailyQuota",
 }
