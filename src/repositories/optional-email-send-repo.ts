@@ -178,6 +178,12 @@ export class OptionalEmailSendRepository {
         return { status: OptionalEmailSendReservationOutcome.Duplicate, send: raced };
       }
       if (existing.status === OptionalEmailSendStatus.DeferredDailyLimit) {
+        if (existing.firstProviderAttemptAt) {
+          const retryAgeMs = input.at.getTime() - existing.firstProviderAttemptAt.getTime();
+          if (retryAgeMs < 0 || retryAgeMs > OPTIONAL_EMAIL_PROVIDER_IDEMPOTENCY_SAFETY_WINDOW_MS) {
+            return { status: OptionalEmailSendReservationOutcome.RetryExpired, send: existing };
+          }
+        }
         const reclaimedLeaseId = new ObjectId();
         const reclaimed = await this.#collection.findOneAndUpdate(
           { _id: existing._id, status: OptionalEmailSendStatus.DeferredDailyLimit },
@@ -223,11 +229,20 @@ export class OptionalEmailSendRepository {
     ) {
       return false;
     }
+    const earliestLeaseAt = new Date(input.at.getTime() - OPTIONAL_EMAIL_RESERVATION_LEASE_MS);
+    const earliestProviderAttemptAt = new Date(
+      input.at.getTime() - OPTIONAL_EMAIL_PROVIDER_IDEMPOTENCY_SAFETY_WINDOW_MS,
+    );
     const result = await this.#collection.updateOne(
       {
         sendKey: input.sendKey,
         status: OptionalEmailSendStatus.Reserved,
         activeLeaseId: new ObjectId(input.leaseId),
+        updatedAt: { $gte: earliestLeaseAt, $lte: input.at },
+        $or: [
+          { firstProviderAttemptAt: { $exists: false } },
+          { firstProviderAttemptAt: { $gte: earliestProviderAttemptAt, $lte: input.at } },
+        ],
       },
       [
         {

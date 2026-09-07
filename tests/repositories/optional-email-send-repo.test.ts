@@ -123,6 +123,72 @@ describe("OptionalEmailSendRepository", () => {
     assert.equal(claimed?.attemptCount, 1);
   });
 
+  it("rejects a reservation lease that expires before provider start", async () => {
+    const user = await ctx.createUser();
+    const input = {
+      sendKey: "setup:bridge:user-expired-reservation-lease:v1",
+      userId: user.userId,
+      campaignId: "setup-reminders-2026-09",
+      reminderKind: OptionalEmailReminderKind.BridgeSetup,
+      at: NOW,
+    };
+
+    const reservation = await repo.reserve(input);
+    assert.equal(reservation.status, OptionalEmailSendReservationOutcome.Reserved);
+    assert.equal(
+      await repo.markInFlight({
+        sendKey: input.sendKey,
+        leaseId: reservation.leaseId,
+        at: new Date(NOW.getTime() + OPTIONAL_EMAIL_RESERVATION_LEASE_MS + 1),
+      }),
+      false,
+    );
+
+    const stored = await repo.findBySendKey({ sendKey: input.sendKey });
+    assert.equal(stored?.status, OptionalEmailSendStatus.Reserved);
+    assert.equal(stored?.attemptCount, 0);
+  });
+
+  it("rejects a retry lease that crosses the provider idempotency window before provider start", async () => {
+    const user = await ctx.createUser();
+    const input = {
+      sendKey: "setup:bridge:user-retry-crosses-provider-window:v1",
+      userId: user.userId,
+      campaignId: "setup-reminders-2026-09",
+      reminderKind: OptionalEmailReminderKind.BridgeSetup,
+      at: NOW,
+    };
+
+    const initial = await repo.reserve(input);
+    assert.equal(initial.status, OptionalEmailSendReservationOutcome.Reserved);
+    assert.equal(await repo.markInFlight({ sendKey: input.sendKey, leaseId: initial.leaseId, at: NOW }), true);
+    assert.equal(
+      await repo.markFailed({
+        sendKey: input.sendKey,
+        leaseId: initial.leaseId,
+        failureCode: "timeout",
+        at: NOW,
+      }),
+      true,
+    );
+
+    const retryAt = new Date(NOW.getTime() + OPTIONAL_EMAIL_PROVIDER_IDEMPOTENCY_SAFETY_WINDOW_MS - 1);
+    const retry = await repo.reserve({ ...input, at: retryAt });
+    assert.equal(retry.status, OptionalEmailSendReservationOutcome.Reserved);
+    assert.equal(
+      await repo.markInFlight({
+        sendKey: input.sendKey,
+        leaseId: retry.leaseId,
+        at: new Date(NOW.getTime() + OPTIONAL_EMAIL_PROVIDER_IDEMPOTENCY_SAFETY_WINDOW_MS + 1),
+      }),
+      false,
+    );
+
+    const stored = await repo.findBySendKey({ sendKey: input.sendKey });
+    assert.equal(stored?.status, OptionalEmailSendStatus.Reserved);
+    assert.equal(stored?.attemptCount, 1);
+  });
+
   it("persists only enum-backed block reasons", async () => {
     const user = await ctx.createUser();
     const input = {
@@ -369,5 +435,44 @@ describe("OptionalEmailSendRepository", () => {
     });
     assert.equal(expired.status, OptionalEmailSendReservationOutcome.RetryExpired);
     assert.equal(expired.send.status, OptionalEmailSendStatus.Failed);
+  });
+
+  it("expires a daily-limit deferral that follows a provider attempt", async () => {
+    const user = await ctx.createUser();
+    const input = {
+      sendKey: "setup:first_session:user-deferred-after-failure:v1",
+      userId: user.userId,
+      campaignId: "setup-reminders-2026-09",
+      reminderKind: OptionalEmailReminderKind.FirstSession,
+      at: NOW,
+    };
+
+    const initial = await repo.reserve(input);
+    assert.equal(initial.status, OptionalEmailSendReservationOutcome.Reserved);
+    assert.equal(await repo.markInFlight({ sendKey: input.sendKey, leaseId: initial.leaseId, at: NOW }), true);
+    assert.equal(
+      await repo.markFailed({
+        sendKey: input.sendKey,
+        leaseId: initial.leaseId,
+        failureCode: "timeout",
+        at: NOW,
+      }),
+      true,
+    );
+
+    const retryAt = new Date(NOW.getTime() + 60_000);
+    const retry = await repo.reserve({ ...input, at: retryAt });
+    assert.equal(retry.status, OptionalEmailSendReservationOutcome.Reserved);
+    assert.equal(
+      await repo.markDeferredForDailyLimit({ sendKey: input.sendKey, leaseId: retry.leaseId, at: retryAt }),
+      true,
+    );
+
+    const expired = await repo.reserve({
+      ...input,
+      at: new Date(NOW.getTime() + OPTIONAL_EMAIL_PROVIDER_IDEMPOTENCY_SAFETY_WINDOW_MS + 1),
+    });
+    assert.equal(expired.status, OptionalEmailSendReservationOutcome.RetryExpired);
+    assert.equal(expired.send.status, OptionalEmailSendStatus.DeferredDailyLimit);
   });
 });
