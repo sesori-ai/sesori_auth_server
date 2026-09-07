@@ -28,6 +28,7 @@
     "export-product-analytics": "tsx src/scripts/export-product-analytics.ts",
     "suppress-product-analytics-export": "tsx src/scripts/suppress-product-analytics-export.ts",
     "purge-soniox-transcription": "tsx src/scripts/purge-soniox-transcription.ts",
+    "optional-email:dry-run": "tsx src/scripts/dry-run-setup-reminders.ts",
     "circular-dependencies": "madge --circular --ts-config ./tsconfig.json ./src/index.ts"
   },
   "dependencies": {

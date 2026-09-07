@@ -3,6 +3,26 @@ export enum OptionalEmailRecipientBasis {
   AccountActivityApproved = "account_activity_approved",
 }
 
+export enum OptionalEmailDryRunMode {
+  DryRun = "dry_run",
+}
+
+export enum OptionalEmailRecipientStatus {
+  Unique = "unique",
+  MissingUser = "missing_user",
+  MissingRecipient = "missing_recipient",
+  AmbiguousRecipient = "ambiguous_recipient",
+}
+
+export type OptionalEmailRecipientResolution =
+  | { status: OptionalEmailRecipientStatus.Unique; email: string }
+  | {
+      status:
+        | OptionalEmailRecipientStatus.MissingUser
+        | OptionalEmailRecipientStatus.MissingRecipient
+        | OptionalEmailRecipientStatus.AmbiguousRecipient;
+    };
+
 export enum OptionalEmailSuppressionReason {
   HardBounce = "hard_bounce",
   Complaint = "complaint",

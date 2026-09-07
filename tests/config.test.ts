@@ -404,6 +404,44 @@ describe("optional email safety ingress configuration", () => {
   });
 });
 
+describe("optional email eligibility configuration", () => {
+  it("defaults sending off with no approved recipient basis and bounded daily headroom", () => {
+    const result = configSchema.safeParse(validEnv());
+
+    assert.equal(result.success, true);
+    if (!result.success) {
+      throw new Error("expected baseline config parse success");
+    }
+
+    const config = result.data as Record<string, unknown>;
+    assert.equal(config.OPTIONAL_EMAIL_SENDING_ENABLED, false);
+    assert.equal(config.OPTIONAL_EMAIL_RECIPIENT_BASIS, "unapproved");
+    assert.equal(config.OPTIONAL_EMAIL_DAILY_CAP, 80);
+  });
+
+  it("requires an explicitly approved basis whenever sending is enabled", () => {
+    const unapproved = configSchema.safeParse(validEnv({ OPTIONAL_EMAIL_SENDING_ENABLED: "true" }));
+    assert.equal(unapproved.success, false);
+    assert.ok(unapproved.error?.issues.some((issue) => issue.path.includes("OPTIONAL_EMAIL_RECIPIENT_BASIS")));
+
+    const approved = configSchema.safeParse(
+      validEnv({
+        OPTIONAL_EMAIL_SENDING_ENABLED: "true",
+        OPTIONAL_EMAIL_RECIPIENT_BASIS: "account_activity_approved",
+      }),
+    );
+    assert.equal(approved.success, true);
+    assert.equal(approved.data?.OPTIONAL_EMAIL_SENDING_ENABLED, true);
+
+    for (const value of ["TRUE", "yes", "", " true", "2"]) {
+      assert.equal(configSchema.safeParse(validEnv({ OPTIONAL_EMAIL_SENDING_ENABLED: value })).success, false);
+    }
+    assert.equal(configSchema.safeParse(validEnv({ OPTIONAL_EMAIL_RECIPIENT_BASIS: "account_email" })).success, false);
+    assert.equal(configSchema.safeParse(validEnv({ OPTIONAL_EMAIL_DAILY_CAP: "81" })).success, false);
+    assert.equal(configSchema.safeParse(validEnv({ OPTIONAL_EMAIL_DAILY_CAP: "80" })).success, true);
+  });
+});
+
 describe("configSchema", () => {
   it("accepts the baseline environment", () => {
     assert.equal(configSchema.safeParse(validEnv()).success, true);

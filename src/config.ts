@@ -3,6 +3,7 @@ import { AsyncTranscriptionProvider, SonioxRegion } from "./types/transcription.
 import { clientIpSourceSchema, ClientIpSource, trustedIngressCidrsSchema } from "./types/client-ip.js";
 import { productAnalyticsPseudonymizationKeySchema } from "./types/product-analytics.js";
 import { isValidResendWebhookSigningSecret } from "./services/resend-webhook-verifier.js";
+import { OPTIONAL_EMAIL_MAX_DAILY_CAP, OptionalEmailRecipientBasis } from "./types/optional-email.js";
 
 const appleConfigSchema = z.object({
   APPLE_CLIENT_ID: z.string().min(1, "APPLE_CLIENT_ID is required"),
@@ -74,6 +75,19 @@ const baseConfigSchema = z.object({
   ACTIVATION_BRIDGE_REMINDER_2_DELAY_MS: z.coerce.number().int().positive().default(86_400_000),
   ACTIVATION_SESSION_REMINDER_DELAY_MS: z.coerce.number().int().positive().default(86_400_000),
   ACTIVATION_SWEEP_BATCH_LIMIT: z.coerce.number().int().positive().default(100),
+  OPTIONAL_EMAIL_SENDING_ENABLED: z
+    .union([z.literal("true"), z.literal("false"), z.literal("1"), z.literal("0")])
+    .optional()
+    .transform((value) => value === "true" || value === "1"),
+  OPTIONAL_EMAIL_RECIPIENT_BASIS: z
+    .nativeEnum(OptionalEmailRecipientBasis)
+    .default(OptionalEmailRecipientBasis.Unapproved),
+  OPTIONAL_EMAIL_DAILY_CAP: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(OPTIONAL_EMAIL_MAX_DAILY_CAP)
+    .default(OPTIONAL_EMAIL_MAX_DAILY_CAP),
   RESEND_WEBHOOK_SECRET: z
     .string()
     .refine(isValidResendWebhookSigningSecret, "RESEND_WEBHOOK_SECRET must be a valid Svix signing secret")
@@ -180,6 +194,17 @@ const validatedConfigSchema = baseConfigSchema.superRefine((config, ctx) => {
       code: "custom",
       path: ["REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER"],
       message: "REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER cannot exceed REALTIME_MAX_CONCURRENT_SESSIONS",
+    });
+  }
+
+  if (
+    config.OPTIONAL_EMAIL_SENDING_ENABLED &&
+    config.OPTIONAL_EMAIL_RECIPIENT_BASIS !== OptionalEmailRecipientBasis.AccountActivityApproved
+  ) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["OPTIONAL_EMAIL_RECIPIENT_BASIS"],
+      message: "OPTIONAL_EMAIL_RECIPIENT_BASIS must be explicitly approved before sending",
     });
   }
 });
