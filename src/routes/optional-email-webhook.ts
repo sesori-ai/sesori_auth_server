@@ -27,7 +27,7 @@ export const optionalEmailWebhookRoutes: FastifyPluginAsync<OptionalEmailWebhook
     (_request, body, done) => done(null, body),
   );
 
-  app.post("/webhooks/resend", async (request, reply) => {
+  app.post("/webhooks/resend", { config: { rateLimit: false } }, async (request, reply) => {
     reply.header("Cache-Control", "no-store");
     const messageId = request.headers["svix-id"];
     const timestamp = request.headers["svix-timestamp"];

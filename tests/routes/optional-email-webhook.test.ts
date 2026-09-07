@@ -114,6 +114,10 @@ describe("POST /webhooks/resend", () => {
 
       assert.equal(response.statusCode, 503);
       assert.equal(response.headers["retry-after"], "60");
+      assert.equal(
+        await new OptionalEmailWebhookEventRepository(ctx.dbAccessor).wasProcessed({ eventId: messageId }),
+        false,
+      );
     } finally {
       await retryApp.close();
     }
@@ -128,6 +132,18 @@ describe("POST /webhooks/resend", () => {
     assert.equal(
       await new OptionalEmailWebhookEventRepository(ctx.dbAccessor).wasProcessed({ eventId: messageId }),
       false,
+    );
+  });
+
+  it("acknowledges and records a signed Svix ping control event as ignored", async () => {
+    const rawBody = JSON.stringify({ event_type: "ping", data: { success: true } });
+    const messageId = "msg_route_ping_1";
+    const response = await injectSigned({ app, rawBody, messageId });
+
+    assert.equal(response.statusCode, 204);
+    assert.equal(
+      await new OptionalEmailWebhookEventRepository(ctx.dbAccessor).wasProcessed({ eventId: messageId }),
+      true,
     );
   });
 

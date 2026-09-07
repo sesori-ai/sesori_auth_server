@@ -8,9 +8,20 @@ import {
   OptionalEmailWebhookOutcome,
   OptionalEmailWebhookStatus,
 } from "../types/optional-email.js";
+
+const webhookEventTypeSchema = z.string().min(1).max(128);
+const webhookEnvelopeSchema = z
+  .object({
+    type: webhookEventTypeSchema.optional(),
+    event_type: webhookEventTypeSchema.optional(),
+  })
+  .passthrough()
+  .refine((event) => event.type !== undefined || event.event_type !== undefined)
+  .transform((event) => event.type ?? event.event_type!);
+
 const webhookEventSchema = z
   .object({
-    type: z.string().min(1).max(128),
+    type: webhookEventTypeSchema,
     data: z
       .object({
         email_id: z.string().min(1).max(256),
@@ -23,6 +34,14 @@ const webhookEventSchema = z
       .passthrough(),
   })
   .passthrough();
+
+function isSuppressionEventType(eventType: string): eventType is OptionalEmailWebhookEventType {
+  return (
+    eventType === OptionalEmailWebhookEventType.Bounced ||
+    eventType === OptionalEmailWebhookEventType.Complained ||
+    eventType === OptionalEmailWebhookEventType.Suppressed
+  );
+}
 
 export interface OptionalEmailSendHistoryLookup {
   findUserIdByProviderEmailId(input: { providerEmailId: string }): Promise<string | null>;
@@ -63,23 +82,25 @@ export class OptionalEmailWebhookService {
       return { status: OptionalEmailWebhookStatus.Replayed };
     }
 
+    const envelope = webhookEnvelopeSchema.safeParse(input.event);
+    if (!envelope.success) {
+      throw new InvalidResendWebhookEventError();
+    }
+
     const parsed = webhookEventSchema.safeParse(input.event);
     if (!parsed.success) {
-      throw new InvalidResendWebhookEventError();
+      if (isSuppressionEventType(envelope.data)) {
+        throw new InvalidResendWebhookEventError();
+      }
+
+      return this.#recordIgnored({ eventId: input.eventId, eventType: envelope.data });
     }
 
     const event = parsed.data;
     const optionalEvent = event.data.tags?.category === OptionalEmailCategory.SetupReminder;
     const reason = this.#suppressionReason(event);
     if (!optionalEvent || !reason) {
-      const inserted = await this.#eventRepo.recordProcessed({
-        eventId: input.eventId,
-        eventType: event.type,
-        processedAt: this.#clock(),
-      });
-      return inserted
-        ? { status: OptionalEmailWebhookStatus.Processed, outcome: OptionalEmailWebhookOutcome.Ignored }
-        : { status: OptionalEmailWebhookStatus.Replayed };
+      return this.#recordIgnored({ eventId: input.eventId, eventType: event.type });
     }
 
     const userId = await this.#sendHistory.findUserIdByProviderEmailId({
@@ -97,6 +118,16 @@ export class OptionalEmailWebhookService {
     });
     return inserted
       ? { status: OptionalEmailWebhookStatus.Processed, outcome: OptionalEmailWebhookOutcome.Suppressed }
+      : { status: OptionalEmailWebhookStatus.Replayed };
+  }
+
+  async #recordIgnored(input: { eventId: string; eventType: string }): Promise<OptionalEmailWebhookResult> {
+    const inserted = await this.#eventRepo.recordProcessed({
+      ...input,
+      processedAt: this.#clock(),
+    });
+    return inserted
+      ? { status: OptionalEmailWebhookStatus.Processed, outcome: OptionalEmailWebhookOutcome.Ignored }
       : { status: OptionalEmailWebhookStatus.Replayed };
   }
 

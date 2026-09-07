@@ -11,8 +11,9 @@ function decodeCanonicalBase64(value: string): Buffer | null {
   }
 
   const decoded = Buffer.from(value, "base64");
-  const canonical = decoded.toString("base64").replace(/=+$/u, "");
-  return canonical === value.replace(/=+$/u, "") ? decoded : null;
+  const canonical = decoded.toString("base64");
+  const unpaddedCanonical = canonical.replace(/=+$/u, "");
+  return value === canonical || value === unpaddedCanonical ? decoded : null;
 }
 
 function decodeSigningSecret(signingSecret: string): Buffer | null {

@@ -37,7 +37,17 @@ describe("optional email server wiring", () => {
     }
   });
 
-  it("registers the Resend webhook route only when its verifier and handler are configured", async () => {
+  it("leaves the Resend webhook route absent by default", async () => {
+    const context = await createTestApp();
+    try {
+      const response = await context.app.inject({ method: "POST", url: "/webhooks/resend" });
+      assert.equal(response.statusCode, 404);
+    } finally {
+      await context.cleanup();
+    }
+  });
+
+  it("exempts configured webhook callbacks from the global client-IP limiter", async () => {
     const verifier = {
       verify: () => ({ type: "email.sent", data: { email_id: "provider-id" } }),
     } as unknown as ResendWebhookVerifier;
@@ -48,19 +58,26 @@ describe("optional email server wiring", () => {
       optionalEmail: { webhook: { verifier, service } },
     });
     try {
-      const response = await context.app.inject({
-        method: "POST",
-        url: "/webhooks/resend",
-        headers: {
-          "content-type": "application/json",
-          "svix-id": "msg_test",
-          "svix-timestamp": "1",
-          "svix-signature": "v1,test",
-        },
-        payload: '{"type":"email.sent"}',
-      });
-
-      assert.equal(response.statusCode, 204);
+      const responses = await Promise.all(
+        Array.from({ length: 101 }, (_, index) =>
+          context.app.inject({
+            method: "POST",
+            url: "/webhooks/resend",
+            remoteAddress: "203.0.113.7",
+            headers: {
+              "content-type": "application/json",
+              "svix-id": `msg_test_${index}`,
+              "svix-timestamp": "1",
+              "svix-signature": "v1,test",
+            },
+            payload: '{"type":"email.sent"}',
+          }),
+        ),
+      );
+      assert.equal(
+        responses.every((response) => response.statusCode === 204),
+        true,
+      );
     } finally {
       await context.cleanup();
     }

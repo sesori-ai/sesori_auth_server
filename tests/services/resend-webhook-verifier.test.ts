@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { describe, it } from "node:test";
-import { ResendWebhookVerifier } from "../../src/services/resend-webhook-verifier.js";
+import {
+  isValidResendWebhookSigningSecret,
+  ResendWebhookVerifier,
+} from "../../src/services/resend-webhook-verifier.js";
 
 const DOCUMENTED_SECRET = "whsec_plJ3nmyCDGBKInavdOK15jsl";
 const DOCUMENTED_PAYLOAD = '{"event_type":"ping","data":{"success":true}}';
@@ -17,6 +20,13 @@ function signatureFor(rawBody: string): string {
 }
 
 describe("ResendWebhookVerifier", () => {
+  it("rejects partial base64 padding while accepting canonical padded or unpadded secrets", () => {
+    const padded = Buffer.alloc(16, 9).toString("base64");
+    assert.equal(isValidResendWebhookSigningSecret(`whsec_${padded}`), true);
+    assert.equal(isValidResendWebhookSigningSecret(`whsec_${padded.replace(/=+$/u, "")}`), true);
+    assert.equal(isValidResendWebhookSigningSecret(`whsec_${padded.slice(0, -1)}`), false);
+  });
+
   it("accepts the published vector at the time boundary and rejects a modified raw body", () => {
     const verifier = new ResendWebhookVerifier({
       signingSecret: DOCUMENTED_SECRET,
