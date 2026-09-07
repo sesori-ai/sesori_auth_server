@@ -12,6 +12,7 @@ import { normalizedGlossaryWordSchema, projectGlossaryScopeSchema } from "./voic
 import {
   OptionalEmailReminderKind,
   OptionalEmailSendBlockReason,
+  OptionalEmailSendDeferralReason,
   OptionalEmailSendStatus,
   OptionalEmailSuppressionReason,
 } from "../types/optional-email.js";
@@ -210,7 +211,7 @@ export const optionalEmailSendSchema = z.object({
   acceptedAt: z.date().optional(),
   lastFailureCode: z.string().min(1).max(64).optional(),
   lastBlockReason: z.nativeEnum(OptionalEmailSendBlockReason).optional(),
-  lastDeferralReason: z.string().min(1).max(64).optional(),
+  lastDeferralReason: z.nativeEnum(OptionalEmailSendDeferralReason).optional(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });

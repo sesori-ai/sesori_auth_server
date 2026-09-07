@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { ObjectId } from "mongodb";
+import { optionalEmailSendSchema } from "../../src/models/documents.js";
 import { OptionalEmailSendRepository } from "../../src/repositories/optional-email-send-repo.js";
 import {
   OPTIONAL_EMAIL_PROVIDER_IDEMPOTENCY_SAFETY_WINDOW_MS,
   OPTIONAL_EMAIL_RESERVATION_LEASE_MS,
   OptionalEmailReminderKind,
   OptionalEmailSendBlockReason,
+  OptionalEmailSendDeferralReason,
   OptionalEmailSendReservationOutcome,
   OptionalEmailSendStatus,
 } from "../../src/types/optional-email.js";
@@ -304,7 +306,10 @@ describe("OptionalEmailSendRepository", () => {
 
     const deferred = await repo.findBySendKey({ sendKey: input.sendKey });
     assert.equal(deferred?.status, OptionalEmailSendStatus.DeferredDailyLimit);
+    assert.equal(deferred?.lastDeferralReason, OptionalEmailSendDeferralReason.DailyLimit);
     assert.equal(deferred?.activeLeaseId, undefined);
+    assert.ok(deferred);
+    assert.equal(optionalEmailSendSchema.safeParse({ ...deferred, lastDeferralReason: "quota_typo" }).success, false);
     const retry = await repo.reserve({ ...input, at: new Date(NOW.getTime() + 1_000) });
     assert.equal(retry.status, OptionalEmailSendReservationOutcome.Reserved);
     assert.notEqual(retry.leaseId, initial.leaseId);

@@ -29,6 +29,10 @@ export enum OptionalEmailSendBlockReason {
   RetryWindowExpired = "retry_window_expired",
 }
 
+export enum OptionalEmailSendDeferralReason {
+  DailyLimit = "daily_limit",
+}
+
 export enum OptionalEmailReminderKind {
   BridgeSetup = "bridge_setup",
   FirstSession = "first_session",

@@ -7,6 +7,7 @@ import {
   OPTIONAL_EMAIL_RESERVATION_LEASE_MS,
   OptionalEmailReminderKind,
   OptionalEmailSendBlockReason,
+  OptionalEmailSendDeferralReason,
   OptionalEmailSendReservationOutcome,
   OptionalEmailSendStatus,
 } from "../types/optional-email.js";
@@ -74,11 +75,8 @@ export class OptionalEmailSendRepository {
         if (reservationAgeMs < 0 || reservationAgeMs <= OPTIONAL_EMAIL_RESERVATION_LEASE_MS) {
           return { status: OptionalEmailSendReservationOutcome.Duplicate, send: existing };
         }
-        if (existing.firstProviderAttemptAt) {
-          const retryAgeMs = input.at.getTime() - existing.firstProviderAttemptAt.getTime();
-          if (retryAgeMs < 0 || retryAgeMs > OPTIONAL_EMAIL_PROVIDER_IDEMPOTENCY_SAFETY_WINDOW_MS) {
-            return { status: OptionalEmailSendReservationOutcome.RetryExpired, send: existing };
-          }
+        if (this.#providerRetryExpired(existing, input.at)) {
+          return { status: OptionalEmailSendReservationOutcome.RetryExpired, send: existing };
         }
         const reclaimedLeaseId = new ObjectId();
         const reclaimed = await this.#collection.findOneAndUpdate(
@@ -110,10 +108,7 @@ export class OptionalEmailSendRepository {
         if (leaseAgeMs < 0 || leaseAgeMs <= OPTIONAL_EMAIL_RESERVATION_LEASE_MS) {
           return { status: OptionalEmailSendReservationOutcome.Duplicate, send: existing };
         }
-        const firstAttemptMs = existing.firstProviderAttemptAt?.getTime();
-        const retryAgeMs =
-          firstAttemptMs === undefined ? Number.POSITIVE_INFINITY : input.at.getTime() - firstAttemptMs;
-        if (retryAgeMs < 0 || retryAgeMs > OPTIONAL_EMAIL_PROVIDER_IDEMPOTENCY_SAFETY_WINDOW_MS) {
+        if (!existing.firstProviderAttemptAt || this.#providerRetryExpired(existing, input.at)) {
           return { status: OptionalEmailSendReservationOutcome.RetryExpired, send: existing };
         }
         const reclaimedLeaseId = new ObjectId();
@@ -146,10 +141,7 @@ export class OptionalEmailSendRepository {
         return { status: OptionalEmailSendReservationOutcome.Duplicate, send: raced };
       }
       if (existing.status === OptionalEmailSendStatus.Failed) {
-        const firstAttemptMs = existing.firstProviderAttemptAt?.getTime();
-        const retryAgeMs =
-          firstAttemptMs === undefined ? Number.POSITIVE_INFINITY : input.at.getTime() - firstAttemptMs;
-        if (retryAgeMs < 0 || retryAgeMs > OPTIONAL_EMAIL_PROVIDER_IDEMPOTENCY_SAFETY_WINDOW_MS) {
+        if (!existing.firstProviderAttemptAt || this.#providerRetryExpired(existing, input.at)) {
           return { status: OptionalEmailSendReservationOutcome.RetryExpired, send: existing };
         }
         const reclaimedLeaseId = new ObjectId();
@@ -178,11 +170,8 @@ export class OptionalEmailSendRepository {
         return { status: OptionalEmailSendReservationOutcome.Duplicate, send: raced };
       }
       if (existing.status === OptionalEmailSendStatus.DeferredDailyLimit) {
-        if (existing.firstProviderAttemptAt) {
-          const retryAgeMs = input.at.getTime() - existing.firstProviderAttemptAt.getTime();
-          if (retryAgeMs < 0 || retryAgeMs > OPTIONAL_EMAIL_PROVIDER_IDEMPOTENCY_SAFETY_WINDOW_MS) {
-            return { status: OptionalEmailSendReservationOutcome.RetryExpired, send: existing };
-          }
+        if (this.#providerRetryExpired(existing, input.at)) {
+          return { status: OptionalEmailSendReservationOutcome.RetryExpired, send: existing };
         }
         const reclaimedLeaseId = new ObjectId();
         const reclaimed = await this.#collection.findOneAndUpdate(
@@ -211,6 +200,14 @@ export class OptionalEmailSendRepository {
       }
       return { status: OptionalEmailSendReservationOutcome.Duplicate, send: existing };
     }
+  }
+
+  #providerRetryExpired(send: OptionalEmailSend, at: Date): boolean {
+    if (!send.firstProviderAttemptAt) {
+      return false;
+    }
+    const retryAgeMs = at.getTime() - send.firstProviderAttemptAt.getTime();
+    return retryAgeMs < 0 || retryAgeMs > OPTIONAL_EMAIL_PROVIDER_IDEMPOTENCY_SAFETY_WINDOW_MS;
   }
 
   async findBySendKey(input: { sendKey: string }): Promise<OptionalEmailSend | null> {
@@ -368,7 +365,7 @@ export class OptionalEmailSendRepository {
       {
         $set: {
           status: OptionalEmailSendStatus.DeferredDailyLimit,
-          lastDeferralReason: "daily_limit",
+          lastDeferralReason: OptionalEmailSendDeferralReason.DailyLimit,
           updatedAt: input.at,
         },
         $unset: { activeLeaseId: "" },
