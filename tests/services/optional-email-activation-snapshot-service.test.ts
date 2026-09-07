@@ -74,6 +74,7 @@ describe("OptionalEmailActivationSnapshotService", () => {
   it("prefers canonical non-null milestone timestamps", async () => {
     const canonicalBridgeAt = new Date("2026-09-02T10:00:00.000Z");
     const canonicalSessionAt = new Date("2026-09-03T11:00:00.000Z");
+    let historicalEvidenceReads = 0;
     const service = new OptionalEmailActivationSnapshotService({
       users: { findById: async () => ({ createdAt: new Date("2026-09-01T00:00:00.000Z") }) },
       activationStates: {
@@ -82,14 +83,25 @@ describe("OptionalEmailActivationSnapshotService", () => {
           firstSessionAt: canonicalSessionAt,
         }),
       },
-      bridges: { findEarliestAddedAt: async () => new Date("2026-09-04T00:00:00.000Z") },
-      dailyUsage: { findEarliestMetadataRequestAt: async () => new Date("2026-09-05T00:00:00.000Z") },
+      bridges: {
+        findEarliestAddedAt: async () => {
+          historicalEvidenceReads += 1;
+          return new Date("2026-09-04T00:00:00.000Z");
+        },
+      },
+      dailyUsage: {
+        findEarliestMetadataRequestAt: async () => {
+          historicalEvidenceReads += 1;
+          return new Date("2026-09-05T00:00:00.000Z");
+        },
+      },
     });
 
     assert.deepEqual(await service.findByUserId({ userId: "000000000000000000000003" }), {
       bridgeSetupAt: canonicalBridgeAt,
       firstSessionAt: canonicalSessionAt,
     });
+    assert.equal(historicalEvidenceReads, 0);
   });
 
   it("fills missing canonical milestones from current-account authoritative evidence", async () => {

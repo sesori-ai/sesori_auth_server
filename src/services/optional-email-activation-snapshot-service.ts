@@ -43,10 +43,10 @@ export class OptionalEmailActivationSnapshotService {
       return null;
     }
 
-    const [state, bridgeSetupAt, firstSessionAt] = await Promise.all([
-      this.#activationStates.findByUserId({ userId: input.userId }),
-      this.#bridges.findEarliestAddedAt({ userId: input.userId }),
-      this.#dailyUsage.findEarliestMetadataRequestAt({ userId: input.userId }),
+    const state = await this.#activationStates.findByUserId({ userId: input.userId });
+    const [bridgeSetupAt, firstSessionAt] = await Promise.all([
+      state?.bridgeSetupAt ? null : this.#bridges.findEarliestAddedAt({ userId: input.userId }),
+      state?.firstSessionAt ? null : this.#dailyUsage.findEarliestMetadataRequestAt({ userId: input.userId }),
     ]);
     const currentAccountEvidence = (evidenceAt: Date | null): Date | null =>
       evidenceAt && evidenceAt >= user.createdAt ? evidenceAt : null;
