@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
+import { ObjectId } from "mongodb";
 import { OptionalEmailSendRepository } from "../../src/repositories/optional-email-send-repo.js";
-import { OptionalEmailReminderKind } from "../../src/types/optional-email.js";
+import {
+  OPTIONAL_EMAIL_PROVIDER_IDEMPOTENCY_SAFETY_WINDOW_MS,
+  OPTIONAL_EMAIL_RESERVATION_LEASE_MS,
+  OptionalEmailReminderKind,
+  OptionalEmailSendBlockReason,
+} from "../../src/types/optional-email.js";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
 
 const NOW = new Date("2026-09-06T12:00:00.000Z");
@@ -41,6 +47,194 @@ describe("OptionalEmailSendRepository", () => {
     assert.equal(stored && "email" in stored, false);
   });
 
+  it("reclaims exactly one stale reservation while preserving an active lease", async () => {
+    const user = await ctx.createUser();
+    const input = {
+      sendKey: "optional/setup-2026-09/user-key-stale-reservation",
+      userId: user.userId,
+      campaignId: "setup-2026-09",
+      reminderKind: OptionalEmailReminderKind.BridgeSetup,
+      at: NOW,
+    };
+    const initialReservation = await repo.reserve(input);
+    assert.equal(initialReservation.status, "reserved");
+    assert.equal(typeof initialReservation.leaseId, "string");
+
+    const activeLease = await repo.reserve({
+      ...input,
+      at: new Date(NOW.getTime() + OPTIONAL_EMAIL_RESERVATION_LEASE_MS),
+    });
+    assert.equal(activeLease.status, "duplicate");
+
+    const reclaimedAt = new Date(NOW.getTime() + OPTIONAL_EMAIL_RESERVATION_LEASE_MS + 1);
+    const contenders = await Promise.all([
+      repo.reserve({ ...input, at: reclaimedAt }),
+      repo.reserve({ ...input, at: reclaimedAt }),
+      repo.reserve({ ...input, at: reclaimedAt }),
+    ]);
+    assert.deepEqual(contenders.map((result) => result.status).sort(), ["duplicate", "duplicate", "reserved"]);
+    const reclaimed = contenders.find((result) => result.status === "reserved");
+    assert.ok(reclaimed);
+    assert.notEqual(reclaimed.leaseId, initialReservation.leaseId);
+
+    const stored = await repo.findBySendKey({ sendKey: input.sendKey });
+    assert.equal(stored?.status, "reserved");
+    assert.equal(stored?.attemptCount, 0);
+    assert.equal(stored?.updatedAt.toISOString(), reclaimedAt.toISOString());
+
+    const providerClaims = await Promise.all([
+      repo.markInFlight({ sendKey: input.sendKey, leaseId: initialReservation.leaseId, at: reclaimedAt }),
+      repo.markInFlight({ sendKey: input.sendKey, leaseId: reclaimed.leaseId, at: reclaimedAt }),
+      repo.markInFlight({ sendKey: input.sendKey, leaseId: reclaimed.leaseId, at: reclaimedAt }),
+    ]);
+    assert.deepEqual(providerClaims.sort(), [false, false, true]);
+    const claimed = await repo.findBySendKey({ sendKey: input.sendKey });
+    assert.equal(claimed?.status, "in_flight");
+    assert.equal(claimed?.attemptCount, 1);
+  });
+
+  it("persists only enum-backed block reasons", async () => {
+    const user = await ctx.createUser();
+    const input = {
+      sendKey: "optional/setup-2026-09/user-key-blocked",
+      userId: user.userId,
+      campaignId: "setup-2026-09",
+      reminderKind: OptionalEmailReminderKind.BridgeSetup,
+      at: NOW,
+    };
+    const reservation = await repo.reserve(input);
+    assert.equal(reservation.status, "reserved");
+
+    assert.equal(
+      await repo.markBlocked({
+        sendKey: input.sendKey,
+        leaseId: reservation.leaseId,
+        reason: "unsubcribed" as OptionalEmailSendBlockReason,
+        at: NOW,
+      }),
+      false,
+    );
+    assert.equal(
+      await repo.markBlocked({
+        sendKey: input.sendKey,
+        leaseId: reservation.leaseId,
+        reason: OptionalEmailSendBlockReason.MilestoneCompleted,
+        at: NOW,
+      }),
+      true,
+    );
+
+    const stored = await repo.findBySendKey({ sendKey: input.sendKey });
+    assert.equal(stored?.status, "blocked");
+    assert.equal(stored?.lastBlockReason, OptionalEmailSendBlockReason.MilestoneCompleted);
+  });
+
+  it("reclaims a stale in-flight attempt inside the idempotency window and fences its old lease", async () => {
+    const user = await ctx.createUser();
+    const input = {
+      sendKey: "optional/setup-2026-09/user-key-stale-in-flight",
+      userId: user.userId,
+      campaignId: "setup-2026-09",
+      reminderKind: OptionalEmailReminderKind.BridgeSetup,
+      at: NOW,
+    };
+    const initial = await repo.reserve(input);
+    assert.equal(initial.status, "reserved");
+    assert.equal(await repo.markInFlight({ sendKey: input.sendKey, leaseId: initial.leaseId, at: NOW }), true);
+
+    const active = await repo.reserve({
+      ...input,
+      at: new Date(NOW.getTime() + OPTIONAL_EMAIL_RESERVATION_LEASE_MS),
+    });
+    assert.equal(active.status, "duplicate");
+
+    const reclaimedAt = new Date(NOW.getTime() + OPTIONAL_EMAIL_RESERVATION_LEASE_MS + 1);
+    const reclaimed = await repo.reserve({ ...input, at: reclaimedAt });
+    assert.equal(reclaimed.status, "reserved");
+    assert.notEqual(reclaimed.leaseId, initial.leaseId);
+    assert.equal(
+      await repo.markInFlight({ sendKey: input.sendKey, leaseId: reclaimed.leaseId, at: reclaimedAt }),
+      true,
+    );
+    assert.equal(
+      await repo.markAccepted({
+        sendKey: input.sendKey,
+        leaseId: initial.leaseId,
+        providerEmailId: "stale-provider-result",
+        at: reclaimedAt,
+      }),
+      false,
+    );
+    assert.equal(
+      await repo.markAccepted({
+        sendKey: input.sendKey,
+        leaseId: reclaimed.leaseId,
+        providerEmailId: "recovered-provider-result",
+        at: reclaimedAt,
+      }),
+      true,
+    );
+
+    const stored = await repo.findBySendKey({ sendKey: input.sendKey });
+    assert.equal(stored?.status, "accepted");
+    assert.equal(stored?.attemptCount, 2);
+    assert.equal(stored?.providerEmailId, "recovered-provider-result");
+    assert.equal(stored?.activeLeaseId, undefined);
+  });
+
+  it("fences daily-limit deferral and issues a new lease for the retry", async () => {
+    const user = await ctx.createUser();
+    const input = {
+      sendKey: "optional/setup-2026-09/user-key-deferred",
+      userId: user.userId,
+      campaignId: "setup-2026-09",
+      reminderKind: OptionalEmailReminderKind.BridgeSetup,
+      at: NOW,
+    };
+    const initial = await repo.reserve(input);
+    assert.equal(initial.status, "reserved");
+    assert.equal(
+      await repo.markDeferredForDailyLimit({
+        sendKey: input.sendKey,
+        leaseId: new ObjectId().toHexString(),
+        at: NOW,
+      }),
+      false,
+    );
+    assert.equal(
+      await repo.markDeferredForDailyLimit({ sendKey: input.sendKey, leaseId: initial.leaseId, at: NOW }),
+      true,
+    );
+
+    const deferred = await repo.findBySendKey({ sendKey: input.sendKey });
+    assert.equal(deferred?.status, "deferred_daily_limit");
+    assert.equal(deferred?.activeLeaseId, undefined);
+    const retry = await repo.reserve({ ...input, at: new Date(NOW.getTime() + 1_000) });
+    assert.equal(retry.status, "reserved");
+    assert.notEqual(retry.leaseId, initial.leaseId);
+  });
+
+  it("fails closed when a stale in-flight attempt exceeds the provider idempotency window", async () => {
+    const user = await ctx.createUser();
+    const input = {
+      sendKey: "optional/setup-2026-09/user-key-expired-in-flight",
+      userId: user.userId,
+      campaignId: "setup-2026-09",
+      reminderKind: OptionalEmailReminderKind.BridgeSetup,
+      at: NOW,
+    };
+    const initial = await repo.reserve(input);
+    assert.equal(initial.status, "reserved");
+    assert.equal(await repo.markInFlight({ sendKey: input.sendKey, leaseId: initial.leaseId, at: NOW }), true);
+
+    const expired = await repo.reserve({
+      ...input,
+      at: new Date(NOW.getTime() + OPTIONAL_EMAIL_PROVIDER_IDEMPOTENCY_SAFETY_WINDOW_MS + 1),
+    });
+    assert.equal(expired.status, "retry_expired");
+    assert.equal(expired.send.status, "in_flight");
+  });
+
   it("records one provider attempt and keeps an accepted send permanently duplicate-blocked", async () => {
     const user = await ctx.createUser();
     const input = {
@@ -50,12 +244,14 @@ describe("OptionalEmailSendRepository", () => {
       reminderKind: OptionalEmailReminderKind.BridgeSetup,
       at: NOW,
     };
-    await repo.reserve(input);
+    const reservation = await repo.reserve(input);
+    assert.equal(reservation.status, "reserved");
 
-    assert.equal(await repo.markInFlight({ sendKey: input.sendKey, at: NOW }), true);
+    assert.equal(await repo.markInFlight({ sendKey: input.sendKey, leaseId: reservation.leaseId, at: NOW }), true);
     assert.equal(
       await repo.markAccepted({
         sendKey: input.sendKey,
+        leaseId: reservation.leaseId,
         providerEmailId: "resend-email-accepted-1",
         at: new Date(NOW.getTime() + 1_000),
       }),
@@ -68,6 +264,7 @@ describe("OptionalEmailSendRepository", () => {
     assert.equal(stored?.attemptCount, 1);
     assert.equal(stored?.firstProviderAttemptAt?.toISOString(), NOW.toISOString());
     assert.equal(stored?.providerEmailId, "resend-email-accepted-1");
+    assert.equal(stored?.activeLeaseId, undefined);
     assert.equal(await repo.findUserIdByProviderEmailId({ providerEmailId: "resend-email-accepted-1" }), user.userId);
     assert.equal(duplicate.status, "duplicate");
     assert.equal(duplicate.send.status, "accepted");
@@ -82,10 +279,12 @@ describe("OptionalEmailSendRepository", () => {
       reminderKind: OptionalEmailReminderKind.BridgeSetup,
       at: NOW,
     };
-    await repo.reserve(input);
-    await repo.markInFlight({ sendKey: input.sendKey, at: NOW });
+    const reservation = await repo.reserve(input);
+    assert.equal(reservation.status, "reserved");
+    await repo.markInFlight({ sendKey: input.sendKey, leaseId: reservation.leaseId, at: NOW });
     await repo.markFailed({
       sendKey: input.sendKey,
+      leaseId: reservation.leaseId,
       failureCode: "provider_unavailable",
       at: new Date(NOW.getTime() + 1_000),
     });
@@ -93,9 +292,10 @@ describe("OptionalEmailSendRepository", () => {
     const retryAt = new Date(NOW.getTime() + 60 * 60 * 1_000);
     const retry = await repo.reserve({ ...input, at: retryAt });
     assert.equal(retry.status, "reserved");
-    assert.equal(await repo.markInFlight({ sendKey: input.sendKey, at: retryAt }), true);
+    assert.equal(await repo.markInFlight({ sendKey: input.sendKey, leaseId: retry.leaseId, at: retryAt }), true);
     await repo.markFailed({
       sendKey: input.sendKey,
+      leaseId: retry.leaseId,
       failureCode: "provider_unavailable",
       at: new Date(retryAt.getTime() + 1_000),
     });

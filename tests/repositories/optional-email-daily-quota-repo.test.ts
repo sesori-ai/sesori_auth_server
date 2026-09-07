@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { OptionalEmailDailyQuotaRepository } from "../../src/repositories/optional-email-daily-quota-repo.js";
 import { InternalServerError } from "../../src/lib/errors.js";
+import { optionalEmailDailyQuotaSchema } from "../../src/models/documents.js";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
 
 describe("OptionalEmailDailyQuotaRepository", () => {
@@ -22,6 +23,11 @@ describe("OptionalEmailDailyQuotaRepository", () => {
     const attempts = await Promise.all(Array.from({ length: 20 }, () => repo.reserve({ at: firstDay, dailyCap: 3 })));
 
     assert.equal(attempts.filter((attempt) => attempt.reserved).length, 3);
+    const deferred = attempts.filter((attempt) => !attempt.reserved);
+    assert.equal(deferred.length, 17);
+    for (const attempt of deferred) {
+      assert.deepEqual(attempt, { reserved: false, date: "2026-09-06", used: 3, remaining: 0 });
+    }
     assert.deepEqual(await repo.getUsage({ at: firstDay, dailyCap: 3 }), {
       date: "2026-09-06",
       used: 3,
@@ -37,5 +43,18 @@ describe("OptionalEmailDailyQuotaRepository", () => {
 
   it("rejects a cap above 80 so free-plan headroom cannot be configured away", async () => {
     await assert.rejects(repo.reserve({ at: new Date("2026-09-08T00:00:00.000Z"), dailyCap: 81 }), InternalServerError);
+  });
+
+  it("rejects impossible UTC calendar date document IDs", () => {
+    const document = {
+      _id: "2028-02-29",
+      used: 0,
+      createdAt: new Date("2028-02-29T00:00:00.000Z"),
+      updatedAt: new Date("2028-02-29T00:00:00.000Z"),
+    };
+
+    assert.equal(optionalEmailDailyQuotaSchema.safeParse(document).success, true);
+    assert.equal(optionalEmailDailyQuotaSchema.safeParse({ ...document, _id: "2026-02-30" }).success, false);
+    assert.equal(optionalEmailDailyQuotaSchema.safeParse({ ...document, _id: "2026-99-99" }).success, false);
   });
 });

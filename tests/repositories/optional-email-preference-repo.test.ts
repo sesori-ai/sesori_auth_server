@@ -88,7 +88,7 @@ describe("OptionalEmailPreferenceRepository", () => {
     assert.equal(count, 1);
   });
 
-  it("rejects malformed user IDs and dates at the repository boundary", async () => {
+  it("rejects malformed values at the repository boundary", async () => {
     await assert.rejects(() => repo.unsubscribe({ userId: "not-an-id", at: new Date() }), /internal_server_error/);
     await assert.rejects(
       () =>
@@ -96,6 +96,15 @@ describe("OptionalEmailPreferenceRepository", () => {
           userId: new ObjectId().toHexString(),
           reason: OptionalEmailSuppressionReason.HardBounce,
           at: new Date("invalid"),
+        }),
+      /internal_server_error/,
+    );
+    await assert.rejects(
+      () =>
+        repo.suppress({
+          userId: new ObjectId().toHexString(),
+          reason: "soft_bounce" as OptionalEmailSuppressionReason,
+          at: new Date(),
         }),
       /internal_server_error/,
     );

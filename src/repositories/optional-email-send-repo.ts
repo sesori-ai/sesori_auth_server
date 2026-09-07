@@ -2,11 +2,17 @@ import { Collection, MongoServerError, ObjectId } from "mongodb";
 import type { MongoDbAccessor } from "../db/mongo-db-accessor.js";
 import { InternalServerError } from "../lib/errors.js";
 import type { OptionalEmailSend } from "../models/documents.js";
-import { OptionalEmailReminderKind, OptionalEmailSendStatus } from "../types/optional-email.js";
+import {
+  OPTIONAL_EMAIL_PROVIDER_IDEMPOTENCY_SAFETY_WINDOW_MS,
+  OPTIONAL_EMAIL_RESERVATION_LEASE_MS,
+  OptionalEmailReminderKind,
+  OptionalEmailSendBlockReason,
+  OptionalEmailSendStatus,
+} from "../types/optional-email.js";
 import { AuthDbCollection, MongoDbDatabase } from "../types/mongo.js";
 
 export type OptionalEmailSendReservation =
-  | { status: "reserved"; send: OptionalEmailSend }
+  | { status: "reserved"; send: OptionalEmailSend; leaseId: string }
   | { status: "duplicate"; send: OptionalEmailSend }
   | { status: "retry_expired"; send: OptionalEmailSend };
 
@@ -28,6 +34,7 @@ export class OptionalEmailSendRepository {
     at: Date;
   }): Promise<OptionalEmailSendReservation> {
     this.#validate(input);
+    const activeLeaseId = new ObjectId();
     const send: OptionalEmailSend = {
       _id: new ObjectId(),
       sendKey: input.sendKey,
@@ -35,13 +42,14 @@ export class OptionalEmailSendRepository {
       campaignId: input.campaignId,
       reminderKind: input.reminderKind,
       status: OptionalEmailSendStatus.Reserved,
+      activeLeaseId,
       attemptCount: 0,
       createdAt: input.at,
       updatedAt: input.at,
     };
     try {
       await this.#collection.insertOne(send);
-      return { status: "reserved", send };
+      return { status: "reserved", send, leaseId: activeLeaseId.toHexString() };
     } catch (error) {
       if (!(error instanceof MongoServerError) || error.code !== 11000) {
         throw error;
@@ -50,20 +58,89 @@ export class OptionalEmailSendRepository {
       if (!existing) {
         throw new InternalServerError({ debugMessage: "Optional email send reservation disappeared" });
       }
+      if (existing.status === OptionalEmailSendStatus.Reserved) {
+        const reservationAgeMs = input.at.getTime() - existing.updatedAt.getTime();
+        if (reservationAgeMs < 0 || reservationAgeMs <= OPTIONAL_EMAIL_RESERVATION_LEASE_MS) {
+          return { status: "duplicate", send: existing };
+        }
+        const reclaimedLeaseId = new ObjectId();
+        const reclaimed = await this.#collection.findOneAndUpdate(
+          {
+            _id: existing._id,
+            status: OptionalEmailSendStatus.Reserved,
+            updatedAt: existing.updatedAt,
+          },
+          { $set: { activeLeaseId: reclaimedLeaseId, updatedAt: input.at } },
+          { returnDocument: "after" },
+        );
+        if (reclaimed) {
+          return { status: "reserved", send: reclaimed, leaseId: reclaimedLeaseId.toHexString() };
+        }
+        const raced = await this.findBySendKey({ sendKey: input.sendKey });
+        if (!raced) {
+          throw new InternalServerError({ debugMessage: "Optional email stale reservation disappeared" });
+        }
+        return { status: "duplicate", send: raced };
+      }
+      if (existing.status === OptionalEmailSendStatus.InFlight) {
+        // Retry only with the same deterministic send key while the provider's
+        // idempotency window can still collapse an uncertain prior request.
+        const leaseAgeMs = input.at.getTime() - existing.updatedAt.getTime();
+        if (leaseAgeMs < 0 || leaseAgeMs <= OPTIONAL_EMAIL_RESERVATION_LEASE_MS) {
+          return { status: "duplicate", send: existing };
+        }
+        const firstAttemptMs = existing.firstProviderAttemptAt?.getTime();
+        const retryAgeMs =
+          firstAttemptMs === undefined ? Number.POSITIVE_INFINITY : input.at.getTime() - firstAttemptMs;
+        if (retryAgeMs < 0 || retryAgeMs > OPTIONAL_EMAIL_PROVIDER_IDEMPOTENCY_SAFETY_WINDOW_MS) {
+          return { status: "retry_expired", send: existing };
+        }
+        const reclaimedLeaseId = new ObjectId();
+        const reclaimed = await this.#collection.findOneAndUpdate(
+          {
+            _id: existing._id,
+            status: OptionalEmailSendStatus.InFlight,
+            updatedAt: existing.updatedAt,
+          },
+          {
+            $set: {
+              status: OptionalEmailSendStatus.Reserved,
+              activeLeaseId: reclaimedLeaseId,
+              updatedAt: input.at,
+            },
+          },
+          { returnDocument: "after" },
+        );
+        if (reclaimed) {
+          return { status: "reserved", send: reclaimed, leaseId: reclaimedLeaseId.toHexString() };
+        }
+        const raced = await this.findBySendKey({ sendKey: input.sendKey });
+        if (!raced) {
+          throw new InternalServerError({ debugMessage: "Optional email in-flight reservation disappeared" });
+        }
+        return { status: "duplicate", send: raced };
+      }
       if (existing.status === OptionalEmailSendStatus.Failed) {
         const firstAttemptMs = existing.firstProviderAttemptAt?.getTime();
         const retryAgeMs =
           firstAttemptMs === undefined ? Number.POSITIVE_INFINITY : input.at.getTime() - firstAttemptMs;
-        if (retryAgeMs < 0 || retryAgeMs > 23 * 60 * 60 * 1_000) {
+        if (retryAgeMs < 0 || retryAgeMs > OPTIONAL_EMAIL_PROVIDER_IDEMPOTENCY_SAFETY_WINDOW_MS) {
           return { status: "retry_expired", send: existing };
         }
+        const reclaimedLeaseId = new ObjectId();
         const reclaimed = await this.#collection.findOneAndUpdate(
           { _id: existing._id, status: OptionalEmailSendStatus.Failed },
-          { $set: { status: OptionalEmailSendStatus.Reserved, updatedAt: input.at } },
+          {
+            $set: {
+              status: OptionalEmailSendStatus.Reserved,
+              activeLeaseId: reclaimedLeaseId,
+              updatedAt: input.at,
+            },
+          },
           { returnDocument: "after" },
         );
         if (reclaimed) {
-          return { status: "reserved", send: reclaimed };
+          return { status: "reserved", send: reclaimed, leaseId: reclaimedLeaseId.toHexString() };
         }
         const raced = await this.findBySendKey({ sendKey: input.sendKey });
         if (!raced) {
@@ -72,13 +149,20 @@ export class OptionalEmailSendRepository {
         return { status: "duplicate", send: raced };
       }
       if (existing.status === OptionalEmailSendStatus.DeferredDailyLimit) {
+        const reclaimedLeaseId = new ObjectId();
         const reclaimed = await this.#collection.findOneAndUpdate(
           { _id: existing._id, status: OptionalEmailSendStatus.DeferredDailyLimit },
-          { $set: { status: OptionalEmailSendStatus.Reserved, updatedAt: input.at } },
+          {
+            $set: {
+              status: OptionalEmailSendStatus.Reserved,
+              activeLeaseId: reclaimedLeaseId,
+              updatedAt: input.at,
+            },
+          },
           { returnDocument: "after" },
         );
         if (reclaimed) {
-          return { status: "reserved", send: reclaimed };
+          return { status: "reserved", send: reclaimed, leaseId: reclaimedLeaseId.toHexString() };
         }
         const raced = await this.findBySendKey({ sendKey: input.sendKey });
         if (!raced) {
@@ -97,12 +181,21 @@ export class OptionalEmailSendRepository {
     return this.#collection.findOne({ sendKey: input.sendKey });
   }
 
-  async markInFlight(input: { sendKey: string; at: Date }): Promise<boolean> {
-    if (!input.sendKey || input.sendKey.length > 256 || Number.isNaN(input.at.getTime())) {
+  async markInFlight(input: { sendKey: string; leaseId: string; at: Date }): Promise<boolean> {
+    if (
+      !input.sendKey ||
+      input.sendKey.length > 256 ||
+      !ObjectId.isValid(input.leaseId) ||
+      Number.isNaN(input.at.getTime())
+    ) {
       return false;
     }
     const result = await this.#collection.updateOne(
-      { sendKey: input.sendKey, status: OptionalEmailSendStatus.Reserved },
+      {
+        sendKey: input.sendKey,
+        status: OptionalEmailSendStatus.Reserved,
+        activeLeaseId: new ObjectId(input.leaseId),
+      },
       [
         {
           $set: {
@@ -118,10 +211,11 @@ export class OptionalEmailSendRepository {
     return result.modifiedCount === 1;
   }
 
-  async markAccepted(input: { sendKey: string; providerEmailId: string; at: Date }): Promise<boolean> {
+  async markAccepted(input: { sendKey: string; leaseId: string; providerEmailId: string; at: Date }): Promise<boolean> {
     if (
       !input.sendKey ||
       input.sendKey.length > 256 ||
+      !ObjectId.isValid(input.leaseId) ||
       !input.providerEmailId ||
       input.providerEmailId.length > 256 ||
       Number.isNaN(input.at.getTime())
@@ -129,7 +223,11 @@ export class OptionalEmailSendRepository {
       return false;
     }
     const result = await this.#collection.updateOne(
-      { sendKey: input.sendKey, status: OptionalEmailSendStatus.InFlight },
+      {
+        sendKey: input.sendKey,
+        status: OptionalEmailSendStatus.InFlight,
+        activeLeaseId: new ObjectId(input.leaseId),
+      },
       {
         $set: {
           status: OptionalEmailSendStatus.Accepted,
@@ -137,67 +235,95 @@ export class OptionalEmailSendRepository {
           acceptedAt: input.at,
           updatedAt: input.at,
         },
+        $unset: { activeLeaseId: "" },
       },
     );
     return result.modifiedCount === 1;
   }
 
-  async markFailed(input: { sendKey: string; failureCode: string; at: Date }): Promise<boolean> {
+  async markFailed(input: { sendKey: string; leaseId: string; failureCode: string; at: Date }): Promise<boolean> {
     if (
       !input.sendKey ||
       input.sendKey.length > 256 ||
+      !ObjectId.isValid(input.leaseId) ||
       !/^[a-z0-9_]{1,64}$/.test(input.failureCode) ||
       Number.isNaN(input.at.getTime())
     ) {
       return false;
     }
     const result = await this.#collection.updateOne(
-      { sendKey: input.sendKey, status: OptionalEmailSendStatus.InFlight },
+      {
+        sendKey: input.sendKey,
+        status: OptionalEmailSendStatus.InFlight,
+        activeLeaseId: new ObjectId(input.leaseId),
+      },
       {
         $set: {
           status: OptionalEmailSendStatus.Failed,
           lastFailureCode: input.failureCode,
           updatedAt: input.at,
         },
+        $unset: { activeLeaseId: "" },
       },
     );
     return result.modifiedCount === 1;
   }
 
-  async markBlocked(input: { sendKey: string; reason: string; at: Date }): Promise<boolean> {
+  async markBlocked(input: {
+    sendKey: string;
+    leaseId: string;
+    reason: OptionalEmailSendBlockReason;
+    at: Date;
+  }): Promise<boolean> {
     if (
       !input.sendKey ||
       input.sendKey.length > 256 ||
-      !/^[a-z_]{1,64}$/.test(input.reason) ||
+      !ObjectId.isValid(input.leaseId) ||
+      !Object.values(OptionalEmailSendBlockReason).includes(input.reason) ||
       Number.isNaN(input.at.getTime())
     ) {
       return false;
     }
     const result = await this.#collection.updateOne(
-      { sendKey: input.sendKey, status: OptionalEmailSendStatus.Reserved },
+      {
+        sendKey: input.sendKey,
+        status: OptionalEmailSendStatus.Reserved,
+        activeLeaseId: new ObjectId(input.leaseId),
+      },
       {
         $set: {
           status: OptionalEmailSendStatus.Blocked,
           lastBlockReason: input.reason,
           updatedAt: input.at,
         },
+        $unset: { activeLeaseId: "" },
       },
     );
     return result.modifiedCount === 1;
   }
 
-  async markDeferredForDailyLimit(input: { sendKey: string; at: Date }): Promise<boolean> {
-    if (!input.sendKey || input.sendKey.length > 256 || Number.isNaN(input.at.getTime())) {
+  async markDeferredForDailyLimit(input: { sendKey: string; leaseId: string; at: Date }): Promise<boolean> {
+    if (
+      !input.sendKey ||
+      input.sendKey.length > 256 ||
+      !ObjectId.isValid(input.leaseId) ||
+      Number.isNaN(input.at.getTime())
+    ) {
       return false;
     }
     const result = await this.#collection.updateOne(
-      { sendKey: input.sendKey, status: OptionalEmailSendStatus.Reserved },
+      {
+        sendKey: input.sendKey,
+        status: OptionalEmailSendStatus.Reserved,
+        activeLeaseId: new ObjectId(input.leaseId),
+      },
       {
         $set: {
           status: OptionalEmailSendStatus.DeferredDailyLimit,
           lastDeferralReason: "daily_limit",
           updatedAt: input.at,
         },
+        $unset: { activeLeaseId: "" },
       },
     );
     return result.modifiedCount === 1;

@@ -51,6 +51,9 @@ export class OptionalEmailPreferenceRepository {
     at: Date;
   }): Promise<OptionalEmailPreference> {
     this.#assertInput({ userId: input.userId, at: input.at });
+    if (!Object.values(OptionalEmailSuppressionReason).includes(input.reason)) {
+      throw new InternalServerError({ debugMessage: "Invalid optional email suppression reason" });
+    }
     return this.#upsertOnce({
       userId: input.userId,
       at: input.at,

@@ -11,9 +11,21 @@ import {
 import { normalizedGlossaryWordSchema, projectGlossaryScopeSchema } from "./voice.js";
 import {
   OptionalEmailReminderKind,
+  OptionalEmailSendBlockReason,
   OptionalEmailSendStatus,
   OptionalEmailSuppressionReason,
 } from "../types/optional-email.js";
+
+const utcCalendarDateSchema = z.string().refine(
+  (value) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return false;
+    }
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  },
+  { message: "must be a valid UTC calendar date" },
+);
 
 export const userSchema = z.object({
   _id: z.instanceof(ObjectId),
@@ -190,13 +202,14 @@ export const optionalEmailSendSchema = z.object({
   campaignId: z.string().min(1).max(64),
   reminderKind: z.nativeEnum(OptionalEmailReminderKind),
   status: z.nativeEnum(OptionalEmailSendStatus),
+  activeLeaseId: z.instanceof(ObjectId).optional(),
   attemptCount: z.number().int().nonnegative(),
   firstProviderAttemptAt: z.date().optional(),
   lastProviderAttemptAt: z.date().optional(),
   providerEmailId: z.string().min(1).max(256).optional(),
   acceptedAt: z.date().optional(),
   lastFailureCode: z.string().min(1).max(64).optional(),
-  lastBlockReason: z.string().min(1).max(64).optional(),
+  lastBlockReason: z.nativeEnum(OptionalEmailSendBlockReason).optional(),
   lastDeferralReason: z.string().min(1).max(64).optional(),
   createdAt: z.date(),
   updatedAt: z.date(),
@@ -205,7 +218,7 @@ export const optionalEmailSendSchema = z.object({
 export type OptionalEmailSend = z.infer<typeof optionalEmailSendSchema>;
 
 export const optionalEmailDailyQuotaSchema = z.object({
-  _id: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  _id: utcCalendarDateSchema,
   used: z.number().int().nonnegative(),
   createdAt: z.date(),
   updatedAt: z.date(),

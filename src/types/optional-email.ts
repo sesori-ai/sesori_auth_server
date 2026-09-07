@@ -14,6 +14,21 @@ export enum OptionalEmailBlockReason {
   Suppressed = "suppressed",
 }
 
+export enum OptionalEmailSendBlockReason {
+  SendingDisabled = "sending_disabled",
+  RecipientBasisUnapproved = "recipient_basis_unapproved",
+  MissingUser = "missing_user",
+  MissingRecipient = "missing_recipient",
+  AmbiguousRecipient = "ambiguous_recipient",
+  MilestoneCompleted = "milestone_completed",
+  PrerequisiteIncomplete = "prerequisite_incomplete",
+  Unsubscribed = "unsubscribed",
+  Suppressed = "suppressed",
+  TestSendingDisabled = "test_sending_disabled",
+  TestRecipientNotAllowed = "test_recipient_not_allowed",
+  RetryWindowExpired = "retry_window_expired",
+}
+
 export enum OptionalEmailReminderKind {
   BridgeSetup = "bridge_setup",
   FirstSession = "first_session",
@@ -27,6 +42,14 @@ export enum OptionalEmailSendStatus {
   Blocked = "blocked",
   DeferredDailyLimit = "deferred_daily_limit",
 }
+
+// Reserved and in-flight rows carry a lease owner. Once this interval expires,
+// one contender may rotate that owner with compare-and-set; transition methods
+// fence stale workers by requiring the current lease ID.
+export const OPTIONAL_EMAIL_RESERVATION_LEASE_MS = 5 * 60 * 1_000;
+
+// Leave an hour of headroom inside Resend's 24-hour idempotency-key window.
+export const OPTIONAL_EMAIL_PROVIDER_IDEMPOTENCY_SAFETY_WINDOW_MS = 23 * 60 * 60 * 1_000;
 
 // Resend's free transactional plan permits 100 emails/day. Optional mail is
 // capped lower so account/security traffic and inbound quota use retain room.
