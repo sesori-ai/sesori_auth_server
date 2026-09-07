@@ -53,7 +53,7 @@ export const optionalEmailUnsubscribeRoutes: FastifyPluginAsync<OptionalEmailUns
 </html>`);
   });
 
-  app.post("/email/optional/unsubscribe", async (request, reply) => {
+  app.post("/email/optional/unsubscribe", { config: { rateLimit: false } }, async (request, reply) => {
     setSafetyHeaders(reply);
     const query = querySchema.safeParse(request.query);
     const body = typeof request.body === "string" ? new URLSearchParams(request.body) : null;

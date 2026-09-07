@@ -124,15 +124,23 @@ describe("POST /webhooks/resend", () => {
   });
 
   it("rejects a malformed verified event without consuming its replay id", async () => {
-    const rawBody = JSON.stringify({ type: "email.complained", data: {} });
-    const messageId = "msg_route_malformed_1";
-    const response = await injectSigned({ app, rawBody, messageId });
+    for (const [messageId, rawBody] of [
+      ["msg_route_malformed_1", JSON.stringify({ type: "email.complained", data: {} })],
+      [
+        "msg_route_conflicting_alias_1",
+        JSON.stringify({ type: "email.sent", event_type: "email.complained", data: {} }),
+      ],
+    ]) {
+      const response = await injectSigned({ app, rawBody, messageId });
 
-    assert.equal(response.statusCode, 400);
-    assert.equal(
-      await new OptionalEmailWebhookEventRepository(ctx.dbAccessor).wasProcessed({ eventId: messageId }),
-      false,
-    );
+      assert.equal(response.statusCode, 400);
+      assert.equal(
+        await new OptionalEmailWebhookEventRepository(ctx.dbAccessor).wasProcessed({
+          eventId: messageId,
+        }),
+        false,
+      );
+    }
   });
 
   it("acknowledges and records a signed Svix ping control event as ignored", async () => {

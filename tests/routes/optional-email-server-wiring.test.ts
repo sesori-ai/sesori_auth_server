@@ -32,6 +32,22 @@ describe("optional email server wiring", () => {
       });
       assert.equal(available.statusCode, 200);
       assert.match(available.body, /Security and essential account messages are not affected/);
+
+      const oneClickResponses = await Promise.all(
+        Array.from({ length: 101 }, () =>
+          configuredContext.app.inject({
+            method: "POST",
+            url: "/email/optional/unsubscribe?token=signed-token",
+            remoteAddress: "203.0.113.8",
+            headers: { "content-type": "application/x-www-form-urlencoded" },
+            payload: "List-Unsubscribe=One-Click",
+          }),
+        ),
+      );
+      assert.equal(
+        oneClickResponses.every((response) => response.statusCode === 200),
+        true,
+      );
     } finally {
       await configuredContext.cleanup();
     }

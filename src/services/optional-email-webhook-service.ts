@@ -16,7 +16,11 @@ const webhookEnvelopeSchema = z
     event_type: webhookEventTypeSchema.optional(),
   })
   .passthrough()
-  .refine((event) => event.type !== undefined || event.event_type !== undefined)
+  .refine(
+    (event) =>
+      (event.type !== undefined || event.event_type !== undefined) &&
+      (event.type === undefined || event.event_type === undefined || event.type === event.event_type),
+  )
   .transform((event) => event.type ?? event.event_type!);
 
 const webhookEventSchema = z
