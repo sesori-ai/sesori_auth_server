@@ -43,6 +43,9 @@ import { MAX_BINARY_BYTES, MAX_TEXT_BYTES } from "../../src/routes/voice-realtim
 import { AppClientPresenceService } from "../../src/services/app-client-presence-service.js";
 import { ProductAnalyticsPreferenceService } from "../../src/services/product-analytics-preference-service.js";
 import { SettingsService } from "../../src/services/settings-service.js";
+import type { OptionalEmailUnsubscribeService } from "../../src/services/optional-email-unsubscribe-service.js";
+import type { OptionalEmailWebhookService } from "../../src/services/optional-email-webhook-service.js";
+import type { ResendWebhookVerifier } from "../../src/services/resend-webhook-verifier.js";
 import { loadConfig, type Config } from "../../src/config.js";
 import { ProductAnalyticsPreference } from "../../src/types/product-analytics.js";
 import { AsyncTranscriptionPublicErrorPolicy } from "../../src/types/transcription.js";
@@ -93,6 +96,13 @@ export type TestAppOverrides = {
   asyncTranscriptionClient?: AsyncTranscriptionClient;
   asyncTranscriptionPublicErrorPolicy?: AsyncTranscriptionPublicErrorPolicy;
   configOverrides?: Partial<Config>;
+  optionalEmail?: {
+    unsubscribeService?: OptionalEmailUnsubscribeService;
+    webhook?: {
+      verifier: ResendWebhookVerifier;
+      service: OptionalEmailWebhookService;
+    };
+  };
 };
 
 export type { OAuthClient };
@@ -259,6 +269,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     appleNativeVerifier,
     pendingAuthStore,
     productAnalyticsPreferenceService,
+    optionalEmail: overrides?.optionalEmail,
     realtime:
       overrides?.realtimeService && effectiveConfig.REALTIME_TRANSCRIPTION_ENABLED
         ? {

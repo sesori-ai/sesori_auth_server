@@ -2,6 +2,7 @@ import { z } from "zod";
 import { AsyncTranscriptionProvider, SonioxRegion } from "./types/transcription.js";
 import { clientIpSourceSchema, ClientIpSource, trustedIngressCidrsSchema } from "./types/client-ip.js";
 import { productAnalyticsPseudonymizationKeySchema } from "./types/product-analytics.js";
+import { isValidResendWebhookSigningSecret } from "./services/resend-webhook-verifier.js";
 
 const appleConfigSchema = z.object({
   APPLE_CLIENT_ID: z.string().min(1, "APPLE_CLIENT_ID is required"),
@@ -73,6 +74,17 @@ const baseConfigSchema = z.object({
   ACTIVATION_BRIDGE_REMINDER_2_DELAY_MS: z.coerce.number().int().positive().default(86_400_000),
   ACTIVATION_SESSION_REMINDER_DELAY_MS: z.coerce.number().int().positive().default(86_400_000),
   ACTIVATION_SWEEP_BATCH_LIMIT: z.coerce.number().int().positive().default(100),
+  RESEND_WEBHOOK_SECRET: z
+    .string()
+    .refine(isValidResendWebhookSigningSecret, "RESEND_WEBHOOK_SECRET must be a valid Svix signing secret")
+    .optional(),
+  OPTIONAL_EMAIL_UNSUBSCRIBE_SIGNING_SECRET: z
+    .string()
+    .refine(
+      (value) => Buffer.byteLength(value, "utf8") >= 32,
+      "OPTIONAL_EMAIL_UNSUBSCRIBE_SIGNING_SECRET must be at least 32 bytes",
+    )
+    .optional(),
   OPENAI_API_KEY: z.string().min(1, "OPENAI_API_KEY is required"),
   OPENAI_TRANSCRIPTION_MODEL: z.string().min(1).default("gpt-4o-mini-transcribe"),
   OPENAI_METADATA_MODEL: z.string().min(1).default("gpt-5-nano"),

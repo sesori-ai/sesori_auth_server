@@ -9,6 +9,23 @@ export enum OptionalEmailSuppressionReason {
   ProviderSuppressed = "provider_suppressed",
 }
 
+export enum OptionalEmailWebhookEventType {
+  Bounced = "email.bounced",
+  Complained = "email.complained",
+  Suppressed = "email.suppressed",
+}
+
+export enum OptionalEmailWebhookStatus {
+  Processed = "processed",
+  Replayed = "replayed",
+  Retry = "retry",
+}
+
+export enum OptionalEmailWebhookOutcome {
+  Suppressed = "suppressed",
+  Ignored = "ignored",
+}
+
 export enum OptionalEmailBlockReason {
   Unsubscribed = "unsubscribed",
   Suppressed = "suppressed",
