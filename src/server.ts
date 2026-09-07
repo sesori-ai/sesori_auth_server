@@ -27,6 +27,7 @@ import type { PendingAuthStore } from "./services/pending-auth-store.js";
 import type { AppClientPresenceService } from "./services/app-client-presence-service.js";
 import type { ProductAnalyticsPreferenceService } from "./services/product-analytics-preference-service.js";
 import type { SettingsService } from "./services/settings-service.js";
+import type { OptionalEmailRouteServices } from "./optional-email-composition.js";
 import { installRoutes } from "./routes/install.js";
 import { legalRoutes } from "./routes/legal.js";
 import { tokenRoutes } from "./routes/token.js";
@@ -43,6 +44,8 @@ import { sessionStatusRoutes } from "./routes/auth/session-status.js";
 import { appClientRoutes } from "./routes/app-clients.js";
 import { productAnalyticsRoutes } from "./routes/product-analytics.js";
 import { settingsRoutes } from "./routes/settings/settings.js";
+import { optionalEmailUnsubscribeRoutes } from "./routes/optional-email-unsubscribe.js";
+import { optionalEmailWebhookRoutes } from "./routes/optional-email-webhook.js";
 import { voiceRealtimeRoutes, type VoiceRealtimeRouteOptions } from "./routes/voice-realtime.js";
 import { MAX_TRANSPORT_PAYLOAD_BYTES } from "./routes/voice-realtime-support.js";
 
@@ -68,6 +71,7 @@ export type AppServices = {
   appleNativeVerifier: AppleNativeVerifier;
   pendingAuthStore: PendingAuthStore;
   productAnalyticsPreferenceService: ProductAnalyticsPreferenceService;
+  optionalEmail?: OptionalEmailRouteServices;
   realtime?: Omit<VoiceRealtimeRouteOptions, "preAuthRateLimit" | "requireAuth">;
 };
 
@@ -162,6 +166,16 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
   await app.register(legalRoutes, {
     legalDocumentService: services.legalDocumentService,
   });
+
+  if (services.optionalEmail?.unsubscribeService) {
+    await app.register(optionalEmailUnsubscribeRoutes, {
+      service: services.optionalEmail.unsubscribeService,
+    });
+  }
+
+  if (services.optionalEmail?.webhook) {
+    await app.register(optionalEmailWebhookRoutes, services.optionalEmail.webhook);
+  }
 
   const requireAuth = createAuthMiddleware(services.tokenService, {
     devBypassEnabled: services.config.AUTH_DEV_BYPASS_ENABLED,

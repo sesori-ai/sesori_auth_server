@@ -367,6 +367,43 @@ function restoreEnv(name: string, value: string | undefined): void {
   process.env[name] = value;
 }
 
+describe("optional email safety ingress configuration", () => {
+  it("keeps both public safety routes absent unless their independent secrets are configured", () => {
+    const result = configSchema.safeParse(validEnv());
+
+    assert.equal(result.success, true);
+    if (!result.success) {
+      throw new Error("expected baseline config parse success");
+    }
+
+    const config = result.data as Record<string, unknown>;
+    assert.equal(config.RESEND_WEBHOOK_SECRET, undefined);
+    assert.equal(config.OPTIONAL_EMAIL_UNSUBSCRIBE_SIGNING_SECRET, undefined);
+  });
+
+  it("accepts independently configured webhook and unsubscribe signing secrets", () => {
+    const webhook = configSchema.safeParse(validEnv({ RESEND_WEBHOOK_SECRET: "whsec_plJ3nmyCDGBKInavdOK15jsl" }));
+    const unsubscribe = configSchema.safeParse(validEnv({ OPTIONAL_EMAIL_UNSUBSCRIBE_SIGNING_SECRET: "u".repeat(32) }));
+
+    assert.equal(webhook.success, true);
+    assert.equal(webhook.data?.RESEND_WEBHOOK_SECRET, "whsec_plJ3nmyCDGBKInavdOK15jsl");
+    assert.equal(unsubscribe.success, true);
+    assert.equal(unsubscribe.data?.OPTIONAL_EMAIL_UNSUBSCRIBE_SIGNING_SECRET, "u".repeat(32));
+  });
+
+  it("rejects malformed webhook secrets and short unsubscribe secrets", () => {
+    for (const secret of ["not-a-svix-secret", "whsec_%%%", "whsec_YQ=="]) {
+      const result = configSchema.safeParse(validEnv({ RESEND_WEBHOOK_SECRET: secret }));
+      assert.equal(result.success, false, `${secret} must be rejected`);
+    }
+
+    const shortUnsubscribe = configSchema.safeParse(
+      validEnv({ OPTIONAL_EMAIL_UNSUBSCRIBE_SIGNING_SECRET: "u".repeat(31) }),
+    );
+    assert.equal(shortUnsubscribe.success, false);
+  });
+});
+
 describe("configSchema", () => {
   it("accepts the baseline environment", () => {
     assert.equal(configSchema.safeParse(validEnv()).success, true);
