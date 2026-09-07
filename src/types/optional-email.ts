@@ -43,6 +43,12 @@ export enum OptionalEmailSendStatus {
   DeferredDailyLimit = "deferred_daily_limit",
 }
 
+export enum OptionalEmailSendReservationOutcome {
+  Reserved = "reserved",
+  Duplicate = "duplicate",
+  RetryExpired = "retry_expired",
+}
+
 // Reserved and in-flight rows carry a lease owner. Once this interval expires,
 // one contender may rotate that owner with compare-and-set; transition methods
 // fence stale workers by requiring the current lease ID.

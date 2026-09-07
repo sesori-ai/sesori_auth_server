@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import { ObjectId } from "mongodb";
+import { MongoServerError, ObjectId } from "mongodb";
+import type { MongoDbAccessor } from "../../src/db/mongo-db-accessor.js";
 import type { OptionalEmailPreference } from "../../src/models/documents.js";
 import { OptionalEmailPreferenceRepository } from "../../src/repositories/optional-email-preference-repo.js";
 import { OptionalEmailBlockReason, OptionalEmailSuppressionReason } from "../../src/types/optional-email.js";
@@ -74,6 +75,47 @@ describe("OptionalEmailPreferenceRepository", () => {
     assert.equal(stored?.unsubscribedAt?.toISOString(), unsubscribeAt.toISOString());
     assert.equal(stored?.suppressedAt?.toISOString(), complaintAt.toISOString());
     assert.equal(await repo.findBlockReason({ userId: user.userId }), OptionalEmailBlockReason.Unsubscribed);
+  });
+
+  it("replays a losing update after a duplicate-key creation race", async () => {
+    const userId = new ObjectId();
+    const at = new Date("2026-09-06T10:00:00.000Z");
+    const duplicateKeyError = new MongoServerError({ ok: 0, code: 11000, errmsg: "duplicate preference" });
+    const winner: OptionalEmailPreference = {
+      _id: new ObjectId(),
+      userId,
+      unsubscribedAt: at,
+      createdAt: at,
+      updatedAt: at,
+    };
+    let updateAttempts = 0;
+    const racingRepo = new OptionalEmailPreferenceRepository({
+      getCollection: () => ({
+        findOneAndUpdate: async (_filter: unknown, _update: unknown, options: { upsert: boolean }) => {
+          updateAttempts += 1;
+          if (updateAttempts === 1) {
+            throw duplicateKeyError;
+          }
+          assert.equal(options.upsert, false);
+          return {
+            ...winner,
+            suppressedAt: at,
+            suppressionReason: OptionalEmailSuppressionReason.HardBounce,
+          };
+        },
+        findOne: async () => winner,
+      }),
+    } as unknown as MongoDbAccessor);
+
+    const preference = await racingRepo.suppress({
+      userId: userId.toHexString(),
+      reason: OptionalEmailSuppressionReason.HardBounce,
+      at,
+    });
+
+    assert.equal(updateAttempts, 2);
+    assert.equal(preference.unsubscribedAt?.toISOString(), at.toISOString());
+    assert.equal(preference.suppressionReason, OptionalEmailSuppressionReason.HardBounce);
   });
 
   it("keeps one preference document when concurrent unsubscribe requests race", async () => {

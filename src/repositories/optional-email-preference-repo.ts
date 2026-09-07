@@ -76,26 +76,33 @@ export class OptionalEmailPreferenceRepository {
     fields: Record<string, unknown>;
   }): Promise<OptionalEmailPreference> {
     const userId = new ObjectId(input.userId);
+    const update = [
+      {
+        $set: {
+          ...input.fields,
+          createdAt: { $ifNull: ["$createdAt", input.at] },
+          updatedAt: input.at,
+        },
+      },
+    ];
     try {
-      const preference = await this.#collection.findOneAndUpdate(
-        { userId },
-        [
-          {
-            $set: {
-              ...input.fields,
-              createdAt: { $ifNull: ["$createdAt", input.at] },
-              updatedAt: input.at,
-            },
-          },
-        ],
-        { upsert: true, returnDocument: "after" },
-      );
+      const preference = await this.#collection.findOneAndUpdate({ userId }, update, {
+        upsert: true,
+        returnDocument: "after",
+      });
       if (preference) {
         return preference;
       }
     } catch (error) {
       if (!(error instanceof MongoServerError) || error.code !== 11000) {
         throw error;
+      }
+      const preference = await this.#collection.findOneAndUpdate({ userId }, update, {
+        upsert: false,
+        returnDocument: "after",
+      });
+      if (preference) {
+        return preference;
       }
     }
 

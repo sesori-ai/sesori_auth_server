@@ -7,14 +7,15 @@ import {
   OPTIONAL_EMAIL_RESERVATION_LEASE_MS,
   OptionalEmailReminderKind,
   OptionalEmailSendBlockReason,
+  OptionalEmailSendReservationOutcome,
   OptionalEmailSendStatus,
 } from "../types/optional-email.js";
 import { AuthDbCollection, MongoDbDatabase } from "../types/mongo.js";
 
 export type OptionalEmailSendReservation =
-  | { status: "reserved"; send: OptionalEmailSend; leaseId: string }
-  | { status: "duplicate"; send: OptionalEmailSend }
-  | { status: "retry_expired"; send: OptionalEmailSend };
+  | { status: OptionalEmailSendReservationOutcome.Reserved; send: OptionalEmailSend; leaseId: string }
+  | { status: OptionalEmailSendReservationOutcome.Duplicate; send: OptionalEmailSend }
+  | { status: OptionalEmailSendReservationOutcome.RetryExpired; send: OptionalEmailSend };
 
 export class OptionalEmailSendRepository {
   readonly #collection: Collection<OptionalEmailSend>;
@@ -34,11 +35,12 @@ export class OptionalEmailSendRepository {
     at: Date;
   }): Promise<OptionalEmailSendReservation> {
     this.#validate(input);
+    const userObjectId = new ObjectId(input.userId);
     const activeLeaseId = new ObjectId();
     const send: OptionalEmailSend = {
       _id: new ObjectId(),
       sendKey: input.sendKey,
-      userId: new ObjectId(input.userId),
+      userId: userObjectId,
       campaignId: input.campaignId,
       reminderKind: input.reminderKind,
       status: OptionalEmailSendStatus.Reserved,
@@ -49,19 +51,34 @@ export class OptionalEmailSendRepository {
     };
     try {
       await this.#collection.insertOne(send);
-      return { status: "reserved", send, leaseId: activeLeaseId.toHexString() };
+      return { status: OptionalEmailSendReservationOutcome.Reserved, send, leaseId: activeLeaseId.toHexString() };
     } catch (error) {
       if (!(error instanceof MongoServerError) || error.code !== 11000) {
         throw error;
       }
       const existing = await this.findBySendKey({ sendKey: input.sendKey });
       if (!existing) {
-        throw new InternalServerError({ debugMessage: "Optional email send reservation disappeared" });
+        throw new InternalServerError({
+          debugMessage: "Optional email send reservation collision could not be resolved",
+        });
+      }
+      if (
+        !existing.userId.equals(userObjectId) ||
+        existing.campaignId !== input.campaignId ||
+        existing.reminderKind !== input.reminderKind
+      ) {
+        throw new InternalServerError({ debugMessage: "Optional email send key identity mismatch" });
       }
       if (existing.status === OptionalEmailSendStatus.Reserved) {
         const reservationAgeMs = input.at.getTime() - existing.updatedAt.getTime();
         if (reservationAgeMs < 0 || reservationAgeMs <= OPTIONAL_EMAIL_RESERVATION_LEASE_MS) {
-          return { status: "duplicate", send: existing };
+          return { status: OptionalEmailSendReservationOutcome.Duplicate, send: existing };
+        }
+        if (existing.firstProviderAttemptAt) {
+          const retryAgeMs = input.at.getTime() - existing.firstProviderAttemptAt.getTime();
+          if (retryAgeMs < 0 || retryAgeMs > OPTIONAL_EMAIL_PROVIDER_IDEMPOTENCY_SAFETY_WINDOW_MS) {
+            return { status: OptionalEmailSendReservationOutcome.RetryExpired, send: existing };
+          }
         }
         const reclaimedLeaseId = new ObjectId();
         const reclaimed = await this.#collection.findOneAndUpdate(
@@ -74,26 +91,30 @@ export class OptionalEmailSendRepository {
           { returnDocument: "after" },
         );
         if (reclaimed) {
-          return { status: "reserved", send: reclaimed, leaseId: reclaimedLeaseId.toHexString() };
+          return {
+            status: OptionalEmailSendReservationOutcome.Reserved,
+            send: reclaimed,
+            leaseId: reclaimedLeaseId.toHexString(),
+          };
         }
         const raced = await this.findBySendKey({ sendKey: input.sendKey });
         if (!raced) {
           throw new InternalServerError({ debugMessage: "Optional email stale reservation disappeared" });
         }
-        return { status: "duplicate", send: raced };
+        return { status: OptionalEmailSendReservationOutcome.Duplicate, send: raced };
       }
       if (existing.status === OptionalEmailSendStatus.InFlight) {
         // Retry only with the same deterministic send key while the provider's
         // idempotency window can still collapse an uncertain prior request.
         const leaseAgeMs = input.at.getTime() - existing.updatedAt.getTime();
         if (leaseAgeMs < 0 || leaseAgeMs <= OPTIONAL_EMAIL_RESERVATION_LEASE_MS) {
-          return { status: "duplicate", send: existing };
+          return { status: OptionalEmailSendReservationOutcome.Duplicate, send: existing };
         }
         const firstAttemptMs = existing.firstProviderAttemptAt?.getTime();
         const retryAgeMs =
           firstAttemptMs === undefined ? Number.POSITIVE_INFINITY : input.at.getTime() - firstAttemptMs;
         if (retryAgeMs < 0 || retryAgeMs > OPTIONAL_EMAIL_PROVIDER_IDEMPOTENCY_SAFETY_WINDOW_MS) {
-          return { status: "retry_expired", send: existing };
+          return { status: OptionalEmailSendReservationOutcome.RetryExpired, send: existing };
         }
         const reclaimedLeaseId = new ObjectId();
         const reclaimed = await this.#collection.findOneAndUpdate(
@@ -112,20 +133,24 @@ export class OptionalEmailSendRepository {
           { returnDocument: "after" },
         );
         if (reclaimed) {
-          return { status: "reserved", send: reclaimed, leaseId: reclaimedLeaseId.toHexString() };
+          return {
+            status: OptionalEmailSendReservationOutcome.Reserved,
+            send: reclaimed,
+            leaseId: reclaimedLeaseId.toHexString(),
+          };
         }
         const raced = await this.findBySendKey({ sendKey: input.sendKey });
         if (!raced) {
           throw new InternalServerError({ debugMessage: "Optional email in-flight reservation disappeared" });
         }
-        return { status: "duplicate", send: raced };
+        return { status: OptionalEmailSendReservationOutcome.Duplicate, send: raced };
       }
       if (existing.status === OptionalEmailSendStatus.Failed) {
         const firstAttemptMs = existing.firstProviderAttemptAt?.getTime();
         const retryAgeMs =
           firstAttemptMs === undefined ? Number.POSITIVE_INFINITY : input.at.getTime() - firstAttemptMs;
         if (retryAgeMs < 0 || retryAgeMs > OPTIONAL_EMAIL_PROVIDER_IDEMPOTENCY_SAFETY_WINDOW_MS) {
-          return { status: "retry_expired", send: existing };
+          return { status: OptionalEmailSendReservationOutcome.RetryExpired, send: existing };
         }
         const reclaimedLeaseId = new ObjectId();
         const reclaimed = await this.#collection.findOneAndUpdate(
@@ -140,13 +165,17 @@ export class OptionalEmailSendRepository {
           { returnDocument: "after" },
         );
         if (reclaimed) {
-          return { status: "reserved", send: reclaimed, leaseId: reclaimedLeaseId.toHexString() };
+          return {
+            status: OptionalEmailSendReservationOutcome.Reserved,
+            send: reclaimed,
+            leaseId: reclaimedLeaseId.toHexString(),
+          };
         }
         const raced = await this.findBySendKey({ sendKey: input.sendKey });
         if (!raced) {
           throw new InternalServerError({ debugMessage: "Optional email retry reservation disappeared" });
         }
-        return { status: "duplicate", send: raced };
+        return { status: OptionalEmailSendReservationOutcome.Duplicate, send: raced };
       }
       if (existing.status === OptionalEmailSendStatus.DeferredDailyLimit) {
         const reclaimedLeaseId = new ObjectId();
@@ -162,15 +191,19 @@ export class OptionalEmailSendRepository {
           { returnDocument: "after" },
         );
         if (reclaimed) {
-          return { status: "reserved", send: reclaimed, leaseId: reclaimedLeaseId.toHexString() };
+          return {
+            status: OptionalEmailSendReservationOutcome.Reserved,
+            send: reclaimed,
+            leaseId: reclaimedLeaseId.toHexString(),
+          };
         }
         const raced = await this.findBySendKey({ sendKey: input.sendKey });
         if (!raced) {
           throw new InternalServerError({ debugMessage: "Optional email deferred reservation disappeared" });
         }
-        return { status: "duplicate", send: raced };
+        return { status: OptionalEmailSendReservationOutcome.Duplicate, send: raced };
       }
-      return { status: "duplicate", send: existing };
+      return { status: OptionalEmailSendReservationOutcome.Duplicate, send: existing };
     }
   }
 
