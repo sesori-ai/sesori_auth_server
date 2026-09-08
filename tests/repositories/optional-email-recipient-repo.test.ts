@@ -271,7 +271,7 @@ describe("OptionalEmailRecipientRepository", () => {
       {
         _id: new ObjectId(),
         userId,
-        email: "second@example.test",
+        email: "FIRST@example.test",
         passwordHash: "fixture-only-hash",
         createdAt: new Date(2),
         updatedAt: new Date(2),

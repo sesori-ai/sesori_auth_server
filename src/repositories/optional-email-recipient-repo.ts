@@ -45,6 +45,9 @@ export class OptionalEmailRecipientRepository {
       this.#oauthAccounts.find({ userId }, { projection: { provider: 1, providerUsername: 1, email: 1 } }).toArray(),
       this.#passwordAccounts.find({ userId }, { projection: { email: 1 } }).toArray(),
     ]);
+    if (passwordAccounts.length > 1) {
+      return { status: OptionalEmailRecipientResolutionStatus.Ambiguous };
+    }
     if (oauthAccounts.some((account) => typeof account.provider !== "string")) {
       return { status: OptionalEmailRecipientResolutionStatus.Ambiguous };
     }
