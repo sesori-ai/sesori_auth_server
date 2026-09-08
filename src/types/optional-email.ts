@@ -3,6 +3,10 @@ export enum OptionalEmailRecipientBasis {
   AccountActivityApproved = "account_activity_approved",
 }
 
+export enum OptionalEmailDryRunMode {
+  DryRun = "dry_run",
+}
+
 export enum OptionalEmailSuppressionReason {
   HardBounce = "hard_bounce",
   Complaint = "complaint",
@@ -38,6 +42,7 @@ export enum OptionalEmailBlockReason {
 export enum OptionalEmailSendBlockReason {
   SendingDisabled = "sending_disabled",
   RecipientBasisUnapproved = "recipient_basis_unapproved",
+  RecipientSafetyUnverified = "recipient_safety_unverified",
   MissingUser = "missing_user",
   MissingRecipient = "missing_recipient",
   AmbiguousRecipient = "ambiguous_recipient",
