@@ -58,6 +58,7 @@ export class OptionalEmailRecipientRepository {
     if (passwordAccounts.length > 1) {
       return { status: OptionalEmailRecipientResolutionStatus.Ambiguous };
     }
+
     if (oauthAccounts.some((account) => typeof account.provider !== "string" || account.provider.trim().length === 0)) {
       return { status: OptionalEmailRecipientResolutionStatus.Ambiguous };
     }
