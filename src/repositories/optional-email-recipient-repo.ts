@@ -17,6 +17,16 @@ const normalizedEmailSchema = z
   .email()
   .transform((value) => value.toLowerCase());
 
+function compareStrings(left: string, right: string): number {
+  if (left < right) {
+    return -1;
+  }
+  if (left > right) {
+    return 1;
+  }
+  return 0;
+}
+
 /**
  * Resolves only persisted identity fields linked to one user. `Resolved` means
  * syntactically valid and unambiguous within that user; it does not establish
@@ -48,7 +58,7 @@ export class OptionalEmailRecipientRepository {
     if (passwordAccounts.length > 1) {
       return { status: OptionalEmailRecipientResolutionStatus.Ambiguous };
     }
-    if (oauthAccounts.some((account) => typeof account.provider !== "string")) {
+    if (oauthAccounts.some((account) => typeof account.provider !== "string" || account.provider.trim().length === 0)) {
       return { status: OptionalEmailRecipientResolutionStatus.Ambiguous };
     }
 
@@ -120,9 +130,9 @@ export class OptionalEmailRecipientRepository {
         .map((candidate) => candidate.provenance)
         .sort(
           (left, right) =>
-            left.accountKind.localeCompare(right.accountKind) ||
-            left.provider.localeCompare(right.provider) ||
-            left.field.localeCompare(right.field),
+            compareStrings(left.accountKind, right.accountKind) ||
+            compareStrings(left.provider, right.provider) ||
+            compareStrings(left.field, right.field),
         ),
     };
   }

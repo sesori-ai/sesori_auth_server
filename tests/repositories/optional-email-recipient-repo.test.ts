@@ -191,7 +191,7 @@ describe("OptionalEmailRecipientRepository", () => {
   });
 
   it("retains every linked source in deterministic order when all identities resolve to one address", async () => {
-    const user = await ctx.createUser({ provider: "zeta-provider" });
+    const user = await ctx.createUser({ provider: "alpha-provider" });
     const userId = new ObjectId(user.userId);
     const oauthAccounts = ctx.dbAccessor.getCollection<OAuthAccount>(
       MongoDbDatabase.Auth,
@@ -201,7 +201,7 @@ describe("OptionalEmailRecipientRepository", () => {
     await oauthAccounts.insertOne({
       _id: new ObjectId(),
       userId,
-      provider: "alpha-provider",
+      provider: "Zeta-provider",
       providerUserId: new ObjectId().toHexString(),
       providerUsername: "Display Name",
       email: "same@example.test",
@@ -223,15 +223,16 @@ describe("OptionalEmailRecipientRepository", () => {
       status: "resolved",
       address: "same@example.test",
       provenance: [
+        { accountKind: "oauth", provider: "Zeta-provider", field: "email" },
         { accountKind: "oauth", provider: "alpha-provider", field: "email" },
-        { accountKind: "oauth", provider: "zeta-provider", field: "email" },
         { accountKind: "password", provider: "email", field: "email" },
       ],
     });
   });
 
-  it("fails closed when OAuth provenance is missing or non-string", async () => {
+  it("fails closed when OAuth provenance is missing, blank, or non-string", async () => {
     const missing = await ctx.createUser({ provider: "future-provider" });
+    const blank = await ctx.createUser({ provider: "future-provider" });
     const malformed = await ctx.createUser({ provider: "future-provider" });
     const accounts = ctx.dbAccessor.getCollection<Document>(MongoDbDatabase.Auth, AuthDbCollection.OAuthAccounts);
     await accounts.updateOne(
@@ -239,11 +240,18 @@ describe("OptionalEmailRecipientRepository", () => {
       { $set: { email: "valid@example.test" }, $unset: { provider: "" } },
     );
     await accounts.updateOne(
+      { userId: new ObjectId(blank.userId) },
+      { $set: { email: "valid@example.test", provider: "   " } },
+    );
+    await accounts.updateOne(
       { userId: new ObjectId(malformed.userId) },
       { $set: { email: "valid@example.test", provider: 42 } },
     );
 
     assert.deepEqual(await repository.resolve({ userId: missing.userId }), {
+      status: "ambiguous_recipient",
+    });
+    assert.deepEqual(await repository.resolve({ userId: blank.userId }), {
       status: "ambiguous_recipient",
     });
     assert.deepEqual(await repository.resolve({ userId: malformed.userId }), {
@@ -259,27 +267,32 @@ describe("OptionalEmailRecipientRepository", () => {
       AuthDbCollection.PasswordAccounts,
     );
     await accounts.dropIndex("userId_1");
-    await accounts.insertMany([
-      {
-        _id: new ObjectId(),
-        userId,
-        email: "first@example.test",
-        passwordHash: "fixture-only-hash",
-        createdAt: new Date(1),
-        updatedAt: new Date(1),
-      },
-      {
-        _id: new ObjectId(),
-        userId,
-        email: "FIRST@example.test",
-        passwordHash: "fixture-only-hash",
-        createdAt: new Date(2),
-        updatedAt: new Date(2),
-      },
-    ]);
+    try {
+      await accounts.insertMany([
+        {
+          _id: new ObjectId(),
+          userId,
+          email: "first@example.test",
+          passwordHash: "fixture-only-hash",
+          createdAt: new Date(1),
+          updatedAt: new Date(1),
+        },
+        {
+          _id: new ObjectId(),
+          userId,
+          email: "FIRST@example.test",
+          passwordHash: "fixture-only-hash",
+          createdAt: new Date(2),
+          updatedAt: new Date(2),
+        },
+      ]);
 
-    assert.deepEqual(await repository.resolve({ userId: user.userId }), {
-      status: "ambiguous_recipient",
-    });
+      assert.deepEqual(await repository.resolve({ userId: user.userId }), {
+        status: "ambiguous_recipient",
+      });
+    } finally {
+      await accounts.deleteMany({ userId });
+      await accounts.createIndex({ userId: 1 }, { unique: true });
+    }
   });
 });
