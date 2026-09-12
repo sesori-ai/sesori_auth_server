@@ -3,6 +3,38 @@ export enum OptionalEmailRecipientBasis {
   AccountActivityApproved = "account_activity_approved",
 }
 
+export enum OptionalEmailRecipientResolutionStatus {
+  Resolved = "resolved",
+  Missing = "missing_recipient",
+  Ambiguous = "ambiguous_recipient",
+}
+
+export enum OptionalEmailRecipientAccountKind {
+  OAuth = "oauth",
+  Password = "password",
+}
+
+export enum OptionalEmailRecipientField {
+  Email = "email",
+  LegacyAppleProviderUsername = "legacy_apple_provider_username",
+}
+
+export type OptionalEmailRecipientProvenance = {
+  accountKind: OptionalEmailRecipientAccountKind;
+  provider: string;
+  field: OptionalEmailRecipientField;
+};
+
+export type OptionalEmailRecipientResolution =
+  | {
+      status: OptionalEmailRecipientResolutionStatus.Resolved;
+      address: string;
+      provenance: OptionalEmailRecipientProvenance[];
+    }
+  | {
+      status: OptionalEmailRecipientResolutionStatus.Missing | OptionalEmailRecipientResolutionStatus.Ambiguous;
+    };
+
 export enum OptionalEmailDryRunMode {
   DryRun = "dry_run",
 }
