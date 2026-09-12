@@ -402,6 +402,68 @@ describe("optional email safety ingress configuration", () => {
     );
     assert.equal(shortUnsubscribe.success, false);
   });
+
+  it("declares an optional version-bound address-key secret", () => {
+    const absent = configSchema.safeParse(validEnv());
+    const configured = configSchema.safeParse(validEnv({ OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_V1: "a".repeat(32) }));
+
+    assert.equal(absent.success, true);
+    assert.equal(absent.data?.OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_V1, undefined);
+    assert.equal(configured.success, true);
+    assert.equal(configured.data?.OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_V1, "a".repeat(32));
+  });
+
+  it("rejects reuse of an optional-email signing secret as the address-key secret", () => {
+    const reusedSecret = "s".repeat(32);
+
+    const parsed = configSchema.safeParse(
+      validEnv({
+        OPTIONAL_EMAIL_UNSUBSCRIBE_SIGNING_SECRET: reusedSecret,
+        OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_V1: reusedSecret,
+      }),
+    );
+
+    assert.equal(parsed.success, false);
+  });
+
+  it("rejects reuse of the webhook verification secret as the address-key secret", () => {
+    const reusedSecret = `whsec_${Buffer.alloc(32, 11).toString("base64")}`;
+
+    const parsed = configSchema.safeParse(
+      validEnv({
+        RESEND_WEBHOOK_SECRET: reusedSecret,
+        OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_V1: reusedSecret,
+      }),
+    );
+
+    assert.equal(parsed.success, false);
+  });
+
+  it("rejects reuse of decoded webhook key material as the address-key secret", () => {
+    const reusedKeyMaterial = "w".repeat(32);
+
+    const parsed = configSchema.safeParse(
+      validEnv({
+        RESEND_WEBHOOK_SECRET: `whsec_${Buffer.from(reusedKeyMaterial, "utf8").toString("base64")}`,
+        OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_V1: reusedKeyMaterial,
+      }),
+    );
+
+    assert.equal(parsed.success, false);
+  });
+
+  it("rejects reuse of the analytics pseudonymization key as the address-key secret", () => {
+    const reusedSecret = "p".repeat(32);
+
+    const parsed = configSchema.safeParse(
+      validEnv({
+        PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY: Buffer.from(reusedSecret, "utf8").toString("base64"),
+        OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_V1: reusedSecret,
+      }),
+    );
+
+    assert.equal(parsed.success, false);
+  });
 });
 
 describe("optional email eligibility configuration", () => {
