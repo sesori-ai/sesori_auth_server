@@ -208,17 +208,31 @@ const validatedConfigSchema = baseConfigSchema.superRefine((config, ctx) => {
   const optionalEmailAddressKeySecret = config.OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_V1;
   const optionalEmailAddressKeySecretBytes =
     optionalEmailAddressKeySecret === undefined ? undefined : Buffer.from(optionalEmailAddressKeySecret, "utf8");
+  const otherPurposeSecrets: readonly (string | undefined)[] = [
+    config.APPLE_PRIVATE_KEY,
+    config.JWT_PRIVATE_KEY,
+    config.JWT_PUBLIC_KEY,
+    config.GITHUB_CLIENT_SECRET,
+    config.GOOGLE_CLIENT_SECRET,
+    config.RELAY_WEBHOOK_SECRET,
+    config.OPENAI_API_KEY,
+    config.SONIOX_API_KEY,
+    config.FCM_SA_JSON.private_key,
+    Buffer.from(JSON.stringify(config.FCM_SA_JSON), "utf8").toString("base64"),
+    config.OPTIONAL_EMAIL_UNSUBSCRIBE_SIGNING_SECRET,
+    config.RESEND_WEBHOOK_SECRET,
+  ];
   if (
     optionalEmailAddressKeySecret !== undefined &&
     optionalEmailAddressKeySecretBytes !== undefined &&
-    (optionalEmailAddressKeySecret === config.OPTIONAL_EMAIL_UNSUBSCRIBE_SIGNING_SECRET ||
-      optionalEmailAddressKeySecret === config.RESEND_WEBHOOK_SECRET ||
+    (otherPurposeSecrets.includes(optionalEmailAddressKeySecret) ||
       (config.RESEND_WEBHOOK_SECRET !== undefined &&
         isValidResendWebhookSigningSecret(config.RESEND_WEBHOOK_SECRET) &&
         optionalEmailAddressKeySecretBytes.equals(
           Buffer.from(config.RESEND_WEBHOOK_SECRET.slice("whsec_".length), "base64"),
         )) ||
-      optionalEmailAddressKeySecretBytes.equals(config.PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY))
+      optionalEmailAddressKeySecretBytes.equals(config.PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY) ||
+      optionalEmailAddressKeySecret === config.PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY.toString("base64"))
   ) {
     ctx.addIssue({
       code: "custom",

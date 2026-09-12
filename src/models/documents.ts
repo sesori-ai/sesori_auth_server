@@ -3,6 +3,7 @@ import { z } from "zod";
 import { bridgeIdSchema, bridgePlatformSchema, bridgeStatusSchema } from "./bridge.js";
 import { devicePlatformSchema } from "./device.js";
 import { deviceIdSchema, storedNotificationSettingsSchema } from "./settings.js";
+import { OPTIONAL_EMAIL_ADDRESS_KEY_PATTERN } from "../lib/optional-email-address-key.js";
 import {
   productAnalyticsOperationIdSchema,
   productAnalyticsPreferenceRevisionSchema,
@@ -197,7 +198,7 @@ export const optionalEmailAddressSuppressionSchema = z
   .object({
     _id: z.instanceof(ObjectId),
     addressKeyVersion: z.nativeEnum(OptionalEmailAddressKeyVersion),
-    addressKey: z.string().regex(/^[a-f0-9]{64}$/),
+    addressKey: z.string().regex(OPTIONAL_EMAIL_ADDRESS_KEY_PATTERN),
     unsubscribedAt: z.date().optional(),
     suppressedAt: z.date().optional(),
     suppressionReason: z.nativeEnum(OptionalEmailSuppressionReason).optional(),

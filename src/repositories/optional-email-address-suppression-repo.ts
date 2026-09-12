@@ -1,6 +1,7 @@
 import { Collection, MongoServerError } from "mongodb";
 import type { MongoDbAccessor } from "../db/mongo-db-accessor.js";
 import { InternalServerError } from "../lib/errors.js";
+import { OPTIONAL_EMAIL_ADDRESS_KEY_PATTERN } from "../lib/optional-email-address-key.js";
 import { optionalEmailAddressSuppressionSchema, type OptionalEmailAddressSuppression } from "../models/documents.js";
 import {
   type OptionalEmailAddressKey,
@@ -9,8 +10,6 @@ import {
   OptionalEmailSuppressionReason,
 } from "../types/optional-email.js";
 import { AuthDbCollection, MongoDbDatabase } from "../types/mongo.js";
-
-const ADDRESS_KEY_PATTERN = /^[a-f0-9]{64}$/;
 
 export class OptionalEmailAddressSuppressionRepository {
   readonly #collection: Collection<OptionalEmailAddressSuppression>;
@@ -149,7 +148,8 @@ export class OptionalEmailAddressSuppressionRepository {
       addressKeys.some(
         (addressKey) =>
           !Object.values(OptionalEmailAddressKeyVersion).includes(addressKey.addressKeyVersion) ||
-          !ADDRESS_KEY_PATTERN.test(addressKey.addressKey),
+          typeof addressKey.addressKey !== "string" ||
+          !OPTIONAL_EMAIL_ADDRESS_KEY_PATTERN.test(addressKey.addressKey),
       )
     ) {
       throw new InternalServerError({ debugMessage: "Invalid optional email address key" });

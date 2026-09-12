@@ -10,6 +10,7 @@ const normalizedOptionalEmailAddressSchema = z
   .transform((value) => value.toLowerCase());
 
 const OPTIONAL_EMAIL_ADDRESS_KEY_PURPOSE = "optional_email_address_suppression";
+export const OPTIONAL_EMAIL_ADDRESS_KEY_PATTERN = /^[a-f0-9]{64}$/;
 export const OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_MIN_BYTES = 32;
 
 export function normalizeOptionalEmailAddress(input: { address: unknown }): string | null {

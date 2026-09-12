@@ -200,6 +200,18 @@ describe("OptionalEmailAddressSuppressionRepository", () => {
     assert.equal(retained, 0);
   });
 
+  it("rejects object-valued address keys even when string coercion resembles a digest", async () => {
+    const addressKey = {
+      addressKeyVersion: OptionalEmailAddressKeyVersion.V1,
+      addressKey: { toString: () => "a".repeat(64) } as unknown as string,
+    };
+
+    await assert.rejects(
+      () => repository.unsubscribe({ addressKey, at: new Date("2026-09-12T13:35:00.000Z") }),
+      (error: unknown) => error instanceof InternalServerError,
+    );
+  });
+
   it("rejects an unsupported suppression reason", async () => {
     const addressKey = deriveOptionalEmailAddressKey({
       address: "invalid-reason@example.test",
@@ -288,5 +300,52 @@ describe("OptionalEmailAddressSuppressionRepository", () => {
     assert.equal(updateAttempts, 2);
     assert.equal(record.unsubscribedAt?.toISOString(), at.toISOString());
     assert.equal(record.suppressionReason, OptionalEmailSuppressionReason.Complaint);
+  });
+
+  it("reads the concurrent winner when the retry update returns no document", async () => {
+    const addressKey = deriveOptionalEmailAddressKey({
+      address: "fallback-race@example.test",
+      secret: fixtureSecret,
+      version: OptionalEmailAddressKeyVersion.V1,
+    });
+    const at = new Date("2026-09-12T14:05:00.000Z");
+    const duplicateKeyError = new MongoServerError({ ok: 0, code: 11000, errmsg: "duplicate tombstone" });
+    const winner: OptionalEmailAddressSuppression = {
+      _id: new ObjectId(),
+      ...addressKey,
+      suppressedAt: at,
+      suppressionReason: OptionalEmailSuppressionReason.HardBounce,
+      createdAt: at,
+      updatedAt: at,
+    };
+    let updateAttempts = 0;
+    let fallbackReads = 0;
+    const racingRepository = new OptionalEmailAddressSuppressionRepository({
+      getCollection: () => ({
+        findOneAndUpdate: async (_filter: unknown, _update: unknown, options: { upsert: boolean }) => {
+          updateAttempts += 1;
+          if (updateAttempts === 1) {
+            throw duplicateKeyError;
+          }
+
+          assert.equal(options.upsert, false);
+          return null;
+        },
+        findOne: async () => {
+          fallbackReads += 1;
+          return winner;
+        },
+      }),
+    } as unknown as MongoDbAccessor);
+
+    const record = await racingRepository.suppress({
+      addressKey,
+      reason: OptionalEmailSuppressionReason.HardBounce,
+      at,
+    });
+
+    assert.equal(updateAttempts, 2);
+    assert.equal(fallbackReads, 1);
+    assert.equal(record._id.toHexString(), winner._id.toHexString());
   });
 });

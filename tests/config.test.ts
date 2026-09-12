@@ -426,6 +426,59 @@ describe("optional email safety ingress configuration", () => {
     assert.equal(parsed.success, false);
   });
 
+  it("rejects reuse of another declared secret as the address-key secret", () => {
+    const reusedSecret = "r".repeat(32);
+
+    for (const variable of [
+      "APPLE_PRIVATE_KEY",
+      "JWT_PRIVATE_KEY",
+      "JWT_PUBLIC_KEY",
+      "GITHUB_CLIENT_SECRET",
+      "GOOGLE_CLIENT_SECRET",
+      "RELAY_WEBHOOK_SECRET",
+      "OPENAI_API_KEY",
+      "SONIOX_API_KEY",
+    ] as const) {
+      const parsed = configSchema.safeParse(
+        validEnv({
+          [variable]: reusedSecret,
+          OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_V1: reusedSecret,
+        }),
+      );
+
+      assert.equal(parsed.success, false, variable);
+    }
+  });
+
+  it("rejects reuse of the Firebase service-account private key as the address-key secret", () => {
+    const reusedSecret = `-----BEGIN ${"f".repeat(32)}`;
+    const fcmServiceAccount = Buffer.from(
+      JSON.stringify({ ...serviceAccount, private_key: reusedSecret }),
+      "utf8",
+    ).toString("base64");
+
+    const parsed = configSchema.safeParse(
+      validEnv({
+        FCM_SA_JSON: fcmServiceAccount,
+        OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_V1: reusedSecret,
+      }),
+    );
+
+    assert.equal(parsed.success, false);
+  });
+
+  it("rejects copy-paste reuse of the encoded Firebase service account as the address-key secret", () => {
+    const fcmServiceAccount = validEnv().FCM_SA_JSON;
+
+    const parsed = configSchema.safeParse(
+      validEnv({
+        OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_V1: fcmServiceAccount,
+      }),
+    );
+
+    assert.equal(parsed.success, false);
+  });
+
   it("rejects reuse of the webhook verification secret as the address-key secret", () => {
     const reusedSecret = `whsec_${Buffer.alloc(32, 11).toString("base64")}`;
 
@@ -458,6 +511,19 @@ describe("optional email safety ingress configuration", () => {
     const parsed = configSchema.safeParse(
       validEnv({
         PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY: Buffer.from(reusedSecret, "utf8").toString("base64"),
+        OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_V1: reusedSecret,
+      }),
+    );
+
+    assert.equal(parsed.success, false);
+  });
+
+  it("rejects copy-paste reuse of the encoded analytics key as the address-key secret", () => {
+    const reusedSecret = Buffer.from("p".repeat(32), "utf8").toString("base64");
+
+    const parsed = configSchema.safeParse(
+      validEnv({
+        PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY: reusedSecret,
         OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_V1: reusedSecret,
       }),
     );
