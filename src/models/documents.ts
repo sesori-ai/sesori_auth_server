@@ -10,6 +10,7 @@ import {
 } from "../types/product-analytics.js";
 import { normalizedGlossaryWordSchema, projectGlossaryScopeSchema } from "./voice.js";
 import {
+  OptionalEmailAddressKeyVersion,
   OptionalEmailReminderKind,
   OptionalEmailSendBlockReason,
   OptionalEmailSendDeferralReason,
@@ -186,6 +187,41 @@ export const optionalEmailPreferenceSchema = z.object({
 });
 
 export type OptionalEmailPreference = z.infer<typeof optionalEmailPreferenceSchema>;
+
+/**
+ * Address-level optional-mail do-not-contact tombstone. It deliberately stores
+ * neither a raw address nor a user ID so it can outlive account deletion
+ * without retaining an account link.
+ */
+export const optionalEmailAddressSuppressionSchema = z
+  .object({
+    _id: z.instanceof(ObjectId),
+    addressKeyVersion: z.nativeEnum(OptionalEmailAddressKeyVersion),
+    addressKey: z.string().regex(/^[a-f0-9]{64}$/),
+    unsubscribedAt: z.date().optional(),
+    suppressedAt: z.date().optional(),
+    suppressionReason: z.nativeEnum(OptionalEmailSuppressionReason).optional(),
+    createdAt: z.date(),
+    updatedAt: z.date(),
+  })
+  .strict()
+  .superRefine((record, ctx) => {
+    const hasSuppressedAt = record.suppressedAt !== undefined;
+    const hasSuppressionReason = record.suppressionReason !== undefined;
+    if (hasSuppressedAt !== hasSuppressionReason) {
+      ctx.addIssue({
+        code: "custom",
+        path: hasSuppressedAt ? ["suppressionReason"] : ["suppressedAt"],
+        message: "suppressedAt and suppressionReason must be present together",
+      });
+    }
+
+    if (record.unsubscribedAt === undefined && !hasSuppressedAt) {
+      ctx.addIssue({ code: "custom", message: "must contain an unsubscribe or suppression block marker" });
+    }
+  });
+
+export type OptionalEmailAddressSuppression = z.infer<typeof optionalEmailAddressSuppressionSchema>;
 
 export const optionalEmailWebhookEventSchema = z.object({
   _id: z.instanceof(ObjectId),

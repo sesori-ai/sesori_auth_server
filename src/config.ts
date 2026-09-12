@@ -4,6 +4,7 @@ import { clientIpSourceSchema, ClientIpSource, trustedIngressCidrsSchema } from 
 import { productAnalyticsPseudonymizationKeySchema } from "./types/product-analytics.js";
 import { isValidResendWebhookSigningSecret } from "./services/resend-webhook-verifier.js";
 import { OPTIONAL_EMAIL_MAX_DAILY_CAP, OptionalEmailRecipientBasis } from "./types/optional-email.js";
+import { OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_MIN_BYTES } from "./lib/optional-email-address-key.js";
 
 const appleConfigSchema = z.object({
   APPLE_CLIENT_ID: z.string().min(1, "APPLE_CLIENT_ID is required"),
@@ -97,6 +98,13 @@ const baseConfigSchema = z.object({
     .refine(
       (value) => Buffer.byteLength(value, "utf8") >= 32,
       "OPTIONAL_EMAIL_UNSUBSCRIBE_SIGNING_SECRET must be at least 32 bytes",
+    )
+    .optional(),
+  OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_V1: z
+    .string()
+    .refine(
+      (value) => Buffer.byteLength(value, "utf8") >= OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_MIN_BYTES,
+      "OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_V1 must be at least 32 bytes",
     )
     .optional(),
   OPENAI_API_KEY: z.string().min(1, "OPENAI_API_KEY is required"),
@@ -194,6 +202,28 @@ const validatedConfigSchema = baseConfigSchema.superRefine((config, ctx) => {
       code: "custom",
       path: ["REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER"],
       message: "REALTIME_MAX_CONCURRENT_SESSIONS_PER_USER cannot exceed REALTIME_MAX_CONCURRENT_SESSIONS",
+    });
+  }
+
+  const optionalEmailAddressKeySecret = config.OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_V1;
+  const optionalEmailAddressKeySecretBytes =
+    optionalEmailAddressKeySecret === undefined ? undefined : Buffer.from(optionalEmailAddressKeySecret, "utf8");
+  if (
+    optionalEmailAddressKeySecret !== undefined &&
+    optionalEmailAddressKeySecretBytes !== undefined &&
+    (optionalEmailAddressKeySecret === config.OPTIONAL_EMAIL_UNSUBSCRIBE_SIGNING_SECRET ||
+      optionalEmailAddressKeySecret === config.RESEND_WEBHOOK_SECRET ||
+      (config.RESEND_WEBHOOK_SECRET !== undefined &&
+        isValidResendWebhookSigningSecret(config.RESEND_WEBHOOK_SECRET) &&
+        optionalEmailAddressKeySecretBytes.equals(
+          Buffer.from(config.RESEND_WEBHOOK_SECRET.slice("whsec_".length), "base64"),
+        )) ||
+      optionalEmailAddressKeySecretBytes.equals(config.PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY))
+  ) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_V1"],
+      message: "OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_V1 must be purpose-specific and independent",
     });
   }
 
