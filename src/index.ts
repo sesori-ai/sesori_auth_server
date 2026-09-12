@@ -119,7 +119,7 @@ async function main() {
 
   const settingsService = new SettingsService({ settingsRepo });
   const notificationService = new NotificationService(deviceTokenRepo, messaging, settingsService);
-  const bridgeStateTracker = new BridgeStateTracker(notificationService);
+  const bridgeStateTracker = new BridgeStateTracker({ notificationService });
   const bridgeService = new BridgeService({ bridgeRepo, glossaryRepo, bridgeStateTracker });
   const activationService = new ActivationService({
     activationStateRepo,

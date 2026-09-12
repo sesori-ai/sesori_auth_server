@@ -1,7 +1,7 @@
 import { BadRequestError } from "../lib/errors.js";
 import type { Bridge as BridgeDoc } from "../models/documents.js";
 import type { BridgePlatform, BridgeSummary } from "../models/api.js";
-import type { BridgeStatus } from "../models/bridge.js";
+import { BridgeConnectionNotificationPolicy, BridgeStatus } from "../models/bridge.js";
 import type { BridgeRepository } from "../repositories/bridge-repo.js";
 import type { GlossaryEntryRepository } from "../repositories/glossary-entry-repo.js";
 import type { BridgeStateTracker } from "./bridge-state-tracker.js";
@@ -142,8 +142,50 @@ export class BridgeService {
     }
 
     if (result.statusChanged) {
-      this.#bridgeStateTracker.handleStatusChangeForBridge(userId, bridgeId, status);
+      this.#bridgeStateTracker.handleStatusChangeForBridge({
+        userId,
+        bridgeId,
+        status,
+        notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+        connectionId: null,
+      });
     }
+    return { found: true };
+  }
+
+  async recordStatusReport(args: {
+    bridgeId: string;
+    userId: string;
+    status: BridgeStatus;
+    at: Date;
+    notificationPolicy: BridgeConnectionNotificationPolicy;
+    connectionId: string | null;
+    policyOnly: boolean;
+  }): Promise<{ found: boolean }> {
+    const result = await this.#bridgeRepo.recordStatusChange(args.bridgeId, args.userId, args.status, args.at);
+    if (!result.found || !result.updated) return { found: result.found };
+    if (result.statusChanged || args.policyOnly) {
+      this.#bridgeStateTracker.handleStatusChangeForBridge({
+        userId: args.userId,
+        bridgeId: args.bridgeId,
+        status: args.status,
+        notificationPolicy: args.notificationPolicy,
+        connectionId: args.connectionId,
+      });
+    }
+    return { found: true };
+  }
+
+  async recordConnectionObservation(args: {
+    bridgeId: string;
+    userId: string;
+    at: Date;
+    connectionId: string;
+    deviceId: string;
+  }): Promise<{ found: boolean }> {
+    const result = await this.#bridgeRepo.recordStatusChange(args.bridgeId, args.userId, BridgeStatus.active, args.at);
+    if (!result.found || !result.updated) return { found: result.found };
+    this.#bridgeStateTracker.markConnectionObserved(args);
     return { found: true };
   }
 }

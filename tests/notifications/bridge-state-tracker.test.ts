@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
-import { BridgeStatus } from "../../src/models/bridge.js";
+import { BridgeConnectionNotificationPolicy, BridgeStatus } from "../../src/models/bridge.js";
 import { NotificationCategory } from "../../src/models/notification.js";
 import { BridgeStateTracker } from "../../src/services/bridge-state-tracker.js";
 import type { NotificationPayload, NotificationService } from "../../src/services/notification-service.js";
@@ -41,6 +41,7 @@ function connectedPayload(): NotificationPayload {
     title: "Bridge Online",
     body: "Your bridge has reconnected.",
     collapseKey: "connection_status",
+    excludedDeviceIds: new Set<string>(),
   };
 }
 
@@ -50,6 +51,7 @@ function disconnectedPayload(): NotificationPayload {
     title: "Bridge Offline",
     body: "Your bridge has disconnected. AI sessions are paused.",
     collapseKey: "connection_status",
+    excludedDeviceIds: new Set<string>(),
   };
 }
 
@@ -70,9 +72,15 @@ describe("BridgeStateTracker", () => {
         return { devicesNotified: 1 };
       },
     } as unknown as NotificationService;
-    const tracker = new BridgeStateTracker(notificationServiceMock);
+    const tracker = new BridgeStateTracker({ notificationService: notificationServiceMock });
 
-    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, BridgeStatus.active);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.active,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
 
     mock.timers.tick(HALF_DEBOUNCE_MS);
     await flushMicrotasks();
@@ -93,9 +101,18 @@ describe("BridgeStateTracker", () => {
         return { devicesNotified: 1 };
       },
     } as unknown as NotificationService;
-    const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
+    const tracker = new BridgeStateTracker({
+      notificationService: notificationServiceMock,
+      conservativeDelayMs: DEBOUNCE_MS,
+    });
 
-    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, BridgeStatus.active);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.active,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
 
     mock.timers.tick(HALF_DEBOUNCE_MS);
     await flushMicrotasks();
@@ -116,9 +133,18 @@ describe("BridgeStateTracker", () => {
         return { devicesNotified: 1 };
       },
     } as unknown as NotificationService;
-    const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
+    const tracker = new BridgeStateTracker({
+      notificationService: notificationServiceMock,
+      conservativeDelayMs: DEBOUNCE_MS,
+    });
 
-    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, BridgeStatus.inactive);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.inactive,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
 
     mock.timers.tick(HALF_DEBOUNCE_MS);
     await flushMicrotasks();
@@ -139,13 +165,34 @@ describe("BridgeStateTracker", () => {
         return { devicesNotified: 1 };
       },
     } as unknown as NotificationService;
-    const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
+    const tracker = new BridgeStateTracker({
+      notificationService: notificationServiceMock,
+      conservativeDelayMs: DEBOUNCE_MS,
+    });
 
-    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, BridgeStatus.active);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.active,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
     mock.timers.tick(HALF_DEBOUNCE_MS);
-    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, BridgeStatus.inactive);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.inactive,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
     mock.timers.tick(HALF_DEBOUNCE_MS);
-    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, BridgeStatus.active);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.active,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
 
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();
@@ -162,15 +209,42 @@ describe("BridgeStateTracker", () => {
         return { devicesNotified: 1 };
       },
     } as unknown as NotificationService;
-    const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
+    const tracker = new BridgeStateTracker({
+      notificationService: notificationServiceMock,
+      conservativeDelayMs: DEBOUNCE_MS,
+    });
 
-    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, BridgeStatus.active);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.active,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
     mock.timers.tick(5_000);
-    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, BridgeStatus.inactive);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.inactive,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
     mock.timers.tick(5_000);
-    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, BridgeStatus.active);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.active,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
     mock.timers.tick(5_000);
-    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, BridgeStatus.inactive);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.inactive,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
 
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();
@@ -186,11 +260,26 @@ describe("BridgeStateTracker", () => {
         return { devicesNotified: 1 };
       },
     } as unknown as NotificationService;
-    const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
+    const tracker = new BridgeStateTracker({
+      notificationService: notificationServiceMock,
+      conservativeDelayMs: DEBOUNCE_MS,
+    });
 
-    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, BridgeStatus.active);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.active,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
     mock.timers.tick(HALF_DEBOUNCE_MS);
-    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, BridgeStatus.active);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.active,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
     mock.timers.tick(HALF_DEBOUNCE_MS);
     await flushMicrotasks();
 
@@ -205,13 +294,28 @@ describe("BridgeStateTracker", () => {
         return { devicesNotified: 1 };
       },
     } as unknown as NotificationService;
-    const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
+    const tracker = new BridgeStateTracker({
+      notificationService: notificationServiceMock,
+      conservativeDelayMs: DEBOUNCE_MS,
+    });
 
-    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, BridgeStatus.active);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.active,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();
 
-    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, BridgeStatus.active);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.active,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();
 
@@ -226,10 +330,25 @@ describe("BridgeStateTracker", () => {
         return { devicesNotified: 1 };
       },
     } as unknown as NotificationService;
-    const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
+    const tracker = new BridgeStateTracker({
+      notificationService: notificationServiceMock,
+      conservativeDelayMs: DEBOUNCE_MS,
+    });
 
-    tracker.handleStatusChangeForBridge("user-a", BRIDGE_ID, BridgeStatus.active);
-    tracker.handleStatusChangeForBridge("user-b", BRIDGE_ID, BridgeStatus.inactive);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-a",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.active,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
+    tracker.handleStatusChangeForBridge({
+      userId: "user-b",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.inactive,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
 
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();
@@ -248,15 +367,36 @@ describe("BridgeStateTracker", () => {
         return { devicesNotified: 1 };
       },
     } as unknown as NotificationService;
-    const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
+    const tracker = new BridgeStateTracker({
+      notificationService: notificationServiceMock,
+      conservativeDelayMs: DEBOUNCE_MS,
+    });
 
-    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, BridgeStatus.active);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.active,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();
 
-    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, BridgeStatus.inactive);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.inactive,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
     mock.timers.tick(HALF_DEBOUNCE_MS);
-    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, BridgeStatus.active);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.active,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();
 
@@ -271,11 +411,32 @@ describe("BridgeStateTracker", () => {
         return { devicesNotified: 1 };
       },
     } as unknown as NotificationService;
-    const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
+    const tracker = new BridgeStateTracker({
+      notificationService: notificationServiceMock,
+      conservativeDelayMs: DEBOUNCE_MS,
+    });
 
-    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, BridgeStatus.active);
-    tracker.handleStatusChangeForBridge("user-2", BRIDGE_ID, BridgeStatus.inactive);
-    tracker.handleStatusChangeForBridge("user-3", BRIDGE_ID, BridgeStatus.active);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.active,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
+    tracker.handleStatusChangeForBridge({
+      userId: "user-2",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.inactive,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
+    tracker.handleStatusChangeForBridge({
+      userId: "user-3",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.active,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
     await tracker.dispose();
 
     mock.timers.tick(DEBOUNCE_MS);
@@ -292,10 +453,25 @@ describe("BridgeStateTracker", () => {
         return { devicesNotified: 1 };
       },
     } as unknown as NotificationService;
-    const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
+    const tracker = new BridgeStateTracker({
+      notificationService: notificationServiceMock,
+      conservativeDelayMs: DEBOUNCE_MS,
+    });
 
-    tracker.handleStatusChangeForBridge("user-1", "br_target0001", BridgeStatus.inactive);
-    tracker.handleStatusChangeForBridge("user-1", "br_other0001", BridgeStatus.active);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: "br_target0001",
+      status: BridgeStatus.inactive,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: "br_other0001",
+      status: BridgeStatus.active,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
     tracker.cancelPendingForBridge("user-1", "br_target0001");
 
     mock.timers.tick(DEBOUNCE_MS);
@@ -312,10 +488,25 @@ describe("BridgeStateTracker", () => {
         return { devicesNotified: 1 };
       },
     } as unknown as NotificationService;
-    const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
+    const tracker = new BridgeStateTracker({
+      notificationService: notificationServiceMock,
+      conservativeDelayMs: DEBOUNCE_MS,
+    });
 
-    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, BridgeStatus.active);
-    tracker.handleStatusChangeForBridge("user-2", BRIDGE_ID, BridgeStatus.inactive);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.active,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
+    tracker.handleStatusChangeForBridge({
+      userId: "user-2",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.inactive,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();
 
@@ -338,14 +529,29 @@ describe("BridgeStateTracker", () => {
         return { devicesNotified: 1 };
       },
     } as unknown as NotificationService;
-    const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
+    const tracker = new BridgeStateTracker({
+      notificationService: notificationServiceMock,
+      conservativeDelayMs: DEBOUNCE_MS,
+    });
 
-    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, BridgeStatus.active);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.active,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();
 
     shouldReject = false;
-    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, BridgeStatus.inactive);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.inactive,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();
 
@@ -371,12 +577,27 @@ describe("BridgeStateTracker", () => {
         return Promise.resolve({ devicesNotified: 1 });
       },
     } as unknown as NotificationService;
-    const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
+    const tracker = new BridgeStateTracker({
+      notificationService: notificationServiceMock,
+      conservativeDelayMs: DEBOUNCE_MS,
+    });
 
-    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, BridgeStatus.active);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.active,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
     mock.timers.tick(DEBOUNCE_MS);
 
-    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, BridgeStatus.inactive);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.inactive,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
     firstSend.resolve({ devicesNotified: 1 });
     await flushMicrotasks();
 
@@ -398,9 +619,18 @@ describe("BridgeStateTracker", () => {
         return sendDeferred.promise;
       },
     } as unknown as NotificationService;
-    const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
+    const tracker = new BridgeStateTracker({
+      notificationService: notificationServiceMock,
+      conservativeDelayMs: DEBOUNCE_MS,
+    });
 
-    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, BridgeStatus.active);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.active,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();
 
@@ -423,9 +653,15 @@ describe("BridgeStateTracker", () => {
     const notificationServiceMock = {
       sendToUser: () => sendDeferred.promise,
     } as unknown as NotificationService;
-    const tracker = new BridgeStateTracker(notificationServiceMock, 1);
+    const tracker = new BridgeStateTracker({ notificationService: notificationServiceMock, conservativeDelayMs: 1 });
 
-    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, BridgeStatus.active);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.active,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
     t.mock.timers.tick(1);
     await flushMicrotasks();
 
@@ -441,7 +677,10 @@ describe("BridgeStateTracker", () => {
     const notificationServiceMock = {
       sendToUser: async () => ({ devicesNotified: 1 }),
     } as unknown as NotificationService;
-    const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
+    const tracker = new BridgeStateTracker({
+      notificationService: notificationServiceMock,
+      conservativeDelayMs: DEBOUNCE_MS,
+    });
 
     const first = tracker.dispose();
     const second = tracker.dispose();
@@ -463,10 +702,19 @@ describe("BridgeStateTracker", () => {
         return { devicesNotified: 1 };
       },
     } as unknown as NotificationService;
-    const tracker = new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS);
+    const tracker = new BridgeStateTracker({
+      notificationService: notificationServiceMock,
+      conservativeDelayMs: DEBOUNCE_MS,
+    });
 
     await tracker.dispose();
-    tracker.handleStatusChangeForBridge("user-1", BRIDGE_ID, BridgeStatus.active);
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: BRIDGE_ID,
+      status: BridgeStatus.active,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
     tracker.cancelPendingForBridge("user-1", BRIDGE_ID);
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();

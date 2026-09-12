@@ -12,13 +12,23 @@ export interface NotificationData {
   projectId?: string | null;
 }
 
-export interface NotificationPayload {
-  category: NotificationCategory;
+interface BaseNotificationPayload {
   title: string;
   body: string;
   collapseKey?: string | null;
   data?: NotificationData | null;
 }
+
+export interface ConnectionStatusNotificationPayload extends BaseNotificationPayload {
+  category: NotificationCategory.ConnectionStatus;
+  excludedDeviceIds: ReadonlySet<string>;
+}
+
+export interface OtherNotificationPayload extends BaseNotificationPayload {
+  category: Exclude<NotificationCategory, NotificationCategory.ConnectionStatus>;
+}
+
+export type NotificationPayload = ConnectionStatusNotificationPayload | OtherNotificationPayload;
 
 export interface NotificationSettingsResolver {
   resolveNotificationsByDevice(userId: string): Promise<Map<string, NotificationSettings>>;
@@ -95,7 +105,11 @@ export class NotificationService {
       return { devicesNotified: 0, retryableFailures: 0 };
     }
 
-    const deliverableTokens = await this.#selectOptedInTokens(userId, tokens, payload.category);
+    const eligibleTokens =
+      payload.category === NotificationCategory.ConnectionStatus
+        ? tokens.filter((token) => !token.deviceId || !payload.excludedDeviceIds.has(token.deviceId))
+        : tokens;
+    const deliverableTokens = await this.#selectOptedInTokens(userId, eligibleTokens, payload.category);
     abortSignal?.throwIfAborted();
     if (deliverableTokens.length === 0) {
       return { devicesNotified: 0, retryableFailures: 0 };
