@@ -57,19 +57,27 @@ export class BridgeStateTracker {
     notificationPolicy: BridgeConnectionNotificationPolicy;
     connectionId: string | null;
   }): void {
-    if (!this.#accepting) return;
+    if (!this.#accepting) {
+      return;
+    }
+
     const key = instanceKey(args);
     const entry = this.#getOrCreateEntry(key);
 
     if (args.notificationPolicy === BridgeConnectionNotificationPolicy.Suppress) {
-      if (entry.pending?.status === BridgeStatus.active) this.#cancelPending(entry);
+      if (entry.pending?.status === BridgeStatus.active) {
+        this.#cancelPending(entry);
+      }
       return;
     }
 
     if (args.status === BridgeStatus.active && entry.pending?.status === BridgeStatus.inactive) {
       this.#cancelPending(entry);
     }
-    if (entry.lastNotifiedStatus === args.status && entry.pending === null) return;
+
+    if (entry.lastNotifiedStatus === args.status && entry.pending === null) {
+      return;
+    }
 
     const delay =
       args.status === BridgeStatus.active && args.notificationPolicy === BridgeConnectionNotificationPolicy.Normal
@@ -83,7 +91,6 @@ export class BridgeStateTracker {
     ) {
       return;
     }
-    this.#cancelPending(entry);
     this.#schedule({
       entry,
       userId: args.userId,
@@ -95,7 +102,10 @@ export class BridgeStateTracker {
   }
 
   markConnectionObserved(args: { userId: string; bridgeId: string; connectionId: string; deviceId: string }): void {
-    if (!this.#accepting) return;
+    if (!this.#accepting) {
+      return;
+    }
+
     const entry = this.#getOrCreateEntry(instanceKey(args));
     const pending = entry.pending;
     if (pending?.status === BridgeStatus.active && pending.connectionId === args.connectionId) {
@@ -110,10 +120,15 @@ export class BridgeStateTracker {
   }
 
   cancelPendingForBridge(userId: string, bridgeId: string): void {
-    if (!this.#accepting) return;
+    if (!this.#accepting) {
+      return;
+    }
+
     const key = instanceKey({ userId, bridgeId });
     const entry = this.#state.get(key);
-    if (!entry) return;
+    if (!entry) {
+      return;
+    }
     this.#cancelPending(entry);
     this.#state.delete(key);
   }
@@ -126,14 +141,23 @@ export class BridgeStateTracker {
     policy: BridgeConnectionNotificationPolicy;
     delay: number;
   }): void {
+    const previousPending = args.entry.pending;
+    this.#cancelPending(args.entry);
     args.entry.generation += 1;
     const generation = args.entry.generation;
     const earlyObservation = args.entry.earlyConnectionObservation;
     const excludedDeviceIds =
-      args.status === BridgeStatus.active && earlyObservation?.connectionId === args.connectionId
-        ? new Set(earlyObservation.deviceIds)
+      args.status === BridgeStatus.active &&
+      previousPending?.status === BridgeStatus.active &&
+      previousPending.connectionId === args.connectionId
+        ? previousPending.excludedDeviceIds
         : new Set<string>();
-    if (args.status === BridgeStatus.active) args.entry.earlyConnectionObservation = null;
+    if (args.status === BridgeStatus.active && earlyObservation?.connectionId === args.connectionId) {
+      for (const deviceId of earlyObservation.deviceIds) {
+        excludedDeviceIds.add(deviceId);
+      }
+      args.entry.earlyConnectionObservation = null;
+    }
     const pending: PendingNotification = {
       status: args.status,
       connectionId: args.connectionId,
@@ -141,7 +165,9 @@ export class BridgeStateTracker {
       excludedDeviceIds,
       generation,
       timer: setTimeout(() => {
-        if (args.entry.pending !== pending || pending.generation !== generation) return;
+        if (args.entry.pending !== pending || pending.generation !== generation) {
+          return;
+        }
         const callback = this.#send({ entry: args.entry, pending, userId: args.userId });
         this.#inFlight.add(callback);
         void callback.finally(() => this.#inFlight.delete(callback));
@@ -155,7 +181,7 @@ export class BridgeStateTracker {
     try {
       await this.#notificationService.sendToUser(
         args.userId,
-        this.#buildPayload(args.pending.status, new Set(args.pending.excludedDeviceIds)),
+        this.#buildPayload(args.pending.status, args.pending.excludedDeviceIds),
       );
     } catch (err) {
       console.warn("Bridge notification failed", { userId: args.userId, status: args.pending.status, err });
@@ -168,7 +194,9 @@ export class BridgeStateTracker {
   }
 
   #cancelPending(entry: BridgeStateEntry): void {
-    if (!entry.pending) return;
+    if (!entry.pending) {
+      return;
+    }
     clearTimeout(entry.pending.timer);
     entry.pending = null;
     entry.generation += 1;
@@ -181,17 +209,25 @@ export class BridgeStateTracker {
   }
 
   async #disposeOnce(): Promise<void> {
-    for (const entry of this.#state.values()) this.#cancelPending(entry);
+    for (const entry of this.#state.values()) {
+      this.#cancelPending(entry);
+    }
     this.#state.clear();
     const callbacks = Array.from(this.#inFlight);
-    if (callbacks.length === 0) return;
+    if (callbacks.length === 0) {
+      return;
+    }
     await withDisposeTimeout(Promise.allSettled(callbacks).then(() => undefined));
-    if (this.#inFlight.size > 0) throw new BridgeStateTrackerDrainTimeout();
+    if (this.#inFlight.size > 0) {
+      throw new BridgeStateTrackerDrainTimeout();
+    }
   }
 
   #getOrCreateEntry(key: string): BridgeStateEntry {
     const existing = this.#state.get(key);
-    if (existing) return existing;
+    if (existing) {
+      return existing;
+    }
     const entry: BridgeStateEntry = {
       pending: null,
       earlyConnectionObservation: null,

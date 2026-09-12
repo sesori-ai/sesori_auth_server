@@ -130,29 +130,6 @@ export class BridgeService {
   // the 404 the relay converts to WS close 4006. A stale (out-of-order) event
   // on a live bridge reports found=true and is dropped silently: surfacing it
   // as 404 would make the relay close a live bridge over event reordering.
-  async recordStatusChange(
-    bridgeId: string,
-    userId: string,
-    status: BridgeStatus,
-    at: Date,
-  ): Promise<{ found: boolean }> {
-    const result = await this.#bridgeRepo.recordStatusChange(bridgeId, userId, status, at);
-    if (!result.found || !result.updated) {
-      return { found: result.found };
-    }
-
-    if (result.statusChanged) {
-      this.#bridgeStateTracker.handleStatusChangeForBridge({
-        userId,
-        bridgeId,
-        status,
-        notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
-        connectionId: null,
-      });
-    }
-    return { found: true };
-  }
-
   async recordStatusReport(args: {
     bridgeId: string;
     userId: string;
@@ -163,7 +140,10 @@ export class BridgeService {
     policyOnly: boolean;
   }): Promise<{ found: boolean }> {
     const result = await this.#bridgeRepo.recordStatusChange(args.bridgeId, args.userId, args.status, args.at);
-    if (!result.found || !result.updated) return { found: result.found };
+    if (!result.found || !result.updated) {
+      return { found: result.found };
+    }
+
     if (result.statusChanged || args.policyOnly) {
       this.#bridgeStateTracker.handleStatusChangeForBridge({
         userId: args.userId,
@@ -183,7 +163,9 @@ export class BridgeService {
     deviceId: string;
   }): Promise<{ found: boolean }> {
     const bridge = await this.#bridgeRepo.findByIdForUser(args.bridgeId, args.userId);
-    if (!bridge) return { found: false };
+    if (!bridge) {
+      return { found: false };
+    }
     this.#bridgeStateTracker.markConnectionObserved(args);
     return { found: true };
   }
