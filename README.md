@@ -194,7 +194,13 @@ Push notifications are forwarded to Firebase Cloud Messaging. Every notification
 | `system_update`    | `systemUpdate`     | Bridge, plus activation reminders             |
 | `connection_status`| `connectionStatus` | Server, on bridge connect/disconnect          |
 
-`connection_status` is server-originated and is rejected on `POST /notifications/send`.
+`connection_status` is server-originated and is rejected on `POST /notifications/send`. macOS bridges may attach an
+advisory connection-notification policy: detected full wakes use a short online settlement delay, DarkWake-only socket
+episodes suppress connection pushes, and missing/failed detection retains the conservative two-minute debounce. A
+socket established while normally awake remains eligible for the two-minute offline debounce if it disconnects during
+sleep suppression; same-socket full wake also promotes a DarkWake socket. Policy and per-socket observation state are in memory only;
+no database fields are added. A mobile surface that restores the exact E2E connection may exclude only its own device
+ID from that pending online push. Other notification categories never accept or apply this exclusion.
 
 | Method   | Path                            | Auth   | Description                                                                                     |
 | -------- | ------------------------------- | ------ | ----------------------------------------------------------------------------------------------- |

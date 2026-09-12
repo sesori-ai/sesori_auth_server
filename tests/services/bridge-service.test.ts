@@ -74,3 +74,35 @@ describe("BridgeService glossary cleanup", () => {
     ]);
   });
 });
+
+describe("BridgeService connection observation", () => {
+  it("validates ownership without mutating persisted bridge status", async () => {
+    const events: string[] = [];
+    const service = createService({
+      bridgeRepo: {
+        findByIdForUser: async () => {
+          events.push("validate");
+          return { bridgeId: "br_bridge0001" };
+        },
+        recordStatusChange: async () => {
+          events.push("status");
+          throw new Error("must not mutate status");
+        },
+      },
+      glossaryRepo: {},
+      bridgeStateTracker: {
+        markConnectionObserved: () => events.push("observe"),
+      },
+    });
+
+    const result = await service.recordConnectionObservation({
+      userId: "user",
+      bridgeId: "br_bridge0001",
+      connectionId: "0123456789abcdef0123456789abcdef",
+      deviceId: "123e4567-e89b-42d3-a456-426614174000",
+    });
+
+    assert.deepEqual(result, { found: true });
+    assert.deepEqual(events, ["validate", "observe"]);
+  });
+});

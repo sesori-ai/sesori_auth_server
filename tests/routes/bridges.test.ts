@@ -475,7 +475,10 @@ describe("bridge revocation cancels pending notifications (end to end)", () => {
     } as unknown as NotificationService;
     ctx = await createTestApp({
       notificationService: notificationServiceMock,
-      bridgeStateTracker: new BridgeStateTracker(notificationServiceMock, DEBOUNCE_MS),
+      bridgeStateTracker: new BridgeStateTracker({
+        notificationService: notificationServiceMock,
+        conservativeDelayMs: DEBOUNCE_MS,
+      }),
     });
   });
 

@@ -68,7 +68,10 @@ function createMockSettingsResolver(
 }
 
 function buildPayload(category: NotificationCategory): NotificationPayload {
-  return { category, title: "Title", body: "Body", collapseKey: null };
+  const content = { title: "Title", body: "Body", collapseKey: null };
+  return category === NotificationCategory.ConnectionStatus
+    ? { ...content, category, excludedDeviceIds: new Set<string>() }
+    : { ...content, category };
 }
 
 function sentTokens(calls: unknown[][]): string[] {
