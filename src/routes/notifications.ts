@@ -134,7 +134,6 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
           ? await bridgeService.recordConnectionObservation({
               bridgeId: report.bridgeId,
               userId: report.userId,
-              at,
               connectionId: report.connectionId,
               deviceId: report.deviceId,
             })

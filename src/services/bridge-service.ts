@@ -179,12 +179,11 @@ export class BridgeService {
   async recordConnectionObservation(args: {
     bridgeId: string;
     userId: string;
-    at: Date;
     connectionId: string;
     deviceId: string;
   }): Promise<{ found: boolean }> {
-    const result = await this.#bridgeRepo.recordStatusChange(args.bridgeId, args.userId, BridgeStatus.active, args.at);
-    if (!result.found || !result.updated) return { found: result.found };
+    const bridge = await this.#bridgeRepo.findByIdForUser(args.bridgeId, args.userId);
+    if (!bridge) return { found: false };
     this.#bridgeStateTracker.markConnectionObserved(args);
     return { found: true };
   }

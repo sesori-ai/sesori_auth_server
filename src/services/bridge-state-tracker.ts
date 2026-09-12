@@ -15,8 +15,14 @@ type PendingNotification = {
   generation: number;
 };
 
+type EarlyConnectionObservation = {
+  connectionId: string;
+  deviceIds: Set<string>;
+};
+
 type BridgeStateEntry = {
   pending: PendingNotification | null;
+  earlyConnectionObservation: EarlyConnectionObservation | null;
   lastNotifiedStatus: BridgeStatus | null;
   generation: number;
 };
@@ -90,9 +96,17 @@ export class BridgeStateTracker {
 
   markConnectionObserved(args: { userId: string; bridgeId: string; connectionId: string; deviceId: string }): void {
     if (!this.#accepting) return;
-    const pending = this.#state.get(instanceKey(args))?.pending;
-    if (pending?.status !== BridgeStatus.active || pending.connectionId !== args.connectionId) return;
-    pending.excludedDeviceIds.add(args.deviceId);
+    const entry = this.#getOrCreateEntry(instanceKey(args));
+    const pending = entry.pending;
+    if (pending?.status === BridgeStatus.active && pending.connectionId === args.connectionId) {
+      pending.excludedDeviceIds.add(args.deviceId);
+      return;
+    }
+
+    if (entry.earlyConnectionObservation?.connectionId !== args.connectionId) {
+      entry.earlyConnectionObservation = { connectionId: args.connectionId, deviceIds: new Set<string>() };
+    }
+    entry.earlyConnectionObservation.deviceIds.add(args.deviceId);
   }
 
   cancelPendingForBridge(userId: string, bridgeId: string): void {
@@ -114,11 +128,17 @@ export class BridgeStateTracker {
   }): void {
     args.entry.generation += 1;
     const generation = args.entry.generation;
+    const earlyObservation = args.entry.earlyConnectionObservation;
+    const excludedDeviceIds =
+      args.status === BridgeStatus.active && earlyObservation?.connectionId === args.connectionId
+        ? new Set(earlyObservation.deviceIds)
+        : new Set<string>();
+    if (args.status === BridgeStatus.active) args.entry.earlyConnectionObservation = null;
     const pending: PendingNotification = {
       status: args.status,
       connectionId: args.connectionId,
       policy: args.policy,
-      excludedDeviceIds: new Set<string>(),
+      excludedDeviceIds,
       generation,
       timer: setTimeout(() => {
         if (args.entry.pending !== pending || pending.generation !== generation) return;
@@ -172,7 +192,12 @@ export class BridgeStateTracker {
   #getOrCreateEntry(key: string): BridgeStateEntry {
     const existing = this.#state.get(key);
     if (existing) return existing;
-    const entry: BridgeStateEntry = { pending: null, lastNotifiedStatus: null, generation: 0 };
+    const entry: BridgeStateEntry = {
+      pending: null,
+      earlyConnectionObservation: null,
+      lastNotifiedStatus: null,
+      generation: 0,
+    };
     this.#state.set(key, entry);
     return entry;
   }

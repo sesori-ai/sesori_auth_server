@@ -57,6 +57,69 @@ describe("BridgeStateTracker DarkWake policy", () => {
     assert.equal(calls[1].title, "Bridge Offline");
   });
 
+  it("keeps a DarkWake-only suppress connection episode quiet", async () => {
+    const calls: NotificationPayload[] = [];
+    const notificationService = {
+      sendToUser: async (_: string, payload: NotificationPayload) => {
+        calls.push(payload);
+        return { devicesNotified: 1, retryableFailures: 0 };
+      },
+    } as NotificationService;
+    const tracker = new BridgeStateTracker({ notificationService, conservativeDelayMs: 100, normalOnlineDelayMs: 5 });
+    tracker.handleStatusChangeForBridge({
+      userId: "u",
+      bridgeId,
+      status: BridgeStatus.active,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Suppress,
+      connectionId,
+    });
+    tracker.handleStatusChangeForBridge({
+      userId: "u",
+      bridgeId,
+      status: BridgeStatus.inactive,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Suppress,
+      connectionId,
+    });
+
+    mock.timers.tick(100);
+    await flush();
+
+    assert.deepEqual(calls, []);
+  });
+
+  it("buffers exact-device observation when relay delivery beats connected status", async () => {
+    const calls: NotificationPayload[] = [];
+    const notificationService = {
+      sendToUser: async (_: string, payload: NotificationPayload) => {
+        calls.push(payload);
+        return { devicesNotified: 1, retryableFailures: 0 };
+      },
+    } as NotificationService;
+    const tracker = new BridgeStateTracker({ notificationService, conservativeDelayMs: 100, normalOnlineDelayMs: 5 });
+    tracker.markConnectionObserved({
+      userId: "u",
+      bridgeId,
+      connectionId,
+      deviceId: "123e4567-e89b-42d3-a456-426614174000",
+    });
+    tracker.handleStatusChangeForBridge({
+      userId: "u",
+      bridgeId,
+      status: BridgeStatus.active,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Normal,
+      connectionId,
+    });
+
+    mock.timers.tick(5);
+    await flush();
+
+    assert.equal(calls.length, 1);
+    const payload = calls[0];
+    assert.equal(payload.category, "connection_status");
+    if (payload.category === "connection_status")
+      assert.deepEqual([...payload.excludedDeviceIds], ["123e4567-e89b-42d3-a456-426614174000"]);
+  });
+
   it("full wake on the same socket schedules fast online and exact-device exclusion", async () => {
     const calls: NotificationPayload[] = [];
     const notificationService = {
