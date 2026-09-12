@@ -215,6 +215,7 @@ const validatedConfigSchema = baseConfigSchema.superRefine((config, ctx) => {
   const optionalEmailAddressKeySecretBytes =
     optionalEmailAddressKeySecret === undefined ? undefined : Buffer.from(optionalEmailAddressKeySecret, "utf8");
   const otherPurposeSecrets: readonly (string | undefined)[] = [
+    config.MONGODB_URI,
     config.APPLE_PRIVATE_KEY,
     config.JWT_PRIVATE_KEY,
     config.JWT_PUBLIC_KEY,

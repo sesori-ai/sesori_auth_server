@@ -430,6 +430,7 @@ describe("optional email safety ingress configuration", () => {
     const reusedSecret = "r".repeat(32);
 
     for (const variable of [
+      "MONGODB_URI",
       "APPLE_PRIVATE_KEY",
       "JWT_PRIVATE_KEY",
       "JWT_PUBLIC_KEY",
