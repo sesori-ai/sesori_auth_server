@@ -42,8 +42,8 @@ describe("Notification routes", () => {
   } as unknown as NotificationService;
 
   const bridgeStateTrackerMock = {
-    handleStatusChangeForBridge: (userId: string, bridgeId: string, status: string) => {
-      trackerCalls.push({ userId, bridgeId, status });
+    handleStatusChangeForBridge: (args: TrackerCall) => {
+      trackerCalls.push(args);
     },
     cancelPendingForBridge: () => {},
     dispose: () => {},

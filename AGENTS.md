@@ -114,7 +114,7 @@ The activation-reminder feature is intentionally split into independently deploy
 
 Desktop bridge instances register via `POST /auth/bridges` (idempotent: clients resend their `bridgeId`; an owned non-revoked id updates in place, anything else mints a new `br_` id). `GET /auth/me` returns `bridges[]` (id, name, platform, addedAt, lastSeenAt — no live status; clients get live connectivity from the relay). The relay reports per-bridge connect/disconnect to `POST /internal/bridge-status`, which requires `bridgeId`; missing or malformed IDs get a 400. Unknown/revoked bridgeIds get a 404, which the relay turns into a WS close 4006 so the bridge re-registers. Bridges authenticate to the relay with the **user access token** — there is no bridge-scoped token. Bridge-scoped JWTs were prototyped and dropped (`8b600dd`): they added a second credential lifecycle (24h TTL, no re-issue path) and a synchronous relay→auth call per connect without buying real revocation, since the bridge host holds the user refresh token regardless. Re-evaluate only if bridge auth must outlive user sessions.
 
-Push notifications debounce through `BridgeStateTracker` (120s), keyed per bridge by `(userId, bridgeId)`.
+Connection-status pushes debounce through `BridgeStateTracker`, keyed per bridge by `(userId, bridgeId)`: conservative/unknown online and genuine offline reports use 120 seconds; confirmed full-wake online reports use five seconds. Suppressed DarkWake episodes remain quiet without cancelling a genuine pending offline notification. Device observations exclude only that device from the pending online push and never mutate persisted connectivity. These policies never control bridge transport.
 
 ## ASYNC TRANSCRIPTION
 

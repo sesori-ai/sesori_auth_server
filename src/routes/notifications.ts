@@ -8,7 +8,7 @@ import {
   type SendNotificationBody,
   type BridgeStatusBody,
 } from "../models/api.js";
-import { bridgeStatusFromWire } from "../models/bridge.js";
+import { BridgeConnectionNotificationPolicy, BridgeStatusEvent, bridgeStatusFromWire } from "../models/bridge.js";
 import type { DeviceTokenRepository } from "../repositories/device-token-repo.js";
 import type { BridgeService } from "../services/bridge-service.js";
 import type { NotificationService } from "../services/notification-service.js";
@@ -128,12 +128,24 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
         throw new BadRequestError({ debugMessage: "Timestamp is too far in the future" });
       }
 
-      const { found } = await bridgeService.recordStatusChange(
-        bodyResult.data.bridgeId,
-        bodyResult.data.userId,
-        internalStatus,
-        at,
-      );
+      const report = bodyResult.data;
+      const { found } =
+        report.event === BridgeStatusEvent.ConnectionObserved
+          ? await bridgeService.recordConnectionObservation({
+              bridgeId: report.bridgeId,
+              userId: report.userId,
+              connectionId: report.connectionId,
+              deviceId: report.deviceId,
+            })
+          : await bridgeService.recordStatusReport({
+              bridgeId: report.bridgeId,
+              userId: report.userId,
+              status: internalStatus,
+              at,
+              notificationPolicy: report.notificationPolicy ?? BridgeConnectionNotificationPolicy.Conservative,
+              connectionId: report.connectionId ?? null,
+              policyOnly: report.event === BridgeStatusEvent.NotificationPolicy,
+            });
       if (!found) {
         // Contract with the relay: this 404 becomes WS close 4006, telling
         // the bridge to re-register. Do not weaken to a 200 — see AGENTS.md

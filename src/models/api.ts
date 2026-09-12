@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { BridgePlatform, bridgeIdSchema, bridgePlatformSchema } from "./bridge.js";
+import {
+  BridgeConnectionNotificationPolicy,
+  BridgePlatform,
+  BridgeStatusEvent,
+  bridgeIdSchema,
+  bridgePlatformSchema,
+} from "./bridge.js";
 import { devicePlatformSchema } from "./device.js";
 import { CLIENT_SENDABLE_NOTIFICATION_CATEGORIES } from "./notification.js";
 import { deviceIdSchema } from "./settings.js";
@@ -269,12 +275,32 @@ export const sendNotificationBodySchema = z.object({
 });
 export type SendNotificationBody = z.infer<typeof sendNotificationBodySchema>;
 
-export const bridgeStatusBodySchema = z.object({
+const bridgeStatusBaseSchema = z.object({
   userId: z.string().min(1),
   bridgeId: bridgeIdSchema,
-  status: z.enum(["connected", "disconnected"]),
   timestamp: z.string(),
 });
+const connectionIdSchema = z.string().regex(/^[0-9a-f]{32}$/);
+export const bridgeStatusBodySchema = z.union([
+  bridgeStatusBaseSchema.extend({
+    event: z.undefined().optional(),
+    status: z.enum(["connected", "disconnected"]),
+    notificationPolicy: z.enum(BridgeConnectionNotificationPolicy).optional(),
+    connectionId: connectionIdSchema.optional(),
+  }),
+  bridgeStatusBaseSchema.extend({
+    event: z.literal(BridgeStatusEvent.NotificationPolicy),
+    status: z.literal("connected"),
+    notificationPolicy: z.enum(BridgeConnectionNotificationPolicy),
+    connectionId: connectionIdSchema,
+  }),
+  bridgeStatusBaseSchema.extend({
+    event: z.literal(BridgeStatusEvent.ConnectionObserved),
+    status: z.literal("connected"),
+    connectionId: connectionIdSchema,
+    deviceId: deviceIdSchema,
+  }),
+]);
 export type BridgeStatusBody = z.infer<typeof bridgeStatusBodySchema>;
 
 export type BridgeSummary = {

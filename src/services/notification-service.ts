@@ -12,13 +12,23 @@ export interface NotificationData {
   projectId?: string | null;
 }
 
-export interface NotificationPayload {
-  category: NotificationCategory;
+interface BaseNotificationPayload {
   title: string;
   body: string;
   collapseKey?: string | null;
   data?: NotificationData | null;
 }
+
+export interface ConnectionStatusNotificationPayload extends BaseNotificationPayload {
+  category: NotificationCategory.ConnectionStatus;
+  excludedDeviceIds: ReadonlySet<string>;
+}
+
+export interface OtherNotificationPayload extends BaseNotificationPayload {
+  category: Exclude<NotificationCategory, NotificationCategory.ConnectionStatus>;
+}
+
+export type NotificationPayload = ConnectionStatusNotificationPayload | OtherNotificationPayload;
 
 export interface NotificationSettingsResolver {
   resolveNotificationsByDevice(userId: string): Promise<Map<string, NotificationSettings>>;
@@ -95,8 +105,14 @@ export class NotificationService {
       return { devicesNotified: 0, retryableFailures: 0 };
     }
 
-    const deliverableTokens = await this.#selectOptedInTokens(userId, tokens, payload.category);
+    const optedInTokens = await this.#selectOptedInTokens(userId, tokens, payload.category);
     abortSignal?.throwIfAborted();
+    // Observations may arrive during either lookup. Read their live exclusion
+    // set after the final await before submitting messages to FCM.
+    const deliverableTokens =
+      payload.category === NotificationCategory.ConnectionStatus
+        ? optedInTokens.filter((token) => !token.deviceId || !payload.excludedDeviceIds.has(token.deviceId))
+        : optedInTokens;
     if (deliverableTokens.length === 0) {
       return { devicesNotified: 0, retryableFailures: 0 };
     }
@@ -107,9 +123,15 @@ export class NotificationService {
     // device opted out of — or a server-only one — after filtering already ran.
     const flatData: Record<string, string> = { category: payload.category };
     if (payload.data) {
-      if (payload.data.eventType) flatData["eventType"] = payload.data.eventType;
-      if (payload.data.sessionId) flatData["sessionId"] = payload.data.sessionId;
-      if (payload.data.projectId) flatData["projectId"] = payload.data.projectId;
+      if (payload.data.eventType) {
+        flatData["eventType"] = payload.data.eventType;
+      }
+      if (payload.data.sessionId) {
+        flatData["sessionId"] = payload.data.sessionId;
+      }
+      if (payload.data.projectId) {
+        flatData["projectId"] = payload.data.projectId;
+      }
     }
 
     const messages: Array<BaseMessage & { token: string }> = deliverableTokens.map((t) => ({

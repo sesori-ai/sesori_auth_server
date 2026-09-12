@@ -213,7 +213,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   const settingsService = overrides?.settingsService ?? new SettingsService({ settingsRepo });
   const notificationService =
     overrides?.notificationService ?? new NotificationService(deviceTokenRepo, null, settingsService);
-  const bridgeStateTracker = overrides?.bridgeStateTracker ?? new BridgeStateTracker(notificationService);
+  const bridgeStateTracker = overrides?.bridgeStateTracker ?? new BridgeStateTracker({ notificationService });
   const bridgeService = overrides?.bridgeService ?? new BridgeService({ bridgeRepo, glossaryRepo, bridgeStateTracker });
   const activationService =
     overrides?.activationService ??

@@ -14,6 +14,17 @@ export enum BridgeStatus {
   inactive = "inactive",
 }
 
+export enum BridgeConnectionNotificationPolicy {
+  Normal = "normal",
+  Suppress = "suppress",
+  Conservative = "conservative",
+}
+
+export enum BridgeStatusEvent {
+  NotificationPolicy = "notification_policy",
+  ConnectionObserved = "connection_observed",
+}
+
 export const bridgeIdSchema = z.string().regex(/^br_[A-Za-z0-9_-]{8,32}$/);
 export const bridgePlatformSchema = z.enum(BridgePlatform);
 export const bridgeStatusSchema = z.enum(BridgeStatus);
