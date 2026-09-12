@@ -467,16 +467,24 @@ describe("optional email safety ingress configuration", () => {
     assert.equal(parsed.success, false);
   });
 
-  it("rejects copy-paste reuse of the encoded Firebase service account as the address-key secret", () => {
-    const fcmServiceAccount = validEnv().FCM_SA_JSON;
+  it("rejects copy-paste reuse of a whitespace-preserving encoded Firebase service account", () => {
+    const fcmServiceAccount = Buffer.from(JSON.stringify(serviceAccount, null, 2), "utf8").toString("base64");
 
     const parsed = configSchema.safeParse(
       validEnv({
+        FCM_SA_JSON: fcmServiceAccount,
         OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_V1: fcmServiceAccount,
       }),
     );
 
     assert.equal(parsed.success, false);
+  });
+
+  it("removes the preserved Firebase encoding from parsed runtime config", () => {
+    const parsed = configSchema.parse(validEnv());
+
+    assert.deepEqual(parsed.FCM_SA_JSON, serviceAccount);
+    assert.equal("encoded" in parsed.FCM_SA_JSON, false);
   });
 
   it("rejects reuse of the webhook verification secret as the address-key secret", () => {

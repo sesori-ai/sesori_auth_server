@@ -113,20 +113,26 @@ const baseConfigSchema = z.object({
   FCM_SA_JSON: z
     .string()
     .min(1, "FCM_SA_JSON is required")
-    .transform((val) => JSON.parse(Buffer.from(val, "base64").toString("utf-8")))
+    .transform((encoded) => ({
+      encoded,
+      serviceAccount: JSON.parse(Buffer.from(encoded, "base64").toString("utf-8")),
+    }))
     .pipe(
       z.object({
-        type: z.literal("service_account"),
-        project_id: z.string().min(1),
-        private_key_id: z.string().min(1),
-        private_key: z.string().startsWith("-----BEGIN"),
-        client_email: z.string().email(),
-        client_id: z.string().min(1),
-        auth_uri: z.string().url(),
-        token_uri: z.string().url(),
-        auth_provider_x509_cert_url: z.string().url(),
-        client_x509_cert_url: z.string().url(),
-        universe_domain: z.string().min(1),
+        encoded: z.string(),
+        serviceAccount: z.object({
+          type: z.literal("service_account"),
+          project_id: z.string().min(1),
+          private_key_id: z.string().min(1),
+          private_key: z.string().startsWith("-----BEGIN"),
+          client_email: z.string().email(),
+          client_id: z.string().min(1),
+          auth_uri: z.string().url(),
+          token_uri: z.string().url(),
+          auth_provider_x509_cert_url: z.string().url(),
+          client_x509_cert_url: z.string().url(),
+          universe_domain: z.string().min(1),
+        }),
       }),
     ),
 
@@ -217,8 +223,8 @@ const validatedConfigSchema = baseConfigSchema.superRefine((config, ctx) => {
     config.RELAY_WEBHOOK_SECRET,
     config.OPENAI_API_KEY,
     config.SONIOX_API_KEY,
-    config.FCM_SA_JSON.private_key,
-    Buffer.from(JSON.stringify(config.FCM_SA_JSON), "utf8").toString("base64"),
+    config.FCM_SA_JSON.serviceAccount.private_key,
+    config.FCM_SA_JSON.encoded,
     config.OPTIONAL_EMAIL_UNSUBSCRIBE_SIGNING_SECRET,
     config.RESEND_WEBHOOK_SECRET,
   ];
@@ -253,10 +259,14 @@ const validatedConfigSchema = baseConfigSchema.superRefine((config, ctx) => {
   }
 });
 
-export const configSchema = validatedConfigSchema.transform((config) => ({
-  ...config,
-  REALTIME_TRANSCRIPTION_ENABLED: config.REALTIME_TRANSCRIPTION_ENABLED ?? config.SONIOX_API_KEY !== undefined,
-}));
+export const configSchema = validatedConfigSchema.transform((config) => {
+  const { FCM_SA_JSON: fcmServiceAccount, ...publicConfig } = config;
+  return {
+    ...publicConfig,
+    FCM_SA_JSON: fcmServiceAccount.serviceAccount,
+    REALTIME_TRANSCRIPTION_ENABLED: config.REALTIME_TRANSCRIPTION_ENABLED ?? config.SONIOX_API_KEY !== undefined,
+  };
+});
 
 export type Config = z.infer<typeof configSchema>;
 
