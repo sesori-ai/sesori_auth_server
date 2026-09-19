@@ -3,8 +3,6 @@ import { readFileSync } from "node:fs";
 import argon2 from "argon2";
 import { MongoDbConnector } from "../src/db/mongo-db-connector.js";
 import { MongoDbAccessor } from "../src/db/mongo-db-accessor.js";
-import { MongoDbDatabase, AuthDbCollection } from "../src/types/mongo.js";
-import type { User } from "../src/models/documents.js";
 import { PasswordAccountRepository } from "../src/repositories/password-account-repo.js";
 import { UserRepository } from "../src/repositories/user-repo.js";
 
@@ -66,7 +64,7 @@ function parseOptions({ args }: { args: string[] }): CliOptions {
         break;
       default:
         if (argument.startsWith("-")) {
-          throw new Error(`Unknown option: ${argument}`);
+          throw new Error("Unknown option");
         }
         positional.push(argument);
     }
@@ -149,29 +147,11 @@ async function main(): Promise<void> {
 
     const hash = await argon2.hash(password, { type: argon2.argon2id });
     const user = await new UserRepository(accessor).create();
-    try {
-      await passwordAccounts.create({
-        userId: user._id,
-        email: normalizedEmail,
-        passwordHash: hash,
-      });
-    } catch (error) {
-      let deletedCount: number;
-      try {
-        const rollback = await accessor
-          .getCollection<User>(MongoDbDatabase.Auth, AuthDbCollection.Users)
-          .deleteOne({ _id: user._id });
-        deletedCount = rollback.deletedCount;
-      } catch (rollbackError) {
-        throw new AggregateError([error, rollbackError], "Password-account creation failed and rollback also failed", {
-          cause: rollbackError,
-        });
-      }
-      if (deletedCount !== 1) {
-        throw new Error("Password-account creation failed and its new user could not be removed", { cause: error });
-      }
-      throw error;
-    }
+    await passwordAccounts.create({
+      userId: user._id,
+      email: normalizedEmail,
+      passwordHash: hash,
+    });
 
     console.log("Password account created successfully");
     console.log(`Email: ${normalizedEmail}`);
