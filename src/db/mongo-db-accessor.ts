@@ -68,6 +68,9 @@ const DATABASE_CONFIG: Record<MongoDbDatabase, DatabaseConfig<string>> = {
       // enforces that invariant and serves the sole read path (findByUserAndDevice).
       [AuthDbCollection.SettingsConfiguration]: [{ spec: { userId: 1, deviceId: 1 }, options: { unique: true } }],
       [AuthDbCollection.OptionalEmailPreferences]: [{ spec: { userId: 1 }, options: { unique: true } }],
+      [AuthDbCollection.OptionalEmailAddressSuppressions]: [
+        { spec: { addressKeyVersion: 1, addressKey: 1 }, options: { unique: true } },
+      ],
       [AuthDbCollection.OptionalEmailWebhookEvents]: [{ spec: { eventId: 1 }, options: { unique: true } }],
       [AuthDbCollection.OptionalEmailSends]: [
         { spec: { sendKey: 1 }, options: { unique: true } },
