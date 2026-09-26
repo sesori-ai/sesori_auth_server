@@ -201,7 +201,7 @@ Private feedback from the mobile app, one document per submission in the `feedba
 }
 ```
 
-`issues` is required but may be empty; its values are unique and drawn from `hard_to_navigate`, `connection_drops`, `notifications_missing` and `app_slow`. `message` is optional, trimmed, and 1–4000 characters after trimming; a whitespace-only message returns 400, so clients omit an empty one. An empty submission (no issues, no message) is valid. `source` is `automatic` or `settings`, `platform` is `ios` or `android`, and `appVersion` is 1–32 characters. Anything else returns 400; missing or invalid bearer authentication returns 401.
+`issues` is required but may be empty; its values are unique and drawn from `hard_to_navigate`, `connection_drops`, `notifications_missing` and `app_slow`. `message` is optional, trimmed, and 1–4000 characters after trimming; a whitespace-only message returns 400, so clients omit an empty one. An empty submission (no issues, no message) is valid. `source` is `automatic` or `settings`, `platform` is `ios` or `android`, and `appVersion` is 1–32 characters. Any other value for these fields returns 400, while unknown properties are ignored; missing or invalid bearer authentication returns 401.
 
 The message may contain pasted code or secrets, so it is never logged. The account always comes from the verified access token. The route allows **10 submissions per hour per account** (429 beyond that), keyed exactly like the settings writes above, with the same in-process caveats.
 
