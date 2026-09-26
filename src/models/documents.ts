@@ -2,6 +2,7 @@ import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { bridgeIdSchema, bridgePlatformSchema, bridgeStatusSchema } from "./bridge.js";
 import { devicePlatformSchema } from "./device.js";
+import { FeedbackIssue, FeedbackSource, feedbackPlatformSchema } from "./feedback.js";
 import { deviceIdSchema, storedNotificationSettingsSchema } from "./settings.js";
 import {
   productAnalyticsOperationIdSchema,
@@ -170,6 +171,22 @@ export const settingsConfigurationSchema = z.object({
 });
 
 export type SettingsConfiguration = z.infer<typeof settingsConfigurationSchema>;
+
+// One document per submission. `message` is absent when the user wrote
+// nothing; it may hold pasted code or secrets, so it is never logged and it is
+// deleted with the account.
+export const feedbackSchema = z.object({
+  _id: z.instanceof(ObjectId),
+  userId: z.instanceof(ObjectId),
+  issues: z.array(z.enum(FeedbackIssue)),
+  message: z.string().optional(),
+  source: z.enum(FeedbackSource),
+  platform: feedbackPlatformSchema,
+  appVersion: z.string(),
+  createdAt: z.date(),
+});
+
+export type Feedback = z.infer<typeof feedbackSchema>;
 
 /**
  * Optional setup/reactivation mail only. This state must never gate password,
