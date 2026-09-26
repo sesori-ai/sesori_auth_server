@@ -11,8 +11,4 @@ export class FeedbackService {
   async submit(userId: string, submission: SubmitFeedbackBody): Promise<void> {
     await this.#repo.insert(userId, submission);
   }
-
-  async deleteAllForUser(userId: string): Promise<void> {
-    await this.#repo.deleteAllForUser(userId);
-  }
 }

@@ -26,15 +26,4 @@ export class FeedbackRepository {
       createdAt: new Date(),
     });
   }
-
-  // For account deletion, served by the userId index. Throws on a malformed
-  // userId rather than returning quietly, so a purge that never ran cannot be
-  // reported as done.
-  async deleteAllForUser(userId: string): Promise<void> {
-    if (!ObjectId.isValid(userId)) {
-      throw new InternalServerError({ debugMessage: "Invalid feedback userId" });
-    }
-
-    await this.#collection.deleteMany({ userId: new ObjectId(userId) });
-  }
 }

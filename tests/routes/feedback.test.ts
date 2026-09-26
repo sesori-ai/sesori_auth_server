@@ -50,14 +50,6 @@ describe("/feedback routes", () => {
     });
   }
 
-  function deleteFeedback(accessToken: string | null) {
-    return ctx.app.inject({
-      method: "DELETE",
-      url: "/feedback",
-      headers: accessToken ? { authorization: `Bearer ${accessToken}` } : {},
-    });
-  }
-
   it("stores a submission for the authenticated user and responds 201", async () => {
     const user = await ctx.createUser();
     const before = new Date();
@@ -166,34 +158,5 @@ describe("/feedback routes", () => {
     assert.equal(statuses[10], 429);
     assert.equal(await feedbackCollection().countDocuments({ userId: new ObjectId(user.userId) }), 10);
     assert.equal((await postFeedback(other.accessToken, VALID_BODY, clientAddress)).statusCode, 201);
-  });
-
-  it("DELETE removes every feedback document of the account and leaves others untouched", async () => {
-    const user = await ctx.createUser();
-    const other = await ctx.createUser();
-    await postFeedback(user.accessToken, VALID_BODY);
-    await postFeedback(user.accessToken, { ...VALID_BODY, source: "automatic" });
-    await postFeedback(other.accessToken, VALID_BODY);
-
-    const res = await deleteFeedback(user.accessToken);
-
-    assert.equal(res.statusCode, 200);
-    assert.deepEqual(res.json(), { ok: true });
-    assert.equal(await feedbackCollection().countDocuments({ userId: new ObjectId(user.userId) }), 0);
-    assert.equal(await feedbackCollection().countDocuments({ userId: new ObjectId(other.userId) }), 1);
-  });
-
-  it("DELETE is idempotent for an account without feedback", async () => {
-    const user = await ctx.createUser();
-
-    const res = await deleteFeedback(user.accessToken);
-
-    assert.equal(res.statusCode, 200);
-  });
-
-  it("DELETE rejects an unauthenticated request with 401", async () => {
-    const res = await deleteFeedback(null);
-
-    assert.equal(res.statusCode, 401);
   });
 });

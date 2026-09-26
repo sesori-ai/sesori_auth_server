@@ -16,8 +16,7 @@ function getUserId(request: FastifyRequest): string {
 
 // Every accepted submission inserts a document, so this bounds how fast one
 // account can grow the collection. Real use is a handful of submissions ever;
-// the prompt is rare and the settings entry is manual. The plugin counts per
-// route, so the delete below has its own bucket.
+// the prompt is rare and the settings entry is manual.
 const FEEDBACK_WRITE_MAX_PER_HOUR = 10;
 
 export type FeedbackRouteOptions = {
@@ -50,19 +49,6 @@ export const feedbackRoutes: FastifyPluginAsync<FeedbackRouteOptions> = async (f
       const userId = getUserId(request);
       await feedbackService.submit(userId, bodyResult.data);
       reply.status(201);
-      return { ok: true };
-    },
-  );
-
-  // Account-wide, for the account-deletion flow, like DELETE /auth/settings:
-  // the account comes from the verified token and never from a caller-supplied
-  // id. Idempotent, so an account that submitted nothing still returns 200.
-  fastify.delete<{ Reply: { ok: true } }>(
-    "/feedback",
-    { preHandler: requireAuth, config: { rateLimit: feedbackWriteRateLimit } },
-    async (request) => {
-      const userId = getUserId(request);
-      await feedbackService.deleteAllForUser(userId);
       return { ok: true };
     },
   );
