@@ -74,6 +74,8 @@ const DATABASE_CONFIG: Record<MongoDbDatabase, DatabaseConfig<string>> = {
         { spec: { providerEmailId: 1 }, options: { unique: true, sparse: true } },
       ],
       [AuthDbCollection.OptionalEmailDailyQuota]: [],
+      // Operators read feedback newest first; userId serves account deletion.
+      [AuthDbCollection.Feedback]: [{ spec: { createdAt: -1 } }, { spec: { userId: 1 } }],
     },
   } satisfies DatabaseConfig<AuthDbCollection>,
 };

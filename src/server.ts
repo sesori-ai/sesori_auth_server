@@ -27,6 +27,7 @@ import type { PendingAuthStore } from "./services/pending-auth-store.js";
 import type { AppClientPresenceService } from "./services/app-client-presence-service.js";
 import type { ProductAnalyticsPreferenceService } from "./services/product-analytics-preference-service.js";
 import type { SettingsService } from "./services/settings-service.js";
+import type { FeedbackService } from "./services/feedback-service.js";
 import type { OptionalEmailRouteServices } from "./optional-email-composition.js";
 import { installRoutes } from "./routes/install.js";
 import { legalRoutes } from "./routes/legal.js";
@@ -44,6 +45,7 @@ import { sessionStatusRoutes } from "./routes/auth/session-status.js";
 import { appClientRoutes } from "./routes/app-clients.js";
 import { productAnalyticsRoutes } from "./routes/product-analytics.js";
 import { settingsRoutes } from "./routes/settings/settings.js";
+import { feedbackRoutes } from "./routes/feedback.js";
 import { optionalEmailUnsubscribeRoutes } from "./routes/optional-email-unsubscribe.js";
 import { optionalEmailWebhookRoutes } from "./routes/optional-email-webhook.js";
 import { voiceRealtimeRoutes, type VoiceRealtimeRouteOptions } from "./routes/voice-realtime.js";
@@ -62,6 +64,7 @@ export type AppServices = {
   deviceTokenRepo: DeviceTokenRepository;
   appClientPresenceService: AppClientPresenceService;
   settingsService: SettingsService;
+  feedbackService: FeedbackService;
   notificationService: NotificationService;
   activationService: ActivationService;
   stateStore: StateStore;
@@ -278,6 +281,12 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
   });
   await app.register(settingsRoutes, {
     settingsService: services.settingsService,
+    tokenService: services.tokenService,
+    resolveClientIp,
+    requireAuth,
+  });
+  await app.register(feedbackRoutes, {
+    feedbackService: services.feedbackService,
     tokenService: services.tokenService,
     resolveClientIp,
     requireAuth,

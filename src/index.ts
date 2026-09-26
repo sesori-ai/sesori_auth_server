@@ -29,6 +29,7 @@ import { PasswordAccountRepository } from "./repositories/password-account-repo.
 import { UserRepository } from "./repositories/user-repo.js";
 import { ActivationStateRepository } from "./repositories/activation-state-repo.js";
 import { SettingsConfigurationRepository } from "./repositories/settings-configuration-repo.js";
+import { FeedbackRepository } from "./repositories/feedback-repo.js";
 import { buildApp } from "./server.js";
 import { MAX_REALTIME_EVENT_BYTES } from "./models/voice.js";
 import { MAX_BINARY_BYTES, MAX_TEXT_BYTES } from "./routes/voice-realtime-support.js";
@@ -49,6 +50,7 @@ import { RealtimeTranscriptionService } from "./services/realtime-transcription-
 import { AppClientPresenceService } from "./services/app-client-presence-service.js";
 import { ProductAnalyticsPreferenceService } from "./services/product-analytics-preference-service.js";
 import { SettingsService } from "./services/settings-service.js";
+import { FeedbackService } from "./services/feedback-service.js";
 import { createShutdownHandler } from "./shutdown.js";
 import { createOptionalEmailRouteServices } from "./optional-email-composition.js";
 
@@ -91,6 +93,7 @@ async function main() {
   const bridgeRepo = new BridgeRepository(dbAccessor);
   const activationStateRepo = new ActivationStateRepository(dbAccessor);
   const settingsRepo = new SettingsConfigurationRepository(dbAccessor);
+  const feedbackRepo = new FeedbackRepository(dbAccessor);
 
   const tokenService = new TokenService(config.JWT_PRIVATE_KEY, config.JWT_PUBLIC_KEY);
   const pendingAuthStore = new PendingAuthStore({
@@ -118,6 +121,7 @@ async function main() {
   }
 
   const settingsService = new SettingsService({ settingsRepo });
+  const feedbackService = new FeedbackService({ feedbackRepo });
   const notificationService = new NotificationService(deviceTokenRepo, messaging, settingsService);
   const bridgeStateTracker = new BridgeStateTracker({ notificationService });
   const bridgeService = new BridgeService({ bridgeRepo, glossaryRepo, bridgeStateTracker });
@@ -268,6 +272,7 @@ async function main() {
     deviceTokenRepo,
     appClientPresenceService,
     settingsService,
+    feedbackService,
     notificationService,
     activationService,
     stateStore,

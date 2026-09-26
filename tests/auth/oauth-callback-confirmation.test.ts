@@ -152,6 +152,7 @@ function createTestServices(params: {
       waitForRegistration: async () => false,
     } as unknown as AppServices["appClientPresenceService"],
     settingsService: {} as AppServices["settingsService"],
+    feedbackService: {} as AppServices["feedbackService"],
     notificationService: {} as AppServices["notificationService"],
     activationService: {} as AppServices["activationService"],
     stateStore: new StateStore(),

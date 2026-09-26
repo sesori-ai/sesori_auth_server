@@ -183,6 +183,29 @@ The allowance is keyed on the access token's `userId` claim rather than the toke
 
 Counters live in the process, so this is a bound on sustained abuse rather than a hard guarantee: multiple instances would each grant the full allowance, and the route's LRU holds 5000 keys, after which an evicted key starts a fresh window. That is adequate for the storage-growth concern it exists to address, but do not treat it as a correctness control.
 
+### Feedback
+
+Private feedback from the mobile app, one document per submission in the `feedback` collection.
+
+| Method   | Path        | Auth   | Description                                                                                          |
+| -------- | ----------- | ------ | ---------------------------------------------------------------------------------------------------- |
+| `POST`   | `/feedback` | Bearer | Store one submission. Responds `201 { "ok": true }`                                                  |
+| `DELETE` | `/feedback` | Bearer | Delete every feedback document of the account, for account deletion. Idempotent, responds `{ "ok": true }` |
+
+```json
+{
+  "issues": ["connection_drops", "app_slow"],
+  "message": "Optional free text",
+  "source": "settings",
+  "platform": "ios",
+  "appVersion": "1.6.0"
+}
+```
+
+`issues` is required but may be empty; its values are unique and drawn from `hard_to_navigate`, `connection_drops`, `notifications_missing` and `app_slow`. `message` is optional, trimmed, and 1–4000 characters after trimming; a whitespace-only message returns 400, so clients omit an empty one. An empty submission (no issues, no message) is valid. `source` is `automatic` or `settings`, `platform` is `ios` or `android`, and `appVersion` is 1–32 characters. Anything else returns 400; missing or invalid bearer authentication returns 401.
+
+The message may contain pasted code or secrets, so it is never logged, and `DELETE` removes it with the rest of the account's feedback. The account always comes from the verified access token. Each route allows **10 requests per hour per account** (429 beyond that), keyed exactly like the settings writes above, with the same in-process caveats.
+
 ### Notifications
 
 Push notifications are forwarded to Firebase Cloud Messaging. Every notification carries a `category`, and the server **drops it per device** when that device has switched the matching toggle off in `/auth/settings/:deviceId`.

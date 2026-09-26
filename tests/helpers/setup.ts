@@ -23,6 +23,7 @@ import { PasswordAccountRepository } from "../../src/repositories/password-accou
 import { UserRepository } from "../../src/repositories/user-repo.js";
 import { ActivationStateRepository } from "../../src/repositories/activation-state-repo.js";
 import { SettingsConfigurationRepository } from "../../src/repositories/settings-configuration-repo.js";
+import { FeedbackRepository } from "../../src/repositories/feedback-repo.js";
 import { buildApp } from "../../src/server.js";
 import { AuthService } from "../../src/services/auth-service.js";
 import { ActivationService } from "../../src/services/activation-service.js";
@@ -43,6 +44,7 @@ import { MAX_BINARY_BYTES, MAX_TEXT_BYTES } from "../../src/routes/voice-realtim
 import { AppClientPresenceService } from "../../src/services/app-client-presence-service.js";
 import { ProductAnalyticsPreferenceService } from "../../src/services/product-analytics-preference-service.js";
 import { SettingsService } from "../../src/services/settings-service.js";
+import { FeedbackService } from "../../src/services/feedback-service.js";
 import type { OptionalEmailUnsubscribeService } from "../../src/services/optional-email-unsubscribe-service.js";
 import type { OptionalEmailWebhookService } from "../../src/services/optional-email-webhook-service.js";
 import type { ResendWebhookVerifier } from "../../src/services/resend-webhook-verifier.js";
@@ -188,6 +190,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
   const bridgeRepo = new BridgeRepository(dbAccessor);
   const activationStateRepo = new ActivationStateRepository(dbAccessor);
   const settingsRepo = new SettingsConfigurationRepository(dbAccessor);
+  const feedbackRepo = new FeedbackRepository(dbAccessor);
 
   const tokenService = new TokenService(privPem, pubPem);
   const stateStore = new StateStore();
@@ -211,6 +214,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     });
 
   const settingsService = overrides?.settingsService ?? new SettingsService({ settingsRepo });
+  const feedbackService = new FeedbackService({ feedbackRepo });
   const notificationService =
     overrides?.notificationService ?? new NotificationService(deviceTokenRepo, null, settingsService);
   const bridgeStateTracker = overrides?.bridgeStateTracker ?? new BridgeStateTracker({ notificationService });
@@ -260,6 +264,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     deviceTokenRepo,
     appClientPresenceService,
     settingsService,
+    feedbackService,
     notificationService,
     activationService,
     stateStore,
