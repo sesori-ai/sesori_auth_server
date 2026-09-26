@@ -140,13 +140,13 @@ describe("GlossaryService", () => {
 
   it("truncates to the remaining per-user capacity across projects", async () => {
     const perProject = glossaryPolicy.maxWordsPerProject;
-    const projects = Array.from({ length: 9 }, (_, index) =>
-      projectKeySchema.parse(`prj_v1_${String(index).repeat(43)}`),
+    const projects = Array.from({ length: glossaryPolicy.maxWordsPerUser / perProject - 1 }, (_, index) =>
+      projectKeySchema.parse(`prj_v1_${String(index).padStart(43, "0")}`),
     );
     for (const [index, projectKey] of projects.entries()) {
       await repo.addWords({ userId, scope: repositoryScope(projectKey), words: words(`u${index}_`, perProject) });
     }
-    await repo.addWords({ userId, scope: repositoryScope(projectA), words: words("tail_", 499) });
+    await repo.addWords({ userId, scope: repositoryScope(projectA), words: words("tail_", perProject - 1) });
 
     const added = await service.addWords({ userId, scope: repositoryScope(projectA), words: ["Last", "Overflow"] });
 
