@@ -7,7 +7,8 @@ import { GlossaryEntryRepository } from "../repositories/glossary-entry-repo.js"
 export const glossaryPolicy = {
   maxWordsPerRequest: 100,
   maxWordsPerProject: 500,
-  maxWordsPerUser: 5_000,
+  // About 200 projects at the bridge's 100-term project glossary.
+  maxWordsPerUser: 20_000,
   maxWordCharacters: 200,
   maxContextCharacters: 8_000,
 } as const;

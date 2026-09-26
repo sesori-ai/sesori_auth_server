@@ -565,7 +565,7 @@ Glossary CRUD requires a project key: `GET /voice/glossary?projectKey=…`, whil
 variant. `POST /voice/transcribe` accepts an optional
 `projectKey` multipart field; omission means no glossary context is applied and
 never falls back to a global glossary.
-Safety caps are 100 words per request, 500 per project, 5,000 per user, 200
+Safety caps are 100 words per request, 500 per project, 20,000 per user, 200
 characters per word, and an 8,000-character provider context. Caps are checked
 per request rather than serialized, so concurrent requests may narrowly exceed
 them. A compound unique index enforces one document per exact scope, and atomic
