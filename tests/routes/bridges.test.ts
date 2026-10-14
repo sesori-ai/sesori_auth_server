@@ -199,6 +199,29 @@ describe("/auth/bridges routes", () => {
     return (await new BridgeRepository(ctx.dbAccessor).findById(bridgeId))?.hostKey;
   }
 
+  it("POST /auth/bridges prefers an id match over a bridge sharing the same hostKey", async () => {
+    const user = await ctx.createUser();
+    const repo = new BridgeRepository(ctx.dbAccessor);
+    // The other bridge is the most recently seen, so a host-key match would pick it.
+    const other = await repo.register({ userId: user.userId, name: "Other", platform: "macos", hostKey: HOST_KEY });
+    const target = await repo.register({ userId: user.userId, name: "Target", platform: "macos", hostKey: HOST_KEY });
+    await repo.recordStatusChange(other.bridgeId, user.userId, "active", new Date());
+
+    const res = await registerBridge(user.accessToken, {
+      name: "Target (renamed)",
+      platform: "linux",
+      bridgeId: target.bridgeId,
+      hostKey: HOST_KEY,
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json<BridgeSummaryBody>().id, target.bridgeId);
+    assert.equal(res.json<BridgeSummaryBody>().name, "Target (renamed)");
+    const untouched = await repo.findById(other.bridgeId);
+    assert.equal(untouched?.name, "Other");
+    assert.equal(untouched?.platform, "macos");
+  });
+
   it("POST /auth/bridges stores a hostKey on an id match and keeps it when the key is null or absent", async () => {
     const user = await ctx.createUser();
     const created = (

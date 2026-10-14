@@ -250,23 +250,27 @@ export class BridgeStateTracker {
     return entry;
   }
 
-  // Status pushes name the computer and collapse per bridge, so one
-  // computer's push never replaces another's.
+  // Status pushes name the computer and replace in the tray per bridge, so
+  // one computer's push never replaces another's. The FCM collapse key stays
+  // shared (see ConnectionStatusNotificationPayload.trayKey). The tray key is
+  // at most 53 bytes, within the 64-byte apns-collapse-id limit.
   #buildPayload(args: { bridgeId: string; pending: PendingNotification }): ConnectionStatusNotificationPayload {
-    const collapseKey = `connection_status:${args.bridgeId}`;
+    const trayKey = `connection_status:${args.bridgeId}`;
     return args.pending.status === BridgeStatus.active
       ? {
           category: NotificationCategory.ConnectionStatus,
           title: `${args.pending.bridgeName} is online`,
           body: "Your computer has reconnected.",
-          collapseKey,
+          collapseKey: "connection_status",
+          trayKey,
           excludedDeviceIds: args.pending.excludedDeviceIds,
         }
       : {
           category: NotificationCategory.ConnectionStatus,
           title: `${args.pending.bridgeName} went offline`,
           body: "AI sessions there are paused.",
-          collapseKey,
+          collapseKey: "connection_status",
+          trayKey,
           excludedDeviceIds: args.pending.excludedDeviceIds,
         };
   }

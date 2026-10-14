@@ -146,6 +146,29 @@ describe("NotificationService", () => {
     assert.equal(firstMessage.apns?.headers?.["apns-collapse-id"], payload.collapseKey);
   });
 
+  it("keeps the FCM collapse key shared and replaces connection-status pushes per bridge", async () => {
+    const tokenRepo = createMockDeviceTokenRepo([{ userId: "user-1", token: "token-a", platform: "android" }]);
+    const messaging = createMockMessaging([{ success: true }]);
+    const service = new NotificationService(tokenRepo.repo, messaging.messaging, allowAllSettings);
+
+    await service.sendToUser("user-1", {
+      category: NotificationCategory.ConnectionStatus,
+      title: "dev-laptop is online",
+      body: "Your computer has reconnected.",
+      collapseKey: "connection_status",
+      trayKey: "connection_status:br_bridge0001",
+      excludedDeviceIds: new Set<string>(),
+    });
+
+    const firstMessage = messaging.calls[0]?.[0] as {
+      android?: { collapseKey?: string; notification?: { tag?: string } };
+      apns?: { headers?: Record<string, string> };
+    };
+    assert.equal(firstMessage.android?.collapseKey, "connection_status");
+    assert.equal(firstMessage.android?.notification?.tag, "connection_status:br_bridge0001");
+    assert.equal(firstMessage.apns?.headers?.["apns-collapse-id"], "connection_status:br_bridge0001");
+  });
+
   it("omits the Android tag and apns-collapse-id when the collapse key is empty", async () => {
     const tokenRepo = createMockDeviceTokenRepo([{ userId: "user-1", token: "token-a", platform: "android" }]);
     const messaging = createMockMessaging([{ success: true }]);

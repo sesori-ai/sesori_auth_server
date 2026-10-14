@@ -136,7 +136,7 @@ present. There is no public endpoint that creates or clears the tombstone.
 
 ### Bridges
 
-Bridges authenticate with the user's access token everywhere (relay included) — there are no bridge-specific tokens. The API returns `BridgeSummary` objects (`id`, `name`, `platform`, `addedAt`, `lastSeenAt`, `status`); `status` is the last relay-reported connectivity (`active` or `inactive`), so it can lag a relay crash until the bridge reconnects.
+Bridges authenticate with the user's access token everywhere (relay included) — there are no bridge-specific tokens. The API returns `BridgeSummary` objects (`id`, `name`, `platform`, `addedAt`, `lastSeenAt`, `status`); `status` is the persisted connectivity (`active` or `inactive`): `inactive` at registration and updated by relay reports, so it can lag a relay crash until the bridge reconnects.
 
 A bridge may send `hostKey`, a sha256 hex digest of its OS machine identifier, so a reinstall on the same computer reuses its entry. The `{ userId, hostKey }` index is deliberately non-unique: cloned machine images can share a key and must still register.
 
@@ -225,8 +225,11 @@ Push notifications are forwarded to Firebase Cloud Messaging. Every notification
 | `connection_status`| `connectionStatus` | Server, on bridge connect/disconnect          |
 
 `connection_status` is server-originated and is rejected on `POST /notifications/send`. Its pushes name the bridge
-("<name> is online" / "<name> went offline") and use the collapse key `connection_status:<bridgeId>`, so one computer's
-push never replaces another's. Session pushes may carry `data.bridgeId`, which is forwarded in the FCM data. macOS bridges may attach an
+("<name> is online" / "<name> went offline"). They share the FCM collapse key `connection_status`, because FCM stores at
+most four distinct collapse keys per offline device and drops the rest arbitrarily, while the Android `tag` and the APNs
+`apns-collapse-id` are `connection_status:<bridgeId>`, so one computer's push never replaces another's in the tray.
+`POST /notifications/send` accepts an optional `data.bridgeId` (a `br_` id) for every client-sendable category and
+forwards it in the FCM data. macOS bridges may attach an
 advisory connection-notification policy: detected full wakes use a short online settlement delay, DarkWake-only socket
 episodes suppress connection pushes, and missing/failed detection retains the conservative two-minute debounce. A
 socket established while normally awake remains eligible for the two-minute offline debounce if it disconnects during

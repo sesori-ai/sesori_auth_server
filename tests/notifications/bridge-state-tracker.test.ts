@@ -41,7 +41,8 @@ function connectedPayload(bridgeId = BRIDGE_ID): NotificationPayload {
     category: NotificationCategory.ConnectionStatus,
     title: "dev-laptop is online",
     body: "Your computer has reconnected.",
-    collapseKey: `connection_status:${bridgeId}`,
+    collapseKey: "connection_status",
+    trayKey: `connection_status:${bridgeId}`,
     excludedDeviceIds: new Set<string>(),
   };
 }
@@ -51,7 +52,8 @@ function disconnectedPayload(bridgeId = BRIDGE_ID): NotificationPayload {
     category: NotificationCategory.ConnectionStatus,
     title: "dev-laptop went offline",
     body: "AI sessions there are paused.",
-    collapseKey: `connection_status:${bridgeId}`,
+    collapseKey: "connection_status",
+    trayKey: `connection_status:${bridgeId}`,
     excludedDeviceIds: new Set<string>(),
   };
 }
@@ -576,10 +578,25 @@ describe("BridgeStateTracker", () => {
     await flushMicrotasks();
 
     assert.deepEqual(
-      sendCalls.map((call) => [call.payload.title, call.payload.body, call.payload.collapseKey]),
+      sendCalls.map(({ payload }) => [
+        payload.title,
+        payload.body,
+        payload.collapseKey,
+        payload.category === NotificationCategory.ConnectionStatus ? payload.trayKey : null,
+      ]),
       [
-        ["dev-laptop is online", "Your computer has reconnected.", "connection_status:br_laptop0001"],
-        ["build-box went offline", "AI sessions there are paused.", "connection_status:br_desktop001"],
+        [
+          "dev-laptop is online",
+          "Your computer has reconnected.",
+          "connection_status",
+          "connection_status:br_laptop0001",
+        ],
+        [
+          "build-box went offline",
+          "AI sessions there are paused.",
+          "connection_status",
+          "connection_status:br_desktop001",
+        ],
       ],
     );
   });
