@@ -10,6 +10,7 @@ export interface NotificationData {
   eventType?: string | null;
   sessionId?: string | null;
   projectId?: string | null;
+  bridgeId?: string | null;
 }
 
 interface BaseNotificationPayload {
@@ -22,6 +23,10 @@ interface BaseNotificationPayload {
 export interface ConnectionStatusNotificationPayload extends BaseNotificationPayload {
   category: NotificationCategory.ConnectionStatus;
   excludedDeviceIds: ReadonlySet<string>;
+  // Replaces the visible notification (Android tag, apns-collapse-id) per
+  // bridge, while collapseKey stays shared: FCM stores at most four distinct
+  // collapse keys per offline device and drops the rest arbitrarily.
+  trayKey: string;
 }
 
 export interface OtherNotificationPayload extends BaseNotificationPayload {
@@ -132,8 +137,12 @@ export class NotificationService {
       if (payload.data.projectId) {
         flatData["projectId"] = payload.data.projectId;
       }
+      if (payload.data.bridgeId) {
+        flatData["bridgeId"] = payload.data.bridgeId;
+      }
     }
 
+    const trayKey = payload.category === NotificationCategory.ConnectionStatus ? payload.trayKey : payload.collapseKey;
     const messages: Array<BaseMessage & { token: string }> = deliverableTokens.map((t) => ({
       token: t.token,
       notification: { title: payload.title, body: payload.body },
@@ -142,10 +151,10 @@ export class NotificationService {
         collapseKey: payload.collapseKey ?? undefined,
         // Android ignores collapseKey for already-displayed notification messages;
         // the tag is what replaces/dismisses the visible notification per session.
-        notification: { channelId: payload.category, tag: payload.collapseKey || undefined },
+        notification: { channelId: payload.category, tag: trayKey || undefined },
       },
       apns: {
-        headers: payload.collapseKey ? { "apns-collapse-id": payload.collapseKey } : undefined,
+        headers: trayKey ? { "apns-collapse-id": trayKey } : undefined,
       },
     }));
 

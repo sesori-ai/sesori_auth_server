@@ -24,8 +24,9 @@ export const bridgeRoutes: FastifyPluginAsync<BridgeRouteOptions> = async (fasti
   const { bridgeService, activationService, requireAuth } = opts;
 
   // Idempotent registration: an optional bridgeId that matches a non-revoked
-  // bridge owned by the caller updates that bridge (200); otherwise a new
-  // bridge is minted server-side (201).
+  // bridge owned by the caller updates that bridge (200); otherwise a non-null
+  // hostKey matching one of the caller's non-revoked bridges updates that
+  // bridge (200); otherwise a new bridge is minted server-side (201).
   fastify.post<{ Body: unknown; Reply: BridgeSummary }>(
     "/auth/bridges",
     { preHandler: requireAuth },

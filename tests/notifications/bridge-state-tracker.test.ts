@@ -19,6 +19,7 @@ type Deferred<T> = {
 const DEBOUNCE_MS = 120_000;
 const HALF_DEBOUNCE_MS = DEBOUNCE_MS / 2;
 const BRIDGE_ID = "br_bridge0001";
+const BRIDGE_NAME = "dev-laptop";
 
 function flushMicrotasks(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
@@ -35,22 +36,24 @@ function createDeferred<T>(): Deferred<T> {
   return { promise, resolve, reject };
 }
 
-function connectedPayload(): NotificationPayload {
+function connectedPayload(bridgeId = BRIDGE_ID): NotificationPayload {
   return {
     category: NotificationCategory.ConnectionStatus,
-    title: "Bridge Online",
-    body: "Your bridge has reconnected.",
+    title: "dev-laptop is online",
+    body: "Your computer has reconnected.",
     collapseKey: "connection_status",
+    trayKey: `connection_status:${bridgeId}`,
     excludedDeviceIds: new Set<string>(),
   };
 }
 
-function disconnectedPayload(): NotificationPayload {
+function disconnectedPayload(bridgeId = BRIDGE_ID): NotificationPayload {
   return {
     category: NotificationCategory.ConnectionStatus,
-    title: "Bridge Offline",
-    body: "Your bridge has disconnected. AI sessions are paused.",
+    title: "dev-laptop went offline",
+    body: "AI sessions there are paused.",
     collapseKey: "connection_status",
+    trayKey: `connection_status:${bridgeId}`,
     excludedDeviceIds: new Set<string>(),
   };
 }
@@ -77,6 +80,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -109,6 +113,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -141,6 +146,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.inactive,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -173,6 +179,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -181,6 +188,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.inactive,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -189,6 +197,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -217,6 +226,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -225,6 +235,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.inactive,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -233,6 +244,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -241,6 +253,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.inactive,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -268,6 +281,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -276,6 +290,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -302,6 +317,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -312,6 +328,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -338,6 +355,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-a",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -345,6 +363,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-b",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.inactive,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -375,6 +394,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -385,6 +405,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.inactive,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -393,6 +414,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -419,6 +441,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -426,6 +449,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-2",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.inactive,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -433,6 +457,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-3",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -461,6 +486,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: "br_target0001",
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.inactive,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -468,6 +494,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: "br_other0001",
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -477,7 +504,7 @@ describe("BridgeStateTracker", () => {
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();
 
-    assert.deepEqual(sendCalls, [{ userId: "user-1", payload: connectedPayload() }]);
+    assert.deepEqual(sendCalls, [{ userId: "user-1", payload: connectedPayload("br_other0001") }]);
   });
 
   it("notification payload correctness", async () => {
@@ -496,6 +523,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -503,6 +531,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-2",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.inactive,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -514,6 +543,62 @@ describe("BridgeStateTracker", () => {
       { userId: "user-1", payload: connectedPayload() },
       { userId: "user-2", payload: disconnectedPayload() },
     ]);
+  });
+
+  it("names each computer and keys its push per bridge", async () => {
+    const sendCalls: SendCall[] = [];
+    const notificationServiceMock = {
+      sendToUser: async (userId: string, payload: NotificationPayload) => {
+        sendCalls.push({ userId, payload });
+        return { devicesNotified: 1 };
+      },
+    } as unknown as NotificationService;
+    const tracker = new BridgeStateTracker({
+      notificationService: notificationServiceMock,
+      conservativeDelayMs: DEBOUNCE_MS,
+    });
+
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: "br_laptop0001",
+      bridgeName: "dev-laptop",
+      status: BridgeStatus.active,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
+    tracker.handleStatusChangeForBridge({
+      userId: "user-1",
+      bridgeId: "br_desktop001",
+      bridgeName: "build-box",
+      status: BridgeStatus.inactive,
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+    });
+    mock.timers.tick(DEBOUNCE_MS);
+    await flushMicrotasks();
+
+    assert.deepEqual(
+      sendCalls.map(({ payload }) => [
+        payload.title,
+        payload.body,
+        payload.collapseKey,
+        payload.category === NotificationCategory.ConnectionStatus ? payload.trayKey : null,
+      ]),
+      [
+        [
+          "dev-laptop is online",
+          "Your computer has reconnected.",
+          "connection_status",
+          "connection_status:br_laptop0001",
+        ],
+        [
+          "build-box went offline",
+          "AI sessions there are paused.",
+          "connection_status",
+          "connection_status:br_desktop001",
+        ],
+      ],
+    );
   });
 
   it("sendToUser rejection is caught and new status change still works", async () => {
@@ -537,6 +622,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -548,6 +634,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.inactive,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -585,6 +672,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -594,6 +682,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.inactive,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -627,6 +716,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -658,6 +748,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
@@ -711,6 +802,7 @@ describe("BridgeStateTracker", () => {
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
+      bridgeName: BRIDGE_NAME,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,

@@ -140,4 +140,20 @@ describe("indexMatchesDesired", () => {
     const desired: IndexDefinition = { spec: { userId: 1 } };
     assert.equal(indexMatchesDesired(existing, desired), false);
   });
+
+  it("compares partialFilterExpression by value", () => {
+    const desired: IndexDefinition = {
+      spec: { userId: 1, hostKey: 1 },
+      options: { partialFilterExpression: { hostKey: { $exists: true } } },
+    };
+    const existing = {
+      key: { userId: 1, hostKey: 1 },
+      name: "userId_1_hostKey_1",
+      v: 2,
+      partialFilterExpression: { hostKey: { $exists: true } },
+    };
+    assert.equal(indexMatchesDesired(existing, desired), true);
+    assert.equal(indexMatchesDesired({ ...existing, partialFilterExpression: { hostKey: 1 } }, desired), false);
+    assert.equal(indexMatchesDesired({ ...existing, partialFilterExpression: undefined }, desired), false);
+  });
 });

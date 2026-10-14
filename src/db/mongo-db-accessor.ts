@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import {
   Collection,
   Db,
@@ -53,6 +54,13 @@ const DATABASE_CONFIG: Record<MongoDbDatabase, DatabaseConfig<string>> = {
         // filter on { userId, revokedAt: null }. No query filters on status.
         { spec: { userId: 1, revokedAt: 1 } },
         { spec: { userId: 1, addedAt: 1 } },
+        // Reinstall matching by host key. Deliberately not unique: cloned
+        // machine images can share a key, and a unique index would make the
+        // second clone fail to register instead of reusing the entry.
+        {
+          spec: { userId: 1, hostKey: 1 },
+          options: { partialFilterExpression: { hostKey: { $exists: true } } },
+        },
       ],
       [AuthDbCollection.ActivationStates]: [
         { spec: { userId: 1 }, options: { unique: true } },
@@ -98,7 +106,8 @@ export function indexMatchesDesired(existing: Record<string, unknown>, desired: 
   for (const key of relevantKeys) {
     const desiredValue = desiredOpts[key as keyof CreateIndexesOptions] ?? false;
     const existingValue = existing[key] ?? false;
-    if (desiredValue !== existingValue) return false;
+    // Deep comparison so object options such as partialFilterExpression match.
+    if (!isDeepStrictEqual(desiredValue, existingValue)) return false;
   }
 
   return true;

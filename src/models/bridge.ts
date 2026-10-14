@@ -6,9 +6,10 @@ export enum BridgePlatform {
   linux = "linux",
 }
 
-// Internal-only (drives the notification debouncer; never exposed through
-// the API). "inactive" covers BOTH "bridge reported disconnected" and
-// "soft-revoked" — disambiguate via the document's revokedAt field.
+// Last relay-reported connectivity, also exposed as BridgeSummary.status.
+// "inactive" covers BOTH "bridge reported disconnected" and "soft-revoked" —
+// disambiguate via the document's revokedAt field (summaries only list
+// non-revoked bridges).
 export enum BridgeStatus {
   active = "active",
   inactive = "inactive",
@@ -26,6 +27,9 @@ export enum BridgeStatusEvent {
 }
 
 export const bridgeIdSchema = z.string().regex(/^br_[A-Za-z0-9_-]{8,32}$/);
+// sha256 hex digest the bridge derives from the OS machine identifier, so a
+// reinstall on the same computer reuses its bridge entry.
+export const bridgeHostKeySchema = z.string().regex(/^[0-9a-f]{64}$/);
 export const bridgePlatformSchema = z.enum(BridgePlatform);
 export const bridgeStatusSchema = z.enum(BridgeStatus);
 

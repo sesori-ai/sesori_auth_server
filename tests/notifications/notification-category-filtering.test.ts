@@ -70,7 +70,7 @@ function createMockSettingsResolver(
 function buildPayload(category: NotificationCategory): NotificationPayload {
   const content = { title: "Title", body: "Body", collapseKey: null };
   return category === NotificationCategory.ConnectionStatus
-    ? { ...content, category, excludedDeviceIds: new Set<string>() }
+    ? { ...content, category, excludedDeviceIds: new Set<string>(), trayKey: "connection_status:br_bridge0001" }
     : { ...content, category };
 }
 

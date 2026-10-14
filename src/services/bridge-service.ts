@@ -18,6 +18,7 @@ function toSummary(bridge: BridgeDoc): BridgeSummary {
     addedAt: bridge.addedAt.toISOString(),
     lastSeenAt: bridge.lastSeenAt ? bridge.lastSeenAt.toISOString() : null,
     platform: bridge.platform,
+    status: bridge.status,
   };
 }
 
@@ -42,19 +43,28 @@ export class BridgeService {
   }
 
   // Idempotent registration: a bridgeId that identifies a non-revoked bridge
-  // owned by this user updates it in place; anything else (absent, unknown,
-  // revoked, or another user's bridgeId) silently mints a new bridge.
+  // owned by this user updates it in place. Otherwise a non-null hostKey
+  // reuses this user's non-revoked bridge with the same key (a reinstall on
+  // the same computer). Anything else (absent, unknown, revoked, or another
+  // user's bridgeId, with no key match) silently mints a new bridge. An absent
+  // or null hostKey never matches and never clears a stored key.
   async registerForUser(
     userId: string,
-    input: { name: string; platform: BridgePlatform; bridgeId?: string },
+    input: { name: string; platform: BridgePlatform; bridgeId?: string; hostKey?: string | null },
   ): Promise<RegisterBridgeResult> {
+    const hostKey = input.hostKey ?? null;
+    const update = { name: input.name, platform: input.platform, hostKey };
     if (input.bridgeId) {
-      const updated = await this.#bridgeRepo.updateForUser(input.bridgeId, userId, {
-        name: input.name,
-        platform: input.platform,
-      });
+      const updated = await this.#bridgeRepo.updateForUser(input.bridgeId, userId, update);
       if (updated) {
         return { bridge: toSummary(updated), created: false };
+      }
+    }
+
+    if (hostKey) {
+      const matched = await this.#bridgeRepo.updateByHostKeyForUser({ hostKey, userId, update });
+      if (matched) {
+        return { bridge: toSummary(matched), created: false };
       }
     }
 
@@ -63,7 +73,7 @@ export class BridgeService {
       throw new BadRequestError({ debugMessage: "Too many registered bridges" });
     }
 
-    const bridge = await this.#bridgeRepo.register({ userId, name: input.name, platform: input.platform });
+    const bridge = await this.#bridgeRepo.register({ userId, name: input.name, platform: input.platform, hostKey });
 
     // The pre-insert count above is racy (no DB-level constraint backs the
     // cap), so a concurrent burst can overshoot it. Re-rank after the insert
@@ -151,6 +161,7 @@ export class BridgeService {
         status: args.status,
         notificationPolicy: args.notificationPolicy,
         connectionId: args.connectionId,
+        bridgeName: result.name,
       });
     }
     return { found: true };

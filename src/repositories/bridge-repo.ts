@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { Collection, ObjectId } from "mongodb";
+import { Collection, ObjectId, type Filter } from "mongodb";
 import type { Bridge } from "../models/documents.js";
 import { BridgeStatus, type BridgePlatform } from "../models/bridge.js";
 import { MongoDbDatabase, AuthDbCollection } from "../types/mongo.js";
@@ -9,15 +9,26 @@ export type RegisterBridgeInput = {
   userId: string;
   name: string;
   platform: BridgePlatform;
+  hostKey: string | null;
 };
 
-export type RecordBridgeStatusResult = {
-  /** False when the bridge is unknown, revoked, or owned by another user. */
-  found: boolean;
-  /** True when the event was applied (not dropped by the monotonic guard). */
-  updated: boolean;
-  statusChanged: boolean;
+export type BridgeRegistrationUpdate = {
+  name: string;
+  platform: BridgePlatform;
+  /** Stored only when non-null; null leaves any stored key unchanged. */
+  hostKey: string | null;
 };
+
+// found=false when the bridge is unknown, revoked, or owned by another user.
+export type RecordBridgeStatusResult =
+  | { found: false }
+  | {
+      found: true;
+      /** True when the event was applied (not dropped by the monotonic guard). */
+      updated: boolean;
+      statusChanged: boolean;
+      name: string;
+    };
 
 export class BridgeRepository {
   readonly #collection: Collection<Bridge>;
@@ -94,6 +105,7 @@ export class BridgeRepository {
       name: input.name,
       platform: input.platform,
       status: BridgeStatus.inactive,
+      ...(input.hostKey ? { hostKey: input.hostKey } : {}),
       addedAt: now,
       lastSeenAt: null,
       lastSeenIp: null,
@@ -105,28 +117,53 @@ export class BridgeRepository {
     return bridge;
   }
 
-  // Owner-scoped idempotent re-registration: updates name/platform on a
-  // non-revoked bridge. Returns null when the bridge is unknown, revoked, or
-  // owned by another user (caller falls back to minting a new bridge).
-  async updateForUser(
-    bridgeId: string,
-    userId: string,
-    update: { name: string; platform: BridgePlatform },
-  ): Promise<Bridge | null> {
-    if (!ObjectId.isValid(userId)) {
+  // Owner-scoped idempotent re-registration: updates name/platform (and a
+  // supplied hostKey) on a non-revoked bridge. Returns null when the bridge is
+  // unknown, revoked, or owned by another user (caller falls back to a host-key
+  // match or minting a new bridge).
+  async updateForUser(bridgeId: string, userId: string, update: BridgeRegistrationUpdate): Promise<Bridge | null> {
+    return this.#updateRegistration({ userId, filter: { bridgeId }, update });
+  }
+
+  // Reinstall on the same computer: updates the caller's non-revoked bridge
+  // carrying this hostKey, most recently seen first when clones share a key.
+  async updateByHostKeyForUser(args: {
+    hostKey: string;
+    userId: string;
+    update: BridgeRegistrationUpdate;
+  }): Promise<Bridge | null> {
+    return this.#updateRegistration({
+      userId: args.userId,
+      filter: { hostKey: args.hostKey },
+      update: args.update,
+    });
+  }
+
+  async #updateRegistration(args: {
+    userId: string;
+    filter: Filter<Bridge>;
+    update: BridgeRegistrationUpdate;
+  }): Promise<Bridge | null> {
+    if (!ObjectId.isValid(args.userId)) {
       return null;
     }
 
     return this.#collection.findOneAndUpdate(
       {
-        bridgeId,
-        userId: new ObjectId(userId),
+        ...args.filter,
+        userId: new ObjectId(args.userId),
         revokedAt: null,
       },
       {
-        $set: { name: update.name, platform: update.platform, updatedAt: new Date() },
+        $set: {
+          name: args.update.name,
+          platform: args.update.platform,
+          ...(args.update.hostKey ? { hostKey: args.update.hostKey } : {}),
+          updatedAt: new Date(),
+        },
       },
-      { returnDocument: "after" },
+      // Only a shared hostKey can match several bridges; bridgeId is unique.
+      { returnDocument: "after", sort: { lastSeenAt: -1, addedAt: -1 } },
     );
   }
 
@@ -143,7 +180,7 @@ export class BridgeRepository {
     at: Date,
   ): Promise<RecordBridgeStatusResult> {
     if (!ObjectId.isValid(userId)) {
-      return { found: false, updated: false, statusChanged: false };
+      return { found: false };
     }
 
     const applyCond = {
@@ -167,7 +204,7 @@ export class BridgeRepository {
       { returnDocument: "before" },
     );
     if (!before) {
-      return { found: false, updated: false, statusChanged: false };
+      return { found: false };
     }
 
     const applied = !before.lastSeenAt || before.lastSeenAt.getTime() <= at.getTime();
@@ -175,6 +212,7 @@ export class BridgeRepository {
       found: true,
       updated: applied,
       statusChanged: applied && before.status !== status,
+      name: before.name,
     };
   }
 

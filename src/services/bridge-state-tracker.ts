@@ -8,6 +8,7 @@ const BRIDGE_STATE_TRACKER_DISPOSE_TIMEOUT_MS = 15_000;
 
 type PendingNotification = {
   status: BridgeStatus;
+  bridgeName: string;
   connectionId: string | null;
   policy: BridgeConnectionNotificationPolicy;
   excludedDeviceIds: Set<string>;
@@ -56,6 +57,7 @@ export class BridgeStateTracker {
     status: BridgeStatus;
     notificationPolicy: BridgeConnectionNotificationPolicy;
     connectionId: string | null;
+    bridgeName: string;
   }): void {
     if (!this.#accepting) {
       return;
@@ -94,6 +96,8 @@ export class BridgeStateTracker {
     this.#schedule({
       entry,
       userId: args.userId,
+      bridgeId: args.bridgeId,
+      bridgeName: args.bridgeName,
       status: args.status,
       connectionId: args.connectionId,
       policy: args.notificationPolicy,
@@ -136,6 +140,8 @@ export class BridgeStateTracker {
   #schedule(args: {
     entry: BridgeStateEntry;
     userId: string;
+    bridgeId: string;
+    bridgeName: string;
     status: BridgeStatus;
     connectionId: string | null;
     policy: BridgeConnectionNotificationPolicy;
@@ -160,6 +166,7 @@ export class BridgeStateTracker {
     }
     const pending: PendingNotification = {
       status: args.status,
+      bridgeName: args.bridgeName,
       connectionId: args.connectionId,
       policy: args.policy,
       excludedDeviceIds,
@@ -168,7 +175,7 @@ export class BridgeStateTracker {
         if (args.entry.pending !== pending || pending.generation !== generation) {
           return;
         }
-        const callback = this.#send({ entry: args.entry, pending, userId: args.userId });
+        const callback = this.#send({ entry: args.entry, pending, userId: args.userId, bridgeId: args.bridgeId });
         this.#inFlight.add(callback);
         void callback.finally(() => this.#inFlight.delete(callback));
       }, args.delay),
@@ -177,11 +184,16 @@ export class BridgeStateTracker {
     args.entry.pending = pending;
   }
 
-  async #send(args: { entry: BridgeStateEntry; pending: PendingNotification; userId: string }): Promise<void> {
+  async #send(args: {
+    entry: BridgeStateEntry;
+    pending: PendingNotification;
+    userId: string;
+    bridgeId: string;
+  }): Promise<void> {
     try {
       await this.#notificationService.sendToUser(
         args.userId,
-        this.#buildPayload(args.pending.status, args.pending.excludedDeviceIds),
+        this.#buildPayload({ bridgeId: args.bridgeId, pending: args.pending }),
       );
     } catch (err) {
       console.warn("Bridge notification failed", { userId: args.userId, status: args.pending.status, err });
@@ -238,21 +250,28 @@ export class BridgeStateTracker {
     return entry;
   }
 
-  #buildPayload(status: BridgeStatus, excludedDeviceIds: ReadonlySet<string>): ConnectionStatusNotificationPayload {
-    return status === BridgeStatus.active
+  // Status pushes name the computer and replace in the tray per bridge, so
+  // one computer's push never replaces another's. The FCM collapse key stays
+  // shared (see ConnectionStatusNotificationPayload.trayKey). The tray key is
+  // at most 53 bytes, within the 64-byte apns-collapse-id limit.
+  #buildPayload(args: { bridgeId: string; pending: PendingNotification }): ConnectionStatusNotificationPayload {
+    const trayKey = `connection_status:${args.bridgeId}`;
+    return args.pending.status === BridgeStatus.active
       ? {
           category: NotificationCategory.ConnectionStatus,
-          title: "Bridge Online",
-          body: "Your bridge has reconnected.",
+          title: `${args.pending.bridgeName} is online`,
+          body: "Your computer has reconnected.",
           collapseKey: "connection_status",
-          excludedDeviceIds,
+          trayKey,
+          excludedDeviceIds: args.pending.excludedDeviceIds,
         }
       : {
           category: NotificationCategory.ConnectionStatus,
-          title: "Bridge Offline",
-          body: "Your bridge has disconnected. AI sessions are paused.",
+          title: `${args.pending.bridgeName} went offline`,
+          body: "AI sessions there are paused.",
           collapseKey: "connection_status",
-          excludedDeviceIds,
+          trayKey,
+          excludedDeviceIds: args.pending.excludedDeviceIds,
         };
   }
 }

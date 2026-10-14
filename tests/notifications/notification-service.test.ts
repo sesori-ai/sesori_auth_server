@@ -112,6 +112,24 @@ describe("NotificationService", () => {
     });
   });
 
+  it("flattens bridgeId into FCM data payload", async () => {
+    const tokenRepo = createMockDeviceTokenRepo([{ userId: "user-1", token: "token-a", platform: "ios" }]);
+    const messaging = createMockMessaging([{ success: true }]);
+    const service = new NotificationService(tokenRepo.repo, messaging.messaging, allowAllSettings);
+
+    await service.sendToUser("user-1", {
+      ...payload,
+      data: { category: "session_message", sessionId: "session-123", bridgeId: "br_bridge0001" },
+    });
+
+    const firstMessage = messaging.calls[0]?.[0] as { data?: Record<string, string> };
+    assert.deepEqual(firstMessage.data, {
+      category: "session_message",
+      sessionId: "session-123",
+      bridgeId: "br_bridge0001",
+    });
+  });
+
   it("sets a session-scoped Android tag and iOS apns-collapse-id from the collapse key", async () => {
     const tokenRepo = createMockDeviceTokenRepo([{ userId: "user-1", token: "token-a", platform: "android" }]);
     const messaging = createMockMessaging([{ success: true }]);
@@ -126,6 +144,29 @@ describe("NotificationService", () => {
     assert.equal(firstMessage.android?.notification?.tag, payload.collapseKey);
     assert.equal(firstMessage.android?.notification?.channelId, payload.category);
     assert.equal(firstMessage.apns?.headers?.["apns-collapse-id"], payload.collapseKey);
+  });
+
+  it("keeps the FCM collapse key shared and replaces connection-status pushes per bridge", async () => {
+    const tokenRepo = createMockDeviceTokenRepo([{ userId: "user-1", token: "token-a", platform: "android" }]);
+    const messaging = createMockMessaging([{ success: true }]);
+    const service = new NotificationService(tokenRepo.repo, messaging.messaging, allowAllSettings);
+
+    await service.sendToUser("user-1", {
+      category: NotificationCategory.ConnectionStatus,
+      title: "dev-laptop is online",
+      body: "Your computer has reconnected.",
+      collapseKey: "connection_status",
+      trayKey: "connection_status:br_bridge0001",
+      excludedDeviceIds: new Set<string>(),
+    });
+
+    const firstMessage = messaging.calls[0]?.[0] as {
+      android?: { collapseKey?: string; notification?: { tag?: string } };
+      apns?: { headers?: Record<string, string> };
+    };
+    assert.equal(firstMessage.android?.collapseKey, "connection_status");
+    assert.equal(firstMessage.android?.notification?.tag, "connection_status:br_bridge0001");
+    assert.equal(firstMessage.apns?.headers?.["apns-collapse-id"], "connection_status:br_bridge0001");
   });
 
   it("omits the Android tag and apns-collapse-id when the collapse key is empty", async () => {
