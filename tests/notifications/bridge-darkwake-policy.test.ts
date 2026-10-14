@@ -7,6 +7,7 @@ import type { DeviceTokenRepository } from "../../src/repositories/device-token-
 import { NotificationService, type NotificationPayload } from "../../src/services/notification-service.js";
 
 const bridgeId = "br_bridge0001";
+const bridgeName = "dev-laptop";
 const connectionId = "0123456789abcdef0123456789abcdef";
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
 
@@ -26,6 +27,7 @@ describe("BridgeStateTracker DarkWake policy", () => {
     tracker.handleStatusChangeForBridge({
       userId: "u",
       bridgeId,
+      bridgeName: bridgeName,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Normal,
       connectionId,
@@ -35,6 +37,7 @@ describe("BridgeStateTracker DarkWake policy", () => {
     tracker.handleStatusChangeForBridge({
       userId: "u",
       bridgeId,
+      bridgeName: bridgeName,
       status: BridgeStatus.inactive,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId,
@@ -42,6 +45,7 @@ describe("BridgeStateTracker DarkWake policy", () => {
     tracker.handleStatusChangeForBridge({
       userId: "u",
       bridgeId,
+      bridgeName: bridgeName,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Suppress,
       connectionId: "1123456789abcdef0123456789abcdef",
@@ -49,6 +53,7 @@ describe("BridgeStateTracker DarkWake policy", () => {
     tracker.handleStatusChangeForBridge({
       userId: "u",
       bridgeId,
+      bridgeName: bridgeName,
       status: BridgeStatus.inactive,
       notificationPolicy: BridgeConnectionNotificationPolicy.Suppress,
       connectionId: "1123456789abcdef0123456789abcdef",
@@ -56,7 +61,7 @@ describe("BridgeStateTracker DarkWake policy", () => {
     mock.timers.tick(100);
     await flush();
     assert.equal(calls.length, 2);
-    assert.equal(calls[1].title, "Bridge Offline");
+    assert.equal(calls[1].title, "dev-laptop went offline");
   });
 
   it("keeps a DarkWake-only suppress connection episode quiet", async () => {
@@ -71,6 +76,7 @@ describe("BridgeStateTracker DarkWake policy", () => {
     tracker.handleStatusChangeForBridge({
       userId: "u",
       bridgeId,
+      bridgeName: bridgeName,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Suppress,
       connectionId,
@@ -78,6 +84,7 @@ describe("BridgeStateTracker DarkWake policy", () => {
     tracker.handleStatusChangeForBridge({
       userId: "u",
       bridgeId,
+      bridgeName: bridgeName,
       status: BridgeStatus.inactive,
       notificationPolicy: BridgeConnectionNotificationPolicy.Suppress,
       connectionId,
@@ -107,6 +114,7 @@ describe("BridgeStateTracker DarkWake policy", () => {
     tracker.handleStatusChangeForBridge({
       userId: "u",
       bridgeId,
+      bridgeName: bridgeName,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Normal,
       connectionId,
@@ -147,6 +155,7 @@ describe("BridgeStateTracker DarkWake policy", () => {
       tracker.handleStatusChangeForBridge({
         userId: "u",
         bridgeId,
+        bridgeName: bridgeName,
         status: BridgeStatus.active,
         notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
         connectionId: scenario.initialConnectionId,
@@ -157,6 +166,7 @@ describe("BridgeStateTracker DarkWake policy", () => {
       tracker.handleStatusChangeForBridge({
         userId: "u",
         bridgeId,
+        bridgeName: bridgeName,
         status: BridgeStatus.active,
         notificationPolicy: BridgeConnectionNotificationPolicy.Normal,
         connectionId,
@@ -212,6 +222,7 @@ describe("BridgeStateTracker DarkWake policy", () => {
       tracker.handleStatusChangeForBridge({
         userId: "u",
         bridgeId,
+        bridgeName: bridgeName,
         status: BridgeStatus.active,
         notificationPolicy: BridgeConnectionNotificationPolicy.Normal,
         connectionId,
@@ -242,6 +253,7 @@ describe("BridgeStateTracker DarkWake policy", () => {
     tracker.handleStatusChangeForBridge({
       userId: "u",
       bridgeId,
+      bridgeName: bridgeName,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Suppress,
       connectionId,
@@ -249,6 +261,7 @@ describe("BridgeStateTracker DarkWake policy", () => {
     tracker.handleStatusChangeForBridge({
       userId: "u",
       bridgeId,
+      bridgeName: bridgeName,
       status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Normal,
       connectionId,

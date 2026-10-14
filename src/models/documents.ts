@@ -1,6 +1,6 @@
 import { ObjectId } from "mongodb";
 import { z } from "zod";
-import { bridgeIdSchema, bridgePlatformSchema, bridgeStatusSchema } from "./bridge.js";
+import { bridgeHostKeySchema, bridgeIdSchema, bridgePlatformSchema, bridgeStatusSchema } from "./bridge.js";
 import { devicePlatformSchema } from "./device.js";
 import { FeedbackIssue, FeedbackSource, feedbackPlatformSchema } from "./feedback.js";
 import { deviceIdSchema, storedNotificationSettingsSchema } from "./settings.js";
@@ -123,6 +123,8 @@ export const bridgeSchema = z.object({
   name: z.string().min(1).max(120),
   platform: bridgePlatformSchema,
   status: bridgeStatusSchema,
+  // Absent until a bridge that sends one registers; never stored as null.
+  hostKey: bridgeHostKeySchema.optional(),
   addedAt: z.date(),
   lastSeenAt: z.date().nullable(),
   lastSeenIp: z.string().nullable().optional(),

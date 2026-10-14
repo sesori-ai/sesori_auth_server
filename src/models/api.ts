@@ -2,7 +2,9 @@ import { z } from "zod";
 import {
   BridgeConnectionNotificationPolicy,
   BridgePlatform,
+  BridgeStatus,
   BridgeStatusEvent,
+  bridgeHostKeySchema,
   bridgeIdSchema,
   bridgePlatformSchema,
 } from "./bridge.js";
@@ -264,6 +266,8 @@ export const notificationDataSchema = z.object({
   eventType: z.string().nullable().optional(),
   sessionId: z.string().nullable().optional(),
   projectId: z.string().nullable().optional(),
+  // The computer the session runs on, so tapping the push opens that computer.
+  bridgeId: bridgeIdSchema.nullable().optional(),
 });
 
 export const sendNotificationBodySchema = z.object({
@@ -309,15 +313,18 @@ export type BridgeSummary = {
   addedAt: string;
   lastSeenAt: string | null;
   platform: BridgePlatform;
+  status: BridgeStatus;
 };
 
 // bridgeId is optional: when it identifies a non-revoked bridge owned by the
-// caller the registration is idempotent (updates name/platform, 200);
-// otherwise a new bridge is minted server-side (201).
+// caller the registration is idempotent (updates name/platform, 200).
+// Otherwise a non-null hostKey reuses the caller's non-revoked bridge with the
+// same key (200); failing both, a new bridge is minted server-side (201).
 export const registerBridgeBodySchema = z.object({
   name: z.string().min(1).max(120),
   platform: bridgePlatformSchema,
   bridgeId: bridgeIdSchema.optional(),
+  hostKey: bridgeHostKeySchema.nullable().optional(),
 });
 export type RegisterBridgeBody = z.infer<typeof registerBridgeBodySchema>;
 

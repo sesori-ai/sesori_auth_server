@@ -16,6 +16,7 @@ type SendCall = {
 type TrackerCall = {
   userId: string;
   bridgeId: string;
+  bridgeName: string;
   status: string;
 };
 
@@ -247,6 +248,7 @@ describe("Notification routes", () => {
           eventType: "question_asked",
           sessionId: "abc123",
           projectId: "/Users/alexandrudochioiu/sesori-ai/sesori_apps_monorepo",
+          bridgeId: "br_bridge0001",
         },
       }),
     });
@@ -257,6 +259,36 @@ describe("Notification routes", () => {
     assert.equal(sendCalls[0]?.userId, user.userId);
     assert.ok(hasProjectId(sendCalls[0]?.payload));
     assert.equal(sendCalls[0].payload.data.projectId, "/Users/alexandrudochioiu/sesori-ai/sesori_apps_monorepo");
+    assert.deepEqual(sendCalls[0].payload.data, {
+      category: "ai_interaction",
+      eventType: "question_asked",
+      sessionId: "abc123",
+      projectId: "/Users/alexandrudochioiu/sesori-ai/sesori_apps_monorepo",
+      bridgeId: "br_bridge0001",
+    });
+  });
+
+  it("POST /notifications/send returns 400 with a malformed data.bridgeId", async () => {
+    const user = await ctx.createUser();
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/notifications/send",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({
+        category: "ai_interaction",
+        title: "Need your input",
+        body: "The assistant is waiting for confirmation.",
+        collapseKey: null,
+        data: { category: "ai_interaction", bridgeId: "not-a-bridge" },
+      }),
+    });
+
+    assert.equal(res.statusCode, 400);
+    assert.equal(sendCalls.length, 0);
   });
 
   it("POST /notifications/send returns 400 with invalid category", async () => {
@@ -443,6 +475,7 @@ describe("Notification routes", () => {
     assert.equal(trackerCalls.length, 1);
     assert.equal(trackerCalls[0]?.userId, user.userId);
     assert.equal(trackerCalls[0]?.bridgeId, bridge.id);
+    assert.equal(trackerCalls[0]?.bridgeName, "Mac");
     assert.equal(trackerCalls[0]?.status, "active");
 
     const listRes = await ctx.app.inject({
@@ -450,9 +483,10 @@ describe("Notification routes", () => {
       url: "/auth/bridges",
       headers: { authorization: `Bearer ${user.accessToken}` },
     });
-    const list = listRes.json<{ bridges: { id: string; lastSeenAt: string | null }[] }>();
+    const list = listRes.json<{ bridges: { id: string; lastSeenAt: string | null; status: string }[] }>();
     assert.equal(list.bridges[0]?.id, bridge.id);
     assert.equal(list.bridges[0]?.lastSeenAt, timestamp);
+    assert.equal(list.bridges[0]?.status, "active");
   });
 
   it("POST /internal/bridge-status heartbeats update lastSeenAt without notifying again", async () => {

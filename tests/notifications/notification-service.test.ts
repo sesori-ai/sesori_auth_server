@@ -112,6 +112,24 @@ describe("NotificationService", () => {
     });
   });
 
+  it("flattens bridgeId into FCM data payload", async () => {
+    const tokenRepo = createMockDeviceTokenRepo([{ userId: "user-1", token: "token-a", platform: "ios" }]);
+    const messaging = createMockMessaging([{ success: true }]);
+    const service = new NotificationService(tokenRepo.repo, messaging.messaging, allowAllSettings);
+
+    await service.sendToUser("user-1", {
+      ...payload,
+      data: { category: "session_message", sessionId: "session-123", bridgeId: "br_bridge0001" },
+    });
+
+    const firstMessage = messaging.calls[0]?.[0] as { data?: Record<string, string> };
+    assert.deepEqual(firstMessage.data, {
+      category: "session_message",
+      sessionId: "session-123",
+      bridgeId: "br_bridge0001",
+    });
+  });
+
   it("sets a session-scoped Android tag and iOS apns-collapse-id from the collapse key", async () => {
     const tokenRepo = createMockDeviceTokenRepo([{ userId: "user-1", token: "token-a", platform: "android" }]);
     const messaging = createMockMessaging([{ success: true }]);

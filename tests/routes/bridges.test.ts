@@ -6,6 +6,7 @@ import { ActivationService } from "../../src/services/activation-service.js";
 import { BridgeStateTracker } from "../../src/services/bridge-state-tracker.js";
 import type { NotificationService } from "../../src/services/notification-service.js";
 import { ProjectGlossaryScopeType } from "../../src/models/voice.js";
+import { BridgeRepository } from "../../src/repositories/bridge-repo.js";
 
 const localProjectKey = `prj_v1_${"L".repeat(43)}`;
 const repositoryProjectKey = `prj_v1_${"R".repeat(43)}`;
@@ -16,7 +17,11 @@ type BridgeSummaryBody = {
   addedAt: string;
   lastSeenAt: string | null;
   platform: "macos" | "windows" | "linux";
+  status: "active" | "inactive";
 };
+
+const HOST_KEY = "0123456789abcdef".repeat(4);
+const OTHER_HOST_KEY = "fedcba9876543210".repeat(4);
 
 describe("/auth/bridges routes", () => {
   let ctx: TestContext;
@@ -48,7 +53,10 @@ describe("/auth/bridges routes", () => {
     mock.restoreAll();
   });
 
-  async function registerBridge(accessToken: string, payload: { name: string; platform: string; bridgeId?: string }) {
+  async function registerBridge(
+    accessToken: string,
+    payload: { name: string; platform: string; bridgeId?: string; hostKey?: string | null },
+  ) {
     return ctx.app.inject({
       method: "POST",
       url: "/auth/bridges",
@@ -72,7 +80,7 @@ describe("/auth/bridges routes", () => {
     assert.equal(body.lastSeenAt, null);
     assert.equal(body.platform, "macos");
     assert.ok(typeof body.addedAt === "string");
-    assert.ok(!("status" in body), "status must not leak into the API");
+    assert.equal(body.status, "inactive");
     assert.ok(!("bridgeToken" in body), "bridgeToken must not exist in the API");
     const activationState = await activationStateRepo.findByUserId(user.userId);
     assert.equal(activationState?.bridgeSetupAt?.toISOString(), body.addedAt);
@@ -185,6 +193,104 @@ describe("/auth/bridges routes", () => {
     assert.equal(ownerList.bridges.length, 1);
     assert.equal(ownerList.bridges[0]?.name, "Owner's Bridge");
     assert.equal(ownerList.bridges[0]?.platform, "macos");
+  });
+
+  async function storedHostKey(bridgeId: string): Promise<string | undefined> {
+    return (await new BridgeRepository(ctx.dbAccessor).findById(bridgeId))?.hostKey;
+  }
+
+  it("POST /auth/bridges stores a hostKey on an id match and keeps it when the key is null or absent", async () => {
+    const user = await ctx.createUser();
+    const created = (
+      await registerBridge(user.accessToken, { name: "Mac", platform: "macos" })
+    ).json<BridgeSummaryBody>();
+
+    const keyed = await registerBridge(user.accessToken, {
+      name: "Mac",
+      platform: "macos",
+      bridgeId: created.id,
+      hostKey: HOST_KEY,
+    });
+    assert.equal(keyed.statusCode, 200);
+    assert.equal(await storedHostKey(created.id), HOST_KEY);
+
+    const nullKey = await registerBridge(user.accessToken, {
+      name: "Mac",
+      platform: "macos",
+      bridgeId: created.id,
+      hostKey: null,
+    });
+    const absentKey = await registerBridge(user.accessToken, {
+      name: "Renamed",
+      platform: "macos",
+      bridgeId: created.id,
+    });
+    assert.equal(nullKey.statusCode, 200);
+    assert.equal(absentKey.statusCode, 200);
+    assert.equal(absentKey.json<BridgeSummaryBody>().name, "Renamed");
+    assert.equal(await storedHostKey(created.id), HOST_KEY);
+  });
+
+  it("POST /auth/bridges reuses the bridge with the same hostKey after a reinstall", async () => {
+    const user = await ctx.createUser();
+    const created = (
+      await registerBridge(user.accessToken, { name: "Mac", platform: "macos", hostKey: HOST_KEY })
+    ).json<BridgeSummaryBody>();
+    assert.equal(await storedHostKey(created.id), HOST_KEY);
+
+    const fresh = await registerBridge(user.accessToken, { name: "Mac (new)", platform: "macos", hostKey: HOST_KEY });
+    const unknownId = await registerBridge(user.accessToken, {
+      name: "Mac (newer)",
+      platform: "macos",
+      bridgeId: "br_doesNotExist00",
+      hostKey: HOST_KEY,
+    });
+
+    assert.equal(fresh.statusCode, 200);
+    assert.equal(fresh.json<BridgeSummaryBody>().id, created.id);
+    assert.equal(fresh.json<BridgeSummaryBody>().name, "Mac (new)");
+    assert.equal(unknownId.statusCode, 200);
+    assert.equal(unknownId.json<BridgeSummaryBody>().id, created.id);
+    assert.equal(unknownId.json<BridgeSummaryBody>().addedAt, created.addedAt);
+  });
+
+  it("POST /auth/bridges never matches a null, absent, different, revoked, or foreign hostKey", async () => {
+    const owner = await ctx.createUser();
+    const stranger = await ctx.createUser();
+    const keyed = (
+      await registerBridge(owner.accessToken, { name: "Mac", platform: "macos", hostKey: HOST_KEY })
+    ).json<BridgeSummaryBody>();
+    const unkeyed = (
+      await registerBridge(owner.accessToken, { name: "Box", platform: "linux" })
+    ).json<BridgeSummaryBody>();
+
+    const nullKey = await registerBridge(owner.accessToken, { name: "N", platform: "linux", hostKey: null });
+    const absentKey = await registerBridge(owner.accessToken, { name: "A", platform: "linux" });
+    const otherKey = await registerBridge(owner.accessToken, { name: "O", platform: "linux", hostKey: OTHER_HOST_KEY });
+    const foreign = await registerBridge(stranger.accessToken, { name: "S", platform: "linux", hostKey: HOST_KEY });
+
+    for (const res of [nullKey, absentKey, otherKey, foreign]) {
+      assert.equal(res.statusCode, 201);
+      assert.ok(![keyed.id, unkeyed.id].includes(res.json<BridgeSummaryBody>().id));
+    }
+    assert.equal(await storedHostKey(otherKey.json<BridgeSummaryBody>().id), OTHER_HOST_KEY);
+
+    await ctx.app.inject({
+      method: "DELETE",
+      url: `/auth/bridges/${encodeURIComponent(keyed.id)}`,
+      headers: { authorization: `Bearer ${owner.accessToken}` },
+    });
+    const afterRevoke = await registerBridge(owner.accessToken, { name: "Mac", platform: "macos", hostKey: HOST_KEY });
+    assert.equal(afterRevoke.statusCode, 201);
+    assert.notEqual(afterRevoke.json<BridgeSummaryBody>().id, keyed.id);
+  });
+
+  it("POST /auth/bridges returns 400 on a malformed hostKey", async () => {
+    const user = await ctx.createUser();
+    for (const hostKey of [HOST_KEY.toUpperCase(), HOST_KEY.slice(1), ""]) {
+      const res = await registerBridge(user.accessToken, { name: "X", platform: "macos", hostKey });
+      assert.equal(res.statusCode, 400);
+    }
   });
 
   it("POST /auth/bridges returns 400 on malformed bridgeId", async () => {
@@ -398,7 +504,11 @@ describe("/auth/bridges routes", () => {
     const user = await ctx.createUser();
 
     for (let i = 0; i < 50; i++) {
-      const res = await registerBridge(user.accessToken, { name: `Bridge ${i}`, platform: "linux" });
+      const res = await registerBridge(user.accessToken, {
+        name: `Bridge ${i}`,
+        platform: "linux",
+        hostKey: i === 0 ? HOST_KEY : null,
+      });
       assert.equal(res.statusCode, 201);
     }
 
@@ -418,6 +528,14 @@ describe("/auth/bridges routes", () => {
       bridgeId: existing.id,
     });
     assert.equal(update.statusCode, 200);
+
+    // A reinstall matched by hostKey also reuses its entry at the cap.
+    const reinstall = await registerBridge(user.accessToken, {
+      name: "Reinstalled",
+      platform: "linux",
+      hostKey: HOST_KEY,
+    });
+    assert.equal(reinstall.statusCode, 200);
   });
 
   it("POST /auth/bridges admits remaining capacity under concurrent registration bursts", async () => {

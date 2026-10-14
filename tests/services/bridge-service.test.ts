@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { BridgeConnectionNotificationPolicy, BridgeStatus } from "../../src/models/bridge.js";
 import type { BridgeRepository } from "../../src/repositories/bridge-repo.js";
 import type { GlossaryEntryRepository } from "../../src/repositories/glossary-entry-repo.js";
 import { BridgeService } from "../../src/services/bridge-service.js";
@@ -104,5 +105,42 @@ describe("BridgeService connection observation", () => {
 
     assert.deepEqual(result, { found: true });
     assert.deepEqual(events, ["validate", "observe"]);
+  });
+});
+
+describe("BridgeService status reports", () => {
+  it("passes the bridge name to the tracker for a status change", async () => {
+    const tracked: unknown[] = [];
+    const service = createService({
+      bridgeRepo: {
+        recordStatusChange: async () => ({ found: true, updated: true, statusChanged: true, name: "dev-laptop" }),
+      },
+      glossaryRepo: {},
+      bridgeStateTracker: {
+        handleStatusChangeForBridge: (args: unknown) => tracked.push(args),
+      },
+    });
+
+    const result = await service.recordStatusReport({
+      userId: "user",
+      bridgeId: "br_bridge0001",
+      status: BridgeStatus.inactive,
+      at: new Date("2026-10-14T10:00:00Z"),
+      notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+      connectionId: null,
+      policyOnly: false,
+    });
+
+    assert.deepEqual(result, { found: true });
+    assert.deepEqual(tracked, [
+      {
+        userId: "user",
+        bridgeId: "br_bridge0001",
+        status: BridgeStatus.inactive,
+        notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+        connectionId: null,
+        bridgeName: "dev-laptop",
+      },
+    ]);
   });
 });
