@@ -110,6 +110,24 @@ describe("fresh glossary index normalization", () => {
   });
 });
 
+describe("optional email address suppression indexes", () => {
+  it("enforces one tombstone per key version and digest", async () => {
+    const ctx = await createTestApp();
+    try {
+      const indexes = await ctx.dbAccessor
+        .getDb(MongoDbDatabase.Auth)
+        .collection(AuthDbCollection.OptionalEmailAddressSuppressions)
+        .indexes();
+      const target = indexes.find((index) => indexKeyMatches(index.key, { addressKeyVersion: 1, addressKey: 1 }));
+
+      assert.ok(target);
+      assert.equal(target.unique, true);
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+});
+
 describe("indexMatchesDesired", () => {
   it("returns true when key and unique option match", () => {
     const existing = { key: { email: 1 }, unique: true, name: "email_1", v: 2 };

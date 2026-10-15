@@ -4,6 +4,7 @@ import { clientIpSourceSchema, ClientIpSource, trustedIngressCidrsSchema } from 
 import { productAnalyticsPseudonymizationKeySchema } from "./types/product-analytics.js";
 import { isValidResendWebhookSigningSecret } from "./services/resend-webhook-verifier.js";
 import { OPTIONAL_EMAIL_MAX_DAILY_CAP, OptionalEmailRecipientBasis } from "./types/optional-email.js";
+import { OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_MIN_BYTES } from "./lib/optional-email-address-key.js";
 
 const appleConfigSchema = z.object({
   APPLE_CLIENT_ID: z.string().min(1, "APPLE_CLIENT_ID is required"),
@@ -99,26 +100,39 @@ const baseConfigSchema = z.object({
       "OPTIONAL_EMAIL_UNSUBSCRIBE_SIGNING_SECRET must be at least 32 bytes",
     )
     .optional(),
+  OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_V1: z
+    .string()
+    .refine(
+      (value) => Buffer.byteLength(value, "utf8") >= OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_MIN_BYTES,
+      "OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_V1 must be at least 32 bytes",
+    )
+    .optional(),
   OPENAI_API_KEY: z.string().min(1, "OPENAI_API_KEY is required"),
   OPENAI_TRANSCRIPTION_MODEL: z.string().min(1).default("gpt-4o-mini-transcribe"),
   OPENAI_METADATA_MODEL: z.string().min(1).default("gpt-5-nano"),
   FCM_SA_JSON: z
     .string()
     .min(1, "FCM_SA_JSON is required")
-    .transform((val) => JSON.parse(Buffer.from(val, "base64").toString("utf-8")))
+    .transform((encoded) => ({
+      encoded,
+      serviceAccount: JSON.parse(Buffer.from(encoded, "base64").toString("utf-8")),
+    }))
     .pipe(
       z.object({
-        type: z.literal("service_account"),
-        project_id: z.string().min(1),
-        private_key_id: z.string().min(1),
-        private_key: z.string().startsWith("-----BEGIN"),
-        client_email: z.string().email(),
-        client_id: z.string().min(1),
-        auth_uri: z.string().url(),
-        token_uri: z.string().url(),
-        auth_provider_x509_cert_url: z.string().url(),
-        client_x509_cert_url: z.string().url(),
-        universe_domain: z.string().min(1),
+        encoded: z.string(),
+        serviceAccount: z.object({
+          type: z.literal("service_account"),
+          project_id: z.string().min(1),
+          private_key_id: z.string().min(1),
+          private_key: z.string().startsWith("-----BEGIN"),
+          client_email: z.string().email(),
+          client_id: z.string().min(1),
+          auth_uri: z.string().url(),
+          token_uri: z.string().url(),
+          auth_provider_x509_cert_url: z.string().url(),
+          client_x509_cert_url: z.string().url(),
+          universe_domain: z.string().min(1),
+        }),
       }),
     ),
 
@@ -197,6 +211,43 @@ const validatedConfigSchema = baseConfigSchema.superRefine((config, ctx) => {
     });
   }
 
+  const optionalEmailAddressKeySecret = config.OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_V1;
+  const optionalEmailAddressKeySecretBytes =
+    optionalEmailAddressKeySecret === undefined ? undefined : Buffer.from(optionalEmailAddressKeySecret, "utf8");
+  const otherPurposeSecrets: readonly (string | undefined)[] = [
+    config.MONGODB_URI,
+    config.APPLE_PRIVATE_KEY,
+    config.JWT_PRIVATE_KEY,
+    config.JWT_PUBLIC_KEY,
+    config.GITHUB_CLIENT_SECRET,
+    config.GOOGLE_CLIENT_SECRET,
+    config.RELAY_WEBHOOK_SECRET,
+    config.OPENAI_API_KEY,
+    config.SONIOX_API_KEY,
+    config.FCM_SA_JSON.serviceAccount.private_key,
+    config.FCM_SA_JSON.encoded,
+    config.OPTIONAL_EMAIL_UNSUBSCRIBE_SIGNING_SECRET,
+    config.RESEND_WEBHOOK_SECRET,
+  ];
+  if (
+    optionalEmailAddressKeySecret !== undefined &&
+    optionalEmailAddressKeySecretBytes !== undefined &&
+    (otherPurposeSecrets.includes(optionalEmailAddressKeySecret) ||
+      (config.RESEND_WEBHOOK_SECRET !== undefined &&
+        isValidResendWebhookSigningSecret(config.RESEND_WEBHOOK_SECRET) &&
+        optionalEmailAddressKeySecretBytes.equals(
+          Buffer.from(config.RESEND_WEBHOOK_SECRET.slice("whsec_".length), "base64"),
+        )) ||
+      optionalEmailAddressKeySecretBytes.equals(config.PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY) ||
+      optionalEmailAddressKeySecret === config.PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY.toString("base64"))
+  ) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_V1"],
+      message: "OPTIONAL_EMAIL_ADDRESS_KEY_SECRET_V1 must be purpose-specific and independent",
+    });
+  }
+
   if (
     config.OPTIONAL_EMAIL_SENDING_ENABLED &&
     config.OPTIONAL_EMAIL_RECIPIENT_BASIS !== OptionalEmailRecipientBasis.AccountActivityApproved
@@ -209,10 +260,14 @@ const validatedConfigSchema = baseConfigSchema.superRefine((config, ctx) => {
   }
 });
 
-export const configSchema = validatedConfigSchema.transform((config) => ({
-  ...config,
-  REALTIME_TRANSCRIPTION_ENABLED: config.REALTIME_TRANSCRIPTION_ENABLED ?? config.SONIOX_API_KEY !== undefined,
-}));
+export const configSchema = validatedConfigSchema.transform((config) => {
+  const { FCM_SA_JSON: fcmServiceAccount, ...publicConfig } = config;
+  return {
+    ...publicConfig,
+    FCM_SA_JSON: fcmServiceAccount.serviceAccount,
+    REALTIME_TRANSCRIPTION_ENABLED: config.REALTIME_TRANSCRIPTION_ENABLED ?? config.SONIOX_API_KEY !== undefined,
+  };
+});
 
 export type Config = z.infer<typeof configSchema>;
 
