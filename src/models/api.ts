@@ -309,7 +309,9 @@ export type BridgeStatusBody = z.infer<typeof bridgeStatusBodySchema>;
 
 export type BridgeSummary = {
   id: string;
+  /** The nickname when one is set, otherwise the registered hostname. */
   name: string;
+  hostname: string;
   addedAt: string;
   lastSeenAt: string | null;
   platform: BridgePlatform;
@@ -331,6 +333,16 @@ export type RegisterBridgeBody = z.infer<typeof registerBridgeBodySchema>;
 export type BridgesListReply = {
   bridges: BridgeSummary[];
 };
+
+// A null or blank nickname clears it, so the bridge shows its hostname again.
+export const renameBridgeBodySchema = z.object({
+  nickname: z
+    .string()
+    .trim()
+    .max(120)
+    .nullable()
+    .transform((nickname) => nickname || null),
+});
 
 export const bridgeIdPathParamSchema = bridgeIdSchema;
 export type BridgeIdPathParam = z.infer<typeof bridgeIdPathParamSchema>;

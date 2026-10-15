@@ -2,6 +2,7 @@ import { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { BadRequestError, NotFoundError, UnauthenticatedError } from "../lib/errors.js";
 import {
   registerBridgeBodySchema,
+  renameBridgeBodySchema,
   bridgeIdPathParamSchema,
   type BridgeSummary,
   type BridgesListReply,
@@ -53,6 +54,29 @@ export const bridgeRoutes: FastifyPluginAsync<BridgeRouteOptions> = async (fasti
     const bridges = await bridgeService.listForUser(userId);
     return { bridges };
   });
+
+  fastify.patch<{ Params: { bridgeId: string }; Body: unknown; Reply: BridgeSummary }>(
+    "/auth/bridges/:bridgeId",
+    { preHandler: requireAuth },
+    async (request) => {
+      const paramResult = bridgeIdPathParamSchema.safeParse(request.params.bridgeId);
+      if (!paramResult.success) {
+        throw new BadRequestError({ debugMessage: "Invalid bridgeId", nestedError: paramResult.error.issues });
+      }
+
+      const bodyResult = renameBridgeBodySchema.safeParse(request.body);
+      if (!bodyResult.success) {
+        throw new BadRequestError({ debugMessage: "Invalid request body", nestedError: bodyResult.error.issues });
+      }
+
+      const userId = getUserId(request);
+      return bridgeService.renameForUser({
+        userId,
+        bridgeId: paramResult.data,
+        nickname: bodyResult.data.nickname,
+      });
+    },
+  );
 
   fastify.delete<{ Params: { bridgeId: string }; Reply: { ok: true } }>(
     "/auth/bridges/:bridgeId",

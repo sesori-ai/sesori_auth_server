@@ -121,6 +121,9 @@ export const bridgeSchema = z.object({
   bridgeId: bridgeIdSchema,
   userId: z.instanceof(ObjectId),
   name: z.string().min(1).max(120),
+  // User-chosen display name, stored trimmed. Absent until the user renames
+  // the bridge and removed when they clear it; registration never touches it.
+  nickname: z.string().trim().min(1).max(120).optional(),
   platform: bridgePlatformSchema,
   status: bridgeStatusSchema,
   // Absent until a bridge that sends one registers; never stored as null.

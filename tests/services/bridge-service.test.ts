@@ -109,11 +109,17 @@ describe("BridgeService connection observation", () => {
 });
 
 describe("BridgeService status reports", () => {
-  it("passes the bridge name to the tracker for a status change", async () => {
+  it("passes the nickname as the bridge name to the tracker for a status change", async () => {
     const tracked: unknown[] = [];
     const service = createService({
       bridgeRepo: {
-        recordStatusChange: async () => ({ found: true, updated: true, statusChanged: true, name: "dev-laptop" }),
+        recordStatusChange: async () => ({
+          found: true,
+          updated: true,
+          statusChanged: true,
+          name: "dev-laptop",
+          nickname: "Work Mac",
+        }),
       },
       glossaryRepo: {},
       bridgeStateTracker: {
@@ -139,7 +145,7 @@ describe("BridgeService status reports", () => {
         status: BridgeStatus.inactive,
         notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
         connectionId: null,
-        bridgeName: "dev-laptop",
+        bridgeName: "Work Mac",
       },
     ]);
   });
