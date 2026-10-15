@@ -1,4 +1,4 @@
-import { BadRequestError } from "../lib/errors.js";
+import { BadRequestError, NotFoundError } from "../lib/errors.js";
 import type { Bridge as BridgeDoc } from "../models/documents.js";
 import type { BridgePlatform, BridgeSummary } from "../models/api.js";
 import { BridgeConnectionNotificationPolicy, BridgeStatus } from "../models/bridge.js";
@@ -11,10 +11,17 @@ import type { BridgeStateTracker } from "./bridge-state-tracker.js";
 // the cap exists so /auth/me's bridges[] payload cannot grow unboundedly.
 const MAX_ACTIVE_BRIDGES_PER_USER = 50;
 
+// The single naming rule: a user-chosen nickname wins over the hostname the
+// bridge registered with.
+function displayName(bridge: { name: string; nickname?: string | null }): string {
+  return bridge.nickname ?? bridge.name;
+}
+
 function toSummary(bridge: BridgeDoc): BridgeSummary {
   return {
     id: bridge.bridgeId,
-    name: bridge.name,
+    name: displayName(bridge),
+    hostname: bridge.name,
     addedAt: bridge.addedAt.toISOString(),
     lastSeenAt: bridge.lastSeenAt ? bridge.lastSeenAt.toISOString() : null,
     platform: bridge.platform,
@@ -104,6 +111,14 @@ export class BridgeService {
     return bridges.map(toSummary);
   }
 
+  async renameForUser(args: { userId: string; bridgeId: string; nickname: string | null }): Promise<BridgeSummary> {
+    const bridge = await this.#bridgeRepo.setNicknameForUser(args);
+    if (!bridge) {
+      throw new NotFoundError({ debugMessage: "Bridge not found or revoked" });
+    }
+    return toSummary(bridge);
+  }
+
   async revokeForUser(userId: string, bridgeId: string): Promise<boolean> {
     const revoked = await this.#bridgeRepo.revoke(bridgeId, userId, new Date());
     if (revoked) {
@@ -161,7 +176,7 @@ export class BridgeService {
         status: args.status,
         notificationPolicy: args.notificationPolicy,
         connectionId: args.connectionId,
-        bridgeName: result.name,
+        bridgeName: displayName(result),
       });
     }
     return { found: true };

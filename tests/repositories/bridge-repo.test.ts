@@ -234,7 +234,13 @@ describe("BridgeRepository", () => {
 
     const updatedResult = await repo.recordStatusChange(bridge.bridgeId, user.userId, "active", at);
     const updated = await repo.findById(bridge.bridgeId);
-    assert.deepEqual(updatedResult, { found: true, updated: true, statusChanged: true, name: "Bridge" });
+    assert.deepEqual(updatedResult, {
+      found: true,
+      updated: true,
+      statusChanged: true,
+      name: "Bridge",
+      nickname: null,
+    });
     assert.equal(updated?.status, "active");
     assert.equal(updated?.lastSeenAt?.toISOString(), at.toISOString());
   });
@@ -249,7 +255,13 @@ describe("BridgeRepository", () => {
     const heartbeatResult = await repo.recordStatusChange(bridge.bridgeId, user.userId, "active", heartbeatAt);
     const updated = await repo.findById(bridge.bridgeId);
 
-    assert.deepEqual(heartbeatResult, { found: true, updated: true, statusChanged: false, name: "Bridge" });
+    assert.deepEqual(heartbeatResult, {
+      found: true,
+      updated: true,
+      statusChanged: false,
+      name: "Bridge",
+      nickname: null,
+    });
     assert.equal(updated?.status, "active");
     assert.equal(updated?.lastSeenAt?.toISOString(), heartbeatAt.toISOString());
   });
@@ -265,7 +277,13 @@ describe("BridgeRepository", () => {
     const staleResult = await repo.recordStatusChange(bridge.bridgeId, user.userId, "inactive", staleAt);
     const updated = await repo.findById(bridge.bridgeId);
 
-    assert.deepEqual(staleResult, { found: true, updated: false, statusChanged: false, name: "Bridge" });
+    assert.deepEqual(staleResult, {
+      found: true,
+      updated: false,
+      statusChanged: false,
+      name: "Bridge",
+      nickname: null,
+    });
     assert.equal(updated?.status, "active");
     assert.equal(updated?.lastSeenAt?.toISOString(), firstAt.toISOString());
   });
@@ -280,7 +298,7 @@ describe("BridgeRepository", () => {
     const flipResult = await repo.recordStatusChange(bridge.bridgeId, user.userId, "inactive", at);
     const updated = await repo.findById(bridge.bridgeId);
 
-    assert.deepEqual(flipResult, { found: true, updated: true, statusChanged: true, name: "Bridge" });
+    assert.deepEqual(flipResult, { found: true, updated: true, statusChanged: true, name: "Bridge", nickname: null });
     assert.equal(updated?.status, "inactive");
     assert.equal(updated?.lastSeenAt?.toISOString(), at.toISOString());
   });
@@ -295,7 +313,13 @@ describe("BridgeRepository", () => {
     const duplicateResult = await repo.recordStatusChange(bridge.bridgeId, user.userId, "active", at);
     const updated = await repo.findById(bridge.bridgeId);
 
-    assert.deepEqual(duplicateResult, { found: true, updated: true, statusChanged: false, name: "Bridge" });
+    assert.deepEqual(duplicateResult, {
+      found: true,
+      updated: true,
+      statusChanged: false,
+      name: "Bridge",
+      nickname: null,
+    });
     assert.equal(updated?.status, "active");
     assert.equal(updated?.lastSeenAt?.toISOString(), at.toISOString());
   });
@@ -318,6 +342,46 @@ describe("BridgeRepository", () => {
     const afterRevoked = await repo.findById(bridge.bridgeId);
     assert.deepEqual(revokedResult, { found: false });
     assert.equal(afterRevoked?.status, "inactive");
+  });
+
+  it("setNicknameForUser sets and unsets the nickname, which registration updates keep", async () => {
+    const user = await ctx.createUser();
+    const repo = new BridgeRepository(ctx.dbAccessor);
+    const bridge = await repo.register({ userId: user.userId, name: "dev-laptop", platform: "macos", hostKey: null });
+
+    const named = await repo.setNicknameForUser({ bridgeId: bridge.bridgeId, userId: user.userId, nickname: "Work" });
+    assert.equal(named?.nickname, "Work");
+    assert.equal(named?.name, "dev-laptop");
+
+    await repo.updateForUser(bridge.bridgeId, user.userId, { name: "dev-laptop-2", platform: "macos", hostKey: null });
+    const status = await repo.recordStatusChange(bridge.bridgeId, user.userId, "active", new Date());
+    assert.deepEqual(status, {
+      found: true,
+      updated: true,
+      statusChanged: true,
+      name: "dev-laptop-2",
+      nickname: "Work",
+    });
+
+    const cleared = await repo.setNicknameForUser({ bridgeId: bridge.bridgeId, userId: user.userId, nickname: null });
+    assert.ok(cleared && !("nickname" in cleared));
+  });
+
+  it("setNicknameForUser returns null for foreign, invalid-owner, or revoked bridges", async () => {
+    const owner = await ctx.createUser();
+    const stranger = await ctx.createUser();
+    const repo = new BridgeRepository(ctx.dbAccessor);
+    const bridge = await repo.register({ userId: owner.userId, name: "Bridge", platform: "macos", hostKey: null });
+
+    for (const userId of [stranger.userId, "not-an-object-id"]) {
+      assert.equal(await repo.setNicknameForUser({ bridgeId: bridge.bridgeId, userId, nickname: "X" }), null);
+    }
+    await repo.revoke(bridge.bridgeId, owner.userId, new Date());
+    assert.equal(
+      await repo.setNicknameForUser({ bridgeId: bridge.bridgeId, userId: owner.userId, nickname: "X" }),
+      null,
+    );
+    assert.ok(!("nickname" in ((await repo.findById(bridge.bridgeId)) ?? {})));
   });
 
   it("revoke returns true on first call, false on second (already revoked)", async () => {

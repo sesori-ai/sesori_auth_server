@@ -14,6 +14,7 @@ const repositoryProjectKey = `prj_v1_${"R".repeat(43)}`;
 type BridgeSummaryBody = {
   id: string;
   name: string;
+  hostname: string;
   addedAt: string;
   lastSeenAt: string | null;
   platform: "macos" | "windows" | "linux";
@@ -77,6 +78,7 @@ describe("/auth/bridges routes", () => {
     const body = res.json<BridgeSummaryBody>();
     assert.match(body.id, /^br_[A-Za-z0-9_-]{8,32}$/);
     assert.equal(body.name, "Alex's MacBook Pro");
+    assert.equal(body.hostname, "Alex's MacBook Pro");
     assert.equal(body.lastSeenAt, null);
     assert.equal(body.platform, "macos");
     assert.ok(typeof body.addedAt === "string");
@@ -476,6 +478,119 @@ describe("/auth/bridges routes", () => {
       headers: { authorization: `Bearer ${user.accessToken}` },
     });
     assert.deepEqual(localListAfterStaleWrite.json(), { words: [] });
+  });
+
+  async function renameBridge(accessToken: string, bridgeId: string, payload: unknown) {
+    return ctx.app.inject({
+      method: "PATCH",
+      url: `/auth/bridges/${encodeURIComponent(bridgeId)}`,
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify(payload),
+    });
+  }
+
+  async function listedBridges(accessToken: string, url: "/auth/bridges" | "/auth/me") {
+    const res = await ctx.app.inject({ method: "GET", url, headers: { authorization: `Bearer ${accessToken}` } });
+    return res.json<{ bridges: BridgeSummaryBody[] }>().bridges;
+  }
+
+  it("PATCH /auth/bridges/:bridgeId sets a trimmed nickname and clears it with null or blank", async () => {
+    const user = await ctx.createUser();
+    const created = (
+      await registerBridge(user.accessToken, { name: "dev-laptop", platform: "macos" })
+    ).json<BridgeSummaryBody>();
+
+    const renamed = await renameBridge(user.accessToken, created.id, { nickname: "  Work Mac  " });
+    assert.equal(renamed.statusCode, 200);
+    assert.equal(renamed.json<BridgeSummaryBody>().name, "Work Mac");
+    assert.equal(renamed.json<BridgeSummaryBody>().hostname, "dev-laptop");
+    for (const url of ["/auth/bridges", "/auth/me"] as const) {
+      const [listed] = await listedBridges(user.accessToken, url);
+      assert.equal(listed?.name, "Work Mac");
+      assert.equal(listed?.hostname, "dev-laptop");
+    }
+
+    const clearedWithNull = await renameBridge(user.accessToken, created.id, { nickname: null });
+    assert.equal(clearedWithNull.statusCode, 200);
+    assert.equal(clearedWithNull.json<BridgeSummaryBody>().name, "dev-laptop");
+
+    await renameBridge(user.accessToken, created.id, { nickname: "Work Mac" });
+    const clearedWithBlank = await renameBridge(user.accessToken, created.id, { nickname: "   " });
+    assert.equal(clearedWithBlank.statusCode, 200);
+    assert.equal(clearedWithBlank.json<BridgeSummaryBody>().name, "dev-laptop");
+    const stored = await new BridgeRepository(ctx.dbAccessor).findById(created.id);
+    assert.ok(stored && !("nickname" in stored));
+  });
+
+  it("POST /auth/bridges re-registration keeps the nickname and reports the new hostname", async () => {
+    const user = await ctx.createUser();
+    const created = (
+      await registerBridge(user.accessToken, { name: "dev-laptop", platform: "macos", hostKey: HOST_KEY })
+    ).json<BridgeSummaryBody>();
+    await renameBridge(user.accessToken, created.id, { nickname: "Work Mac" });
+
+    const byId = await registerBridge(user.accessToken, {
+      name: "dev-laptop-2",
+      platform: "macos",
+      bridgeId: created.id,
+    });
+    const byHostKey = await registerBridge(user.accessToken, {
+      name: "dev-laptop-3",
+      platform: "macos",
+      hostKey: HOST_KEY,
+    });
+
+    assert.equal(byId.statusCode, 200);
+    assert.equal(byId.json<BridgeSummaryBody>().name, "Work Mac");
+    assert.equal(byId.json<BridgeSummaryBody>().hostname, "dev-laptop-2");
+    assert.equal(byHostKey.statusCode, 200);
+    assert.equal(byHostKey.json<BridgeSummaryBody>().name, "Work Mac");
+    assert.equal(byHostKey.json<BridgeSummaryBody>().hostname, "dev-laptop-3");
+  });
+
+  it("PATCH /auth/bridges/:bridgeId returns 404 for a foreign or revoked bridge", async () => {
+    const owner = await ctx.createUser();
+    const stranger = await ctx.createUser();
+    const created = (
+      await registerBridge(owner.accessToken, { name: "dev-laptop", platform: "macos" })
+    ).json<BridgeSummaryBody>();
+
+    const foreign = await renameBridge(stranger.accessToken, created.id, { nickname: "Mine now" });
+    assert.equal(foreign.statusCode, 404);
+
+    await ctx.app.inject({
+      method: "DELETE",
+      url: `/auth/bridges/${encodeURIComponent(created.id)}`,
+      headers: { authorization: `Bearer ${owner.accessToken}` },
+    });
+    const revoked = await renameBridge(owner.accessToken, created.id, { nickname: "Work Mac" });
+    assert.equal(revoked.statusCode, 404);
+    assert.ok(!("nickname" in ((await new BridgeRepository(ctx.dbAccessor).findById(created.id)) ?? {})));
+  });
+
+  it("PATCH /auth/bridges/:bridgeId returns 400 for an invalid body or bridgeId and 401 without auth", async () => {
+    const user = await ctx.createUser();
+    const created = (
+      await registerBridge(user.accessToken, { name: "dev-laptop", platform: "macos" })
+    ).json<BridgeSummaryBody>();
+
+    for (const payload of [{}, { nickname: 42 }, { nickname: "x".repeat(121) }]) {
+      const res = await renameBridge(user.accessToken, created.id, payload);
+      assert.equal(res.statusCode, 400);
+    }
+    const badId = await renameBridge(user.accessToken, "not-a-bridge-id", { nickname: "Work Mac" });
+    assert.equal(badId.statusCode, 400);
+
+    const unauthenticated = await ctx.app.inject({
+      method: "PATCH",
+      url: `/auth/bridges/${encodeURIComponent(created.id)}`,
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify({ nickname: "Work Mac" }),
+    });
+    assert.equal(unauthenticated.statusCode, 401);
   });
 
   it("DELETE /auth/bridges/:bridgeId returns 404 for non-owner", async () => {

@@ -28,6 +28,7 @@ export type RecordBridgeStatusResult =
       updated: boolean;
       statusChanged: boolean;
       name: string;
+      nickname: string | null;
     };
 
 export class BridgeRepository {
@@ -213,7 +214,33 @@ export class BridgeRepository {
       updated: applied,
       statusChanged: applied && before.status !== status,
       name: before.name,
+      nickname: before.nickname ?? null,
     };
+  }
+
+  // Sets the nickname, or removes the field when null. Returns null when the
+  // bridge is unknown, revoked, or owned by another user.
+  async setNicknameForUser(args: {
+    bridgeId: string;
+    userId: string;
+    nickname: string | null;
+  }): Promise<Bridge | null> {
+    if (!ObjectId.isValid(args.userId)) {
+      return null;
+    }
+
+    const now = new Date();
+    return this.#collection.findOneAndUpdate(
+      {
+        bridgeId: args.bridgeId,
+        userId: new ObjectId(args.userId),
+        revokedAt: null,
+      },
+      args.nickname
+        ? { $set: { nickname: args.nickname, updatedAt: now } }
+        : { $set: { updatedAt: now }, $unset: { nickname: "" } },
+      { returnDocument: "after" },
+    );
   }
 
   async revoke(bridgeId: string, userId: string, at: Date): Promise<boolean> {
