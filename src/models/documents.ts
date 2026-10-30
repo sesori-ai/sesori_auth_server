@@ -138,6 +138,8 @@ export const bridgeSchema = z.object({
   // one registers; analytics reads the absence as "not reported yet".
   kind: bridgeKindSchema.optional(),
   // First session metadata requested through this bridge. Absent until then.
+  // Not backfilled: a bridge that predates this field gets its first session
+  // after the rollout here, which may not be the computer's real first session.
   // Per-computer counterpart of the account-wide activationStates.firstSessionAt.
   firstSessionAt: z.date().optional(),
   addedAt: z.date(),
