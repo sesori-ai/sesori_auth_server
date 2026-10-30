@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { Collection, ObjectId, type Filter } from "mongodb";
 import type { Bridge } from "../models/documents.js";
-import { BridgeStatus, type BridgePlatform } from "../models/bridge.js";
+import { BridgeStatus, type BridgeKind, type BridgePlatform } from "../models/bridge.js";
 import { MongoDbDatabase, AuthDbCollection } from "../types/mongo.js";
 import type { MongoDbAccessor } from "../db/mongo-db-accessor.js";
 
@@ -10,6 +10,7 @@ export type RegisterBridgeInput = {
   name: string;
   platform: BridgePlatform;
   hostKey: string | null;
+  kind?: BridgeKind;
 };
 
 export type BridgeRegistrationUpdate = {
@@ -17,6 +18,8 @@ export type BridgeRegistrationUpdate = {
   platform: BridgePlatform;
   /** Stored only when non-null; null leaves any stored key unchanged. */
   hostKey: string | null;
+  /** Stored only when present; older bridges leave any stored kind unchanged. */
+  kind?: BridgeKind;
 };
 
 // found=false when the bridge is unknown, revoked, or owned by another user.
@@ -107,6 +110,7 @@ export class BridgeRepository {
       platform: input.platform,
       status: BridgeStatus.inactive,
       ...(input.hostKey ? { hostKey: input.hostKey } : {}),
+      ...(input.kind ? { kind: input.kind } : {}),
       addedAt: now,
       lastSeenAt: null,
       lastSeenIp: null,
@@ -160,11 +164,25 @@ export class BridgeRepository {
           name: args.update.name,
           platform: args.update.platform,
           ...(args.update.hostKey ? { hostKey: args.update.hostKey } : {}),
+          ...(args.update.kind ? { kind: args.update.kind } : {}),
           updatedAt: new Date(),
         },
       },
       // Only a shared hostKey can match several bridges; bridgeId is unique.
       { returnDocument: "after", sort: { lastSeenAt: -1, addedAt: -1 } },
+    );
+  }
+
+  // First write wins, and only the owner's bridge can match. Revoked bridges
+  // still match: the session really did start there.
+  async recordFirstSession(args: { bridgeId: string; userId: string; at: Date }): Promise<void> {
+    if (!ObjectId.isValid(args.userId)) {
+      return;
+    }
+
+    await this.#collection.updateOne(
+      { bridgeId: args.bridgeId, userId: new ObjectId(args.userId), firstSessionAt: { $exists: false } },
+      { $set: { firstSessionAt: args.at, updatedAt: args.at } },
     );
   }
 

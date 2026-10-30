@@ -5,6 +5,7 @@ import {
   BridgeStatus,
   BridgeStatusEvent,
   bridgeHostKeySchema,
+  bridgeKindSchema,
   bridgeIdSchema,
   bridgePlatformSchema,
 } from "./bridge.js";
@@ -327,6 +328,7 @@ export const registerBridgeBodySchema = z.object({
   platform: bridgePlatformSchema,
   bridgeId: bridgeIdSchema.optional(),
   hostKey: bridgeHostKeySchema.nullable().optional(),
+  kind: bridgeKindSchema.optional(),
 });
 export type RegisterBridgeBody = z.infer<typeof registerBridgeBodySchema>;
 
@@ -349,6 +351,8 @@ export type BridgeIdPathParam = z.infer<typeof bridgeIdPathParamSchema>;
 
 export const generateMetadataBodySchema = z.object({
   firstMessage: z.string().min(1).max(500),
+  // Attributes the first session to a computer. Absent from older bridges.
+  bridgeId: bridgeIdSchema.optional(),
 });
 export type GenerateMetadataBody = z.infer<typeof generateMetadataBodySchema>;
 

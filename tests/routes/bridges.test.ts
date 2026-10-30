@@ -56,7 +56,7 @@ describe("/auth/bridges routes", () => {
 
   async function registerBridge(
     accessToken: string,
-    payload: { name: string; platform: string; bridgeId?: string; hostKey?: string | null },
+    payload: { name: string; platform: string; bridgeId?: string; hostKey?: string | null; kind?: string },
   ) {
     return ctx.app.inject({
       method: "POST",
@@ -101,6 +101,19 @@ describe("/auth/bridges routes", () => {
     assert.equal(res.statusCode, 201);
     assert.equal(recordMock.mock.callCount(), 1);
     assert.equal(warnMock.mock.callCount(), 1);
+  });
+
+  it("POST /auth/bridges stores the reported kind, keeps it private, and rejects unknown kinds", async () => {
+    const user = await ctx.createUser();
+
+    const res = await registerBridge(user.accessToken, { name: "Desk", platform: "linux", kind: "desktop" });
+    assert.equal(res.statusCode, 201);
+    const created = res.json<BridgeSummaryBody>();
+    assert.ok(!("kind" in created));
+    assert.equal((await new BridgeRepository(ctx.dbAccessor).findById(created.id))?.kind, "desktop");
+
+    const rejected = await registerBridge(user.accessToken, { name: "Desk", platform: "linux", kind: "tablet" });
+    assert.equal(rejected.statusCode, 400);
   });
 
   it("POST /auth/bridges with an owned bridgeId updates it in place and returns 200", async () => {

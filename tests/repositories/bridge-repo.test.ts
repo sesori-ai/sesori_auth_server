@@ -2,6 +2,7 @@ import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createTestApp, type TestContext } from "../helpers/setup.js";
 import { BridgeRepository } from "../../src/repositories/bridge-repo.js";
+import { BridgeKind } from "../../src/models/bridge.js";
 import type { Bridge } from "../../src/models/documents.js";
 import { AuthDbCollection, MongoDbDatabase } from "../../src/types/mongo.js";
 
@@ -184,6 +185,52 @@ describe("BridgeRepository", () => {
     const after = await repo.findById(bridge.bridgeId);
     assert.equal(after?.name, "Renamed");
     assert.equal(after?.hostKey, HOST_KEY_A);
+  });
+
+  it("stores a reported kind and keeps it when a later registration omits one", async () => {
+    const user = await ctx.createUser();
+    const repo = new BridgeRepository(ctx.dbAccessor);
+    const unreported = await repo.register({ userId: user.userId, name: "Old", platform: "macos", hostKey: null });
+    assert.ok(!("kind" in ((await repo.findById(unreported.bridgeId)) ?? {})));
+
+    const bridge = await repo.register({
+      userId: user.userId,
+      name: "Bridge",
+      platform: "macos",
+      hostKey: null,
+      kind: BridgeKind.cli,
+    });
+    assert.equal((await repo.findById(bridge.bridgeId))?.kind, BridgeKind.cli);
+
+    await repo.updateForUser(bridge.bridgeId, user.userId, {
+      name: "Bridge",
+      platform: "macos",
+      hostKey: null,
+      kind: BridgeKind.desktop,
+    });
+    assert.equal((await repo.findById(bridge.bridgeId))?.kind, BridgeKind.desktop);
+
+    await repo.updateForUser(bridge.bridgeId, user.userId, { name: "Bridge", platform: "macos", hostKey: null });
+    assert.equal((await repo.findById(bridge.bridgeId))?.kind, BridgeKind.desktop);
+  });
+
+  it("recordFirstSession keeps the first time and ignores another user's bridge", async () => {
+    const owner = await ctx.createUser();
+    const stranger = await ctx.createUser();
+    const repo = new BridgeRepository(ctx.dbAccessor);
+    const bridge = await repo.register({ userId: owner.userId, name: "Bridge", platform: "linux", hostKey: null });
+    const first = new Date("2026-10-01T00:00:00.000Z");
+
+    await repo.recordFirstSession({ bridgeId: bridge.bridgeId, userId: stranger.userId, at: first });
+    assert.ok(!("firstSessionAt" in ((await repo.findById(bridge.bridgeId)) ?? {})));
+
+    await repo.recordFirstSession({ bridgeId: bridge.bridgeId, userId: owner.userId, at: first });
+    await repo.recordFirstSession({
+      bridgeId: bridge.bridgeId,
+      userId: owner.userId,
+      at: new Date("2026-10-02T00:00:00.000Z"),
+    });
+    assert.deepEqual((await repo.findById(bridge.bridgeId))?.firstSessionAt, first);
   });
 
   it("updateByHostKeyForUser picks the most recently seen live bridge of that user", async () => {

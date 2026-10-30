@@ -4,6 +4,7 @@ import { createTestApp, type TestContext } from "./helpers/setup.js";
 import { SessionMetadataService } from "../src/services/session-metadata-service.js";
 import { ActivationService } from "../src/services/activation-service.js";
 import { ActivationStateRepository } from "../src/repositories/activation-state-repo.js";
+import { BridgeRepository } from "../src/repositories/bridge-repo.js";
 import { QuotaExceededError, InternalServerError } from "../src/lib/errors.js";
 
 describe("POST /sessions/generate-metadata", () => {
@@ -48,6 +49,30 @@ describe("POST /sessions/generate-metadata", () => {
     assert.equal(body.branchName, "fix-auth-bug");
     assert.equal(body.worktreeName, "fix-auth-bug");
     assert.ok((await activationStateRepo.findByUserId(user.userId))?.firstSessionAt);
+  });
+
+  it("attributes the first session to the bridge that sent its id", async () => {
+    const user = await ctx.createUser();
+    const bridgeRepo = new BridgeRepository(ctx.dbAccessor);
+    const bridge = await bridgeRepo.register({ userId: user.userId, name: "Desk", platform: "macos", hostKey: null });
+    mock.method(SessionMetadataService.prototype, "generateMetadata", async () => ({
+      title: "Attributed",
+      branchName: "attributed",
+      worktreeName: "attributed",
+    }));
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/sessions/generate-metadata",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ firstMessage: "Start on this computer", bridgeId: bridge.bridgeId }),
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.ok((await bridgeRepo.findById(bridge.bridgeId))?.firstSessionAt);
   });
 
   it("returns 200 when activation recording fails", async () => {

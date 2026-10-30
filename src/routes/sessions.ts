@@ -30,8 +30,12 @@ export const sessionRoutes: FastifyPluginAsync<SessionRouteOptions> = async (fas
       }
 
       const userId = request.user!.userId.toString();
+      const { bridgeId } = bodyResult.data;
       try {
         await activationService.recordFirstSession(userId);
+        if (bridgeId) {
+          await activationService.recordBridgeFirstSession({ userId, bridgeId });
+        }
       } catch (error) {
         console.warn("[ActivationService] Failed to record first session", { userId, error });
       }
