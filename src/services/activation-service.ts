@@ -102,4 +102,12 @@ export class ActivationService {
   async recordFirstSession(userId: string, observedAt = new Date()): Promise<ActivationState> {
     return this.#recordReconciledMilestones(userId, "firstSessionAt", observedAt);
   }
+
+  async recordBridgeFirstSession(args: { userId: string; bridgeId: string; observedAt?: Date }): Promise<void> {
+    await this.#bridgeRepo.recordFirstSession({
+      bridgeId: args.bridgeId,
+      userId: args.userId,
+      at: args.observedAt ?? new Date(),
+    });
+  }
 }

@@ -1,6 +1,12 @@
 import { ObjectId } from "mongodb";
 import { z } from "zod";
-import { bridgeHostKeySchema, bridgeIdSchema, bridgePlatformSchema, bridgeStatusSchema } from "./bridge.js";
+import {
+  bridgeHostKeySchema,
+  bridgeIdSchema,
+  bridgeKindSchema,
+  bridgePlatformSchema,
+  bridgeStatusSchema,
+} from "./bridge.js";
 import { devicePlatformSchema } from "./device.js";
 import { FeedbackIssue, FeedbackSource, feedbackPlatformSchema } from "./feedback.js";
 import { deviceIdSchema, storedNotificationSettingsSchema } from "./settings.js";
@@ -128,6 +134,14 @@ export const bridgeSchema = z.object({
   status: bridgeStatusSchema,
   // Absent until a bridge that sends one registers; never stored as null.
   hostKey: bridgeHostKeySchema.optional(),
+  // The latest registration's install kind. Absent until a bridge that sends
+  // one registers; analytics reads the absence as "not reported yet".
+  kind: bridgeKindSchema.optional(),
+  // First session metadata requested through this bridge. Absent until then.
+  // Not backfilled: a bridge that predates this field gets its first session
+  // after the rollout here, which may not be the computer's real first session.
+  // Per-computer counterpart of the account-wide activationStates.firstSessionAt.
+  firstSessionAt: z.date().optional(),
   addedAt: z.date(),
   lastSeenAt: z.date().nullable(),
   lastSeenIp: z.string().nullable().optional(),

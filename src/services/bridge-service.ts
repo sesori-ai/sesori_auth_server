@@ -1,7 +1,7 @@
 import { BadRequestError, NotFoundError } from "../lib/errors.js";
 import type { Bridge as BridgeDoc } from "../models/documents.js";
 import type { BridgePlatform, BridgeSummary } from "../models/api.js";
-import { BridgeConnectionNotificationPolicy, BridgeStatus } from "../models/bridge.js";
+import { BridgeConnectionNotificationPolicy, BridgeStatus, type BridgeKind } from "../models/bridge.js";
 import type { BridgeRepository } from "../repositories/bridge-repo.js";
 import type { GlossaryEntryRepository } from "../repositories/glossary-entry-repo.js";
 import type { BridgeStateTracker } from "./bridge-state-tracker.js";
@@ -57,10 +57,10 @@ export class BridgeService {
   // or null hostKey never matches and never clears a stored key.
   async registerForUser(
     userId: string,
-    input: { name: string; platform: BridgePlatform; bridgeId?: string; hostKey?: string | null },
+    input: { name: string; platform: BridgePlatform; bridgeId?: string; hostKey?: string | null; kind?: BridgeKind },
   ): Promise<RegisterBridgeResult> {
     const hostKey = input.hostKey ?? null;
-    const update = { name: input.name, platform: input.platform, hostKey };
+    const update = { name: input.name, platform: input.platform, hostKey, kind: input.kind };
     if (input.bridgeId) {
       const updated = await this.#bridgeRepo.updateForUser(input.bridgeId, userId, update);
       if (updated) {
@@ -80,7 +80,13 @@ export class BridgeService {
       throw new BadRequestError({ debugMessage: "Too many registered bridges" });
     }
 
-    const bridge = await this.#bridgeRepo.register({ userId, name: input.name, platform: input.platform, hostKey });
+    const bridge = await this.#bridgeRepo.register({
+      userId,
+      name: input.name,
+      platform: input.platform,
+      hostKey,
+      kind: input.kind,
+    });
 
     // The pre-insert count above is racy (no DB-level constraint backs the
     // cap), so a concurrent burst can overshoot it. Re-rank after the insert
