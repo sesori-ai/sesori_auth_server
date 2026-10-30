@@ -351,8 +351,9 @@ export type BridgeIdPathParam = z.infer<typeof bridgeIdPathParamSchema>;
 
 export const generateMetadataBodySchema = z.object({
   firstMessage: z.string().min(1).max(500),
-  // Attributes the first session to a computer. Absent from older bridges.
-  bridgeId: bridgeIdSchema.optional(),
+  // Attributes the first session to a computer. Absent from older bridges. A
+  // malformed id is dropped so analytics can never fail title generation.
+  bridgeId: bridgeIdSchema.optional().catch(undefined),
 });
 export type GenerateMetadataBody = z.infer<typeof generateMetadataBodySchema>;
 

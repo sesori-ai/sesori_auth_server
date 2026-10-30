@@ -75,6 +75,53 @@ describe("POST /sessions/generate-metadata", () => {
     assert.ok((await bridgeRepo.findById(bridge.bridgeId))?.firstSessionAt);
   });
 
+  it("does not attribute the first session to another user's bridge", async () => {
+    const user = await ctx.createUser();
+    const owner = await ctx.createUser();
+    const bridgeRepo = new BridgeRepository(ctx.dbAccessor);
+    const bridge = await bridgeRepo.register({ userId: owner.userId, name: "Other", platform: "linux", hostKey: null });
+    mock.method(SessionMetadataService.prototype, "generateMetadata", async () => ({
+      title: "Foreign",
+      branchName: "foreign",
+      worktreeName: "foreign",
+    }));
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/sessions/generate-metadata",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ firstMessage: "Not my computer", bridgeId: bridge.bridgeId }),
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.equal((await bridgeRepo.findById(bridge.bridgeId))?.firstSessionAt, undefined);
+  });
+
+  it("still generates metadata when the bridge id is malformed", async () => {
+    const user = await ctx.createUser();
+    mock.method(SessionMetadataService.prototype, "generateMetadata", async () => ({
+      title: "Malformed",
+      branchName: "malformed",
+      worktreeName: "malformed",
+    }));
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/sessions/generate-metadata",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({ firstMessage: "Keep the title", bridgeId: "not-a-bridge-id" }),
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json<{ title: string }>().title, "Malformed");
+  });
+
   it("returns 200 when activation recording fails", async () => {
     const user = await ctx.createUser();
     const recordMock = mock.method(ActivationService.prototype, "recordFirstSession", async () => {

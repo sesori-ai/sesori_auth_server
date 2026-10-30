@@ -123,9 +123,9 @@ export class BridgeRepository {
   }
 
   // Owner-scoped idempotent re-registration: updates name/platform (and a
-  // supplied hostKey) on a non-revoked bridge. Returns null when the bridge is
-  // unknown, revoked, or owned by another user (caller falls back to a host-key
-  // match or minting a new bridge).
+  // supplied hostKey or kind) on a non-revoked bridge. Returns null when the
+  // bridge is unknown, revoked, or owned by another user (caller falls back to a
+  // host-key match or minting a new bridge).
   async updateForUser(bridgeId: string, userId: string, update: BridgeRegistrationUpdate): Promise<Bridge | null> {
     return this.#updateRegistration({ userId, filter: { bridgeId }, update });
   }
