@@ -104,10 +104,29 @@ describe("SonioxRealtimeClient", () => {
       enable_endpoint_detection: false,
       enable_language_identification: false,
       enable_speaker_diarization: false,
-      context: { terms: ["Sesori"] },
+      context: {
+        general: [{ key: "topic", value: "Dictating instructions to an AI assistant" }],
+        terms: ["Sesori"],
+      },
     });
     assert.equal(isSessionOptions(session.options), true);
     assert.deepEqual(events, []);
+  });
+
+  it("still sends the topic when there are no glossary terms", async () => {
+    const session = new FakeRealtimeSession(null, null);
+
+    await createClient(session).connect({
+      audio: { encoding: RealtimeAudioEncoding.PcmS16Le, sampleRate: 16000, channels: 1 },
+      terms: [],
+      maxAudioDurationMs: 1_000,
+      signal: undefined,
+      onEvent: () => {},
+    });
+
+    assert.deepEqual((session.config as { context?: unknown } | null)?.context, {
+      general: [{ key: "topic", value: "Dictating instructions to an AI assistant" }],
+    });
   });
 
   it("does not arm the session-lifetime signal with the connect deadline", async () => {

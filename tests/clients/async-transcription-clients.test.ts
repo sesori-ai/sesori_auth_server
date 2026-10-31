@@ -137,19 +137,20 @@ describe("SonioxTranscriptionClient", () => {
     assert.deepEqual(cleanup, ["stt.delete", "files.delete"]);
   });
 
-  it("sends glossary terms as context only when terms exist", async () => {
+  it("always sends the topic and adds glossary terms only when they exist", async () => {
     let captured: unknown;
     const sdk = createFakeSdk().sdk;
     sdk.stt.create = async (options) => {
       captured = options;
       return { id: "tr_1", status: "queued" };
     };
+    const general = [{ key: "topic", value: "Dictating instructions to an AI assistant" }];
 
     await createClient(sdk).transcribe(request({ terms: ["Sesori", "HKDF"] }));
-    assert.deepEqual((captured as { context?: unknown }).context, { terms: ["Sesori", "HKDF"] });
+    assert.deepEqual((captured as { context?: unknown }).context, { general, terms: ["Sesori", "HKDF"] });
 
     await createClient(sdk).transcribe(request({ terms: [] }));
-    assert.equal((captured as { context?: unknown }).context, undefined);
+    assert.deepEqual((captured as { context?: unknown }).context, { general });
   });
 
   it("cleans up provider resources even when the transcript fetch fails", async () => {

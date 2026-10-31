@@ -154,6 +154,23 @@ export const SONIOX_REALTIME_WS_URL_BY_REGION = {
   [SonioxRegion.Eu]: "wss://stt-rt.eu.soniox.com/transcribe-websocket",
 } as const satisfies Record<SonioxRegion, string>;
 
+export type SonioxContext = {
+  readonly general: { key: string; value: string }[];
+  readonly terms?: string[];
+};
+
+/**
+ * Soniox's docs say to lead with what the audio is about, then list specific
+ * words. The topic is fixed text, never project data, and stays general because
+ * not every project is software.
+ */
+export function toSonioxContext(terms: readonly string[]): SonioxContext {
+  return {
+    general: [{ key: "topic", value: "Dictating instructions to an AI assistant" }],
+    ...(terms.length > 0 ? { terms: [...terms] } : {}),
+  };
+}
+
 /**
  * The single glossary-prompt format. Shared so the budget reserved by
  * `GlossaryService` and the string rendered by a provider adapter cannot drift.
