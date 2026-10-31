@@ -1,8 +1,8 @@
 # Sesori Privacy Policy
 
-_Last updated: August 29, 2026_
+_Last updated: November 1, 2026_
 
-This Privacy Policy explains how **Digitalblock Labs LTD** ("**Sesori**," "**Company**," "we," "us," or "our") collects, uses, stores, shares, and otherwise processes personal data when you use Sesori's official apps and services. It applies only to the official Sesori services, including the Sesori mobile app, the official local bridge software, relay services, account and authentication services, push notification services, `sesori.com`, voice input and server-side transcription features, project-scoped glossary features, diagnostics, analytics, mobile advertising attribution, website analytics and advertising technologies, support channels, and related hosted features we provide (collectively, the "**Service**").
+This Privacy Policy explains how **Digitalblock Labs LTD** ("**Sesori**," "**Company**," "we," "us," or "our") collects, uses, stores, shares, and otherwise processes personal data when you use Sesori's official apps and services. It applies only to the official Sesori services, including the Sesori mobile app, the Sesori desktop app, the official local bridge software, relay services, account and authentication services, push notification services, `sesori.com`, voice input and server-side transcription features, project-scoped glossary features, diagnostics, analytics, mobile advertising attribution, website analytics and advertising technologies, support channels, and related hosted features we provide (collectively, the "**Service**").
 
 This Privacy Policy does **not** apply to source builds, self-hosted deployments, unofficial builds, modified versions, forks, community distributions, or other non-official deployments, except to the extent those versions connect to an official Sesori-hosted feature. In that case, this Privacy Policy applies only to the official hosted feature interaction.
 
@@ -82,6 +82,8 @@ Supported release builds may associate account-linked product analytics events w
 Sesori-defined account-linked product analytics event payloads cannot contain source code; prompts, responses, transcripts, or reasoning; filenames or paths; repository, project, or session names; coding provider, model, agent, tool, or command names; raw error text; OAuth identity; email address; IP address; or raw or hashed project, session, bridge, device, notification, or account identifiers.
 
 These payload restrictions apply specifically to Sesori-defined account-linked product analytics events. Firebase may separately process automatic installation-level data as described in Section 14, and the website analytics, mobile attribution, advertising audience, operational, support, security, crash, or diagnostic processing described elsewhere in this Privacy Policy is outside this event contract.
+
+The Sesori desktop app sends these same account-linked product analytics events directly to Sesori's servers, not to Firebase or Singular. Each event also carries the operating system (macOS, Linux, or Windows) and the app version. We derive the pseudonymous account key on our servers. Your IP address is visible to us when an event arrives and is used to limit abusive traffic, but we do not store it with these events.
 
 ### 3.6 Support communications
 
@@ -285,6 +287,7 @@ Indicative retention practices:
 - **Meta customer-list audience data**: hashed customer-list data is used by Meta for matching under its Customer List Custom Audiences Terms; we remove opted-out users from future uploads and request removal from active customer-list audiences within a reasonable period
 - **Singular attribution data**: retained according to our Singular settings, Singular's processor terms, and the period needed for attribution, fraud prevention, campaign analysis, rights requests, and legal obligations
 - **Restricted raw BigQuery analytics export**: raw exported analytics data expires after 90 days
+- **Desktop product analytics events**: retained for up to 9 days in our operational database and up to 90 days in a restricted analytics dataset, after which only the curated facts described below remain
 - **Curated product analytics data**: minimized pseudonymous event facts are retained for up to 14 months; routine product and dashboard viewers cannot access raw analytics datasets or pseudonymous account keys
 - **Crash and diagnostic data**: retained according to vendor settings and our operational needs, typically up to 90 days for crash and error reports
 - **Support communications**: retained for up to 24 months after the issue is resolved, and longer where reasonably needed for follow-up, legal, security, or compliance reasons
