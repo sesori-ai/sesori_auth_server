@@ -13,7 +13,7 @@
 
 - **Stage:** S03
 - **Wave:** W01
-- **Next action:** Drive apps PR #918 from current head `c0693f5e26` to reviewed, mergeable, CI-green state. It began from exact voice-retry Step 4 merge SHA `1a6007228f`, now includes `main` through `2c97e8431a`, adopts shared platform/service/session/Cubit ownership, preserves async retained Retry, and keeps post-audio realtime confirmed-partial/no-full-retry behavior.
+- **Next action:** None on the client side here. Apps PR #918 was closed unmerged on 2026-08-28. Live voice shipped through the apps plan `.plan/completed/voice-live/`, retired on 2026-10-31.
 
 ## Plan Review
 
