@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
-import { ObjectId } from "mongodb";
+import { inspect } from "node:util";
+import { ObjectId, type Document } from "mongodb";
 import type { ProductAnalyticsExternalQueryRow } from "../../src/api/product-analytics-export-api.js";
 import { InternalServerError } from "../../src/lib/errors.js";
 import type { ProductAnalyticsEvent } from "../../src/models/documents.js";
@@ -99,18 +100,36 @@ describe("Desktop product event export path", () => {
     );
   });
 
-  it("fails closed on a malformed stored row without logging its values", async () => {
-    await eventCollection().insertOne({
-      _id: new ObjectId(),
-      userKey: "not-a-valid-key",
-      eventName: ProductAnalyticsEventName.SessionAbortSucceeded,
-      occurredAtMicros: midWindow.getTime() * 1000,
-      receivedAt: midWindow,
-      schemaVersion: 1,
-      platform: ProductAnalyticsEventPlatform.Windows,
-      appVersion: "1.2.3",
-      params: {},
-    });
+  it("fails closed on a malformed stored row without logging its values", async (t) => {
+    const storedUserKey = "not-a-valid-key";
+    // Zod doesn't echo a bad value, but a bad record entry's issue path does hold its key.
+    const storedParamKey = "stored-param-key";
+    await ctx.dbAccessor
+      .getCollection<Document>(MongoDbDatabase.Auth, AuthDbCollection.ProductAnalyticsEvents)
+      .insertOne({
+        _id: new ObjectId(),
+        userKey: storedUserKey,
+        eventName: ProductAnalyticsEventName.SessionAbortSucceeded,
+        occurredAtMicros: midWindow.getTime() * 1000,
+        receivedAt: midWindow,
+        schemaVersion: 1,
+        platform: ProductAnalyticsEventPlatform.Windows,
+        appVersion: "1.2.3",
+        params: { [storedParamKey]: 1 },
+      });
+    const logged: unknown[][] = [];
+    const consoleMethods: Array<"log" | "info" | "warn" | "error" | "debug"> = [
+      "log",
+      "info",
+      "warn",
+      "error",
+      "debug",
+    ];
+    for (const method of consoleMethods) {
+      t.mock.method(console, method, (...args: unknown[]) => {
+        logged.push(args);
+      });
+    }
 
     await assert.rejects(
       () => exportBatches({ batchLimit: 2 }),
@@ -119,6 +138,10 @@ describe("Desktop product event export path", () => {
         error.debugMessage === "Malformed product analytics event" &&
         error.nestedError === undefined,
     );
+
+    const output = inspect(logged, { depth: null });
+    assert.equal(output.includes(storedUserKey), false);
+    assert.equal(output.includes(storedParamKey), false);
   });
 
   it("publishes stored events through the whole run on a midday cutoff, and replaces them on a re-run", async () => {

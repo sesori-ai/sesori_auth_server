@@ -481,7 +481,12 @@ describe("ProductAnalyticsExportRepository", () => {
 
     for (const [api, expected] of [
       [missing, /table not found: desktop_product_events/],
-      [moved, /internal_server_error/],
+      [
+        moved,
+        (error: unknown) =>
+          error instanceof InternalServerError &&
+          error.debugMessage === "Unexpected product analytics schema for desktop_product_events",
+      ],
     ] as const) {
       await assert.rejects(
         () =>

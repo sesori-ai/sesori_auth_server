@@ -852,8 +852,8 @@ date, by `receivedAt`, and replaces those `source_export_date` partitions, so a
 midday manual run reads the same window as the daily one, and re-running changes
 nothing. Rows aren't filtered by preference or internal status here, because the
 warehouse owns those exclusions. An outage of up to 7 days recovers fully; a
-longer one loses those desktop days, because the rows expire after 9. A desktop
-failure fails the whole run.
+longer one loses the oldest desktop days: the job reads only 7 days, and rows
+expire after 9. A desktop failure fails the whole run.
 
 The promotion transaction appends aggregate source, exclusion, reconciliation,
 cutoff, and freshness metadata to

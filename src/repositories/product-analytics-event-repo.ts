@@ -54,7 +54,7 @@ export class ProductAnalyticsEventRepository {
     for await (const document of cursor) {
       const parsed = productAnalyticsEventSchema.safeParse(document);
       if (!parsed.success) {
-        // The issues can carry stored values, which are personal data, so they aren't logged.
+        // An issue's path can hold a stored params key, so the issues aren't logged.
         throw new InternalServerError({ debugMessage: "Malformed product analytics event" });
       }
       const { _id, ...event } = parsed.data;
