@@ -84,6 +84,15 @@ const DATABASE_CONFIG: Record<MongoDbDatabase, DatabaseConfig<string>> = {
       [AuthDbCollection.OptionalEmailDailyQuota]: [],
       // Operators read feedback newest first.
       [AuthDbCollection.Feedback]: [{ spec: { createdAt: -1 } }],
+      [AuthDbCollection.ProductAnalyticsEvents]: [
+        // Makes a retry idempotent. The userKey prefix also serves the privacy deleteMany.
+        { spec: { userKey: 1, eventName: 1, occurredAtMicros: 1 }, options: { unique: true } },
+        // Nine days, kept short because this is personal data in an operational
+        // database. It also serves the export's date-range scan, and must exceed
+        // the export's 7 day window by more than a run's time of day, or the
+        // export would replace its oldest partition with a partial copy.
+        { spec: { receivedAt: 1 }, options: { expireAfterSeconds: 777_600 } },
+      ],
     },
   } satisfies DatabaseConfig<AuthDbCollection>,
 };

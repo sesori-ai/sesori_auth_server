@@ -8,6 +8,7 @@ import { MongoDbAccessor } from "../db/mongo-db-accessor.js";
 import { MongoDbConnector } from "../db/mongo-db-connector.js";
 import { safeErrorType } from "../lib/errors.js";
 import { ProductAnalyticsDeletionTargetRepository } from "../repositories/product-analytics-deletion-target-repo.js";
+import { ProductAnalyticsEventRepository } from "../repositories/product-analytics-event-repo.js";
 import { UserRepository } from "../repositories/user-repo.js";
 import { ProductAnalyticsDeletionService } from "../services/product-analytics-deletion-service.js";
 import { ProductAnalyticsPreferenceService } from "../services/product-analytics-preference-service.js";
@@ -56,7 +57,8 @@ export async function runProductAnalyticsSuppression(input: {
       connectionString: config.MONGODB_URI,
       clientOptions: { appName: "sesori-product-analytics-suppression" },
     });
-    const userRepo = new UserRepository(new MongoDbAccessor(connector));
+    const accessor = new MongoDbAccessor(connector);
+    const userRepo = new UserRepository(accessor);
     const bigQuery = new BigQuery({ projectId: config.PRODUCT_ANALYTICS_GCP_PROJECT_ID });
     const deletionTargetApi = new ProductAnalyticsDeletionTargetApi({
       client: new BigQueryProductAnalyticsDeletionTargetClient({
@@ -72,6 +74,7 @@ export async function runProductAnalyticsSuppression(input: {
         pseudonymizationKey: config.PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY,
       }),
       deletionTargetRepo: new ProductAnalyticsDeletionTargetRepository({ api: deletionTargetApi }),
+      eventRepo: new ProductAnalyticsEventRepository({ accessor }),
     });
     const result = await service.suppressAndHandoff(command);
     console.log(JSON.stringify(result));

@@ -25,6 +25,7 @@ import type { LegalDocumentService } from "./services/legal-document-service.js"
 import type { AppleNativeVerifier } from "./services/apple-native-verifier.js";
 import type { PendingAuthStore } from "./services/pending-auth-store.js";
 import type { AppClientPresenceService } from "./services/app-client-presence-service.js";
+import type { ProductAnalyticsEventService } from "./services/product-analytics-event-service.js";
 import type { ProductAnalyticsPreferenceService } from "./services/product-analytics-preference-service.js";
 import type { SettingsService } from "./services/settings-service.js";
 import type { FeedbackService } from "./services/feedback-service.js";
@@ -74,6 +75,7 @@ export type AppServices = {
   appleNativeVerifier: AppleNativeVerifier;
   pendingAuthStore: PendingAuthStore;
   productAnalyticsPreferenceService: ProductAnalyticsPreferenceService;
+  productAnalyticsEventService: ProductAnalyticsEventService;
   optionalEmail?: OptionalEmailRouteServices;
   realtime?: Omit<VoiceRealtimeRouteOptions, "preAuthRateLimit" | "requireAuth">;
 };
@@ -257,6 +259,9 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
   });
   await app.register(productAnalyticsRoutes, {
     productAnalyticsPreferenceService: services.productAnalyticsPreferenceService,
+    productAnalyticsEventService: services.productAnalyticsEventService,
+    tokenService: services.tokenService,
+    resolveClientIp,
     requireAuth,
   });
   await app.register(voiceRoutes, {

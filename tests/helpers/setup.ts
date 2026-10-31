@@ -24,6 +24,7 @@ import { UserRepository } from "../../src/repositories/user-repo.js";
 import { ActivationStateRepository } from "../../src/repositories/activation-state-repo.js";
 import { SettingsConfigurationRepository } from "../../src/repositories/settings-configuration-repo.js";
 import { FeedbackRepository } from "../../src/repositories/feedback-repo.js";
+import { ProductAnalyticsEventRepository } from "../../src/repositories/product-analytics-event-repo.js";
 import { buildApp } from "../../src/server.js";
 import { AuthService } from "../../src/services/auth-service.js";
 import { ActivationService } from "../../src/services/activation-service.js";
@@ -42,6 +43,7 @@ import type { RealtimeRouteService } from "../../src/routes/voice-realtime-socke
 import { MAX_REALTIME_EVENT_BYTES } from "../../src/models/voice.js";
 import { MAX_BINARY_BYTES, MAX_TEXT_BYTES } from "../../src/routes/voice-realtime-support.js";
 import { AppClientPresenceService } from "../../src/services/app-client-presence-service.js";
+import { ProductAnalyticsEventService } from "../../src/services/product-analytics-event-service.js";
 import { ProductAnalyticsPreferenceService } from "../../src/services/product-analytics-preference-service.js";
 import { SettingsService } from "../../src/services/settings-service.js";
 import { FeedbackService } from "../../src/services/feedback-service.js";
@@ -228,6 +230,10 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     userRepo,
     pseudonymizationKey: testProductAnalyticsPseudonymizationKey,
   });
+  const productAnalyticsEventService = new ProductAnalyticsEventService({
+    preferenceService: productAnalyticsPreferenceService,
+    eventRepo: new ProductAnalyticsEventRepository({ accessor: dbAccessor }),
+  });
   const authService = new AuthService({ tokenService, userRepo, oauthAccountRepo, passwordAccountRepo, bridgeService });
   const glossaryService = overrides?.glossaryService ?? new GlossaryService({ glossaryRepo, bridgeRepo });
   const voiceService =
@@ -274,6 +280,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
     appleNativeVerifier,
     pendingAuthStore,
     productAnalyticsPreferenceService,
+    productAnalyticsEventService,
     optionalEmail: overrides?.optionalEmail,
     realtime:
       overrides?.realtimeService && effectiveConfig.REALTIME_TRANSCRIPTION_ENABLED

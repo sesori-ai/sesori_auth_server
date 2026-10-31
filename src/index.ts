@@ -30,6 +30,7 @@ import { UserRepository } from "./repositories/user-repo.js";
 import { ActivationStateRepository } from "./repositories/activation-state-repo.js";
 import { SettingsConfigurationRepository } from "./repositories/settings-configuration-repo.js";
 import { FeedbackRepository } from "./repositories/feedback-repo.js";
+import { ProductAnalyticsEventRepository } from "./repositories/product-analytics-event-repo.js";
 import { buildApp } from "./server.js";
 import { MAX_REALTIME_EVENT_BYTES } from "./models/voice.js";
 import { MAX_BINARY_BYTES, MAX_TEXT_BYTES } from "./routes/voice-realtime-support.js";
@@ -48,6 +49,7 @@ import { GlossaryService } from "./services/glossary-service.js";
 import { VoiceService } from "./services/voice-service.js";
 import { RealtimeTranscriptionService } from "./services/realtime-transcription-service.js";
 import { AppClientPresenceService } from "./services/app-client-presence-service.js";
+import { ProductAnalyticsEventService } from "./services/product-analytics-event-service.js";
 import { ProductAnalyticsPreferenceService } from "./services/product-analytics-preference-service.js";
 import { SettingsService } from "./services/settings-service.js";
 import { FeedbackService } from "./services/feedback-service.js";
@@ -136,6 +138,10 @@ async function main() {
   const productAnalyticsPreferenceService = new ProductAnalyticsPreferenceService({
     userRepo,
     pseudonymizationKey: config.PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY,
+  });
+  const productAnalyticsEventService = new ProductAnalyticsEventService({
+    preferenceService: productAnalyticsPreferenceService,
+    eventRepo: new ProductAnalyticsEventRepository({ accessor: dbAccessor }),
   });
   const activationReminderService = new ActivationReminderService({
     activationStateRepo,
@@ -282,6 +288,7 @@ async function main() {
     appleNativeVerifier,
     pendingAuthStore,
     productAnalyticsPreferenceService,
+    productAnalyticsEventService,
     optionalEmail,
     realtime,
   });

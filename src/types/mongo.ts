@@ -17,4 +17,5 @@ export enum AuthDbCollection {
   OptionalEmailSends = "optionalEmailSends",
   OptionalEmailDailyQuota = "optionalEmailDailyQuota",
   Feedback = "feedback",
+  ProductAnalyticsEvents = "productAnalyticsEvents",
 }
