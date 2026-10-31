@@ -73,10 +73,9 @@ describe("Product analytics preference routes", () => {
     const userId = new ObjectId();
     const createdAt = new Date("2026-06-10T10:00:00.000Z");
     await ctx.dbAccessor
-      .getCollection<Pick<User, "_id" | "tokenVersion" | "createdAt" | "updatedAt">>(
-        MongoDbDatabase.Auth,
-        AuthDbCollection.Users,
-      )
+      .getCollection<
+        Pick<User, "_id" | "tokenVersion" | "createdAt" | "updatedAt">
+      >(MongoDbDatabase.Auth, AuthDbCollection.Users)
       .insertOne({
         _id: userId,
         tokenVersion: 0,
