@@ -136,8 +136,8 @@ present. There is no public endpoint that creates or clears the tombstone.
 
 ### Product analytics events
 
-The desktop app reports product events here, because it has no Firebase SDK. The closed schema is the privacy boundary:
-every parameter is a closed enum, and the server derives `userKey` from the JWT.
+This is the desktop app's route for product events, because it has no Firebase SDK. The closed schema is the privacy
+boundary: every parameter is a closed enum, and the server derives `userKey` from the JWT.
 
 `POST /product-analytics/events` takes one event as JSON, up to 1024 bytes, and is limited to 60 requests per minute per
 account. `schemaVersion: 1` is a permanent contract with installed apps, so changes must stay additive.
@@ -153,9 +153,10 @@ account. `schemaVersion: 1` is a permanent contract with installed apps, so chan
 }
 ```
 
-`platform` is `MACOS`, `LINUX` or `WINDOWS`. `occurredAtMicros` has to fall within 72 hours before to 300 seconds after
-the server clock. `params` is required, with exactly the keys that event defines, or `{}` where it defines none. Unknown
-fields are rejected everywhere. The events and their values are in `src/types/product-analytics.ts`.
+`platform` is `MACOS`, `LINUX` or `WINDOWS`. `occurredAtMicros` must be the event's real time, within 72 hours before to
+300 seconds after the server clock, so the example's fixed value is rejected if copied. `params` is required, with
+exactly the keys that event defines, or `{}` where it defines none. Unknown fields are rejected everywhere. The events
+and their values are in `src/types/product-analytics.ts`.
 
 - `204`, empty: stored, already stored, or dropped by the account's preference. These are deliberately not distinguished.
 - `400`: failed validation. Only each issue's code and path are logged, never values or unrecognized key names.
