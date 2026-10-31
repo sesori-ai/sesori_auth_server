@@ -9,10 +9,12 @@ const MAX_EVENT_FUTURE_MICROS = 300 * MICROS_PER_SECOND;
 
 type ProductAnalyticsEventPreferenceReader = {
   getPreference(input: { userId: string }): Promise<{ preference: ProductAnalyticsPreference; userKey: string }>;
+  isExportSuppressed(input: { userId: string }): Promise<boolean>;
 };
 
 type ProductAnalyticsEventWriter = {
   insert(input: { userKey: string; event: ProductAnalyticsEventBody; receivedAt: Date }): Promise<void>;
+  deleteForUserKey(input: { userKey: string }): Promise<void>;
 };
 
 export class ProductAnalyticsEventService {
@@ -53,5 +55,11 @@ export class ProductAnalyticsEventService {
     }
 
     await this.#eventRepo.insert({ userKey, event: input.event, receivedAt });
+
+    // A suppression can commit and finish its delete between the read above and this insert, which would recreate a
+    // row it already removed. If its tombstone isn't visible here, it commits later, so its delete follows the insert.
+    if (await this.#preferenceService.isExportSuppressed({ userId: input.userId })) {
+      await this.#eventRepo.deleteForUserKey({ userKey });
+    }
   }
 }

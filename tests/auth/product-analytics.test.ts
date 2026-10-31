@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it, mock } from "node:test";
-import { ObjectId } from "mongodb";
+import { Collection, ObjectId, ReadConcernLevel, ReadPreference } from "mongodb";
 import { indexKeyMatches, indexMatchesDesired } from "../../src/db/mongo-db-accessor.js";
 import { BadRequestError } from "../../src/lib/errors.js";
 import type { ProductAnalyticsEvent, User } from "../../src/models/documents.js";
@@ -456,11 +456,15 @@ describe("ProductAnalyticsEventService", () => {
     const inserts: Array<{ userKey: string; receivedAt: Date }> = [];
     let clockReads = 0;
     const service = new ProductAnalyticsEventService({
-      preferenceService: { getPreference: async () => ({ preference: input.preference, userKey }) },
+      preferenceService: {
+        getPreference: async () => ({ preference: input.preference, userKey }),
+        isExportSuppressed: async () => false,
+      },
       eventRepo: {
         insert: async (row) => {
           inserts.push(row);
         },
+        deleteForUserKey: async () => {},
       },
       clock: () => {
         clockReads += 1;
@@ -534,6 +538,19 @@ describe("POST /product-analytics/events", () => {
         userKey: productAnalyticsUserKeyFor({ ...input, pseudonymizationKey: testProductAnalyticsPseudonymizationKey }),
       })
       .toArray();
+  }
+
+  function deletionService() {
+    return new ProductAnalyticsDeletionService({
+      preferenceService: new ProductAnalyticsPreferenceService({
+        userRepo: new UserRepository(ctx.dbAccessor),
+        pseudonymizationKey: testProductAnalyticsPseudonymizationKey,
+      }),
+      deletionTargetRepo: {
+        handoff: async ({ requestId }) => ({ requestId, status: ProductAnalyticsDeletionTargetStatus.Pending }),
+      },
+      eventRepo: new ProductAnalyticsEventRepository({ accessor: ctx.dbAccessor }),
+    });
   }
 
   function postRaw(input: { accessToken?: string; payload: string; remoteAddress?: string }) {
@@ -754,16 +771,7 @@ describe("POST /product-analytics/events", () => {
     for (const user of [suppressed, other]) {
       assert.equal((await post({ accessToken: user.accessToken, body: VALID_BODY })).statusCode, 204);
     }
-    const deletion = new ProductAnalyticsDeletionService({
-      preferenceService: new ProductAnalyticsPreferenceService({
-        userRepo: new UserRepository(ctx.dbAccessor),
-        pseudonymizationKey: testProductAnalyticsPseudonymizationKey,
-      }),
-      deletionTargetRepo: {
-        handoff: async ({ requestId }) => ({ requestId, status: ProductAnalyticsDeletionTargetStatus.Pending }),
-      },
-      eventRepo: new ProductAnalyticsEventRepository({ accessor: ctx.dbAccessor }),
-    });
+    const deletion = deletionService();
 
     await deletion.suppressAndHandoff({ userId: suppressed.userId, requestId: "privacy_request_001" });
     // A retry after a partial failure has to stay safe.
@@ -778,5 +786,46 @@ describe("POST /product-analytics/events", () => {
     });
     assert.equal(afterSuppression.statusCode, 204);
     assert.deepEqual(await rowsFor({ userId: suppressed.userId }), []);
+  });
+
+  it("removes the row when suppression lands between the first preference read and the insert", async (t) => {
+    const user = await ctx.createUser();
+    const deletion = deletionService();
+    const readPreference = UserRepository.prototype.findProductAnalyticsPreference;
+    let suppressionRan = false;
+    t.mock.method(
+      UserRepository.prototype,
+      "findProductAnalyticsPreference",
+      async function (this: UserRepository, input: { userId: string }) {
+        const record = await readPreference.call(this, input);
+        // Suppression reads the preference too, so only the event path's read triggers it.
+        if (!suppressionRan) {
+          suppressionRan = true;
+          await deletion.suppressAndHandoff({ userId: user.userId, requestId: "privacy_request_002" });
+        }
+        return record;
+      },
+    );
+
+    const response = await post({ accessToken: user.accessToken, body: VALID_BODY });
+
+    assert.equal(suppressionRan, true);
+    assert.equal(response.statusCode, 204);
+    assert.deepEqual(await rowsFor({ userId: user.userId }), []);
+  });
+
+  it("rechecks suppression on the primary's latest state, whatever the connection string says", async (t) => {
+    const user = await ctx.createUser();
+    const findOne = t.mock.method(Collection.prototype, "findOne");
+
+    const suppressed = await new UserRepository(ctx.dbAccessor).isProductAnalyticsExportSuppressedOnPrimary({
+      userId: user.userId,
+    });
+
+    assert.equal(suppressed, false);
+    assert.equal(findOne.mock.callCount(), 1);
+    const options = findOne.mock.calls[0].arguments[1];
+    assert.equal(options?.readPreference, ReadPreference.PRIMARY);
+    assert.deepEqual(options?.readConcern, { level: ReadConcernLevel.local });
   });
 });
