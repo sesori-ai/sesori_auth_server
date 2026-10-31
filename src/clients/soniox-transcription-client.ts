@@ -10,8 +10,10 @@ import {
 } from "../api/soniox-transcription-api.js";
 import { safeErrorType } from "../lib/errors.js";
 import {
+  toSonioxContext,
   TranscriptionFailure,
   TranscriptionFailureReason,
+  type SonioxContext,
   type TranscriptionRequest,
   type TranscriptionResult,
 } from "../types/transcription.js";
@@ -38,7 +40,7 @@ type SonioxCreateOptions = {
   model: string;
   file_id: string;
   language_hints?: string[];
-  context?: { terms?: string[] };
+  context: SonioxContext;
 };
 
 export class SonioxTranscriptionClient implements AsyncTranscriptionClient {
@@ -80,7 +82,7 @@ export class SonioxTranscriptionClient implements AsyncTranscriptionClient {
             model: this.#model,
             file_id: fileId,
             language_hints: ["en"],
-            ...(request.terms.length > 0 ? { context: { terms: request.terms } } : {}),
+            context: toSonioxContext(request.terms),
           },
           signal,
         ),

@@ -6,7 +6,9 @@ import {
 import {
   RealtimeAudioEncoding,
   RealtimeProviderEventType,
+  toSonioxContext,
   type RealtimeProviderEvent,
+  type SonioxContext,
 } from "../types/transcription.js";
 import type {
   RealtimeConnectRequest,
@@ -44,7 +46,7 @@ type SonioxRealtimeConfig = {
   readonly enable_endpoint_detection: boolean;
   readonly enable_language_identification: boolean;
   readonly enable_speaker_diarization: boolean;
-  readonly context?: { readonly terms: string[] };
+  readonly context: SonioxContext;
 };
 
 type SonioxRealtimeSessionOptions = {
@@ -115,7 +117,7 @@ export class SonioxRealtimeClient implements RealtimeTranscriptionClient {
       enable_endpoint_detection: false,
       enable_language_identification: false,
       enable_speaker_diarization: false,
-      ...(request.terms.length > 0 ? { context: { terms: [...request.terms] } } : {}),
+      context: toSonioxContext(request.terms),
     };
   }
 }
