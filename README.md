@@ -880,11 +880,13 @@ web identity any BigQuery role or provide service-account JSON keys.
 ## Permanent product analytics suppression
 
 `npm run suppress-product-analytics-export` is a protected operator command,
-not an HTTP route. Its separate identity needs source suppression access plus
-append/read-status access only to
-`privacy_private.product_analytics_deletion_targets`; it must not receive auth
-export, control, raw-event, curated, or reporting access. Supply a verified
-request as bounded JSON on protected stdin—never argv or shell history:
+not an HTTP route or a Cloud Run job. Operators run it from the auth repo root
+under the app's production environment, whose Mongo credential can write the
+auth database. Its BigQuery credential is an impersonated suppression identity
+with append/read-status access only to
+`privacy_private.product_analytics_deletion_targets`; that identity must not
+receive auth export, control, raw-event, curated, or reporting access. Supply a
+verified request as bounded JSON on protected stdin—never argv or shell history:
 
 - `MONGODB_URI`
 - `PRODUCT_ANALYTICS_GCP_PROJECT_ID`
@@ -910,9 +912,8 @@ value exists only so the downstream processor can delete data created before
 the HMAC migration; it must never enter new analytics exports. Output contains
 only request ID and status. If the event delete or target
 handoff fails, the source tombstone remains and rerunning the same request is
-idempotent. In a production image invoke
-`node dist/scripts/suppress-product-analytics-export.js`. Do not run it before
-the restricted target dataset/table and deletion identity exist.
+idempotent. Do not run it before the restricted target dataset/table and that
+BigQuery identity exist.
 
 ## npm scripts
 
