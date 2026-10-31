@@ -8,6 +8,7 @@ import { MongoDbConnector } from "../db/mongo-db-connector.js";
 import { safeErrorType } from "../lib/errors.js";
 import { ActivationStateRepository } from "../repositories/activation-state-repo.js";
 import { ProductAnalyticsControlRepository } from "../repositories/product-analytics-control-repo.js";
+import { ProductAnalyticsEventRepository } from "../repositories/product-analytics-event-repo.js";
 import { ProductAnalyticsExportRepository } from "../repositories/product-analytics-export-repo.js";
 import { UserRepository } from "../repositories/user-repo.js";
 import { ProductAnalyticsExportService } from "../services/product-analytics-export-service.js";
@@ -43,6 +44,7 @@ export async function runProductAnalyticsExport(input: { env?: NodeJS.ProcessEnv
         maxUserKeys: config.PRODUCT_ANALYTICS_INTERNAL_EXCLUSION_MAX_KEYS,
       }),
       exportRepo: new ProductAnalyticsExportRepository({ api }),
+      eventRepo: new ProductAnalyticsEventRepository({ accessor }),
       batchLimit: config.PRODUCT_ANALYTICS_EXPORT_BATCH_LIMIT,
       pseudonymizationKey: config.PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY,
     });

@@ -1,6 +1,7 @@
 import type { ProductAnalyticsExternalQueryRow } from "../api/product-analytics-export-api.js";
 import { InternalServerError } from "../lib/errors.js";
 import type {
+  ProductAnalyticsDesktopEvent,
   ProductAnalyticsExportRow,
   ProductAnalyticsExportRunMetadata,
   ProductAnalyticsExportTableField,
@@ -65,9 +66,51 @@ const exportStateSchema: ProductAnalyticsExportTableField[] = [
   { name: "updated_at", type: "TIMESTAMP", mode: "REQUIRED" },
 ];
 
+const desktopEventParamColumns = [
+  "activation_schema_version",
+  "inventory_state",
+  "activity_state",
+  "submission_kind",
+  "input_mode",
+  "workspace_kind",
+  "failure_reason",
+  "decision",
+  "change_state",
+  "surface",
+  "channel",
+  "method",
+  "os",
+  "screen",
+  "feedback_answer",
+  "feedback_input",
+  "feedback_source",
+];
+
+// Every other wire param is stored under its own name.
+const desktopEventColumnByRenamedParam = new Map([
+  ["answer", "feedback_answer"],
+  ["input", "feedback_input"],
+  ["source", "feedback_source"],
+]);
+
+// The order has to match the deployed DDL, because the schema check and the
+// promotion's SELECT * both rely on it.
+const desktopEventSchema: ProductAnalyticsExportTableField[] = [
+  { name: "event_name", type: "STRING", mode: "REQUIRED" },
+  { name: "source_export_date", type: "DATE", mode: "REQUIRED" },
+  { name: "received_at", type: "TIMESTAMP", mode: "REQUIRED" },
+  { name: "occurred_at_micros", type: "INTEGER", mode: "REQUIRED" },
+  { name: "schema_version", type: "INTEGER", mode: "REQUIRED" },
+  { name: "user_key", type: "STRING", mode: "REQUIRED" },
+  { name: "platform", type: "STRING", mode: "REQUIRED" },
+  { name: "app_version", type: "STRING", mode: "REQUIRED" },
+  ...desktopEventParamColumns.map((name) => ({ name, type: "STRING", mode: "NULLABLE" })),
+];
+
 export const productAnalyticsPermanentTableSchemas = new Map<string, ProductAnalyticsExportTableField[]>([
   ["auth_user_milestones", milestoneSchema],
   ["auth_weekly_setup_cohorts", cohortSchema],
+  ["desktop_product_events", desktopEventSchema],
   ["product_analytics_export_runs", runMetadataSchema],
   ["product_analytics_export_state", exportStateSchema],
 ]);
@@ -76,6 +119,7 @@ export type ProductAnalyticsExportRun = {
   runId: string;
   milestoneStagingTableId: string;
   cohortStagingTableId: string;
+  desktopEventStagingTableId: string;
 };
 
 type ProductAnalyticsExportDataApi = {
@@ -102,6 +146,10 @@ function stringFromBigQuery(input: unknown): string | null {
   const value =
     typeof input === "object" && input !== null && "value" in input ? (input as { value: unknown }).value : input;
   return typeof value === "string" ? value : null;
+}
+
+function utcDateString(input: { date: Date }): string {
+  return input.date.toISOString().slice(0, 10);
 }
 
 function normalizedSchema(
@@ -134,6 +182,7 @@ export class ProductAnalyticsExportRepository {
       runId: input.runId,
       milestoneStagingTableId: `auth_user_milestones_staging_${input.runId}`,
       cohortStagingTableId: `auth_weekly_setup_cohorts_staging_${input.runId}`,
+      desktopEventStagingTableId: `desktop_product_events_staging_${input.runId}`,
     };
     this.#assertRun({ run });
     await this.#assertPermanentSchemas();
@@ -151,11 +200,18 @@ export class ProductAnalyticsExportRepository {
         expiresAt: input.expiresAt,
         ifNotExists: false,
       });
+      await this.#api.createTable({
+        tableId: run.desktopEventStagingTableId,
+        schema: desktopEventSchema,
+        expiresAt: input.expiresAt,
+        ifNotExists: false,
+      });
       return run;
     } catch (error) {
       const cleanupResults = await Promise.allSettled([
         this.#api.deleteTable({ tableId: run.milestoneStagingTableId }),
         this.#api.deleteTable({ tableId: run.cohortStagingTableId }),
+        this.#api.deleteTable({ tableId: run.desktopEventStagingTableId }),
         this.#releaseLease({ run }),
       ]);
       const cleanupFailureCount = cleanupResults.filter((result) => result.status === "rejected").length;
@@ -196,6 +252,61 @@ export class ProductAnalyticsExportRepository {
           CASE WHEN JSON_VALUE(row, '$.bridge_registered_at') IS NULL THEN NULL ELSE TIMESTAMP(JSON_VALUE(row, '$.bridge_registered_at')) END,
           CASE WHEN JSON_VALUE(row, '$.legacy_first_metadata_request_at') IS NULL THEN NULL ELSE TIMESTAMP(JSON_VALUE(row, '$.legacy_first_metadata_request_at')) END,
           TIMESTAMP(JSON_VALUE(row, '$.exported_at'))
+        FROM UNNEST(JSON_QUERY_ARRAY(@rows_json)) AS row
+      `,
+      params: { rows_json: JSON.stringify(rows) },
+    });
+  }
+
+  async appendDesktopEvents(input: {
+    run: ProductAnalyticsExportRun;
+    events: ProductAnalyticsDesktopEvent[];
+  }): Promise<void> {
+    this.#assertRun({ run: input.run });
+    if (input.events.length === 0) {
+      return;
+    }
+    const rows = input.events.map((event) => ({
+      // An absent param reads back as NULL through JSON_VALUE.
+      ...Object.fromEntries(
+        Object.entries(event.params).map(([param, value]) => [
+          desktopEventColumnByRenamedParam.get(param) ?? param,
+          value,
+        ]),
+      ),
+      event_name: event.eventName,
+      source_export_date: utcDateString({ date: event.receivedAt }),
+      received_at: event.receivedAt.toISOString(),
+      // A string, so a 16 digit value can't pick up JSON number formatting.
+      occurred_at_micros: String(event.occurredAtMicros),
+      schema_version: event.schemaVersion,
+      user_key: event.userKey,
+      platform: event.platform,
+      app_version: event.appVersion,
+    }));
+    await this.#api.query({
+      sql: `
+        INSERT INTO \`${this.#api.datasetReference}.${input.run.desktopEventStagingTableId}\` (
+          event_name,
+          source_export_date,
+          received_at,
+          occurred_at_micros,
+          schema_version,
+          user_key,
+          platform,
+          app_version,
+          ${desktopEventParamColumns.join(",\n          ")}
+        )
+        SELECT
+          JSON_VALUE(row, '$.event_name'),
+          CAST(JSON_VALUE(row, '$.source_export_date') AS DATE),
+          TIMESTAMP(JSON_VALUE(row, '$.received_at')),
+          CAST(JSON_VALUE(row, '$.occurred_at_micros') AS INT64),
+          CAST(JSON_VALUE(row, '$.schema_version') AS INT64),
+          JSON_VALUE(row, '$.user_key'),
+          JSON_VALUE(row, '$.platform'),
+          JSON_VALUE(row, '$.app_version'),
+          ${desktopEventParamColumns.map((column) => `JSON_VALUE(row, '$.${column}')`).join(",\n          ")}
         FROM UNNEST(JSON_QUERY_ARRAY(@rows_json)) AS row
       `,
       params: { rows_json: JSON.stringify(rows) },
@@ -302,10 +413,13 @@ export class ProductAnalyticsExportRepository {
     expectedMilestoneRows: number;
     expectedTotalAccounts: number;
     expectedEnabledAccounts: number;
+    expectedDesktopEventRows: number;
+    desktopEventWindow: { start: Date; end: Date };
     metadata: ProductAnalyticsExportRunMetadata;
   }): Promise<void> {
     this.#assertRun({ run: input.run });
     const metadataCounts = [
+      input.expectedDesktopEventRows,
       input.metadata.usersScanned,
       input.metadata.sourceSuppressedUsers,
       input.metadata.internalUsers,
@@ -324,9 +438,13 @@ export class ProductAnalyticsExportRepository {
       input.metadata.externalAccounts !== input.expectedTotalAccounts ||
       input.metadata.milestoneRowsPublished !== input.expectedMilestoneRows ||
       metadataCounts.some((value) => !Number.isSafeInteger(value) || value < 0) ||
-      [input.metadata.runCutoff, input.metadata.preferenceScanCutoff, input.metadata.controlUpdatedAt].some((value) =>
-        Number.isNaN(value.getTime()),
-      )
+      [
+        input.metadata.runCutoff,
+        input.metadata.preferenceScanCutoff,
+        input.metadata.controlUpdatedAt,
+        input.desktopEventWindow.start,
+        input.desktopEventWindow.end,
+      ].some((value) => Number.isNaN(value.getTime()))
     ) {
       throw new InternalServerError({ debugMessage: "Invalid product analytics export metadata" });
     }
@@ -358,7 +476,8 @@ export class ProductAnalyticsExportRepository {
             legacy_first_metadata_request_within_1_day > legacy_first_metadata_request_within_7_days OR
             legacy_first_metadata_request_within_7_days > legacy_first_metadata_request_within_30_days OR
             legacy_first_metadata_request_within_30_days > total_accounts
-          ) FROM \`${this.#api.datasetReference}.${input.run.cohortStagingTableId}\`) AS invalid_cohorts
+          ) FROM \`${this.#api.datasetReference}.${input.run.cohortStagingTableId}\`) AS invalid_cohorts,
+          (SELECT COUNT(*) FROM \`${this.#api.datasetReference}.${input.run.desktopEventStagingTableId}\`) AS desktop_event_rows
       `,
     });
     const row = validationRows[0];
@@ -371,10 +490,11 @@ export class ProductAnalyticsExportRepository {
           row.total_accounts,
           row.enabled_accounts,
           row.invalid_cohorts,
+          row.desktop_event_rows,
         ].map(integerFromBigQuery)
       : [];
     if (
-      values.length !== 7 ||
+      values.length !== 8 ||
       values.some((value) => value === null) ||
       values[0] !== input.expectedMilestoneRows ||
       values[1] !== 0 ||
@@ -382,7 +502,8 @@ export class ProductAnalyticsExportRepository {
       values[3] !== 0 ||
       values[4] !== input.expectedTotalAccounts ||
       values[5] !== input.expectedEnabledAccounts ||
-      values[6] !== 0
+      values[6] !== 0 ||
+      values[7] !== input.expectedDesktopEventRows
     ) {
       throw new InternalServerError({ debugMessage: "Product analytics export validation failed" });
     }
@@ -404,6 +525,11 @@ export class ProductAnalyticsExportRepository {
         DELETE FROM \`${this.#api.datasetReference}.auth_weekly_setup_cohorts\` WHERE TRUE;
         INSERT INTO \`${this.#api.datasetReference}.auth_weekly_setup_cohorts\`
         SELECT * FROM \`${this.#api.datasetReference}.${input.run.cohortStagingTableId}\`;
+        DELETE FROM \`${this.#api.datasetReference}.desktop_product_events\`
+        WHERE source_export_date >= CAST(@desktop_window_start AS DATE)
+          AND source_export_date < CAST(@desktop_window_end AS DATE);
+        INSERT INTO \`${this.#api.datasetReference}.desktop_product_events\`
+        SELECT * FROM \`${this.#api.datasetReference}.${input.run.desktopEventStagingTableId}\`;
         INSERT INTO \`${this.#api.datasetReference}.product_analytics_export_runs\` (
           run_id,
           run_cutoff,
@@ -466,6 +592,8 @@ export class ProductAnalyticsExportRepository {
         milestone_rows_published: input.metadata.milestoneRowsPublished,
         cohort_rows_published: input.metadata.cohortRowsPublished,
         pre_creation_milestones_dropped: input.metadata.preCreationMilestonesDropped,
+        desktop_window_start: utcDateString({ date: input.desktopEventWindow.start }),
+        desktop_window_end: utcDateString({ date: input.desktopEventWindow.end }),
       },
     });
   }
@@ -477,6 +605,7 @@ export class ProductAnalyticsExportRepository {
     const results = await Promise.allSettled([
       this.#api.deleteTable({ tableId: input.run.milestoneStagingTableId }),
       this.#api.deleteTable({ tableId: input.run.cohortStagingTableId }),
+      this.#api.deleteTable({ tableId: input.run.desktopEventStagingTableId }),
       this.#releaseLease({ run: input.run }),
     ]);
     const failures = results.flatMap((result) => (result.status === "rejected" ? [result.reason] : []));
@@ -505,10 +634,12 @@ export class ProductAnalyticsExportRepository {
   #assertRun(input: { run: ProductAnalyticsExportRun }): void {
     const expectedMilestoneTableId = `auth_user_milestones_staging_${input.run.runId}`;
     const expectedCohortTableId = `auth_weekly_setup_cohorts_staging_${input.run.runId}`;
+    const expectedDesktopEventTableId = `desktop_product_events_staging_${input.run.runId}`;
     if (
       !runIdPattern.test(input.run.runId) ||
       input.run.milestoneStagingTableId !== expectedMilestoneTableId ||
-      input.run.cohortStagingTableId !== expectedCohortTableId
+      input.run.cohortStagingTableId !== expectedCohortTableId ||
+      input.run.desktopEventStagingTableId !== expectedDesktopEventTableId
     ) {
       throw new InternalServerError({ debugMessage: "Invalid product analytics export run" });
     }

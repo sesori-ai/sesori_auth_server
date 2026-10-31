@@ -1,7 +1,8 @@
 import { Collection, MongoServerError, ObjectId } from "mongodb";
 import type { MongoDbAccessor } from "../db/mongo-db-accessor.js";
 import { InternalServerError } from "../lib/errors.js";
-import type { ProductAnalyticsEvent } from "../models/documents.js";
+import { productAnalyticsEventSchema, type ProductAnalyticsEvent } from "../models/documents.js";
+import type { ProductAnalyticsDesktopEvent } from "../models/product-analytics-export.js";
 import { AuthDbCollection, MongoDbDatabase } from "../types/mongo.js";
 import { productAnalyticsUserKeySchema, type ProductAnalyticsEventBody } from "../types/product-analytics.js";
 
@@ -37,6 +38,34 @@ export class ProductAnalyticsEventRepository {
         return;
       }
       throw error;
+    }
+  }
+
+  /** Yields events with `receivedAt` in `[start, end)`, served by the TTL index, in batches of `batchLimit`. */
+  async *findExportBatches(input: {
+    start: Date;
+    end: Date;
+    batchLimit: number;
+  }): AsyncGenerator<ProductAnalyticsDesktopEvent[]> {
+    const cursor = this.#collection
+      .find({ receivedAt: { $gte: input.start, $lt: input.end } })
+      .batchSize(input.batchLimit);
+    let batch: ProductAnalyticsDesktopEvent[] = [];
+    for await (const document of cursor) {
+      const parsed = productAnalyticsEventSchema.safeParse(document);
+      if (!parsed.success) {
+        // The issues can carry stored values, which are personal data, so they aren't logged.
+        throw new InternalServerError({ debugMessage: "Malformed product analytics event" });
+      }
+      const { _id, ...event } = parsed.data;
+      batch.push(event);
+      if (batch.length === input.batchLimit) {
+        yield batch;
+        batch = [];
+      }
+    }
+    if (batch.length > 0) {
+      yield batch;
     }
   }
 

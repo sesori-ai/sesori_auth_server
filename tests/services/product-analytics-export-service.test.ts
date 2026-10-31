@@ -4,6 +4,7 @@ import { InternalServerError } from "../../src/lib/errors.js";
 import { productAnalyticsUserKeyFor } from "../../src/lib/product-analytics-user-key.js";
 import type {
   ProductAnalyticsActivationMilestones,
+  ProductAnalyticsDesktopEvent,
   ProductAnalyticsExportRow,
   ProductAnalyticsExportUser,
   ProductAnalyticsPreferenceChange,
@@ -11,12 +12,17 @@ import type {
 } from "../../src/models/product-analytics-export.js";
 import type { ProductAnalyticsExportRun } from "../../src/repositories/product-analytics-export-repo.js";
 import { ProductAnalyticsExportService } from "../../src/services/product-analytics-export-service.js";
-import { ProductAnalyticsPreference } from "../../src/types/product-analytics.js";
+import {
+  ProductAnalyticsEventName,
+  ProductAnalyticsEventPlatform,
+  ProductAnalyticsPreference,
+} from "../../src/types/product-analytics.js";
 
 const run: ProductAnalyticsExportRun = {
   runId: "testrun01",
   milestoneStagingTableId: "auth_user_milestones_staging_testrun01",
   cohortStagingTableId: "auth_weekly_setup_cohorts_staging_testrun01",
+  desktopEventStagingTableId: "desktop_product_events_staging_testrun01",
 };
 const pseudonymizationKey = Buffer.from("0123456789abcdef0123456789abcdef", "utf8");
 
@@ -83,13 +89,31 @@ class FakeActivationStateRepository {
   }
 }
 
+class FakeEventRepository {
+  readonly inputs: Array<{ start: Date; end: Date; batchLimit: number }> = [];
+
+  constructor(
+    readonly batches: ProductAnalyticsDesktopEvent[][] = [],
+    readonly onScan: () => void = () => {},
+  ) {}
+
+  async *findExportBatches(input: { start: Date; end: Date; batchLimit: number }) {
+    this.inputs.push(input);
+    this.onScan();
+    yield* this.batches;
+  }
+}
+
 class FakeExportRepository {
   readonly milestones: ProductAnalyticsExportRow[] = [];
+  readonly desktopEvents: ProductAnalyticsDesktopEvent[] = [];
   cohorts: ProductAnalyticsSetupCohortRow[] = [];
   validationInput: {
     expectedMilestoneRows: number;
     expectedTotalAccounts: number;
     expectedEnabledAccounts: number;
+    expectedDesktopEventRows: number;
+    desktopEventWindow: { start: Date; end: Date };
   } | null = null;
   cleanupCalls = 0;
   failAppend = false;
@@ -107,6 +131,10 @@ class FakeExportRepository {
       throw new Error("staging failed");
     }
     this.milestones.push(...input.rows);
+  }
+
+  async appendDesktopEvents(input: { events: ProductAnalyticsDesktopEvent[] }): Promise<void> {
+    this.desktopEvents.push(...input.events);
   }
 
   async writeCohorts(input: { rows: ProductAnalyticsSetupCohortRow[] }): Promise<void> {
@@ -130,6 +158,8 @@ class FakeExportRepository {
     expectedMilestoneRows: number;
     expectedTotalAccounts: number;
     expectedEnabledAccounts: number;
+    expectedDesktopEventRows: number;
+    desktopEventWindow: { start: Date; end: Date };
     metadata: unknown;
   }): Promise<void> {
     this.validationInput = input;
@@ -246,6 +276,7 @@ describe("ProductAnalyticsExportService", () => {
         },
       },
       exportRepo,
+      eventRepo: new FakeEventRepository(),
       batchLimit: 2,
       pseudonymizationKey,
       clock: () => clockValues.shift()!,
@@ -334,6 +365,7 @@ describe("ProductAnalyticsExportService", () => {
         },
       },
       exportRepo,
+      eventRepo: new FakeEventRepository(),
       batchLimit: 2,
       pseudonymizationKey,
       clock: () => new Date("2026-07-28T12:01:00.000Z"),
@@ -373,6 +405,7 @@ describe("ProductAnalyticsExportService", () => {
         },
       },
       exportRepo,
+      eventRepo: new FakeEventRepository(),
       batchLimit: 2,
       pseudonymizationKey,
       clock: (() => {
@@ -414,6 +447,7 @@ describe("ProductAnalyticsExportService", () => {
         },
       },
       exportRepo,
+      eventRepo: new FakeEventRepository(),
       batchLimit: 2,
       pseudonymizationKey,
       clock: (() => {
@@ -467,6 +501,7 @@ describe("ProductAnalyticsExportService", () => {
         },
       },
       exportRepo,
+      eventRepo: new FakeEventRepository(),
       batchLimit: 2,
       pseudonymizationKey,
       clock: (() => {
@@ -524,6 +559,7 @@ describe("ProductAnalyticsExportService", () => {
         },
       },
       exportRepo,
+      eventRepo: new FakeEventRepository(),
       batchLimit: 2,
       pseudonymizationKey,
       clock: (() => {
@@ -549,5 +585,114 @@ describe("ProductAnalyticsExportService", () => {
     assert.equal(exportRepo.cohorts.length, 1);
     assert.equal(exportRepo.cohorts[0].notificationRegisteredWithin30Days, 0);
     assert.equal(exportRepo.cohorts[0].bridgeRegisteredWithin7Days, 1);
+  });
+
+  describe("desktop events", () => {
+    const desktopEvent: ProductAnalyticsDesktopEvent = {
+      userKey: "c".repeat(64),
+      eventName: ProductAnalyticsEventName.SessionAbortSucceeded,
+      occurredAtMicros: 1_785_000_000_000_000,
+      receivedAt: new Date("2026-07-27T12:00:00.000Z"),
+      schemaVersion: 1,
+      platform: ProductAnalyticsEventPlatform.Linux,
+      appVersion: "1.2.3",
+      params: {},
+    };
+    const emptyControl = {
+      async loadActiveInternalUserKeys() {
+        return { userKeys: new Set<string>(), controlUpdatedAt: new Date("2026-07-01T00:00:00.000Z") };
+      },
+    };
+
+    function serviceWith(input: {
+      eventRepo: FakeEventRepository;
+      exportRepo: FakeExportRepository;
+      userRepo?: FakeUserRepository;
+      now: Date;
+    }) {
+      return new ProductAnalyticsExportService({
+        userRepo: input.userRepo ?? new FakeUserRepository([], []),
+        activationStateRepo: new FakeActivationStateRepository(new Map()),
+        controlRepo: emptyControl,
+        exportRepo: input.exportRepo,
+        eventRepo: input.eventRepo,
+        batchLimit: 2,
+        pseudonymizationKey,
+        clock: () => input.now,
+        createRunId: () => "testrun01",
+      });
+    }
+
+    for (const [description, runCutoff, start, end] of [
+      ["the daily run", "2026-07-28T03:00:00.000Z", "2026-07-21", "2026-07-28"],
+      ["a midday manual run", "2026-07-28T12:34:56.789Z", "2026-07-21", "2026-07-28"],
+      ["a run exactly at 00:00 UTC", "2026-07-28T00:00:00.000Z", "2026-07-21", "2026-07-28"],
+      ["a run just before 00:00 UTC", "2026-07-27T23:59:59.999Z", "2026-07-20", "2026-07-27"],
+      ["a run across a month boundary", "2026-08-03T03:00:00.000Z", "2026-07-27", "2026-08-03"],
+    ] as const) {
+      it(`loads the 7 closed UTC days before ${description}`, async () => {
+        const eventRepo = new FakeEventRepository([[desktopEvent, desktopEvent], [desktopEvent]]);
+        const exportRepo = new FakeExportRepository();
+
+        await serviceWith({ eventRepo, exportRepo, now: new Date(runCutoff) }).run({ runCutoff: new Date(runCutoff) });
+
+        const window = { start: new Date(`${start}T00:00:00.000Z`), end: new Date(`${end}T00:00:00.000Z`) };
+        assert.deepEqual(eventRepo.inputs, [{ ...window, batchLimit: 2 }]);
+        assert.deepEqual(exportRepo.validationInput?.desktopEventWindow, window);
+        assert.equal(exportRepo.desktopEvents.length, 3);
+        assert.equal(exportRepo.validationInput?.expectedDesktopEventRows, 3);
+        assert.equal(exportRepo.cleanupCalls, 1);
+      });
+    }
+
+    it("publishes an empty desktop load", async () => {
+      const runCutoff = new Date("2026-07-28T03:00:00.000Z");
+      const exportRepo = new FakeExportRepository();
+
+      await serviceWith({ eventRepo: new FakeEventRepository(), exportRepo, now: runCutoff }).run({ runCutoff });
+
+      assert.equal(exportRepo.validationInput?.expectedDesktopEventRows, 0);
+    });
+
+    it("aborts with staging cleaned up when a suppression lands during the desktop scan", async () => {
+      const runCutoff = new Date("2026-07-28T03:00:00.000Z");
+      const exportRepo = new FakeExportRepository();
+      const userRepo = new FakeUserRepository([], []);
+      const suppressedAt = new Date("2026-07-28T03:00:30.000Z");
+      const eventRepo = new FakeEventRepository([[desktopEvent]], () => {
+        userRepo.changes.push({
+          userId: "000000000000000000000001",
+          changedAt: suppressedAt,
+          exportSuppressedAt: suppressedAt,
+        });
+      });
+
+      await assert.rejects(
+        () => serviceWith({ eventRepo, exportRepo, userRepo, now: suppressedAt }).run({ runCutoff }),
+        (error: unknown) =>
+          error instanceof InternalServerError &&
+          error.debugMessage === "Product analytics source suppression changed during export",
+      );
+
+      assert.equal(exportRepo.desktopEvents.length, 1);
+      assert.equal(exportRepo.validationInput, null);
+      assert.equal(exportRepo.cleanupCalls, 1);
+    });
+
+    it("fails the whole run with staging cleaned up when the desktop scan fails", async () => {
+      const runCutoff = new Date("2026-07-28T03:00:00.000Z");
+      const exportRepo = new FakeExportRepository();
+      const eventRepo = new FakeEventRepository([], () => {
+        throw new Error("mongo unavailable");
+      });
+
+      await assert.rejects(
+        () => serviceWith({ eventRepo, exportRepo, now: runCutoff }).run({ runCutoff }),
+        /mongo unavailable/,
+      );
+
+      assert.equal(exportRepo.validationInput, null);
+      assert.equal(exportRepo.cleanupCalls, 1);
+    });
   });
 });

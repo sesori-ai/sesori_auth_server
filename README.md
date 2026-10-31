@@ -843,18 +843,31 @@ The job stages only pseudonymous/aggregate rows in tables expiring within 24
 hours, reconciles late preference changes, validates both products, and
 transactionally replaces `auth_user_milestones` and
 `auth_weekly_setup_cohorts`. Failed runs leave the previous publication intact.
-The same transaction appends aggregate source, exclusion, reconciliation,
+
+The same run copies desktop product events from `productAnalyticsEvents` into
+`desktop_product_events`, so a published `run_cutoff` implies the desktop rows
+for that cutoff are complete. It loads the 7 closed UTC days before the cutoff's
+date, by `receivedAt`, and replaces those `source_export_date` partitions, so a
+midday manual run reads the same window as the daily one, and re-running changes
+nothing. Rows aren't filtered by preference or internal status here, because the
+warehouse owns those exclusions. An outage of up to 7 days recovers fully; a
+longer one loses those desktop days, because the rows expire after 9. A desktop
+failure fails the whole run.
+
+The promotion transaction appends aggregate source, exclusion, reconciliation,
 cutoff, and freshness metadata to
 `product_analytics_export_runs`; it contains no source account identifiers.
 
 The deployment identity—not the export job—must provision and own the permanent
 schemas for `auth_user_milestones`, `auth_weekly_setup_cohorts`,
-`product_analytics_export_runs`, and the singleton
+`desktop_product_events`, `product_analytics_export_runs`, and the singleton
 `product_analytics_export_state`. At startup the job requires exact schemas,
 then acquires a distributed lease in the state table. Promotion verifies lease
 ownership and a strictly newer `run_cutoff` in the same transaction, preventing
 an older or overlapping run from republishing stale privacy state. The runtime
-creates only expiring staging tables.
+creates only expiring staging tables. Because of the exact-schema check, an image
+containing the desktop export fails at startup until `desktop_product_events` is
+deployed, with its columns in the order of `productAnalyticsPermanentTableSchemas`.
 
 The final preference pass records its start as `preference_scan_cutoff` and
 conservatively scans every current preference timestamp after `run_cutoff`
