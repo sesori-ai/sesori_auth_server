@@ -1,4 +1,4 @@
-import { Collection, ObjectId, type Filter } from "mongodb";
+import { Collection, ObjectId, ReadConcernLevel, ReadPreference, type Filter } from "mongodb";
 import { z } from "zod";
 import { MongoDbAccessor } from "../db/mongo-db-accessor.js";
 import { InternalServerError } from "../lib/errors.js";
@@ -147,6 +147,26 @@ export class UserRepository {
 
     const user = await this.#collection.findOne({ _id: new ObjectId(input.userId) });
     return user ? productAnalyticsPreferenceRecordFrom({ user }) : null;
+  }
+
+  /**
+   * Set explicitly rather than left to the connection string: a secondary, or a majority read, could miss a tombstone
+   * the primary has already applied, and the caller's ordering depends on seeing it.
+   */
+  async isProductAnalyticsExportSuppressedOnPrimary(input: { userId: string }): Promise<boolean> {
+    if (!ObjectId.isValid(input.userId)) {
+      return false;
+    }
+
+    const user = await this.#collection.findOne(
+      { _id: new ObjectId(input.userId) },
+      {
+        projection: { productAnalyticsExportSuppressedAt: 1 },
+        readPreference: ReadPreference.PRIMARY,
+        readConcern: { level: ReadConcernLevel.local },
+      },
+    );
+    return Boolean(user?.productAnalyticsExportSuppressedAt);
   }
 
   async updateProductAnalyticsPreference(input: {

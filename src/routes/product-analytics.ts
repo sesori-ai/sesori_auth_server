@@ -18,7 +18,7 @@ import {
 } from "../types/product-analytics.js";
 
 const PRODUCT_ANALYTICS_EVENT_BODY_LIMIT_BYTES = 1024;
-// Far above human use, since the desktop reports no screens.
+// Far above human use for the desktop's event rate.
 const PRODUCT_ANALYTICS_EVENT_MAX_PER_MINUTE = 60;
 
 export type ProductAnalyticsRouteOptions = {
