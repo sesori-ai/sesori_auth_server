@@ -1,10 +1,14 @@
 import type { ProductAnalyticsPreference } from "../types/product-analytics.js";
+import type { ProductAnalyticsEvent } from "./documents.js";
 
 export type ProductAnalyticsExportTableField = {
   name: string;
   type: string;
   mode?: string;
 };
+
+// The stored event without its Mongo id, which stays below the repository layer.
+export type ProductAnalyticsDesktopEvent = Omit<ProductAnalyticsEvent, "_id">;
 
 export type ProductAnalyticsInternalExclusionRow = {
   userKey: string | null;

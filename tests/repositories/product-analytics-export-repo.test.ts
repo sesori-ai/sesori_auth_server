@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { InternalServerError } from "../../src/lib/errors.js";
 import type { ProductAnalyticsExternalQueryRow } from "../../src/api/product-analytics-export-api.js";
 import type {
+  ProductAnalyticsDesktopEvent,
   ProductAnalyticsExportRow,
   ProductAnalyticsExportRunMetadata,
   ProductAnalyticsExportTableField,
@@ -12,6 +13,7 @@ import {
   ProductAnalyticsExportRepository,
   productAnalyticsPermanentTableSchemas,
 } from "../../src/repositories/product-analytics-export-repo.js";
+import { ProductAnalyticsEventName, ProductAnalyticsEventPlatform } from "../../src/types/product-analytics.js";
 
 class FakeExportApi {
   readonly datasetReference = "valid-project.auth_private";
@@ -26,6 +28,8 @@ class FakeExportApi {
   invalidSchemaTableId: string | null = null;
   readonly schemaOverrides = new Map<string, ProductAnalyticsExportTableField[]>();
   readonly deleteFailures = new Set<string>();
+  readonly missingTables = new Set<string>();
+  readonly createFailures = new Set<string>();
   validationRow: ProductAnalyticsExternalQueryRow = {
     milestone_rows: 1,
     duplicate_keys: 0,
@@ -34,6 +38,7 @@ class FakeExportApi {
     total_accounts: 2,
     enabled_accounts: 1,
     invalid_cohorts: 0,
+    desktop_event_rows: 1,
   };
 
   async createTable(input: {
@@ -42,17 +47,20 @@ class FakeExportApi {
     expiresAt: Date | null;
     ifNotExists: boolean;
   }): Promise<void> {
+    if (this.createFailures.has(input.tableId)) {
+      throw new Error(`create failed: ${input.tableId}`);
+    }
     this.created.push(input);
   }
 
   async getTableSchema(input: { tableId: string }): Promise<ProductAnalyticsExportTableField[]> {
+    if (this.missingTables.has(input.tableId)) {
+      throw new Error(`table not found: ${input.tableId}`);
+    }
     if (input.tableId === this.invalidSchemaTableId) {
       return [];
     }
-    if (this.schemaOverrides.has(input.tableId)) {
-      return this.schemaOverrides.get(input.tableId)!;
-    }
-    return productAnalyticsPermanentTableSchemas.get(input.tableId) ?? [];
+    return this.schemaOverrides.get(input.tableId) ?? productAnalyticsPermanentTableSchemas.get(input.tableId) ?? [];
   }
 
   async query(input: { sql: string; params?: Record<string, unknown> }): Promise<ProductAnalyticsExternalQueryRow[]> {
@@ -80,6 +88,21 @@ describe("ProductAnalyticsExportRepository", () => {
     runId: "testrun01",
     milestoneStagingTableId: "auth_user_milestones_staging_testrun01",
     cohortStagingTableId: "auth_weekly_setup_cohorts_staging_testrun01",
+    desktopEventStagingTableId: "desktop_product_events_staging_testrun01",
+  };
+  const desktopEventWindow = {
+    start: new Date("2026-07-21T00:00:00.000Z"),
+    end: new Date("2026-07-28T00:00:00.000Z"),
+  };
+  const desktopEvent: ProductAnalyticsDesktopEvent = {
+    userKey: "c".repeat(64),
+    eventName: ProductAnalyticsEventName.FeedbackPromptAnswered,
+    occurredAtMicros: 1_785_000_000_000_123,
+    receivedAt: new Date("2026-07-27T23:30:00.000Z"),
+    schemaVersion: 1,
+    platform: ProductAnalyticsEventPlatform.MacOs,
+    appVersion: "1.2.3",
+    params: { answer: "dismissed", source: "settings" },
   };
   const milestone: ProductAnalyticsExportRow = {
     userKey: "a".repeat(64),
@@ -130,17 +153,18 @@ describe("ProductAnalyticsExportRepository", () => {
     await repo.appendMilestones({ run, rows: [milestone] });
     await repo.writeCohorts({ run, rows: [cohort] });
 
-    assert.equal(api.created.length, 2);
+    assert.equal(api.created.length, 3);
     assert.deepEqual(
       api.created.map((entry) => [entry.tableId, entry.ifNotExists, entry.expiresAt?.toISOString() ?? null]),
       [
         [run.milestoneStagingTableId, false, expiresAt.toISOString()],
         [run.cohortStagingTableId, false, expiresAt.toISOString()],
+        [run.desktopEventStagingTableId, false, expiresAt.toISOString()],
       ],
     );
     const inserts = api.queries.filter((query) => query.sql.includes("INSERT INTO"));
     assert.equal(inserts.length, 2);
-    assert.equal((inserts[0].params?.rows_json as string).includes(milestone.userKey), true);
+    assert.equal(String(inserts[0].params?.rows_json).includes(milestone.userKey), true);
     assert.equal(
       api.queries.some((query) => query.sql.includes("Another export is active")),
       true,
@@ -162,6 +186,8 @@ describe("ProductAnalyticsExportRepository", () => {
       expectedMilestoneRows: 1,
       expectedTotalAccounts: 2,
       expectedEnabledAccounts: 1,
+      expectedDesktopEventRows: 1,
+      desktopEventWindow,
       metadata,
     });
     await repo.cleanup({ run });
@@ -178,7 +204,11 @@ describe("ProductAnalyticsExportRepository", () => {
     assert.match(promotion.sql, /product_analytics_export_runs/);
     assert.match(promotion.sql, /last_published_cutoff/);
     assert.equal(promotion.params?.run_id, "testrun01");
-    assert.deepEqual(api.deleted, [run.milestoneStagingTableId, run.cohortStagingTableId]);
+    assert.deepEqual(api.deleted, [
+      run.milestoneStagingTableId,
+      run.cohortStagingTableId,
+      run.desktopEventStagingTableId,
+    ]);
   });
 
   it("does not publish when staging reconciliation fails", async () => {
@@ -198,6 +228,8 @@ describe("ProductAnalyticsExportRepository", () => {
           expectedMilestoneRows: 1,
           expectedTotalAccounts: 2,
           expectedEnabledAccounts: 1,
+          expectedDesktopEventRows: 1,
+          desktopEventWindow,
           metadata,
         }),
       (error: unknown) =>
@@ -231,9 +263,11 @@ describe("ProductAnalyticsExportRepository", () => {
 
   it("accepts case-insensitive BigQuery field names when validating schemas", async () => {
     const api = new FakeExportApi();
+    const stateSchema = productAnalyticsPermanentTableSchemas.get("product_analytics_export_state");
+    assert.ok(stateSchema);
     api.schemaOverrides.set(
       "product_analytics_export_state",
-      productAnalyticsPermanentTableSchemas.get("product_analytics_export_state")!.map((field) => ({
+      stateSchema.map((field) => ({
         ...field,
         name: field.name.toUpperCase(),
       })),
@@ -246,7 +280,247 @@ describe("ProductAnalyticsExportRepository", () => {
       expiresAt: new Date("2026-07-29T12:00:00.000Z"),
     });
 
-    assert.equal(api.created.length, 2);
+    assert.equal(api.created.length, 3);
+  });
+
+  it("pins the desktop table's columns, in the order of the warehouse DDL", () => {
+    const required = (name: string, type: string) => ({ name, type, mode: "REQUIRED" });
+    const nullable = (name: string) => ({ name, type: "STRING", mode: "NULLABLE" });
+
+    assert.deepEqual(productAnalyticsPermanentTableSchemas.get("desktop_product_events"), [
+      required("event_name", "STRING"),
+      required("source_export_date", "DATE"),
+      required("received_at", "TIMESTAMP"),
+      required("occurred_at_micros", "INTEGER"),
+      required("schema_version", "INTEGER"),
+      required("user_key", "STRING"),
+      required("platform", "STRING"),
+      required("app_version", "STRING"),
+      nullable("activation_schema_version"),
+      nullable("inventory_state"),
+      nullable("activity_state"),
+      nullable("submission_kind"),
+      nullable("input_mode"),
+      nullable("workspace_kind"),
+      nullable("failure_reason"),
+      nullable("decision"),
+      nullable("change_state"),
+      nullable("surface"),
+      nullable("channel"),
+      nullable("method"),
+      nullable("os"),
+      nullable("screen"),
+      nullable("feedback_answer"),
+      nullable("feedback_input"),
+      nullable("feedback_source"),
+    ]);
+  });
+
+  it("maps desktop events to warehouse columns with a UTC export date", async () => {
+    const api = new FakeExportApi();
+    const repo = new ProductAnalyticsExportRepository({ api });
+
+    await repo.appendDesktopEvents({ run: cleanupRun, events: [] });
+    assert.equal(api.queries.length, 0);
+
+    await repo.appendDesktopEvents({
+      run: cleanupRun,
+      events: [
+        desktopEvent,
+        {
+          ...desktopEvent,
+          eventName: ProductAnalyticsEventName.PrivateFeedbackSent,
+          // 23:30 UTC, already the next day at this offset.
+          receivedAt: new Date("2026-07-28T01:30:00.000+02:00"),
+          params: { input: "typed", source: "automatic" },
+        },
+        {
+          ...desktopEvent,
+          eventName: ProductAnalyticsEventName.SessionPermissionAnswered,
+          params: { decision: "once" },
+        },
+      ],
+    });
+
+    const [query] = api.queries;
+    assert.ok(query);
+    assert.match(query.sql, new RegExp(`INSERT INTO \`[^\`]+\\.${cleanupRun.desktopEventStagingTableId}\``));
+    assert.deepEqual(JSON.parse(String(query.params?.rows_json)), [
+      {
+        feedback_answer: "dismissed",
+        feedback_source: "settings",
+        event_name: "feedback_prompt_answered",
+        source_export_date: "2026-07-27",
+        received_at: "2026-07-27T23:30:00.000Z",
+        occurred_at_micros: "1785000000000123",
+        schema_version: 1,
+        user_key: "c".repeat(64),
+        platform: "MACOS",
+        app_version: "1.2.3",
+      },
+      {
+        feedback_input: "typed",
+        feedback_source: "automatic",
+        event_name: "private_feedback_sent",
+        source_export_date: "2026-07-27",
+        received_at: "2026-07-27T23:30:00.000Z",
+        occurred_at_micros: "1785000000000123",
+        schema_version: 1,
+        user_key: "c".repeat(64),
+        platform: "MACOS",
+        app_version: "1.2.3",
+      },
+      {
+        decision: "once",
+        event_name: "session_permission_answered",
+        source_export_date: "2026-07-27",
+        received_at: "2026-07-27T23:30:00.000Z",
+        occurred_at_micros: "1785000000000123",
+        schema_version: 1,
+        user_key: "c".repeat(64),
+        platform: "MACOS",
+        app_version: "1.2.3",
+      },
+    ]);
+  });
+
+  it("inserts every desktop column in schema order", async () => {
+    const api = new FakeExportApi();
+    const repo = new ProductAnalyticsExportRepository({ api });
+
+    await repo.appendDesktopEvents({ run: cleanupRun, events: [desktopEvent] });
+
+    const [query] = api.queries;
+    assert.ok(query);
+    const [columnList, selectList] = query.sql.split("SELECT");
+    const columns = (productAnalyticsPermanentTableSchemas.get("desktop_product_events") ?? []).map(({ name }) => name);
+    assert.equal(columns.length, 25);
+    assert.deepEqual(
+      columnList
+        .split("(")[1]
+        .split(")")[0]
+        .split(",")
+        .map((column) => column.trim()),
+      columns,
+    );
+    assert.deepEqual(
+      [...selectList.matchAll(/JSON_VALUE\(row, '\$\.(\w+)'\)/g)].map(([, column]) => column),
+      columns,
+    );
+  });
+
+  it("does not publish when the staged desktop row count differs", async () => {
+    const api = new FakeExportApi();
+    api.validationRow.desktop_event_rows = 2;
+    const repo = new ProductAnalyticsExportRepository({ api });
+
+    await assert.rejects(
+      () =>
+        repo.validateAndPromote({
+          run: cleanupRun,
+          expectedMilestoneRows: 1,
+          expectedTotalAccounts: 2,
+          expectedEnabledAccounts: 1,
+          expectedDesktopEventRows: 1,
+          desktopEventWindow,
+          metadata,
+        }),
+      (error: unknown) =>
+        error instanceof InternalServerError && error.debugMessage === "Product analytics export validation failed",
+    );
+    assert.equal(
+      api.queries.some((query) => query.sql.includes("Export lease lost")),
+      false,
+    );
+  });
+
+  it("replaces the window's desktop partitions in the promotion transaction on every run", async () => {
+    const api = new FakeExportApi();
+    const repo = new ProductAnalyticsExportRepository({ api });
+    const promote = () =>
+      repo.validateAndPromote({
+        run: cleanupRun,
+        expectedMilestoneRows: 1,
+        expectedTotalAccounts: 2,
+        expectedEnabledAccounts: 1,
+        expectedDesktopEventRows: 1,
+        desktopEventWindow,
+        metadata,
+      });
+
+    await promote();
+    await promote();
+
+    const promotions = api.queries.filter((query) => query.sql.includes("Export lease lost"));
+    assert.equal(promotions.length, 2);
+    for (const promotion of promotions) {
+      const deleteAt = promotion.sql.indexOf("DELETE FROM `valid-project.auth_private.desktop_product_events`");
+      const insertAt = promotion.sql.indexOf("INSERT INTO `valid-project.auth_private.desktop_product_events`");
+      assert.ok(promotion.sql.indexOf("BEGIN TRANSACTION") < deleteAt);
+      assert.ok(deleteAt < insertAt);
+      assert.ok(insertAt < promotion.sql.indexOf("COMMIT TRANSACTION"));
+      assert.match(
+        promotion.sql.slice(deleteAt, insertAt),
+        /WHERE source_export_date >= CAST\(@desktop_window_start AS DATE\)\s+AND source_export_date < CAST\(@desktop_window_end AS DATE\);/,
+      );
+      assert.match(
+        promotion.sql.slice(insertAt),
+        new RegExp(`^INSERT INTO \\S+\\s+SELECT \\* FROM \`[^\`]+\\.${cleanupRun.desktopEventStagingTableId}\`;`),
+      );
+      assert.equal(promotion.params?.desktop_window_start, "2026-07-21");
+      assert.equal(promotion.params?.desktop_window_end, "2026-07-28");
+    }
+  });
+
+  it("fails before leasing or staging when the desktop table is missing or its columns moved", async () => {
+    const missing = new FakeExportApi();
+    missing.missingTables.add("desktop_product_events");
+    const moved = new FakeExportApi();
+    const [first, second, ...rest] = productAnalyticsPermanentTableSchemas.get("desktop_product_events") ?? [];
+    moved.schemaOverrides.set("desktop_product_events", [second, first, ...rest]);
+
+    for (const [api, expected] of [
+      [missing, /table not found: desktop_product_events/],
+      [
+        moved,
+        (error: unknown) =>
+          error instanceof InternalServerError &&
+          error.debugMessage === "Unexpected product analytics schema for desktop_product_events",
+      ],
+    ] as const) {
+      await assert.rejects(
+        () =>
+          new ProductAnalyticsExportRepository({ api }).beginRun({
+            runId: "testrun01",
+            runCutoff: exportedAt,
+            expiresAt: new Date("2026-07-29T12:00:00.000Z"),
+          }),
+        expected,
+      );
+      assert.equal(api.created.length, 0);
+      assert.equal(api.queries.length, 0);
+    }
+  });
+
+  it("removes the desktop staging table when creating it fails", async () => {
+    const api = new FakeExportApi();
+    api.createFailures.add(cleanupRun.desktopEventStagingTableId);
+
+    await assert.rejects(
+      () =>
+        new ProductAnalyticsExportRepository({ api }).beginRun({
+          runId: "testrun01",
+          runCutoff: exportedAt,
+          expiresAt: new Date("2026-07-29T12:00:00.000Z"),
+        }),
+      /create failed/,
+    );
+
+    assert.deepEqual(api.deleted, [
+      cleanupRun.milestoneStagingTableId,
+      cleanupRun.cohortStagingTableId,
+      cleanupRun.desktopEventStagingTableId,
+    ]);
   });
 
   it("reports every staging cleanup failure", async () => {
@@ -254,10 +528,11 @@ describe("ProductAnalyticsExportRepository", () => {
     const repo = new ProductAnalyticsExportRepository({ api });
     api.deleteFailures.add(cleanupRun.milestoneStagingTableId);
     api.deleteFailures.add(cleanupRun.cohortStagingTableId);
+    api.deleteFailures.add(cleanupRun.desktopEventStagingTableId);
 
     await assert.rejects(
       () => repo.cleanup({ run: cleanupRun }),
-      (error: unknown) => error instanceof AggregateError && error.errors.length === 2,
+      (error: unknown) => error instanceof AggregateError && error.errors.length === 3,
     );
   });
 
@@ -272,6 +547,7 @@ describe("ProductAnalyticsExportRepository", () => {
             runId: "testrun01",
             milestoneStagingTableId: "another_table",
             cohortStagingTableId: "auth_weekly_setup_cohorts_staging_testrun01",
+            desktopEventStagingTableId: "desktop_product_events_staging_testrun01",
           },
           rows: [milestone],
         }),

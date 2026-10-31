@@ -6,6 +6,7 @@ import {
 } from "../lib/product-analytics-user-key.js";
 import type {
   ProductAnalyticsActivationMilestones,
+  ProductAnalyticsDesktopEvent,
   ProductAnalyticsExportRow,
   ProductAnalyticsExportRunMetadata,
   ProductAnalyticsExportUser,
@@ -20,6 +21,9 @@ const millisecondsPerDay = 24 * 60 * 60 * 1_000;
 // Staging outlives any reasonable run, expires before the next daily cadence,
 // and caps leaked-run storage cost.
 const stagingLifetimeMs = millisecondsPerDay;
+// The events TTL has to exceed this by more than a run's time of day, or a run
+// would replace the oldest day with a partial copy.
+const desktopEventWindowDays = 7;
 
 type ProductAnalyticsExportUserRepository = {
   findProductAnalyticsExportBatch(input: {
@@ -45,9 +49,18 @@ type ProductAnalyticsExportControlRepository = {
   loadActiveInternalUserKeys(input: { loadedAt: Date }): Promise<ProductAnalyticsInternalExclusionSnapshot>;
 };
 
+type ProductAnalyticsExportEventRepository = {
+  findExportBatches(input: {
+    start: Date;
+    end: Date;
+    batchLimit: number;
+  }): AsyncIterable<ProductAnalyticsDesktopEvent[]>;
+};
+
 type ProductAnalyticsExportStagingRepository = {
   beginRun(input: { runId: string; runCutoff: Date; expiresAt: Date }): Promise<ProductAnalyticsExportRun>;
   appendMilestones(input: { run: ProductAnalyticsExportRun; rows: ProductAnalyticsExportRow[] }): Promise<void>;
+  appendDesktopEvents(input: { run: ProductAnalyticsExportRun; events: ProductAnalyticsDesktopEvent[] }): Promise<void>;
   writeCohorts(input: { run: ProductAnalyticsExportRun; rows: ProductAnalyticsSetupCohortRow[] }): Promise<void>;
   removeUserKeys(input: { run: ProductAnalyticsExportRun; userKeys: string[] }): Promise<Map<string, number>>;
   validateAndPromote(input: {
@@ -55,6 +68,8 @@ type ProductAnalyticsExportStagingRepository = {
     expectedMilestoneRows: number;
     expectedTotalAccounts: number;
     expectedEnabledAccounts: number;
+    expectedDesktopEventRows: number;
+    desktopEventWindow: { start: Date; end: Date };
     metadata: ProductAnalyticsExportRunMetadata;
   }): Promise<void>;
   cleanup(input: { run: ProductAnalyticsExportRun }): Promise<void>;
@@ -225,6 +240,7 @@ export class ProductAnalyticsExportService {
   readonly #activationStateRepo: ProductAnalyticsExportActivationRepository;
   readonly #controlRepo: ProductAnalyticsExportControlRepository;
   readonly #exportRepo: ProductAnalyticsExportStagingRepository;
+  readonly #eventRepo: ProductAnalyticsExportEventRepository;
   readonly #batchLimit: number;
   readonly #pseudonymizationKey: Buffer;
   readonly #clock: () => Date;
@@ -235,6 +251,7 @@ export class ProductAnalyticsExportService {
     activationStateRepo: ProductAnalyticsExportActivationRepository;
     controlRepo: ProductAnalyticsExportControlRepository;
     exportRepo: ProductAnalyticsExportStagingRepository;
+    eventRepo: ProductAnalyticsExportEventRepository;
     batchLimit: number;
     pseudonymizationKey: Uint8Array;
     clock?: () => Date;
@@ -247,6 +264,7 @@ export class ProductAnalyticsExportService {
     this.#activationStateRepo = deps.activationStateRepo;
     this.#controlRepo = deps.controlRepo;
     this.#exportRepo = deps.exportRepo;
+    this.#eventRepo = deps.eventRepo;
     this.#batchLimit = deps.batchLimit;
     this.#pseudonymizationKey = copyProductAnalyticsPseudonymizationKey({ value: deps.pseudonymizationKey });
     this.#clock = deps.clock ?? (() => new Date());
@@ -254,10 +272,11 @@ export class ProductAnalyticsExportService {
   }
 
   /**
-   * Builds one cutoff-pinned auth snapshot in three phases: scan and stage
-   * eligible users, reconcile post-cutoff preference changes, then revalidate
-   * controls and atomically promote. Any failure preserves the last published
-   * snapshot and reaches staging cleanup in `finally`.
+   * Builds one cutoff-pinned auth snapshot in four phases: scan and stage
+   * eligible users, stage closed days of desktop events, reconcile post-cutoff
+   * preference changes, then revalidate controls and atomically promote. Any
+   * failure preserves the last published snapshot and reaches staging cleanup
+   * in `finally`.
    */
   async run(input: {
     runCutoff: Date;
@@ -361,7 +380,26 @@ export class ProductAnalyticsExportService {
         input.onBatchComplete?.({ ...progress });
       }
 
-      // Phase 2: reconcile current post-cutoff preferences before publication.
+      // Phase 2: stage the closed UTC days of desktop events. This precedes the
+      // reconciliation so a suppression landing during the scan aborts the run.
+      // Rows aren't filtered here: the warehouse owns those exclusions.
+      const desktopEventWindowEnd = new Date(
+        Date.UTC(input.runCutoff.getUTCFullYear(), input.runCutoff.getUTCMonth(), input.runCutoff.getUTCDate()),
+      );
+      const desktopEventWindow = {
+        start: new Date(desktopEventWindowEnd.getTime() - desktopEventWindowDays * millisecondsPerDay),
+        end: desktopEventWindowEnd,
+      };
+      let desktopEventRows = 0;
+      for await (const events of this.#eventRepo.findExportBatches({
+        ...desktopEventWindow,
+        batchLimit: this.#batchLimit,
+      })) {
+        await this.#exportRepo.appendDesktopEvents({ run, events });
+        desktopEventRows += events.length;
+      }
+
+      // Phase 3: reconcile current post-cutoff preferences before publication.
       const preferenceScanCutoff = this.#clock();
       if (Number.isNaN(preferenceScanCutoff.getTime()) || preferenceScanCutoff < input.runCutoff) {
         throw new InternalServerError({ debugMessage: "Invalid product analytics preference scan cutoff" });
@@ -408,7 +446,7 @@ export class ProductAnalyticsExportService {
         afterPreferenceUserId = changes.at(-1)?.userId ?? null;
       }
 
-      // Phase 3: revalidate controls, write aggregate cohorts, validate, and atomically promote.
+      // Phase 4: revalidate controls, write aggregate cohorts, validate, and atomically promote.
       const finalControlLoadedAt = this.#clock();
       if (Number.isNaN(finalControlLoadedAt.getTime()) || finalControlLoadedAt < preferenceScanCutoff) {
         throw new InternalServerError({ debugMessage: "Invalid product analytics final control load time" });
@@ -430,6 +468,8 @@ export class ProductAnalyticsExportService {
         expectedMilestoneRows: progress.milestoneRowsStaged,
         expectedTotalAccounts: externalAccounts,
         expectedEnabledAccounts: enabledAccounts,
+        expectedDesktopEventRows: desktopEventRows,
+        desktopEventWindow,
         metadata: {
           runId: run.runId,
           runCutoff: input.runCutoff,

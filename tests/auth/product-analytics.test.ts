@@ -72,12 +72,16 @@ describe("Product analytics preference routes", () => {
   it("fails closed if a post-start write bypasses required preference fields", async () => {
     const userId = new ObjectId();
     const createdAt = new Date("2026-06-10T10:00:00.000Z");
-    await ctx.dbAccessor.getCollection<User>(MongoDbDatabase.Auth, AuthDbCollection.Users).insertOne({
-      _id: userId,
-      tokenVersion: 0,
-      createdAt,
-      updatedAt: createdAt,
-    });
+    await ctx.dbAccessor
+      .getCollection<
+        Pick<User, "_id" | "tokenVersion" | "createdAt" | "updatedAt">
+      >(MongoDbDatabase.Auth, AuthDbCollection.Users)
+      .insertOne({
+        _id: userId,
+        tokenVersion: 0,
+        createdAt,
+        updatedAt: createdAt,
+      });
     const accessToken = ctx.tokenService.signAccessToken({
       userId: userId.toHexString(),
       provider: "github",
