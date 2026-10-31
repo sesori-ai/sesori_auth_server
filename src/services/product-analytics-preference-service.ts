@@ -42,6 +42,10 @@ export class ProductAnalyticsPreferenceService {
     return { ...preference, userKey: this.#userKeyFor({ userId: input.userId }) };
   }
 
+  async isExportSuppressed(input: { userId: string }): Promise<boolean> {
+    return this.#userRepo.isProductAnalyticsExportSuppressedOnPrimary(input);
+  }
+
   async updatePreference(input: {
     userId: string;
     preference: ProductAnalyticsPreference;

@@ -16,6 +16,10 @@ type ProductAnalyticsDeletionTargetHandoffRepository = {
   }): Promise<{ requestId: string; status: ProductAnalyticsDeletionTargetStatus }>;
 };
 
+type ProductAnalyticsEventDeletionRepository = {
+  deleteForUserKey(input: { userKey: string }): Promise<void>;
+};
+
 export type ProductAnalyticsDeletionHandoffResult = {
   requestId: string;
   status: ProductAnalyticsDeletionTargetStatus;
@@ -24,15 +28,18 @@ export type ProductAnalyticsDeletionHandoffResult = {
 export class ProductAnalyticsDeletionService {
   readonly #preferenceService: ProductAnalyticsSuppressionService;
   readonly #deletionTargetRepo: ProductAnalyticsDeletionTargetHandoffRepository;
+  readonly #eventRepo: ProductAnalyticsEventDeletionRepository;
   readonly #clock: () => Date;
 
   constructor(deps: {
     preferenceService: ProductAnalyticsSuppressionService;
     deletionTargetRepo: ProductAnalyticsDeletionTargetHandoffRepository;
+    eventRepo: ProductAnalyticsEventDeletionRepository;
     clock?: () => Date;
   }) {
     this.#preferenceService = deps.preferenceService;
     this.#deletionTargetRepo = deps.deletionTargetRepo;
+    this.#eventRepo = deps.eventRepo;
     this.#clock = deps.clock ?? (() => new Date());
   }
 
@@ -49,12 +56,14 @@ export class ProductAnalyticsDeletionService {
     }
 
     // This order is load-bearing: commit the permanent source tombstone first,
-    // then use its derived key for the idempotent restricted handoff. A handoff
-    // failure leaves suppression observable and safe to retry with requestId.
+    // then use its derived key to delete the account's stored desktop events and
+    // for the idempotent restricted handoff. A failure in either leaves
+    // suppression observable and safe to retry with requestId.
     const suppression = await this.#preferenceService.suppressExport({
       userId: input.userId,
       suppressedAt: requestedAt,
     });
+    await this.#eventRepo.deleteForUserKey({ userKey: suppression.userKey });
     const target = await this.#deletionTargetRepo.handoff({
       requestId: input.requestId,
       userKey: suppression.userKey,

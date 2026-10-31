@@ -11,9 +11,12 @@ import { devicePlatformSchema } from "./device.js";
 import { FeedbackIssue, FeedbackSource, feedbackPlatformSchema } from "./feedback.js";
 import { deviceIdSchema, storedNotificationSettingsSchema } from "./settings.js";
 import {
+  ProductAnalyticsEventName,
+  ProductAnalyticsEventPlatform,
   productAnalyticsOperationIdSchema,
   productAnalyticsPreferenceRevisionSchema,
   productAnalyticsPreferenceSchema,
+  productAnalyticsUserKeySchema,
 } from "../types/product-analytics.js";
 import { normalizedGlossaryWordSchema, projectGlossaryScopeSchema } from "./voice.js";
 import {
@@ -206,6 +209,22 @@ export const feedbackSchema = z.object({
 });
 
 export type Feedback = z.infer<typeof feedbackSchema>;
+
+// One accepted desktop product event, held until the daily export copies it.
+// `userKey` is a server-derived HMAC and is treated as personal data.
+export const productAnalyticsEventSchema = z.object({
+  _id: z.instanceof(ObjectId),
+  userKey: productAnalyticsUserKeySchema,
+  eventName: z.enum(ProductAnalyticsEventName),
+  occurredAtMicros: z.number().int().positive(),
+  receivedAt: z.date(),
+  schemaVersion: z.literal(1),
+  platform: z.enum(ProductAnalyticsEventPlatform),
+  appVersion: z.string(),
+  params: z.record(z.string(), z.string()),
+});
+
+export type ProductAnalyticsEvent = z.infer<typeof productAnalyticsEventSchema>;
 
 /**
  * Optional setup/reactivation mail only. This state must never gate password,

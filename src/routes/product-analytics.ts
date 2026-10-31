@@ -1,5 +1,7 @@
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
+import type { ClientIpRequest } from "../lib/client-ip.js";
 import { BadRequestError, InternalServerError, UnauthenticatedError } from "../lib/errors.js";
+import { buildAccountRateLimitKey } from "../middleware/account-rate-limit-key.js";
 import {
   productAnalyticsPreferenceConflictReplySchema,
   productAnalyticsPreferenceReplySchema,
@@ -7,11 +9,23 @@ import {
   type ProductAnalyticsPreferenceConflictReply,
   type ProductAnalyticsPreferenceReply,
 } from "../models/api.js";
+import type { ProductAnalyticsEventService } from "../services/product-analytics-event-service.js";
 import type { ProductAnalyticsPreferenceService } from "../services/product-analytics-preference-service.js";
-import { ProductAnalyticsPreferenceUpdateOutcome } from "../types/product-analytics.js";
+import type { TokenService } from "../services/token-service.js";
+import {
+  productAnalyticsEventBodySchema,
+  ProductAnalyticsPreferenceUpdateOutcome,
+} from "../types/product-analytics.js";
+
+const PRODUCT_ANALYTICS_EVENT_BODY_LIMIT_BYTES = 1024;
+// Far above human use for the desktop's event rate.
+const PRODUCT_ANALYTICS_EVENT_MAX_PER_MINUTE = 60;
 
 export type ProductAnalyticsRouteOptions = {
   productAnalyticsPreferenceService: ProductAnalyticsPreferenceService;
+  productAnalyticsEventService: ProductAnalyticsEventService;
+  tokenService: TokenService;
+  resolveClientIp: (request: ClientIpRequest) => string;
   requireAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
 };
 
@@ -82,6 +96,36 @@ export const productAnalyticsRoutes: FastifyPluginAsync<ProductAnalyticsRouteOpt
     }
     return successResult.data;
   });
+
+  fastify.post<{ Body: unknown }>(
+    "/product-analytics/events",
+    {
+      bodyLimit: PRODUCT_ANALYTICS_EVENT_BODY_LIMIT_BYTES,
+      preHandler: opts.requireAuth,
+      config: {
+        rateLimit: {
+          max: PRODUCT_ANALYTICS_EVENT_MAX_PER_MINUTE,
+          timeWindow: "1 minute",
+          keyGenerator: buildAccountRateLimitKey(opts.tokenService, opts.resolveClientIp),
+        },
+      },
+    },
+    async (request, reply) => {
+      const bodyResult = productAnalyticsEventBodySchema.safeParse(request.body);
+      if (!bodyResult.success) {
+        // Only code and path are safe to log: an unrecognized_keys issue also
+        // carries the raw key names the caller sent.
+        throw new BadRequestError({
+          debugMessage: "Invalid product analytics event",
+          nestedError: bodyResult.error.issues.map(({ code, path }) => ({ code, path })),
+        });
+      }
+
+      await opts.productAnalyticsEventService.record({ userId: getUserId({ request }), event: bodyResult.data });
+      // Stored, already stored and dropped by the preference are deliberately not distinguished.
+      return reply.status(204).send();
+    },
+  );
 };
 
 function getUserId(input: { request: FastifyRequest }): string {

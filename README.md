@@ -134,6 +134,37 @@ not an ordinary opt-out. Reads are forced to `disabled`, re-enable requests
 conflict, and the migration backfill persists `disabled` when that tombstone is
 present. There is no public endpoint that creates or clears the tombstone.
 
+### Product analytics events
+
+This is the desktop app's route for product events, because it has no Firebase SDK. The closed schema is the privacy
+boundary: every parameter is a closed enum, and the server derives `userKey` from the JWT.
+
+`POST /product-analytics/events` takes one event as JSON, up to 1024 bytes, and is limited to 60 requests per minute per
+account. `schemaVersion: 1` is a permanent contract with installed apps, so changes must stay additive.
+
+```json
+{
+  "schemaVersion": 1,
+  "platform": "MACOS",
+  "appVersion": "1.2.3",
+  "name": "session_permission_answered",
+  "occurredAtMicros": 1790000000000000,
+  "params": { "decision": "once" }
+}
+```
+
+`platform` is `MACOS`, `LINUX` or `WINDOWS`. `occurredAtMicros` must be the event's real time, within 72 hours before to
+300 seconds after the server clock, so the example's fixed value is rejected if copied. `params` is required, with
+exactly the keys that event defines, or `{}` where it defines none. Unknown fields are rejected everywhere. The events
+and their values are in `src/types/product-analytics.ts`.
+
+- `204`, empty: stored, already stored, or dropped by the account's preference. These are deliberately not distinguished.
+- `400`: failed validation. Only each issue's code and path are logged, never values or unrecognized key names.
+- `401`: bad token. `404`: the account no longer exists. `413`: oversized. `429`: rate limited.
+
+Accepted events go in `productAnalyticsEvents`, unique on `{userKey, eventName, occurredAtMicros}` so a retry is
+idempotent, and expire 9 days after `receivedAt`.
+
 ### Bridges
 
 Bridges authenticate with the user's access token everywhere (relay included) — there are no bridge-specific tokens. The API returns `BridgeSummary` objects (`id`, `name`, `platform`, `addedAt`, `lastSeenAt`, `status`); `status` is the persisted connectivity (`active` or `inactive`): `inactive` at registration and updated by relay reports, so it can lag a relay crash until the bridge reconnects.
@@ -850,11 +881,13 @@ web identity any BigQuery role or provide service-account JSON keys.
 ## Permanent product analytics suppression
 
 `npm run suppress-product-analytics-export` is a protected operator command,
-not an HTTP route. Its separate identity needs source suppression access plus
-append/read-status access only to
-`privacy_private.product_analytics_deletion_targets`; it must not receive auth
-export, control, raw-event, curated, or reporting access. Supply a verified
-request as bounded JSON on protected stdin—never argv or shell history:
+not an HTTP route or a Cloud Run job. Operators run it from the auth repo root
+under the app's production environment, whose Mongo credential can write the
+auth database. Its BigQuery credential is an impersonated suppression identity
+with append/read-status access only to
+`privacy_private.product_analytics_deletion_targets`; that identity must not
+receive auth export, control, raw-event, curated, or reporting access. Supply a
+verified request as bounded JSON on protected stdin—never argv or shell history:
 
 - `MONGODB_URI`
 - `PRODUCT_ANALYTICS_GCP_PROJECT_ID`
@@ -871,14 +904,17 @@ This command covers analytics only. A full account-deletion request must also de
 The command first atomically disables and permanently tombstones the source
 account, then derives the new HMAC pseudonym plus the deletion-only legacy
 SHA-256 Firebase user ID and hands only those values, the external request ID,
-tombstone time, and pending status to the restricted target table. The legacy
+tombstone time, and pending status to the restricted target table. Between the
+two it deletes the account's rows from `productAnalyticsEvents`, so its Mongo
+credential has to write that collection, and operators must run a checkout
+containing this delete: an older one leaves the rows to re-export for up to 9
+days. The legacy
 value exists only so the downstream processor can delete data created before
 the HMAC migration; it must never enter new analytics exports. Output contains
-only request ID and status. If target
+only request ID and status. If the event delete or target
 handoff fails, the source tombstone remains and rerunning the same request is
-idempotent. In a production image invoke
-`node dist/scripts/suppress-product-analytics-export.js`. Do not run it before
-the restricted target dataset/table and deletion identity exist.
+idempotent. Do not run it before the restricted target dataset/table and that
+BigQuery identity exist.
 
 ## npm scripts
 

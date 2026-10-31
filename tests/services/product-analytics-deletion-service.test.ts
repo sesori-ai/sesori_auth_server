@@ -47,12 +47,18 @@ describe("ProductAnalyticsDeletionService", () => {
           return { requestId: input.requestId, status: ProductAnalyticsDeletionTargetStatus.Pending };
         },
       },
+      eventRepo: {
+        async deleteForUserKey(input) {
+          operations.push("delete events");
+          assert.equal(input.userKey, userKey);
+        },
+      },
       clock: () => suppressedAt,
     });
 
     const result = await service.suppressAndHandoff({ userId, requestId });
 
-    assert.deepEqual(operations, ["suppress", "handoff"]);
+    assert.deepEqual(operations, ["suppress", "delete events", "handoff"]);
     assert.deepEqual(result, { requestId, status: ProductAnalyticsDeletionTargetStatus.Pending });
     assert.equal(Object.hasOwn(result, "userKey"), false);
     assert.equal(Object.hasOwn(result, "legacyFirebaseUserId"), false);
@@ -81,11 +87,48 @@ describe("ProductAnalyticsDeletionService", () => {
           throw new Error("target unavailable");
         },
       },
+      eventRepo: { async deleteForUserKey() {} },
       clock: () => suppressedAt,
     });
 
     await assert.rejects(() => service.suppressAndHandoff({ userId, requestId }), /target unavailable/);
     assert.equal(suppressions, 1);
+  });
+
+  it("keeps the source tombstone observable and hands off nothing when the event delete fails", async () => {
+    const operations: string[] = [];
+    const service = new ProductAnalyticsDeletionService({
+      preferenceService: {
+        async suppressExport() {
+          operations.push("suppress");
+          return {
+            preference: {
+              preference: ProductAnalyticsPreference.Disabled,
+              updatedAt: suppressedAt,
+              revision: 2,
+            },
+            suppressedAt,
+            userKey,
+            legacyFirebaseUserId,
+          };
+        },
+      },
+      deletionTargetRepo: {
+        async handoff(input) {
+          operations.push("handoff");
+          return { requestId: input.requestId, status: ProductAnalyticsDeletionTargetStatus.Pending };
+        },
+      },
+      eventRepo: {
+        async deleteForUserKey() {
+          throw new Error("mongo unavailable");
+        },
+      },
+      clock: () => suppressedAt,
+    });
+
+    await assert.rejects(() => service.suppressAndHandoff({ userId, requestId }), /mongo unavailable/);
+    assert.deepEqual(operations, ["suppress"]);
   });
 });
 
