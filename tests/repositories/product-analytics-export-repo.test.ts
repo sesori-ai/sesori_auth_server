@@ -60,10 +60,7 @@ class FakeExportApi {
     if (input.tableId === this.invalidSchemaTableId) {
       return [];
     }
-    if (this.schemaOverrides.has(input.tableId)) {
-      return this.schemaOverrides.get(input.tableId)!;
-    }
-    return productAnalyticsPermanentTableSchemas.get(input.tableId) ?? [];
+    return this.schemaOverrides.get(input.tableId) ?? productAnalyticsPermanentTableSchemas.get(input.tableId) ?? [];
   }
 
   async query(input: { sql: string; params?: Record<string, unknown> }): Promise<ProductAnalyticsExternalQueryRow[]> {
@@ -167,7 +164,7 @@ describe("ProductAnalyticsExportRepository", () => {
     );
     const inserts = api.queries.filter((query) => query.sql.includes("INSERT INTO"));
     assert.equal(inserts.length, 2);
-    assert.equal((inserts[0].params?.rows_json as string).includes(milestone.userKey), true);
+    assert.equal(String(inserts[0].params?.rows_json).includes(milestone.userKey), true);
     assert.equal(
       api.queries.some((query) => query.sql.includes("Another export is active")),
       true,
@@ -266,9 +263,11 @@ describe("ProductAnalyticsExportRepository", () => {
 
   it("accepts case-insensitive BigQuery field names when validating schemas", async () => {
     const api = new FakeExportApi();
+    const stateSchema = productAnalyticsPermanentTableSchemas.get("product_analytics_export_state");
+    assert.ok(stateSchema);
     api.schemaOverrides.set(
       "product_analytics_export_state",
-      productAnalyticsPermanentTableSchemas.get("product_analytics_export_state")!.map((field) => ({
+      stateSchema.map((field) => ({
         ...field,
         name: field.name.toUpperCase(),
       })),

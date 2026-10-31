@@ -33,6 +33,12 @@ function userKeyFor(input: { userId: string }): string {
   });
 }
 
+function nextClockValue(input: { values: Date[] }): Date {
+  const value = input.values.shift();
+  assert.ok(value, "The test read the clock more times than it scripted");
+  return value;
+}
+
 function weekFor(date: Date): string {
   const copy = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   copy.setUTCDate(copy.getUTCDate() - ((copy.getUTCDay() + 6) % 7));
@@ -114,6 +120,7 @@ class FakeExportRepository {
     expectedEnabledAccounts: number;
     expectedDesktopEventRows: number;
     desktopEventWindow: { start: Date; end: Date };
+    metadata: unknown;
   } | null = null;
   cleanupCalls = 0;
   failAppend = false;
@@ -279,7 +286,7 @@ describe("ProductAnalyticsExportService", () => {
       eventRepo: new FakeEventRepository(),
       batchLimit: 2,
       pseudonymizationKey,
-      clock: () => clockValues.shift()!,
+      clock: () => nextClockValue({ values: clockValues }),
       createRunId: () => "testrun01",
     });
 
@@ -310,7 +317,7 @@ describe("ProductAnalyticsExportService", () => {
       exportRepo.appendRuns.every((value) => value.milestoneStagingTableId === run.milestoneStagingTableId),
       true,
     );
-    assert.deepEqual((exportRepo.validationInput as unknown as { metadata: Record<string, unknown> }).metadata, {
+    assert.deepEqual(exportRepo.validationInput?.metadata, {
       runId: "testrun01",
       runCutoff,
       preferenceScanCutoff,
@@ -410,7 +417,7 @@ describe("ProductAnalyticsExportService", () => {
       pseudonymizationKey,
       clock: (() => {
         const values = [new Date("2026-07-28T12:01:00.000Z"), new Date("2026-07-28T12:02:00.000Z")];
-        return () => values.shift()!;
+        return () => nextClockValue({ values });
       })(),
       createRunId: () => "testrun01",
     });
@@ -456,7 +463,7 @@ describe("ProductAnalyticsExportService", () => {
           new Date("2026-07-28T12:02:00.000Z"),
           new Date("2026-07-28T12:03:00.000Z"),
         ];
-        return () => values.shift()!;
+        return () => nextClockValue({ values });
       })(),
       createRunId: () => "testrun01",
     });
@@ -510,7 +517,7 @@ describe("ProductAnalyticsExportService", () => {
           new Date("2026-07-28T12:02:00.000Z"),
           new Date("2026-07-28T12:03:00.000Z"),
         ];
-        return () => values.shift()!;
+        return () => nextClockValue({ values });
       })(),
       createRunId: () => "testrun01",
     });
@@ -568,7 +575,7 @@ describe("ProductAnalyticsExportService", () => {
           new Date("2026-07-28T12:02:00.000Z"),
           new Date("2026-07-28T12:03:00.000Z"),
         ];
-        return () => values.shift()!;
+        return () => nextClockValue({ values });
       })(),
       createRunId: () => "testrun01",
     });

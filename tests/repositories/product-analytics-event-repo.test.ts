@@ -188,10 +188,10 @@ describe("Desktop product event export path", () => {
     assert.equal(appends.length, 2);
     assert.equal(promotions.length, 2);
     for (const append of appends) {
-      const rows: unknown[] = JSON.parse(String(append.params?.rows_json));
+      const rows: Array<{ source_export_date: string }> = JSON.parse(String(append.params?.rows_json));
       assert.equal(rows.length, 2);
       assert.deepEqual(
-        rows.map((row) => (row as { source_export_date: string }).source_export_date).sort(),
+        rows.map((row) => row.source_export_date).sort(),
         [windowStart, justBeforeEnd].map((date) => date.toISOString().slice(0, 10)),
       );
     }
