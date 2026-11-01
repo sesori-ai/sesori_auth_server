@@ -769,18 +769,20 @@ describe("bridge revocation cancels pending notifications (end to end)", () => {
     });
     const created = createRes.json<{ id: string }>();
 
-    const statusRes = await ctx.app.inject({
-      method: "POST",
-      url: "/internal/bridge-status",
-      headers: { "x-relay-secret": "test-relay-secret", "content-type": "application/json" },
-      payload: JSON.stringify({
-        userId: user.userId,
-        bridgeId: created.id,
-        status: "connected",
-        timestamp: new Date().toISOString(),
-      }),
-    });
-    assert.equal(statusRes.statusCode, 200);
+    for (const status of ["connected", "disconnected"]) {
+      const statusRes = await ctx.app.inject({
+        method: "POST",
+        url: "/internal/bridge-status",
+        headers: { "x-relay-secret": "test-relay-secret", "content-type": "application/json" },
+        payload: JSON.stringify({
+          userId: user.userId,
+          bridgeId: created.id,
+          status,
+          timestamp: new Date().toISOString(),
+        }),
+      });
+      assert.equal(statusRes.statusCode, 200);
+    }
 
     const delRes = await ctx.app.inject({
       method: "DELETE",
@@ -803,18 +805,20 @@ describe("bridge revocation cancels pending notifications (end to end)", () => {
     });
     const created = createRes.json<{ id: string }>();
 
-    const statusRes = await ctx.app.inject({
-      method: "POST",
-      url: "/internal/bridge-status",
-      headers: { "x-relay-secret": "test-relay-secret", "content-type": "application/json" },
-      payload: JSON.stringify({
-        userId: user.userId,
-        bridgeId: created.id,
-        status: "connected",
-        timestamp: new Date().toISOString(),
-      }),
-    });
-    assert.equal(statusRes.statusCode, 200);
+    for (const status of ["connected", "disconnected"]) {
+      const statusRes = await ctx.app.inject({
+        method: "POST",
+        url: "/internal/bridge-status",
+        headers: { "x-relay-secret": "test-relay-secret", "content-type": "application/json" },
+        payload: JSON.stringify({
+          userId: user.userId,
+          bridgeId: created.id,
+          status,
+          timestamp: new Date().toISOString(),
+        }),
+      });
+      assert.equal(statusRes.statusCode, 200);
+    }
 
     await new Promise((resolve) => setTimeout(resolve, DEBOUNCE_MS * 3));
     assert.deepEqual(sentNotifications, [{ userId: user.userId }]);

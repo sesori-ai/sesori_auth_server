@@ -24,7 +24,7 @@ type EarlyConnectionObservation = {
 type BridgeStateEntry = {
   pending: PendingNotification | null;
   earlyConnectionObservation: EarlyConnectionObservation | null;
-  lastNotifiedStatus: BridgeStatus | null;
+  lastNotifiedStatus: BridgeStatus;
   generation: number;
 };
 
@@ -73,7 +73,7 @@ export class BridgeStateTracker {
       return;
     }
 
-    if (args.status === BridgeStatus.active && entry.pending?.status === BridgeStatus.inactive) {
+    if (entry.pending && entry.pending.status !== args.status) {
       this.#cancelPending(entry);
     }
 
@@ -190,6 +190,8 @@ export class BridgeStateTracker {
     userId: string;
     bridgeId: string;
   }): Promise<void> {
+    // Recorded before the send, so a change arriving mid-send is judged against this push.
+    args.entry.lastNotifiedStatus = args.pending.status;
     try {
       await this.#notificationService.sendToUser(
         args.userId,
@@ -199,7 +201,6 @@ export class BridgeStateTracker {
       console.warn("Bridge notification failed", { userId: args.userId, status: args.pending.status, err });
     } finally {
       if (args.entry.pending === args.pending) {
-        args.entry.lastNotifiedStatus = args.pending.status;
         args.entry.pending = null;
       }
     }
@@ -243,7 +244,10 @@ export class BridgeStateTracker {
     const entry: BridgeStateEntry = {
       pending: null,
       earlyConnectionObservation: null,
-      lastNotifiedStatus: null,
+      // A computer counts as online until an offline push says otherwise, so an
+      // online push only ever answers an offline push. Otherwise, a quick restart
+      // after this process started would read as a reconnect nobody was told about.
+      lastNotifiedStatus: BridgeStatus.active,
       generation: 0,
     };
     this.#state.set(key, entry);

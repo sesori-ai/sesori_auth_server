@@ -11,6 +11,20 @@ const bridgeName = "dev-laptop";
 const connectionId = "0123456789abcdef0123456789abcdef";
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
 
+async function markOfflineNotified(args: { tracker: BridgeStateTracker; sent: unknown[] }): Promise<void> {
+  args.tracker.handleStatusChangeForBridge({
+    userId: "u",
+    bridgeId,
+    bridgeName,
+    status: BridgeStatus.inactive,
+    notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+    connectionId,
+  });
+  mock.timers.tick(100);
+  await flush();
+  args.sent.length = 0;
+}
+
 describe("BridgeStateTracker DarkWake policy", () => {
   beforeEach(() => mock.timers.enable({ apis: ["setTimeout"] }));
   afterEach(() => mock.timers.reset());
@@ -60,8 +74,8 @@ describe("BridgeStateTracker DarkWake policy", () => {
     });
     mock.timers.tick(100);
     await flush();
-    assert.equal(calls.length, 2);
-    assert.equal(calls[1].title, "dev-laptop went offline");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].title, "dev-laptop went offline");
   });
 
   it("keeps a DarkWake-only suppress connection episode quiet", async () => {
@@ -105,6 +119,7 @@ describe("BridgeStateTracker DarkWake policy", () => {
       },
     } as NotificationService;
     const tracker = new BridgeStateTracker({ notificationService, conservativeDelayMs: 100, normalOnlineDelayMs: 5 });
+    await markOfflineNotified({ tracker, sent: calls });
     tracker.markConnectionObserved({
       userId: "u",
       bridgeId,
@@ -148,6 +163,7 @@ describe("BridgeStateTracker DarkWake policy", () => {
         },
       } as NotificationService;
       const tracker = new BridgeStateTracker({ notificationService, conservativeDelayMs: 100, normalOnlineDelayMs: 5 });
+      await markOfflineNotified({ tracker, sent: calls });
       const observation = { userId: "u", bridgeId, connectionId, deviceId: "123e4567-e89b-42d3-a456-426614174000" };
       if (scenario.observeEarly) {
         tracker.markConnectionObserved(observation);
@@ -188,13 +204,14 @@ describe("BridgeStateTracker DarkWake policy", () => {
       const deviceId = "123e4567-e89b-42d3-a456-426614174000";
       const messages: unknown[][] = [];
       let release: () => void = () => assert.fail("lookup gate was not initialized");
+      let gateArmed = false;
       const gate = new Promise<void>((resolve) => {
         release = resolve;
       });
       const notificationService = new NotificationService(
         {
           findByUserId: async () => {
-            if (blockedLookup === "tokens") {
+            if (gateArmed && blockedLookup === "tokens") {
               await gate;
             }
             return [
@@ -211,14 +228,16 @@ describe("BridgeStateTracker DarkWake policy", () => {
         } as unknown as Messaging,
         {
           resolveNotificationsByDevice: async () => {
-            if (blockedLookup === "settings") {
+            if (gateArmed && blockedLookup === "settings") {
               await gate;
             }
             return new Map();
           },
         },
       );
-      const tracker = new BridgeStateTracker({ notificationService, normalOnlineDelayMs: 5 });
+      const tracker = new BridgeStateTracker({ notificationService, conservativeDelayMs: 100, normalOnlineDelayMs: 5 });
+      await markOfflineNotified({ tracker, sent: messages });
+      gateArmed = true;
       tracker.handleStatusChangeForBridge({
         userId: "u",
         bridgeId,
@@ -250,6 +269,7 @@ describe("BridgeStateTracker DarkWake policy", () => {
       },
     } as NotificationService;
     const tracker = new BridgeStateTracker({ notificationService, conservativeDelayMs: 100, normalOnlineDelayMs: 5 });
+    await markOfflineNotified({ tracker, sent: calls });
     tracker.handleStatusChangeForBridge({
       userId: "u",
       bridgeId,

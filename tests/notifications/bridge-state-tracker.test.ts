@@ -58,6 +58,25 @@ function disconnectedPayload(bridgeId = BRIDGE_ID): NotificationPayload {
   };
 }
 
+async function markOfflineNotified(args: {
+  tracker: BridgeStateTracker;
+  sendCalls: SendCall[];
+  userId?: string;
+  bridgeId?: string;
+}): Promise<void> {
+  args.tracker.handleStatusChangeForBridge({
+    userId: args.userId ?? "user-1",
+    bridgeId: args.bridgeId ?? BRIDGE_ID,
+    bridgeName: BRIDGE_NAME,
+    status: BridgeStatus.inactive,
+    notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+    connectionId: null,
+  });
+  mock.timers.tick(DEBOUNCE_MS);
+  await flushMicrotasks();
+  args.sendCalls.length = 0;
+}
+
 describe("BridgeStateTracker", () => {
   beforeEach(() => {
     mock.timers.enable({ apis: ["setTimeout"] });
@@ -81,7 +100,7 @@ describe("BridgeStateTracker", () => {
       userId: "user-1",
       bridgeId: BRIDGE_ID,
       bridgeName: BRIDGE_NAME,
-      status: BridgeStatus.active,
+      status: BridgeStatus.inactive,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
     });
@@ -94,7 +113,7 @@ describe("BridgeStateTracker", () => {
     mock.timers.tick(HALF_DEBOUNCE_MS);
     await flushMicrotasks();
 
-    assert.deepEqual(sendCalls, [{ userId: "user-1", payload: connectedPayload() }]);
+    assert.deepEqual(sendCalls, [{ userId: "user-1", payload: disconnectedPayload() }]);
   });
 
   it("stable connected notifies after debounce", async () => {
@@ -110,6 +129,7 @@ describe("BridgeStateTracker", () => {
       conservativeDelayMs: DEBOUNCE_MS,
     });
 
+    await markOfflineNotified({ tracker, sendCalls });
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
@@ -206,8 +226,7 @@ describe("BridgeStateTracker", () => {
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();
 
-    assert.equal(sendCalls.length, 1);
-    assert.deepEqual(sendCalls[0], { userId: "user-1", payload: connectedPayload() });
+    assert.deepEqual(sendCalls, []);
   });
 
   it("rapid flicker only final state notifies", async () => {
@@ -282,7 +301,7 @@ describe("BridgeStateTracker", () => {
       userId: "user-1",
       bridgeId: BRIDGE_ID,
       bridgeName: BRIDGE_NAME,
-      status: BridgeStatus.active,
+      status: BridgeStatus.inactive,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
     });
@@ -291,14 +310,14 @@ describe("BridgeStateTracker", () => {
       userId: "user-1",
       bridgeId: BRIDGE_ID,
       bridgeName: BRIDGE_NAME,
-      status: BridgeStatus.active,
+      status: BridgeStatus.inactive,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
     });
     mock.timers.tick(HALF_DEBOUNCE_MS);
     await flushMicrotasks();
 
-    assert.deepEqual(sendCalls, [{ userId: "user-1", payload: connectedPayload() }]);
+    assert.deepEqual(sendCalls, [{ userId: "user-1", payload: disconnectedPayload() }]);
   });
 
   it("redundant after notification skipped", async () => {
@@ -318,7 +337,7 @@ describe("BridgeStateTracker", () => {
       userId: "user-1",
       bridgeId: BRIDGE_ID,
       bridgeName: BRIDGE_NAME,
-      status: BridgeStatus.active,
+      status: BridgeStatus.inactive,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
     });
@@ -329,14 +348,14 @@ describe("BridgeStateTracker", () => {
       userId: "user-1",
       bridgeId: BRIDGE_ID,
       bridgeName: BRIDGE_NAME,
-      status: BridgeStatus.active,
+      status: BridgeStatus.inactive,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
     });
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();
 
-    assert.deepEqual(sendCalls, [{ userId: "user-1", payload: connectedPayload() }]);
+    assert.deepEqual(sendCalls, [{ userId: "user-1", payload: disconnectedPayload() }]);
   });
 
   it("multi-user isolation", async () => {
@@ -352,6 +371,7 @@ describe("BridgeStateTracker", () => {
       conservativeDelayMs: DEBOUNCE_MS,
     });
 
+    await markOfflineNotified({ tracker, sendCalls, userId: "user-a" });
     tracker.handleStatusChangeForBridge({
       userId: "user-a",
       bridgeId: BRIDGE_ID,
@@ -391,6 +411,7 @@ describe("BridgeStateTracker", () => {
       conservativeDelayMs: DEBOUNCE_MS,
     });
 
+    await markOfflineNotified({ tracker, sendCalls });
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
@@ -442,7 +463,7 @@ describe("BridgeStateTracker", () => {
       userId: "user-1",
       bridgeId: BRIDGE_ID,
       bridgeName: BRIDGE_NAME,
-      status: BridgeStatus.active,
+      status: BridgeStatus.inactive,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
     });
@@ -458,7 +479,7 @@ describe("BridgeStateTracker", () => {
       userId: "user-3",
       bridgeId: BRIDGE_ID,
       bridgeName: BRIDGE_NAME,
-      status: BridgeStatus.active,
+      status: BridgeStatus.inactive,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
     });
@@ -495,7 +516,7 @@ describe("BridgeStateTracker", () => {
       userId: "user-1",
       bridgeId: "br_other0001",
       bridgeName: BRIDGE_NAME,
-      status: BridgeStatus.active,
+      status: BridgeStatus.inactive,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
     });
@@ -504,7 +525,7 @@ describe("BridgeStateTracker", () => {
     mock.timers.tick(DEBOUNCE_MS);
     await flushMicrotasks();
 
-    assert.deepEqual(sendCalls, [{ userId: "user-1", payload: connectedPayload("br_other0001") }]);
+    assert.deepEqual(sendCalls, [{ userId: "user-1", payload: disconnectedPayload("br_other0001") }]);
   });
 
   it("notification payload correctness", async () => {
@@ -520,6 +541,7 @@ describe("BridgeStateTracker", () => {
       conservativeDelayMs: DEBOUNCE_MS,
     });
 
+    await markOfflineNotified({ tracker, sendCalls });
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
@@ -558,6 +580,7 @@ describe("BridgeStateTracker", () => {
       conservativeDelayMs: DEBOUNCE_MS,
     });
 
+    await markOfflineNotified({ tracker, sendCalls, bridgeId: "br_laptop0001" });
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: "br_laptop0001",
@@ -623,7 +646,7 @@ describe("BridgeStateTracker", () => {
       userId: "user-1",
       bridgeId: BRIDGE_ID,
       bridgeName: BRIDGE_NAME,
-      status: BridgeStatus.active,
+      status: BridgeStatus.inactive,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
     });
@@ -635,7 +658,7 @@ describe("BridgeStateTracker", () => {
       userId: "user-1",
       bridgeId: BRIDGE_ID,
       bridgeName: BRIDGE_NAME,
-      status: BridgeStatus.inactive,
+      status: BridgeStatus.active,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
     });
@@ -643,8 +666,8 @@ describe("BridgeStateTracker", () => {
     await flushMicrotasks();
 
     assert.deepEqual(sendCalls, [
-      { userId: "user-1", payload: connectedPayload() },
       { userId: "user-1", payload: disconnectedPayload() },
+      { userId: "user-1", payload: connectedPayload() },
     ]);
   });
 
@@ -657,7 +680,7 @@ describe("BridgeStateTracker", () => {
         sendCalls.push({ userId, payload });
         invocation += 1;
 
-        if (invocation === 1) {
+        if (invocation === 2) {
           return firstSend.promise;
         }
 
@@ -669,6 +692,7 @@ describe("BridgeStateTracker", () => {
       conservativeDelayMs: DEBOUNCE_MS,
     });
 
+    await markOfflineNotified({ tracker, sendCalls });
     tracker.handleStatusChangeForBridge({
       userId: "user-1",
       bridgeId: BRIDGE_ID,
@@ -717,7 +741,7 @@ describe("BridgeStateTracker", () => {
       userId: "user-1",
       bridgeId: BRIDGE_ID,
       bridgeName: BRIDGE_NAME,
-      status: BridgeStatus.active,
+      status: BridgeStatus.inactive,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
     });
@@ -734,7 +758,7 @@ describe("BridgeStateTracker", () => {
     sendDeferred.resolve({ devicesNotified: 1 });
     await disposing;
     assert.equal(disposed, true);
-    assert.deepEqual(sendCalls, [{ userId: "user-1", payload: connectedPayload() }]);
+    assert.deepEqual(sendCalls, [{ userId: "user-1", payload: disconnectedPayload() }]);
   });
 
   it("dispose rejects when an already-fired notification callback does not drain", async (t) => {
@@ -749,7 +773,7 @@ describe("BridgeStateTracker", () => {
       userId: "user-1",
       bridgeId: BRIDGE_ID,
       bridgeName: BRIDGE_NAME,
-      status: BridgeStatus.active,
+      status: BridgeStatus.inactive,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
     });
@@ -803,7 +827,7 @@ describe("BridgeStateTracker", () => {
       userId: "user-1",
       bridgeId: BRIDGE_ID,
       bridgeName: BRIDGE_NAME,
-      status: BridgeStatus.active,
+      status: BridgeStatus.inactive,
       notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
       connectionId: null,
     });
@@ -812,5 +836,163 @@ describe("BridgeStateTracker", () => {
     await flushMicrotasks();
 
     assert.deepEqual(sendCalls, []);
+  });
+
+  describe("an online push only answers an offline push", () => {
+    const NEW_CONNECTION_ID = "0123456789abcdef0123456789abcdef";
+
+    function createRecordingTracker(): { tracker: BridgeStateTracker; sendCalls: SendCall[] } {
+      const sendCalls: SendCall[] = [];
+      const notificationServiceMock = {
+        sendToUser: async (userId: string, payload: NotificationPayload) => {
+          sendCalls.push({ userId, payload });
+          return { devicesNotified: 1 };
+        },
+      } as unknown as NotificationService;
+      return { tracker: new BridgeStateTracker({ notificationService: notificationServiceMock }), sendCalls };
+    }
+
+    it("a restart inside the offline debounce sends nothing", async () => {
+      const { tracker, sendCalls } = createRecordingTracker();
+
+      tracker.handleStatusChangeForBridge({
+        userId: "user-1",
+        bridgeId: BRIDGE_ID,
+        bridgeName: BRIDGE_NAME,
+        status: BridgeStatus.inactive,
+        notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+        connectionId: null,
+      });
+      mock.timers.tick(10_000);
+      tracker.handleStatusChangeForBridge({
+        userId: "user-1",
+        bridgeId: BRIDGE_ID,
+        bridgeName: BRIDGE_NAME,
+        status: BridgeStatus.active,
+        notificationPolicy: BridgeConnectionNotificationPolicy.Normal,
+        connectionId: NEW_CONNECTION_ID,
+      });
+      mock.timers.tick(DEBOUNCE_MS * 2);
+      await flushMicrotasks();
+
+      assert.deepEqual(sendCalls, []);
+    });
+
+    it("a same-socket policy report on a fresh tracker sends nothing", async () => {
+      const { tracker, sendCalls } = createRecordingTracker();
+
+      tracker.handleStatusChangeForBridge({
+        userId: "user-1",
+        bridgeId: BRIDGE_ID,
+        bridgeName: BRIDGE_NAME,
+        status: BridgeStatus.active,
+        notificationPolicy: BridgeConnectionNotificationPolicy.Normal,
+        connectionId: NEW_CONNECTION_ID,
+      });
+      mock.timers.tick(DEBOUNCE_MS * 2);
+      await flushMicrotasks();
+
+      assert.deepEqual(sendCalls, []);
+    });
+
+    it("a reconnect after a delivered offline push notifies after five seconds", async () => {
+      const { tracker, sendCalls } = createRecordingTracker();
+
+      tracker.handleStatusChangeForBridge({
+        userId: "user-1",
+        bridgeId: BRIDGE_ID,
+        bridgeName: BRIDGE_NAME,
+        status: BridgeStatus.inactive,
+        notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+        connectionId: null,
+      });
+      mock.timers.tick(DEBOUNCE_MS);
+      await flushMicrotasks();
+      assert.deepEqual(sendCalls, [{ userId: "user-1", payload: disconnectedPayload() }]);
+
+      tracker.handleStatusChangeForBridge({
+        userId: "user-1",
+        bridgeId: BRIDGE_ID,
+        bridgeName: BRIDGE_NAME,
+        status: BridgeStatus.active,
+        notificationPolicy: BridgeConnectionNotificationPolicy.Normal,
+        connectionId: NEW_CONNECTION_ID,
+      });
+      mock.timers.tick(4_999);
+      await flushMicrotasks();
+      assert.equal(sendCalls.length, 1);
+
+      mock.timers.tick(1);
+      await flushMicrotasks();
+      assert.deepEqual(sendCalls, [
+        { userId: "user-1", payload: disconnectedPayload() },
+        { userId: "user-1", payload: connectedPayload() },
+      ]);
+    });
+
+    it("a computer that drops again before its online push repeats no offline push", async () => {
+      const { tracker, sendCalls } = createRecordingTracker();
+      await markOfflineNotified({ tracker, sendCalls });
+      const report = {
+        userId: "user-1",
+        bridgeId: BRIDGE_ID,
+        bridgeName: BRIDGE_NAME,
+        connectionId: NEW_CONNECTION_ID,
+      };
+
+      tracker.handleStatusChangeForBridge({
+        ...report,
+        status: BridgeStatus.active,
+        notificationPolicy: BridgeConnectionNotificationPolicy.Normal,
+      });
+      mock.timers.tick(1_000);
+      tracker.handleStatusChangeForBridge({
+        ...report,
+        status: BridgeStatus.inactive,
+        notificationPolicy: BridgeConnectionNotificationPolicy.Normal,
+      });
+      mock.timers.tick(DEBOUNCE_MS * 2);
+      await flushMicrotasks();
+
+      assert.deepEqual(sendCalls, []);
+    });
+
+    it("a reconnect while the offline push is still sending gets its online push", async () => {
+      const send = createDeferred<{ devicesNotified: number }>();
+      const sendCalls: SendCall[] = [];
+      const tracker = new BridgeStateTracker({
+        notificationService: {
+          sendToUser: async (userId: string, payload: NotificationPayload) => {
+            sendCalls.push({ userId, payload });
+            return sendCalls.length === 1 ? send.promise : { devicesNotified: 1 };
+          },
+        } as unknown as NotificationService,
+      });
+      const report = { userId: "user-1", bridgeId: BRIDGE_ID, bridgeName: BRIDGE_NAME };
+
+      tracker.handleStatusChangeForBridge({
+        ...report,
+        status: BridgeStatus.inactive,
+        notificationPolicy: BridgeConnectionNotificationPolicy.Conservative,
+        connectionId: null,
+      });
+      mock.timers.tick(DEBOUNCE_MS);
+      await flushMicrotasks();
+      tracker.handleStatusChangeForBridge({
+        ...report,
+        status: BridgeStatus.active,
+        notificationPolicy: BridgeConnectionNotificationPolicy.Normal,
+        connectionId: NEW_CONNECTION_ID,
+      });
+      send.resolve({ devicesNotified: 1 });
+      await flushMicrotasks();
+      mock.timers.tick(5_000);
+      await flushMicrotasks();
+
+      assert.deepEqual(sendCalls, [
+        { userId: "user-1", payload: disconnectedPayload() },
+        { userId: "user-1", payload: connectedPayload() },
+      ]);
+    });
   });
 });

@@ -262,7 +262,8 @@ most four distinct collapse keys per offline device and drops the rest arbitrari
 `POST /notifications/send` accepts an optional `data.bridgeId` (a `br_` id) for every client-sendable category and
 forwards it in the FCM data. macOS bridges may attach an
 advisory connection-notification policy: detected full wakes use a short online settlement delay, DarkWake-only socket
-episodes suppress connection pushes, and missing/failed detection retains the conservative two-minute debounce. A
+episodes suppress connection pushes, and missing/failed detection retains the conservative two-minute debounce. An online push is only sent to answer an earlier offline push, so a
+restart inside the two-minute offline debounce is silent. A
 socket established while normally awake remains eligible for the two-minute offline debounce if it disconnects during
 sleep suppression; same-socket full wake also promotes a DarkWake socket. Policy and per-socket observation state are in memory only;
 no database fields are added. A mobile surface that restores the exact E2E connection may exclude only its own device
