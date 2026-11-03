@@ -467,10 +467,10 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 | `ASYNC_TRANSCRIPTION_PROVIDER` | Async transcription provider: `openai` (default) or `soniox`. Selected once at startup; a failed request is never retried against the other provider. |
 | `SONIOX_API_KEY`               | Soniox API key. Required when `ASYNC_TRANSCRIPTION_PROVIDER=soniox` **or** when `REALTIME_TRANSCRIPTION_ENABLED` is true — realtime always runs on Soniox, so enabling it on the default OpenAI async provider still requires this key or startup fails. Keep it in the encrypted env only. |
 | `SONIOX_REGION`                | Soniox project region: `us` or `eu`. Must match the API key's project region. Default `us`. |
-| `SONIOX_ASYNC_MODEL`           | Soniox async model. Default `stt-async-v5`. |
+| `SONIOX_ASYNC_MODEL`           | Soniox async model. Default `stt-async-v6`. |
 | `SONIOX_ASYNC_TIMEOUT_MS`      | Budget covering upload, processing, and transcript fetch. Default `100000` (range 1,000-110,000). |
 | `SONIOX_CLEANUP_TIMEOUT_MS`    | Independent budget for deleting provider-side audio. Default `10000` (range 1,000-30,000). |
-| `SONIOX_REALTIME_MODEL`        | Soniox realtime model. Default `stt-rt-v5`. |
+| `SONIOX_REALTIME_MODEL`        | Soniox realtime model. Default `stt-rt-v6`. |
 | `SONIOX_BASE_DOMAIN`           | **Not a setting.** Declared in the schema only so that setting it *fails startup* with `SONIOX_BASE_DOMAIN is forbidden`. The Soniox SDK reads this variable itself and it outranks `SONIOX_REGION` when deriving the default host of every Soniox service, so honouring it would silently move any endpoint we have not pinned. Leave it unset. See "Soniox endpoint pinning" below. |
 | `REALTIME_TRANSCRIPTION_ENABLED` | Enables the additive `/voice/realtime` WebSocket route. When omitted, defaults to `true` if `SONIOX_API_KEY` is present and `false` otherwise. Explicit `false`/`0` disables it even with a key; explicit `true`/`1` without a key fails startup. Disabled deployments still expose protocol 1 capability discovery. Any other value — including an empty string, `TRUE`, or `yes` — fails startup. |
 | `REALTIME_CONNECT_TIMEOUT_MS`  | Soniox realtime connect timeout. Default `10000` (range 1,000-30,000). |
