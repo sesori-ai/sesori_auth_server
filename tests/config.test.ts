@@ -126,7 +126,7 @@ describe("async transcription provider configuration", () => {
     });
     assert.equal(provided.success, true);
     assert.equal(provided.data?.SONIOX_REGION, SonioxRegion.Us);
-    assert.equal(provided.data?.SONIOX_ASYNC_MODEL, "stt-async-v5");
+    assert.equal(provided.data?.SONIOX_ASYNC_MODEL, "stt-async-v6");
   });
 
   it("accepts the explicit EU region for Soniox", () => {

@@ -125,10 +125,10 @@ const baseConfigSchema = z.object({
   ASYNC_TRANSCRIPTION_PROVIDER: z.nativeEnum(AsyncTranscriptionProvider).default(AsyncTranscriptionProvider.OpenAI),
   SONIOX_API_KEY: z.string().min(1).optional(),
   SONIOX_REGION: z.nativeEnum(SonioxRegion).default(SonioxRegion.Us),
-  SONIOX_ASYNC_MODEL: z.string().min(1).default("stt-async-v5"),
+  SONIOX_ASYNC_MODEL: z.string().min(1).default("stt-async-v6"),
   SONIOX_ASYNC_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(110_000).default(100_000),
   SONIOX_CLEANUP_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(30_000).default(10_000),
-  SONIOX_REALTIME_MODEL: z.string().min(1).default("stt-rt-v5"),
+  SONIOX_REALTIME_MODEL: z.string().min(1).default("stt-rt-v6"),
   // NOT a setting. Declared only so the refinement below can hard-fail startup:
   // the SDK reads this variable itself, and it outranks `region` when deriving
   // every default service URL. See the refinement for why it is rejected while

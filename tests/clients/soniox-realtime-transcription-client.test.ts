@@ -75,7 +75,7 @@ function createClient(session: FakeRealtimeSession): SonioxRealtimeClient {
         },
       },
     },
-    model: "stt-rt-v5",
+    model: "stt-rt-v6",
     connectTimeoutMs: 10,
   });
 }
@@ -95,7 +95,7 @@ describe("SonioxRealtimeClient", () => {
     });
 
     assert.deepEqual(session.config, {
-      model: "stt-rt-v5",
+      model: "stt-rt-v6",
       audio_format: "pcm_s16le",
       sample_rate: 44100,
       num_channels: 1,

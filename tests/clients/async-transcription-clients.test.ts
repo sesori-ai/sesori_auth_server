@@ -60,7 +60,7 @@ function createFakeSdk(
 function createClient(sdk: SonioxAsyncSdk): SonioxTranscriptionClient {
   return new SonioxTranscriptionClient({
     sdk,
-    model: "stt-async-v5",
+    model: "stt-async-v6",
     timeoutMs: 5_000,
     cleanupTimeoutMs: 1_000,
   });
@@ -409,7 +409,7 @@ describe("SonioxTranscriptionClient", () => {
     };
     const client = new SonioxTranscriptionClient({
       sdk: failing.sdk,
-      model: "stt-async-v5",
+      model: "stt-async-v6",
       timeoutMs: 5,
       cleanupTimeoutMs: 1_000,
     });
