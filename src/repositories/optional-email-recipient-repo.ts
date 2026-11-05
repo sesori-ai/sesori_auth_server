@@ -1,6 +1,6 @@
 import { Collection, ObjectId } from "mongodb";
-import { z } from "zod";
 import type { MongoDbAccessor } from "../db/mongo-db-accessor.js";
+import { normalizeOptionalEmailAddress } from "../lib/optional-email-address-key.js";
 import type { OAuthAccount, PasswordAccount } from "../models/documents.js";
 import { AUTH_PROVIDER_EMAIL, OAuthProviderName } from "../types/oauth.js";
 import {
@@ -10,12 +10,6 @@ import {
   OptionalEmailRecipientResolutionStatus,
 } from "../types/optional-email.js";
 import { AuthDbCollection, MongoDbDatabase } from "../types/mongo.js";
-
-const normalizedEmailSchema = z
-  .string()
-  .trim()
-  .email()
-  .transform((value) => value.toLowerCase());
 
 function compareStrings(left: string, right: string): number {
   if (left < right) {
@@ -112,23 +106,27 @@ export class OptionalEmailRecipientRepository {
       return { status: OptionalEmailRecipientResolutionStatus.Missing };
     }
 
-    const parsed = candidates.map((candidate) => ({
-      result: normalizedEmailSchema.safeParse(candidate.value),
-      provenance: candidate.provenance,
-    }));
-    if (parsed.some((candidate) => !candidate.result.success)) {
-      return { status: OptionalEmailRecipientResolutionStatus.Ambiguous };
+    const normalizedCandidates = [];
+    for (const candidate of candidates) {
+      const address = normalizeOptionalEmailAddress({ address: candidate.value });
+      if (address === null) {
+        return { status: OptionalEmailRecipientResolutionStatus.Ambiguous };
+      }
+
+      normalizedCandidates.push({ address, provenance: candidate.provenance });
     }
 
-    const addresses = new Set(parsed.map((candidate) => (candidate.result.success ? candidate.result.data : "")));
+    const addresses = new Set(normalizedCandidates.map((candidate) => candidate.address));
     if (addresses.size !== 1) {
       return { status: OptionalEmailRecipientResolutionStatus.Ambiguous };
     }
 
+    const [address] = addresses;
+
     return {
       status: OptionalEmailRecipientResolutionStatus.Resolved,
-      address: [...addresses][0] as string,
-      provenance: parsed
+      address,
+      provenance: normalizedCandidates
         .map((candidate) => candidate.provenance)
         .sort(
           (left, right) =>

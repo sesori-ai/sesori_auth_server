@@ -13,6 +13,7 @@ export enum AuthDbCollection {
   ActivationStates = "activationStates",
   SettingsConfiguration = "settingsConfiguration",
   OptionalEmailPreferences = "optionalEmailPreferences",
+  OptionalEmailAddressSuppressions = "optionalEmailAddressSuppressions",
   OptionalEmailWebhookEvents = "optionalEmailWebhookEvents",
   OptionalEmailSends = "optionalEmailSends",
   OptionalEmailDailyQuota = "optionalEmailDailyQuota",
