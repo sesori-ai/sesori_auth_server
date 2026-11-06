@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   BridgeConnectionNotificationPolicy,
+  BridgeKind,
   BridgePlatform,
   BridgeStatus,
   BridgeStatusEvent,
@@ -317,6 +318,8 @@ export type BridgeSummary = {
   lastSeenAt: string | null;
   platform: BridgePlatform;
   status: BridgeStatus;
+  /** How the bridge was installed; null for bridges that registered before kind existed. */
+  kind: BridgeKind | null;
 };
 
 // bridgeId is optional: when it identifies a non-revoked bridge owned by the

@@ -161,7 +161,7 @@ describe("Token routes", () => {
           authorization: `Bearer ${user.accessToken}`,
           "content-type": "application/json",
         },
-        payload: JSON.stringify({ name: "Mac", platform: "macos" }),
+        payload: JSON.stringify({ name: "Mac", platform: "macos", kind: "desktop" }),
       });
       const created = createRes.json<{ id: string; name: string }>();
 
@@ -172,11 +172,12 @@ describe("Token routes", () => {
       });
       assert.equal(res.statusCode, 200);
       const body = res.json<{
-        bridges: { id: string; name: string }[];
+        bridges: { id: string; name: string; kind: string | null }[];
       }>();
       assert.equal(body.bridges.length, 1);
       assert.equal(body.bridges[0]?.id, created.id);
       assert.equal(body.bridges[0]?.name, "Mac");
+      assert.equal(body.bridges[0]?.kind, "desktop");
     });
 
     it("returns 401 when no Authorization header is provided", async () => {

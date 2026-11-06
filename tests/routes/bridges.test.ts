@@ -19,6 +19,7 @@ type BridgeSummaryBody = {
   lastSeenAt: string | null;
   platform: "macos" | "windows" | "linux";
   status: "active" | "inactive";
+  kind: "desktop" | "cli" | null;
 };
 
 const HOST_KEY = "0123456789abcdef".repeat(4);
@@ -83,6 +84,7 @@ describe("/auth/bridges routes", () => {
     assert.equal(body.platform, "macos");
     assert.ok(typeof body.addedAt === "string");
     assert.equal(body.status, "inactive");
+    assert.equal(body.kind, null);
     assert.ok(!("bridgeToken" in body), "bridgeToken must not exist in the API");
     const activationState = await activationStateRepo.findByUserId(user.userId);
     assert.equal(activationState?.bridgeSetupAt?.toISOString(), body.addedAt);
@@ -103,17 +105,45 @@ describe("/auth/bridges routes", () => {
     assert.equal(warnMock.mock.callCount(), 1);
   });
 
-  it("POST /auth/bridges stores the reported kind, keeps it private, and rejects unknown kinds", async () => {
+  it("POST /auth/bridges stores and returns the reported kind, and rejects unknown kinds", async () => {
     const user = await ctx.createUser();
 
     const res = await registerBridge(user.accessToken, { name: "Desk", platform: "linux", kind: "desktop" });
     assert.equal(res.statusCode, 201);
     const created = res.json<BridgeSummaryBody>();
-    assert.ok(!("kind" in created));
+    assert.equal(created.kind, "desktop");
     assert.equal((await new BridgeRepository(ctx.dbAccessor).findById(created.id))?.kind, "desktop");
 
     const rejected = await registerBridge(user.accessToken, { name: "Desk", platform: "linux", kind: "tablet" });
     assert.equal(rejected.statusCode, 400);
+  });
+
+  it("GET /auth/bridges returns each bridge's kind, null when it was never reported", async () => {
+    const user = await ctx.createUser();
+    const cli = (
+      await registerBridge(user.accessToken, { name: "Terminal box", platform: "linux", kind: "cli" })
+    ).json<BridgeSummaryBody>();
+    const legacy = (
+      await registerBridge(user.accessToken, { name: "Old Mac", platform: "macos" })
+    ).json<BridgeSummaryBody>();
+
+    // A re-registration without kind keeps the stored kind in the reply.
+    const reRegistered = await registerBridge(user.accessToken, {
+      name: "Terminal box",
+      platform: "linux",
+      bridgeId: cli.id,
+    });
+    assert.equal(reRegistered.statusCode, 200);
+    assert.equal(reRegistered.json<BridgeSummaryBody>().kind, "cli");
+
+    const listRes = await ctx.app.inject({
+      method: "GET",
+      url: "/auth/bridges",
+      headers: { authorization: `Bearer ${user.accessToken}` },
+    });
+    const kinds = new Map(listRes.json<{ bridges: BridgeSummaryBody[] }>().bridges.map((b) => [b.id, b.kind]));
+    assert.equal(kinds.get(cli.id), "cli");
+    assert.equal(kinds.get(legacy.id), null);
   });
 
   it("POST /auth/bridges with an owned bridgeId updates it in place and returns 200", async () => {

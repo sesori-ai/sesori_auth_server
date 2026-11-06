@@ -26,6 +26,7 @@ function toSummary(bridge: BridgeDoc): BridgeSummary {
     lastSeenAt: bridge.lastSeenAt ? bridge.lastSeenAt.toISOString() : null,
     platform: bridge.platform,
     status: bridge.status,
+    kind: bridge.kind ?? null,
   };
 }
 
