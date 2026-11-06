@@ -167,7 +167,7 @@ idempotent, and expire 9 days after `receivedAt`.
 
 ### Bridges
 
-Bridges authenticate with the user's access token everywhere (relay included) — there are no bridge-specific tokens. The API returns `BridgeSummary` objects (`id`, `name`, `platform`, `addedAt`, `lastSeenAt`, `status`); `status` is the persisted connectivity (`active` or `inactive`): `inactive` at registration and updated by relay reports, so it can lag a relay crash until the bridge reconnects.
+Bridges authenticate with the user's access token everywhere (relay included) — there are no bridge-specific tokens. The API returns `BridgeSummary` objects (`id`, `name` (the nickname when set, otherwise the hostname), `hostname`, `platform`, `addedAt`, `lastSeenAt`, `status`, `kind`); `status` is the persisted connectivity (`active` or `inactive`): `inactive` at registration and updated by relay reports, so it can lag a relay crash until the bridge reconnects. `kind` is the install kind the bridge last reported (`desktop` or `cli`), or `null` for a bridge that has never reported one.
 
 A bridge may send `hostKey`, a sha256 hex digest of its OS machine identifier, so a reinstall on the same computer reuses its entry. The `{ userId, hostKey }` index is deliberately non-unique: cloned machine images can share a key and must still register.
 
@@ -175,7 +175,7 @@ Up to **50 non-revoked bridges per user**; registration beyond the cap returns 4
 
 | Method   | Path                       | Auth   | Description                                                                                                                              |
 | -------- | -------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST`   | `/auth/bridges`            | Bearer | Idempotent registration. Body: `{ name, platform, bridgeId?, hostKey?, kind? }`, where `kind` (`desktop` or `cli`) records the install kind for analytics and an absent value leaves any stored kind unchanged. An owned non-revoked `bridgeId` updates that bridge (200), storing a non-null `hostKey`; otherwise a non-null `hostKey` updates the caller's non-revoked bridge with that key, most recently seen first (200); otherwise a new bridge is minted server-side (201). An absent or `null` `hostKey` never matches and never clears a stored key. |
+| `POST`   | `/auth/bridges`            | Bearer | Idempotent registration. Body: `{ name, platform, bridgeId?, hostKey?, kind? }`, where `kind` (`desktop` or `cli`) records the install kind (returned in summaries and used for analytics) and an absent value leaves any stored kind unchanged. An owned non-revoked `bridgeId` updates that bridge (200), storing a non-null `hostKey`; otherwise a non-null `hostKey` updates the caller's non-revoked bridge with that key, most recently seen first (200); otherwise a new bridge is minted server-side (201). An absent or `null` `hostKey` never matches and never clears a stored key. |
 | `GET`    | `/auth/bridges`            | Bearer | List the user's non-revoked bridges                                                                                                       |
 | `DELETE` | `/auth/bridges/:bridgeId`  | Bearer | Soft-revoke a bridge (404 if unknown, another user's, or already revoked)                                                                 |
 
