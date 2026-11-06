@@ -318,7 +318,7 @@ export type BridgeSummary = {
   lastSeenAt: string | null;
   platform: BridgePlatform;
   status: BridgeStatus;
-  /** How the bridge was installed; null for bridges that registered before kind existed. */
+  /** How the bridge was installed; null when the bridge has never reported a kind. */
   kind: BridgeKind | null;
 };
 

@@ -167,7 +167,7 @@ idempotent, and expire 9 days after `receivedAt`.
 
 ### Bridges
 
-Bridges authenticate with the user's access token everywhere (relay included) — there are no bridge-specific tokens. The API returns `BridgeSummary` objects (`id`, `name`, `platform`, `addedAt`, `lastSeenAt`, `status`, `kind`); `status` is the persisted connectivity (`active` or `inactive`): `inactive` at registration and updated by relay reports, so it can lag a relay crash until the bridge reconnects. `kind` is the install kind the bridge last reported (`desktop` or `cli`), or `null` for a bridge that has never reported one.
+Bridges authenticate with the user's access token everywhere (relay included) — there are no bridge-specific tokens. The API returns `BridgeSummary` objects (`id`, `name` (the nickname when set, otherwise the hostname), `hostname`, `platform`, `addedAt`, `lastSeenAt`, `status`, `kind`); `status` is the persisted connectivity (`active` or `inactive`): `inactive` at registration and updated by relay reports, so it can lag a relay crash until the bridge reconnects. `kind` is the install kind the bridge last reported (`desktop` or `cli`), or `null` for a bridge that has never reported one.
 
 A bridge may send `hostKey`, a sha256 hex digest of its OS machine identifier, so a reinstall on the same computer reuses its entry. The `{ userId, hostKey }` index is deliberately non-unique: cloned machine images can share a key and must still register.
 
