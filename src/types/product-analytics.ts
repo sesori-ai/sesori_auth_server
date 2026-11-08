@@ -93,6 +93,7 @@ export enum ProductAnalyticsEventName {
   BridgeRunCommandCopied = "bridge_run_command_copied",
   BridgeRunCommandShared = "bridge_run_command_shared",
   ProductScreenViewed = "product_screen_viewed",
+  PromptFilesSent = "prompt_files_sent",
 }
 
 // Uppercase to match GA4's IOS and ANDROID in the same warehouse column.
@@ -196,6 +197,21 @@ export enum ProductAnalyticsScreen {
   NewSession = "new_session",
   SessionDetail = "session_detail",
   SessionDiffs = "session_diffs",
+}
+
+// How many saved files an accepted prompt carried, bucketed.
+export enum ProductAnalyticsFileCountBucket {
+  One = "1",
+  TwoToFour = "2_4",
+  FivePlus = "5_plus",
+}
+
+// How the prompt's files were added; `mixed` means more than one way.
+export enum ProductAnalyticsFileSource {
+  Picker = "picker",
+  Drop = "drop",
+  Paste = "paste",
+  Mixed = "mixed",
 }
 
 function eventBodySchema<TName extends ProductAnalyticsEventName, TParams extends z.ZodType>(input: {
@@ -317,6 +333,13 @@ export const productAnalyticsEventBodySchema = z.discriminatedUnion("name", [
   eventBodySchema({
     name: ProductAnalyticsEventName.ProductScreenViewed,
     params: z.strictObject({ screen: z.enum(ProductAnalyticsScreen) }),
+  }),
+  eventBodySchema({
+    name: ProductAnalyticsEventName.PromptFilesSent,
+    params: z.strictObject({
+      file_count: z.enum(ProductAnalyticsFileCountBucket),
+      source: z.enum(ProductAnalyticsFileSource),
+    }),
   }),
 ]);
 

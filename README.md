@@ -870,6 +870,12 @@ an older or overlapping run from republishing stale privacy state. The runtime
 creates only expiring staging tables. Because of the exact-schema check, an image
 containing the desktop export fails at startup until `desktop_product_events` is
 deployed, with its columns in the order of `productAnalyticsPermanentTableSchemas`.
+A new desktop parameter column, such as `file_count` and `file_source` for
+`prompt_files_sent`, therefore ships in lockstep: the warehouse appends the
+column right after a good export, and the export image is rolled and run once
+straight away, because the old image fails from that moment. The analytics
+platform runbook's "Adding a desktop parameter column" has the steps. The web
+server has no such dependency and can deploy first.
 
 The final preference pass records its start as `preference_scan_cutoff` and
 conservatively scans every current preference timestamp after `run_cutoff`

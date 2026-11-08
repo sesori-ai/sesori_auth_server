@@ -313,6 +313,8 @@ describe("ProductAnalyticsExportRepository", () => {
       nullable("feedback_answer"),
       nullable("feedback_input"),
       nullable("feedback_source"),
+      nullable("file_count"),
+      nullable("file_source"),
     ]);
   });
 
@@ -338,6 +340,11 @@ describe("ProductAnalyticsExportRepository", () => {
           ...desktopEvent,
           eventName: ProductAnalyticsEventName.SessionPermissionAnswered,
           params: { decision: "once" },
+        },
+        {
+          ...desktopEvent,
+          eventName: ProductAnalyticsEventName.PromptFilesSent,
+          params: { file_count: "2_4", source: "mixed" },
         },
       ],
     });
@@ -381,6 +388,18 @@ describe("ProductAnalyticsExportRepository", () => {
         platform: "MACOS",
         app_version: "1.2.3",
       },
+      {
+        file_count: "2_4",
+        file_source: "mixed",
+        event_name: "prompt_files_sent",
+        source_export_date: "2026-07-27",
+        received_at: "2026-07-27T23:30:00.000Z",
+        occurred_at_micros: "1785000000000123",
+        schema_version: 1,
+        user_key: "c".repeat(64),
+        platform: "MACOS",
+        app_version: "1.2.3",
+      },
     ]);
   });
 
@@ -394,7 +413,7 @@ describe("ProductAnalyticsExportRepository", () => {
     assert.ok(query);
     const [columnList, selectList] = query.sql.split("SELECT");
     const columns = (productAnalyticsPermanentTableSchemas.get("desktop_product_events") ?? []).map(({ name }) => name);
-    assert.equal(columns.length, 25);
+    assert.equal(columns.length, 27);
     assert.deepEqual(
       columnList
         .split("(")[1]
