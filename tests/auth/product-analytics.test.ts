@@ -355,6 +355,7 @@ const EVENT_PARAMS: Record<string, Record<string, string[]>> = {
       "session_diffs",
     ],
   },
+  prompt_files_sent: { file_count: ["1", "2_4", "5_plus"], source: ["picker", "drop", "paste", "mixed"] },
 };
 
 function paramCombinations(input: { params: Record<string, string[]> }): Record<string, string>[] {
@@ -387,8 +388,8 @@ const VALID_BODY = eventBody({ name: "session_permission_answered", params: { de
 const RATE_LIMIT_CLIENT_ADDRESS = "198.51.100.61";
 
 describe("Product analytics event schema", () => {
-  it("covers exactly the 23 contract events", () => {
-    assert.equal(Object.keys(EVENT_PARAMS).length, 23);
+  it("covers exactly the 24 contract events", () => {
+    assert.equal(Object.keys(EVENT_PARAMS).length, 24);
     assert.deepEqual(
       [...productAnalyticsEventBodySchema.options.map((option) => option.shape.name.value)].sort(),
       Object.keys(EVENT_PARAMS).sort(),
@@ -419,6 +420,18 @@ describe("Product analytics event schema", () => {
       }
     });
   }
+
+  it("rejects prompt_files_sent values that belong to other events or raw counts", () => {
+    for (const params of [
+      { file_count: "3", source: "picker" },
+      { file_count: "0", source: "picker" },
+      { file_count: "1", source: "settings" },
+      { file_count: "1", source: "automatic" },
+    ]) {
+      const result = productAnalyticsEventBodySchema.safeParse(eventBody({ name: "prompt_files_sent", params }));
+      assert.equal(result.success, false, JSON.stringify(params));
+    }
+  });
 
   const invalidEnvelopes: Array<[string, Record<string, unknown>]> = [
     ["an unknown event name", { name: "made_up_event" }],

@@ -7,6 +7,7 @@ import type {
   ProductAnalyticsExportTableField,
   ProductAnalyticsSetupCohortRow,
 } from "../models/product-analytics-export.js";
+import { ProductAnalyticsEventName } from "../types/product-analytics.js";
 
 const runIdPattern = /^[a-z0-9_]{8,80}$/;
 const userKeyPattern = /^[a-f0-9]{64}$/;
@@ -84,6 +85,9 @@ const desktopEventParamColumns = [
   "feedback_answer",
   "feedback_input",
   "feedback_source",
+  // Added after initial deployment; ALTER TABLE ADD COLUMN appends at the end.
+  "file_count",
+  "file_source",
 ];
 
 // Every other wire param is stored under its own name.
@@ -92,6 +96,14 @@ const desktopEventColumnByRenamedParam = new Map([
   ["input", "feedback_input"],
   ["source", "feedback_source"],
 ]);
+
+function desktopEventColumn(input: { eventName: ProductAnalyticsEventName; param: string }): string {
+  // prompt_files_sent's `source` says where its files came from, not where feedback did.
+  if (input.eventName === ProductAnalyticsEventName.PromptFilesSent && input.param === "source") {
+    return "file_source";
+  }
+  return desktopEventColumnByRenamedParam.get(input.param) ?? input.param;
+}
 
 // The order has to match the deployed DDL, because the schema check and the
 // promotion's SELECT * both rely on it.
@@ -270,7 +282,7 @@ export class ProductAnalyticsExportRepository {
       // An absent param reads back as NULL through JSON_VALUE.
       ...Object.fromEntries(
         Object.entries(event.params).map(([param, value]) => [
-          desktopEventColumnByRenamedParam.get(param) ?? param,
+          desktopEventColumn({ eventName: event.eventName, param }),
           value,
         ]),
       ),
