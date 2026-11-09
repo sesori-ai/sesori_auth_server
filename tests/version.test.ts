@@ -106,6 +106,11 @@ describe("readBuiltAt", () => {
     assert.equal(readBuiltAt(fileWith("impossible.txt", "2026-13-45T25:61:61Z")), null);
   });
 
+  it("returns null for a calendar-invalid day that Date.parse would roll over", () => {
+    assert.equal(readBuiltAt(fileWith("feb-30.txt", "2026-02-30T09:30:00Z")), null);
+    assert.equal(readBuiltAt(fileWith("apr-31.txt", "2026-04-31T09:30:00Z")), null);
+  });
+
   it("resolves next to the compiled entrypoint", () => {
     assert.equal(getBuiltAtUrl("file:///app/dist/index.js").href, "file:///app/dist/built-at.txt");
   });

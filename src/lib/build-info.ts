@@ -28,7 +28,14 @@ export function readBuiltAt(file: URL): string | null {
     return null;
   }
 
-  if (!ISO_UTC_SECONDS.test(raw) || Number.isNaN(Date.parse(raw))) {
+  if (!ISO_UTC_SECONDS.test(raw)) {
+    return null;
+  }
+
+  // Date.parse rolls calendar-invalid days such as Feb 30 into the next month,
+  // so only a value that survives a round trip unchanged is a real time.
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString() !== raw.replace(/Z$/, ".000Z")) {
     return null;
   }
 

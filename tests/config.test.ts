@@ -461,13 +461,34 @@ describe("configSchema", () => {
     assert.equal(result.data?.GIT_COMMIT_SHA, "81b811f0123456789abcdef0123456789abcdef0");
   });
 
-  it("drops a GIT_COMMIT_SHA that is not a commit id instead of failing startup", () => {
+  it("drops a GIT_COMMIT_SHA that is not a commit id instead of failing startup", (t) => {
+    t.mock.method(console, "warn", () => {});
+
     for (const value of ["", "${_self.COMMIT_HASH}", "abc", "not-a-commit-sha"]) {
       const result = configSchema.safeParse(validEnv({ GIT_COMMIT_SHA: value }));
 
       assert.equal(result.success, true, `startup failed for ${JSON.stringify(value)}`);
       assert.equal(result.data?.GIT_COMMIT_SHA, undefined, `kept ${JSON.stringify(value)}`);
     }
+  });
+
+  it("warns once, without echoing the value, when a set GIT_COMMIT_SHA is rejected", (t) => {
+    const warn = t.mock.method(console, "warn", () => {});
+
+    configSchema.safeParse(validEnv({ GIT_COMMIT_SHA: "${_self.COMMIT_HASH}" }));
+
+    assert.equal(warn.mock.callCount(), 1);
+    assert.equal(String(warn.mock.calls[0]?.arguments[0]).includes("COMMIT_HASH}"), false);
+  });
+
+  it("does not warn when GIT_COMMIT_SHA is unset, empty, or a valid commit id", (t) => {
+    const warn = t.mock.method(console, "warn", () => {});
+
+    configSchema.safeParse(validEnv());
+    configSchema.safeParse(validEnv({ GIT_COMMIT_SHA: "  " }));
+    configSchema.safeParse(validEnv({ GIT_COMMIT_SHA: "81b811f" }));
+
+    assert.equal(warn.mock.callCount(), 0);
   });
 
   it("disables the dev auth bypass by default", () => {
