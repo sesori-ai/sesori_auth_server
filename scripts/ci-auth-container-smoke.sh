@@ -78,6 +78,7 @@ docker run -d --name "$auth" --network "$network" -p 3001:3001 \
   -e APPLE_TEAM_ID=ci-test \
   -e APPLE_KEY_ID=ci-test \
   -e APPLE_PRIVATE_KEY=ci-test \
+  -e GIT_COMMIT_SHA=0123456789abcdef0123456789abcdef01234567 \
   auth-backend:ci >/dev/null
 
 for _ in {1..60}; do
@@ -89,6 +90,7 @@ for _ in {1..60}; do
 done
 
 curl -fsS http://localhost:3001/health | node -e 'let data=""; process.stdin.on("data", c => data += c); process.stdin.on("end", () => { const parsed = JSON.parse(data); if (parsed.status !== "ok") process.exit(1); });'
+curl -fsS http://localhost:3001/version | node -e 'let data=""; process.stdin.on("data", c => data += c); process.stdin.on("end", () => { const parsed = JSON.parse(data); if (parsed.commit !== "0123456789abcdef0123456789abcdef01234567" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(parsed.builtAt ?? "")) process.exit(1); });'
 curl -fsS http://localhost:3001/voice/capabilities | node -e 'let data=""; process.stdin.on("data", c => data += c); process.stdin.on("end", () => { const parsed = JSON.parse(data); if (parsed.realtime?.enabled !== false || parsed.realtime?.protocolVersions?.[0] !== 1) process.exit(1); });'
 status="$(curl -sS -o /dev/null -w '%{http_code}' -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H 'Sec-WebSocket-Version: 13' http://localhost:3001/voice/realtime)"
 test "$status" = "404"

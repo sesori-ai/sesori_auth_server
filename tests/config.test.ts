@@ -447,6 +447,29 @@ describe("configSchema", () => {
     assert.equal(configSchema.safeParse(validEnv()).success, true);
   });
 
+  it("leaves GIT_COMMIT_SHA undefined when it is not set", () => {
+    const result = configSchema.safeParse(validEnv());
+
+    assert.equal(result.success, true);
+    assert.equal(result.data?.GIT_COMMIT_SHA, undefined);
+  });
+
+  it("normalizes a bound GIT_COMMIT_SHA", () => {
+    const result = configSchema.safeParse(validEnv({ GIT_COMMIT_SHA: " 81B811F0123456789ABCDEF0123456789ABCDEF0\n" }));
+
+    assert.equal(result.success, true);
+    assert.equal(result.data?.GIT_COMMIT_SHA, "81b811f0123456789abcdef0123456789abcdef0");
+  });
+
+  it("drops a GIT_COMMIT_SHA that is not a commit id instead of failing startup", () => {
+    for (const value of ["", "${_self.COMMIT_HASH}", "abc", "not-a-commit-sha"]) {
+      const result = configSchema.safeParse(validEnv({ GIT_COMMIT_SHA: value }));
+
+      assert.equal(result.success, true, `startup failed for ${JSON.stringify(value)}`);
+      assert.equal(result.data?.GIT_COMMIT_SHA, undefined, `kept ${JSON.stringify(value)}`);
+    }
+  });
+
   it("disables the dev auth bypass by default", () => {
     const result = configSchema.safeParse(validEnv());
 

@@ -52,6 +52,18 @@ const baseConfigSchema = z.object({
     .pipe(z.array(z.string().min(1)).min(1)),
   RELAY_URL: z.string().min(1, "RELAY_URL is required"),
   RELAY_WEBHOOK_SECRET: z.string().optional(),
+  // Git commit this deployment was built from, reported by `GET /version`.
+  // Bound by the deploy platform (DigitalOcean App Platform: `${_self.COMMIT_HASH}`).
+  // Anything that is not a hex commit id, including an unresolved binding,
+  // resolves to undefined so the endpoint reports "unknown" instead of
+  // failing startup over a diagnostic value.
+  GIT_COMMIT_SHA: z
+    .string()
+    .optional()
+    .transform((value) => {
+      const trimmed = value?.trim().toLowerCase();
+      return trimmed !== undefined && /^[0-9a-f]{7,64}$/.test(trimmed) ? trimmed : undefined;
+    }),
   CLIENT_IP_SOURCE: clientIpSourceSchema.default(ClientIpSource.Socket),
   CLOUDFLARE_INGRESS_CIDRS: trustedIngressCidrsSchema,
   PRODUCT_ANALYTICS_PSEUDONYMIZATION_KEY: productAnalyticsPseudonymizationKeySchema,

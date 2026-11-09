@@ -50,6 +50,7 @@ npm run start:prod
 | Method | Path      | Auth | Description                      |
 | ------ | --------- | ---- | -------------------------------- |
 | `GET`  | `/health` | No   | Health check → `{"status":"ok"}` |
+| `GET`  | `/version` | No  | Running build → `{"commit":"<sha>","builtAt":"<ISO-8601 UTC>"}`. `commit` is `"unknown"` when `GIT_COMMIT_SHA` is unset or not a commit id; `builtAt` is `null` outside a Docker image build. Sent with `Cache-Control: no-store`. |
 
 ### OAuth (legacy direct-exchange)
 
@@ -460,6 +461,7 @@ Managed via SOPS-encrypted files in `env/app/`. See `.sops.yaml` for key configu
 | `APPLE_KEY_ID`                 | Apple Sign in with Apple key ID                                                                                                                                                             |
 | `APPLE_PRIVATE_KEY`            | Apple `.p8` private key (PEM string, `\n`-escaped)                                                                                                                                          |
 | `RELAY_URL`                    | Relay server WebSocket URL                                                                                                                                                                  |
+| `GIT_COMMIT_SHA`               | Commit reported by `GET /version`. Bind it in the deploy platform rather than the encrypted env; on DigitalOcean App Platform set it on the service as a run-time variable with the value `${_self.COMMIT_HASH}`. Any value that is not a hex commit id is reported as `unknown`; it never fails startup. |
 | `AUTH_BASE_URL`                | Public base URL of this service. Used to build the OAuth `redirect_uri` for the pending-confirmation flow. Must match each provider's registered URI. Defaults to `https://api.sesori.com`. |
 | `PENDING_AUTH_MAX_SESSIONS`    | Max concurrent pending OAuth sessions in-memory. Default `10000` (~10 MB).                                                                                                                  |
 | `PENDING_AUTH_POLL_TIMEOUT_MS` | Max long-poll duration on `/auth/session/status`. Default `30000`.                                                                                                                          |
@@ -523,7 +525,7 @@ those ranges; direct-origin traffic falls back to the unspoofable socket
 address. Cloudflare changes these ranges occasionally, so treat the value as
 operational config to re-check rather than a constant.
 
-`/health` and `POST /internal/bridge-status` are exempt from the global limiter.
+`/health`, `/version` and `POST /internal/bridge-status` are exempt from the global limiter.
 A throttled liveness probe can get a container restart-looped, and the relay
 reports every bridge connect/disconnect from a single source IP, so a reconnect
 storm would otherwise exceed the limit and stall bridge status updates.

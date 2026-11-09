@@ -7,6 +7,9 @@ RUN npm ci
 COPY tsconfig.json ./
 COPY src/ ./src/
 RUN npm run build
+# Build time for GET /version. It sits after the compile step, so a cached
+# layer keeps the time those exact compiled sources were first built.
+RUN date -u +%Y-%m-%dT%H:%M:%SZ > dist/built-at.txt
 
 FROM node:22.22.1-slim
 

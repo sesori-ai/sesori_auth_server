@@ -163,6 +163,7 @@ function createTestServices(params: {
     appleNativeVerifier: {} as AppServices["appleNativeVerifier"],
     productAnalyticsPreferenceService: {} as AppServices["productAnalyticsPreferenceService"],
     productAnalyticsEventService: {} as AppServices["productAnalyticsEventService"],
+    builtAt: null,
   };
 }
 

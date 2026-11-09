@@ -10,7 +10,8 @@ import type { StateStore } from "./lib/state-store.js";
 import { createAuthMiddleware } from "./middleware/auth.js";
 import { createRealtimeUpgradeRateLimit } from "./middleware/realtime-upgrade-rate-limit.js";
 import { createRelayAuthMiddleware } from "./middleware/relay-auth.js";
-import type { HealthReply } from "./models/api.js";
+import { UNKNOWN_COMMIT } from "./lib/build-info.js";
+import type { HealthReply, VersionReply } from "./models/api.js";
 import type { DeviceTokenRepository } from "./repositories/device-token-repo.js";
 import type { ActivationService } from "./services/activation-service.js";
 import type { AuthService } from "./services/auth-service.js";
@@ -78,6 +79,8 @@ export type AppServices = {
   productAnalyticsEventService: ProductAnalyticsEventService;
   optionalEmail?: OptionalEmailRouteServices;
   realtime?: Omit<VoiceRealtimeRouteOptions, "preAuthRateLimit" | "requireAuth">;
+  /** Image build time reported by `GET /version`; null outside a Docker build. */
+  builtAt: string | null;
 };
 
 export async function buildApp(services: AppServices): Promise<FastifyInstance> {
@@ -146,6 +149,19 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
 
   app.get<{ Reply: HealthReply }>("/health", { config: { rateLimit: false } }, async () => {
     return { status: "ok" };
+  });
+
+  // Public like /health and exempt from the limiter for the same reason: the
+  // reply is fixed for the life of the process. It carries only the commit and
+  // build time, never any other configuration. no-store keeps a proxy from
+  // answering for a deploy that has since been replaced.
+  const versionReply: VersionReply = {
+    commit: services.config.GIT_COMMIT_SHA ?? UNKNOWN_COMMIT,
+    builtAt: services.builtAt,
+  };
+  app.get<{ Reply: VersionReply }>("/version", { config: { rateLimit: false } }, async (_request, reply) => {
+    reply.header("Cache-Control", "no-store");
+    return versionReply;
   });
 
   // Exempt from the global limiter deliberately. The handler returns a
