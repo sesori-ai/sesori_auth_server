@@ -209,6 +209,11 @@ export type HealthReply = {
   status: "ok";
 };
 
+export type VersionReply = {
+  commit: string;
+  builtAt: string | null;
+};
+
 export type TranscribeReply = {
   text: string;
   dailySecondsRemaining: number;

@@ -217,6 +217,13 @@ describe("buildApp rate limit client IP wiring", () => {
       }
     });
 
+    it("never rate limits /version", async () => {
+      for (let i = 0; i <= RATE_LIMIT_MAX; i += 1) {
+        const res = await injectFrom(app, { url: "/version", remoteAddress: "198.51.100.15" });
+        assert.equal(res.statusCode, 200);
+      }
+    });
+
     it("never rate limits /internal/bridge-status", async () => {
       for (let i = 0; i <= RATE_LIMIT_MAX; i += 1) {
         const res = await injectFrom(app, {
