@@ -35,6 +35,15 @@ export type OptionalEmailRecipientResolution =
       status: OptionalEmailRecipientResolutionStatus.Missing | OptionalEmailRecipientResolutionStatus.Ambiguous;
     };
 
+export enum OptionalEmailAddressKeyVersion {
+  V1 = "v1",
+}
+
+export type OptionalEmailAddressKey = {
+  addressKeyVersion: OptionalEmailAddressKeyVersion;
+  addressKey: string;
+};
+
 export enum OptionalEmailDryRunMode {
   DryRun = "dry_run",
 }
