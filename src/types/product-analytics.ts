@@ -214,6 +214,23 @@ export enum ProductAnalyticsFileSource {
   Mixed = "mixed",
 }
 
+// Which shipped coding harness ran a message; `other` covers any harness
+// Sesori does not ship. Optional because released desktop versions omit it.
+export enum ProductAnalyticsHarness {
+  Opencode = "opencode",
+  Codex = "codex",
+  GithubCopilot = "github_copilot",
+  Cursor = "cursor",
+  ClaudeCode = "claude_code",
+  HermesAgent = "hermes_agent",
+  Pi = "pi",
+  OhMyPi = "oh_my_pi",
+  Deepseek = "deepseek",
+  GrokBuild = "grok_build",
+  Antigravity = "antigravity",
+  Other = "other",
+}
+
 function eventBodySchema<TName extends ProductAnalyticsEventName, TParams extends z.ZodType>(input: {
   name: TName;
   params: TParams;
@@ -238,6 +255,7 @@ const onboardingSurfaceSchema = z.enum(ProductAnalyticsOnboardingSurface);
 const messageSubmissionShape = {
   submission_kind: z.enum(ProductAnalyticsSubmissionKind),
   input_mode: z.enum(ProductAnalyticsInputMode),
+  harness: z.enum(ProductAnalyticsHarness).optional(),
 };
 
 function commandIsTyped(input: {

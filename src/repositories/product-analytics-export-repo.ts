@@ -88,6 +88,8 @@ const desktopEventParamColumns = [
   // Added after initial deployment; ALTER TABLE ADD COLUMN appends at the end.
   "file_count",
   "file_source",
+  // NULL for message events from desktop versions that predate it.
+  "harness",
 ];
 
 // Every other wire param is stored under its own name.
