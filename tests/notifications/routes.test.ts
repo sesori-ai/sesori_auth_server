@@ -294,14 +294,16 @@ describe("Notification routes", () => {
       assert.equal((await deviceTokenRepo.findByUserId(user.userId)).length, 0);
     });
 
-    it("a fid replaces only this user's token rows for the same deviceId", async () => {
+    it("a fid replaces this user's token rows for the same deviceId and those without one", async () => {
       const user = await ctx.createUser();
       const otherUser = await ctx.createUser();
       await register(user.accessToken, { token: "token-device-a", platform: "ios", deviceId: deviceA });
       await register(user.accessToken, { token: "token-device-b", platform: "ios", deviceId: deviceB });
       await register(user.accessToken, { token: "token-no-device", platform: "ios" });
       await register(user.accessToken, { fid: "fid-device-a-old", platform: "ios", deviceId: deviceA });
+      await register(user.accessToken, { fid: "fid-no-device", platform: "ios" });
       await register(otherUser.accessToken, { token: "other-token-device-a", platform: "ios", deviceId: deviceA });
+      await register(otherUser.accessToken, { token: "other-token-no-device", platform: "ios" });
 
       const res = await register(user.accessToken, { fid: "fid-device-a", platform: "ios", deviceId: deviceA });
 
@@ -310,14 +312,17 @@ describe("Notification routes", () => {
         await storedKinds(user.userId),
         new Map([
           ["token-device-b", DeviceTokenKind.RegistrationToken],
-          ["token-no-device", DeviceTokenKind.RegistrationToken],
           ["fid-device-a-old", DeviceTokenKind.InstallationId],
+          ["fid-no-device", DeviceTokenKind.InstallationId],
           ["fid-device-a", DeviceTokenKind.InstallationId],
         ]),
       );
       assert.deepEqual(
         await storedKinds(otherUser.userId),
-        new Map([["other-token-device-a", DeviceTokenKind.RegistrationToken]]),
+        new Map([
+          ["other-token-device-a", DeviceTokenKind.RegistrationToken],
+          ["other-token-no-device", DeviceTokenKind.RegistrationToken],
+        ]),
       );
     });
 

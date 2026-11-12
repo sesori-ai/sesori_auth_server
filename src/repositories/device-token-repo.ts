@@ -99,10 +99,12 @@ export class DeviceTokenRepository {
     });
   }
 
-  async deleteRegistrationTokensForDevice(params: { userId: string; deviceId: string }): Promise<void> {
+  // Deletes this user's token rows for `deviceId` and those with no deviceId
+  // at all, which apps before v1.8.0 registered. `null` also matches a missing field.
+  async deleteTokensReplacedByInstallationId(params: { userId: string; deviceId: string }): Promise<void> {
     await this.#collection.deleteMany({
       userId: new ObjectId(params.userId),
-      deviceId: params.deviceId,
+      deviceId: { $in: [params.deviceId, null] },
       // Not an equality on RegistrationToken: a row a previous version wrote
       // during a rolling deploy has no kind until the next startup backfill.
       kind: { $ne: DeviceTokenKind.InstallationId },

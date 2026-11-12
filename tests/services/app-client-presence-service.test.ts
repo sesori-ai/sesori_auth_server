@@ -33,7 +33,7 @@ class FakeDeviceTokenRepository {
     await this.upsert();
   }
 
-  async deleteRegistrationTokensForDevice(): Promise<void> {
+  async deleteTokensReplacedByInstallationId(): Promise<void> {
     await this.deleteRegistrationTokens();
   }
 }

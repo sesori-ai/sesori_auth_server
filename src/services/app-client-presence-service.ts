@@ -93,10 +93,14 @@ export class AppClientPresenceService {
    * `userId` with `true`. If the upsert throws, no waiter is notified — the
    * database write must succeed before presence is asserted.
    *
-   * A Firebase Installation ID then replaces the registration tokens this
-   * user's same `deviceId` registered before, so the device gets each push
-   * once. Without a `deviceId` nothing identifies those rows, so they stay.
-   * Waiters wake before that cleanup: the device is registered either way.
+   * A Firebase Installation ID then replaces this user's registration tokens
+   * for the same `deviceId`, plus those with no `deviceId` (apps before
+   * v1.8.0 never sent one), so the device gets each push once. Another
+   * pre-1.8.0 device of the user loses its row until it registers again,
+   * and for good if that install is never opened again.
+   * A FID without a `deviceId` cannot tell its own rows apart, so it
+   * deletes nothing. Waiters wake before that cleanup: the device is
+   * registered either way.
    */
   async registerToken(params: {
     userId: string;
@@ -112,7 +116,7 @@ export class AppClientPresenceService {
     }
 
     if (params.kind === DeviceTokenKind.InstallationId && params.deviceId !== undefined) {
-      await this.#deviceTokenRepo.deleteRegistrationTokensForDevice({
+      await this.#deviceTokenRepo.deleteTokensReplacedByInstallationId({
         userId: params.userId,
         deviceId: params.deviceId,
       });
