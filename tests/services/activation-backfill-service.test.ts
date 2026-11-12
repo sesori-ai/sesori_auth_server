@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { ObjectId } from "mongodb";
 import { BridgePlatform, BridgeStatus } from "../../src/models/bridge.js";
-import { DevicePlatform } from "../../src/models/device.js";
+import { DevicePlatform, DeviceTokenKind } from "../../src/models/device.js";
 import type { ActivationState, Bridge, DailyUsage, DeviceToken } from "../../src/models/documents.js";
 import { ActivationStateRepository } from "../../src/repositories/activation-state-repo.js";
 import { BridgeRepository } from "../../src/repositories/bridge-repo.js";
@@ -52,6 +52,7 @@ describe("ActivationBackfillService", () => {
       _id: new ObjectId(),
       userId: new ObjectId(userId),
       token: `backfill-token-${userId}`,
+      kind: DeviceTokenKind.RegistrationToken,
       platform,
       createdAt,
       updatedAt: createdAt,

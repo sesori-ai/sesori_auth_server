@@ -41,7 +41,7 @@
     "@soniox/node": "^2.2.0",
     "argon2": "^0.45.0",
     "fastify": "^5.8.5",
-    "firebase-admin": "^14.0.0",
+    "firebase-admin": "^14.1.0",
     "jose": "^6.2.0",
     "jsonwebtoken": "^9.0.3",
     "lru-cache": "^11.3.5",

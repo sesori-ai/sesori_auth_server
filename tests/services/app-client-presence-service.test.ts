@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { getEventListeners } from "node:events";
 import { describe, it } from "node:test";
-import { DevicePlatform } from "../../src/models/device.js";
+import { DevicePlatform, DeviceTokenKind } from "../../src/models/device.js";
 import type { DeviceTokenRepository } from "../../src/repositories/device-token-repo.js";
 import {
   AppClientPresenceInitialReadTimeout,
@@ -18,6 +18,7 @@ type Deferred<T> = {
 class FakeDeviceTokenRepository {
   readonly reads: Array<boolean | Promise<boolean>> = [];
   upsert: () => Promise<void> = async () => {};
+  deleteRegistrationTokens: () => Promise<void> = async () => {};
   readCount = 0;
 
   async hasAnyForUser(): Promise<boolean> {
@@ -30,6 +31,10 @@ class FakeDeviceTokenRepository {
 
   async upsertToken(): Promise<void> {
     await this.upsert();
+  }
+
+  async deleteRegistrationTokensForDevice(): Promise<void> {
+    await this.deleteRegistrationTokens();
   }
 }
 
@@ -163,7 +168,12 @@ describe("AppClientPresenceService", () => {
     });
     await waitFor(() => repo.readCount === 6);
 
-    await service.registerToken({ userId: "user-a", token: "token-a", platform: DevicePlatform.ios });
+    await service.registerToken({
+      kind: DeviceTokenKind.RegistrationToken,
+      userId: "user-a",
+      token: "token-a",
+      platform: DevicePlatform.ios,
+    });
 
     assert.deepEqual(await Promise.all([first, second]), [true, true]);
     const otherState = await Promise.race([other.then(() => "settled"), delayResult("waiting", 10)]);
@@ -186,6 +196,7 @@ describe("AppClientPresenceService", () => {
     });
     await waitFor(() => repo.readCount === 2);
     const registration = service.registerToken({
+      kind: DeviceTokenKind.RegistrationToken,
       userId: "user-durable",
       token: "token-durable",
       platform: DevicePlatform.android,
@@ -213,12 +224,44 @@ describe("AppClientPresenceService", () => {
     await waitFor(() => repo.readCount === 2);
 
     await assert.rejects(
-      service.registerToken({ userId: "user-failed", token: "token-failed", platform: DevicePlatform.linux }),
+      service.registerToken({
+        kind: DeviceTokenKind.RegistrationToken,
+        userId: "user-failed",
+        token: "token-failed",
+        platform: DevicePlatform.linux,
+      }),
       /write failed/,
     );
     assert.equal(await Promise.race([waiting.then(() => "settled"), delayResult("waiting", 10)]), "waiting");
     controller.abort();
     assert.equal(await waiting, null);
+  });
+
+  it("wakes a waiter for a stored FID even when replacing the device's tokens fails", async () => {
+    const repo = new FakeDeviceTokenRepository();
+    repo.reads.push(false, false);
+    repo.deleteRegistrationTokens = async () => {
+      throw new Error("cleanup failed");
+    };
+    const service = createService(repo);
+    const waiting = service.waitForRegistration({
+      userId: "user-fid",
+      timeoutMs: 1_000,
+      abortSignal: new AbortController().signal,
+    });
+    await waitFor(() => repo.readCount === 2);
+
+    await assert.rejects(
+      service.registerToken({
+        kind: DeviceTokenKind.InstallationId,
+        userId: "user-fid",
+        token: "fid-registered",
+        platform: DevicePlatform.ios,
+        deviceId: "550e8400-e29b-41d4-a716-446655440000",
+      }),
+      /cleanup failed/,
+    );
+    assert.equal(await waiting, true);
   });
 
   it("closes the query-to-wait race with a post-registration recheck", async () => {

@@ -1,4 +1,4 @@
-import type { DevicePlatform } from "../models/device.js";
+import { DeviceTokenKind, type DevicePlatform } from "../models/device.js";
 import type { DeviceTokenRepository } from "../repositories/device-token-repo.js";
 
 type RegistrationWaiter = {
@@ -92,22 +92,30 @@ export class AppClientPresenceService {
    * Durably upserts the device token, then wakes every in-flight waiter for
    * `userId` with `true`. If the upsert throws, no waiter is notified — the
    * database write must succeed before presence is asserted.
+   *
+   * A Firebase Installation ID then replaces the registration tokens this
+   * user's same `deviceId` registered before, so the device gets each push
+   * once. Without a `deviceId` nothing identifies those rows, so they stay.
+   * Waiters wake before that cleanup: the device is registered either way.
    */
   async registerToken(params: {
     userId: string;
     token: string;
+    kind: DeviceTokenKind;
     platform: DevicePlatform;
     deviceId?: string;
   }): Promise<void> {
-    await this.#deviceTokenRepo.upsertToken(params.userId, params.token, params.platform, params.deviceId);
+    await this.#deviceTokenRepo.upsertToken(params);
 
-    const waiters = this.#waitersByUserId.get(params.userId);
-    if (!waiters) {
-      return;
+    for (const waiter of Array.from(this.#waitersByUserId.get(params.userId) ?? [])) {
+      this.#completeWaiter(waiter, true);
     }
 
-    for (const waiter of Array.from(waiters)) {
-      this.#completeWaiter(waiter, true);
+    if (params.kind === DeviceTokenKind.InstallationId && params.deviceId !== undefined) {
+      await this.#deviceTokenRepo.deleteRegistrationTokensForDevice({
+        userId: params.userId,
+        deviceId: params.deviceId,
+      });
     }
   }
 

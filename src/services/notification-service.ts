@@ -1,9 +1,29 @@
 import { createHash } from "node:crypto";
-import type { Messaging, BaseMessage } from "firebase-admin/messaging";
+import type { Messaging, Message } from "firebase-admin/messaging";
+import { DeviceTokenKind } from "../models/device.js";
 import { NOTIFICATION_CATEGORY_SETTING_KEYS, NotificationCategory } from "../models/notification.js";
 import { NOTIFICATION_SETTINGS_DEFAULTS, type NotificationSettings } from "../models/settings.js";
 import type { DeviceToken } from "../models/documents.js";
 import type { DeviceTokenRepository } from "../repositories/device-token-repo.js";
+
+// Send errors meaning the address is gone for good, so its row is deleted.
+// firebase-admin reports a dead FID as installation-id-not-registered, never
+// as one of the registration-token codes.
+const STALE_DEVICE_TOKEN_ERROR_CODES: ReadonlySet<string> = new Set([
+  "messaging/registration-token-not-registered",
+  "messaging/invalid-registration-token",
+  "messaging/installation-id-not-registered",
+]);
+
+// Only an explicit FID row gets a `fid` message, so a row a previous version
+// wrote without a kind during a rolling deploy still goes out as a token.
+function messageTarget(deviceToken: DeviceToken): { fid: string } | { token: string } {
+  if (deviceToken.kind === DeviceTokenKind.InstallationId) {
+    return { fid: deviceToken.token };
+  }
+
+  return { token: deviceToken.token };
+}
 
 export interface NotificationData {
   category: string;
@@ -143,8 +163,8 @@ export class NotificationService {
     }
 
     const trayKey = payload.category === NotificationCategory.ConnectionStatus ? payload.trayKey : payload.collapseKey;
-    const messages: Array<BaseMessage & { token: string }> = deliverableTokens.map((t) => ({
-      token: t.token,
+    const messages: Message[] = deliverableTokens.map((t) => ({
+      ...messageTarget(t),
       notification: { title: payload.title, body: payload.body },
       data: flatData,
       android: {
@@ -169,7 +189,7 @@ export class NotificationService {
       }
 
       const code = r.error?.code;
-      if (code === "messaging/registration-token-not-registered" || code === "messaging/invalid-registration-token") {
+      if (code !== undefined && STALE_DEVICE_TOKEN_ERROR_CODES.has(code)) {
         staleTokens.push(deliverableTokens[i].token);
         return;
       }

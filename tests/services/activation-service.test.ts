@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, describe, it, mock } from "node:test";
 import { ObjectId } from "mongodb";
 import { BridgePlatform } from "../../src/models/bridge.js";
-import { DevicePlatform } from "../../src/models/device.js";
+import { DevicePlatform, DeviceTokenKind } from "../../src/models/device.js";
 import type { Bridge, DailyUsage, DeviceToken } from "../../src/models/documents.js";
 import { ActivationStateRepository } from "../../src/repositories/activation-state-repo.js";
 import { BridgeRepository } from "../../src/repositories/bridge-repo.js";
@@ -58,6 +58,7 @@ describe("ActivationService", () => {
       _id: new ObjectId(),
       userId: new ObjectId(user.userId),
       token: `activation-token-${user.userId}`,
+      kind: DeviceTokenKind.RegistrationToken,
       platform: DevicePlatform.ios,
       createdAt: mobileAt,
       updatedAt: mobileAt,
@@ -157,7 +158,12 @@ describe("ActivationService", () => {
 
   it("repairs mobile setup from token history when recording bridge setup", async () => {
     const user = await ctx.createUser({ createdAt: new Date("2026-07-01T00:00:00.000Z") });
-    await deviceTokenRepo.upsertToken(user.userId, `bridge-repair-token-${user.userId}`, DevicePlatform.ios);
+    await deviceTokenRepo.upsertToken({
+      userId: user.userId,
+      token: `bridge-repair-token-${user.userId}`,
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.ios,
+    });
     const mobileAt = await deviceTokenRepo.findEarliestCreatedAt(user.userId);
     const bridge = await bridgeRepo.register({
       userId: user.userId,
@@ -175,7 +181,12 @@ describe("ActivationService", () => {
 
   it("reconciles app setup from a persisted desktop token", async () => {
     const user = await ctx.createUser({ createdAt: new Date("2026-07-01T00:00:00.000Z") });
-    await deviceTokenRepo.upsertToken(user.userId, `desktop-only-token-${user.userId}`, DevicePlatform.windows);
+    await deviceTokenRepo.upsertToken({
+      userId: user.userId,
+      token: `desktop-only-token-${user.userId}`,
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.windows,
+    });
     const appSetupAt = await deviceTokenRepo.findEarliestCreatedAt(user.userId);
     const bridge = await bridgeRepo.register({
       userId: user.userId,
@@ -245,6 +256,7 @@ describe("ActivationService", () => {
       _id: new ObjectId(),
       userId: new ObjectId(user.userId),
       token: `retry-token-${user.userId}`,
+      kind: DeviceTokenKind.RegistrationToken,
       platform: DevicePlatform.ios,
       createdAt: mobileAt,
       updatedAt: mobileAt,
@@ -293,6 +305,7 @@ describe("ActivationService", () => {
       _id: new ObjectId(),
       userId: new ObjectId(user.userId),
       token: `carried-over-token-${user.userId}`,
+      kind: DeviceTokenKind.RegistrationToken,
       platform: DevicePlatform.ios,
       createdAt: carriedOverTokenAt,
       updatedAt: carriedOverTokenAt,

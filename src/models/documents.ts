@@ -7,7 +7,7 @@ import {
   bridgePlatformSchema,
   bridgeStatusSchema,
 } from "./bridge.js";
-import { devicePlatformSchema } from "./device.js";
+import { devicePlatformSchema, deviceTokenKindSchema } from "./device.js";
 import { FeedbackIssue, FeedbackSource, feedbackPlatformSchema } from "./feedback.js";
 import { deviceIdSchema, storedNotificationSettingsSchema } from "./settings.js";
 import {
@@ -114,7 +114,11 @@ export type DailyUsage = z.infer<typeof dailyUsageSchema>;
 export const deviceTokenSchema = z.object({
   _id: z.instanceof(ObjectId),
   userId: z.instanceof(ObjectId),
+  // The address FCM delivers to: a registration token or a Firebase
+  // Installation ID, as `kind` says. Unique across both kinds.
   token: z.string(),
+  // Rows from before FID support are backfilled to `token` at startup.
+  kind: deviceTokenKindSchema,
   platform: devicePlatformSchema,
   // Joins a push token to its settingsConfiguration document. Null for tokens
   // registered before clients started sending it; those deliver unfiltered.

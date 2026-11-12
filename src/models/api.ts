@@ -10,7 +10,7 @@ import {
   bridgeIdSchema,
   bridgePlatformSchema,
 } from "./bridge.js";
-import { devicePlatformSchema } from "./device.js";
+import { DeviceTokenKind, devicePlatformSchema } from "./device.js";
 import { CLIENT_SENDABLE_NOTIFICATION_CATEGORIES } from "./notification.js";
 import { deviceIdSchema } from "./settings.js";
 import type { ProjectGlossaryScope } from "./voice.js";
@@ -245,14 +245,37 @@ export type GlossaryRemoveReply = {
   removed: number;
 };
 
-export const registerTokenBodySchema = z.object({
-  token: z.string().min(1),
-  platform: devicePlatformSchema,
-  // Optional during rollout: clients that predate per-device notification
-  // settings keep registering without it and stay unfiltered.
-  deviceId: deviceIdSchema.optional(),
+export const registerTokenBodySchema = z
+  .object({
+    // Exactly one of `token` or `fid`. Released apps send an FCM registration
+    // token; apps on firebase_messaging register()/onRegistered send their
+    // Firebase Installation ID instead.
+    token: z.string().min(1).optional(),
+    fid: z.string().min(1).optional(),
+    platform: devicePlatformSchema,
+    // Optional during rollout: clients that predate per-device notification
+    // settings keep registering without it and stay unfiltered.
+    deviceId: deviceIdSchema.optional(),
+  })
+  .transform((body, ctx) => {
+    const { token, fid, platform, deviceId } = body;
+    if (token !== undefined && fid === undefined) {
+      return { kind: DeviceTokenKind.RegistrationToken, token, platform, deviceId };
+    }
+
+    if (fid !== undefined && token === undefined) {
+      return { kind: DeviceTokenKind.InstallationId, token: fid, platform, deviceId };
+    }
+
+    ctx.addIssue({ code: "custom", message: "Provide exactly one of token or fid" });
+    return z.NEVER;
+  });
+export type RegisterTokenBody = z.input<typeof registerTokenBodySchema>;
+
+export const unregisterFidParamsSchema = z.object({
+  fid: z.string().min(1),
 });
-export type RegisterTokenBody = z.infer<typeof registerTokenBodySchema>;
+export type UnregisterFidParams = z.infer<typeof unregisterFidParamsSchema>;
 
 export const appClientStatusQuerySchema = z
   .object({
