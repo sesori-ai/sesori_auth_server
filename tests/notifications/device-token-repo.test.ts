@@ -85,6 +85,34 @@ describe("DeviceTokenRepository", () => {
     );
   });
 
+  it("deleteRegistrationTokensForDevice also removes a token row that has no kind yet", async () => {
+    const user = await ctx.createUser();
+    const deviceId = "550e8400-e29b-41d4-a716-446655440000";
+    const otherDeviceId = "6fa459ea-ee8a-4ca4-894e-db77e160355e";
+    const at = new Date("2026-06-01T10:00:00.000Z");
+    // Written by the previous version during a rolling deploy, before any backfill.
+    await ctx.dbAccessor.getCollection(MongoDbDatabase.Auth, AuthDbCollection.DeviceTokens).insertOne({
+      userId: new ObjectId(user.userId),
+      token: `kindless-token-${user.userId}`,
+      platform: DevicePlatform.ios,
+      deviceId,
+      createdAt: at,
+      updatedAt: at,
+    });
+    const register = (token: string, kind: DeviceTokenKind, device: string) =>
+      repo.upsertToken({ userId: user.userId, token, kind, platform: DevicePlatform.ios, deviceId: device });
+    await register(`token-${user.userId}`, DeviceTokenKind.RegistrationToken, deviceId);
+    await register(`fid-${user.userId}`, DeviceTokenKind.InstallationId, deviceId);
+    await register(`other-device-token-${user.userId}`, DeviceTokenKind.RegistrationToken, otherDeviceId);
+
+    await repo.deleteRegistrationTokensForDevice({ userId: user.userId, deviceId });
+
+    assert.deepEqual(
+      new Set((await repo.findByUserId(user.userId)).map((row) => row.token)),
+      new Set([`fid-${user.userId}`, `other-device-token-${user.userId}`]),
+    );
+  });
+
   it("upsertToken stores the deviceId that scopes notification settings", async () => {
     const user = await ctx.createUser();
     const deviceId = "550e8400-e29b-41d4-a716-446655440000";

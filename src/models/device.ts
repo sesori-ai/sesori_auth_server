@@ -16,8 +16,8 @@ export enum DeviceTokenKind {
   // FCM registration token from the deprecated firebase_messaging getToken API.
   // Released apps keep sending these, so they stay supported.
   RegistrationToken = "token",
-  // Firebase Installation ID from firebase_messaging register(), sent as an
-  // FCM `fid` message.
+  // Firebase Installation ID, delivered by firebase_messaging's onRegistered
+  // after register(). Sent as an FCM `fid` message.
   InstallationId = "fid",
 }
 

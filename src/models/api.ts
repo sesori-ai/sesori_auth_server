@@ -248,8 +248,8 @@ export type GlossaryRemoveReply = {
 export const registerTokenBodySchema = z
   .object({
     // Exactly one of `token` or `fid`. Released apps send an FCM registration
-    // token; apps on firebase_messaging register() send their Firebase
-    // Installation ID instead.
+    // token; apps on firebase_messaging register()/onRegistered send their
+    // Firebase Installation ID instead.
     token: z.string().min(1).optional(),
     fid: z.string().min(1).optional(),
     platform: devicePlatformSchema,

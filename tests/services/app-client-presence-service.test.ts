@@ -18,6 +18,7 @@ type Deferred<T> = {
 class FakeDeviceTokenRepository {
   readonly reads: Array<boolean | Promise<boolean>> = [];
   upsert: () => Promise<void> = async () => {};
+  deleteRegistrationTokens: () => Promise<void> = async () => {};
   readCount = 0;
 
   async hasAnyForUser(): Promise<boolean> {
@@ -30,6 +31,10 @@ class FakeDeviceTokenRepository {
 
   async upsertToken(): Promise<void> {
     await this.upsert();
+  }
+
+  async deleteRegistrationTokensForDevice(): Promise<void> {
+    await this.deleteRegistrationTokens();
   }
 }
 
@@ -230,6 +235,33 @@ describe("AppClientPresenceService", () => {
     assert.equal(await Promise.race([waiting.then(() => "settled"), delayResult("waiting", 10)]), "waiting");
     controller.abort();
     assert.equal(await waiting, null);
+  });
+
+  it("wakes a waiter for a stored FID even when replacing the device's tokens fails", async () => {
+    const repo = new FakeDeviceTokenRepository();
+    repo.reads.push(false, false);
+    repo.deleteRegistrationTokens = async () => {
+      throw new Error("cleanup failed");
+    };
+    const service = createService(repo);
+    const waiting = service.waitForRegistration({
+      userId: "user-fid",
+      timeoutMs: 1_000,
+      abortSignal: new AbortController().signal,
+    });
+    await waitFor(() => repo.readCount === 2);
+
+    await assert.rejects(
+      service.registerToken({
+        kind: DeviceTokenKind.InstallationId,
+        userId: "user-fid",
+        token: "fid-registered",
+        platform: DevicePlatform.ios,
+        deviceId: "550e8400-e29b-41d4-a716-446655440000",
+      }),
+      /cleanup failed/,
+    );
+    assert.equal(await waiting, true);
   });
 
   it("closes the query-to-wait race with a post-registration recheck", async () => {
