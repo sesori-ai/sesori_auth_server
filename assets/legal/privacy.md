@@ -1,6 +1,6 @@
 # Sesori Privacy Policy
 
-_Last updated: November 1, 2026_
+_Last updated: November 12, 2026_
 
 This Privacy Policy explains how **Digitalblock Labs LTD** ("**Sesori**," "**Company**," "we," "us," or "our") collects, uses, stores, shares, and otherwise processes personal data when you use Sesori's official apps and services. It applies only to the official Sesori services, including the Sesori mobile app, the Sesori desktop app, the official local bridge software, relay services, account and authentication services, push notification services, `sesori.com`, voice input and server-side transcription features, project-scoped glossary features, diagnostics, analytics, mobile advertising attribution, website analytics and advertising technologies, support channels, and related hosted features we provide (collectively, the "**Service**").
 
@@ -79,7 +79,7 @@ Depending on your device settings, platform behavior, notification routing, and 
 
 Supported release builds may associate account-linked product analytics events with a stable, server-derived pseudonymous account key. This key helps us understand product usage across supported installations signed in to the same account. It is pseudonymous personal data, not anonymous data, and is not the raw account identifier.
 
-Sesori-defined account-linked product analytics event payloads cannot contain source code; prompts, responses, transcripts, or reasoning; filenames or paths; repository, project, or session names; coding provider, model, agent, tool, or command names; raw error text; OAuth identity; email address; IP address; or raw or hashed project, session, bridge, device, notification, or account identifiers.
+Sesori-defined account-linked product analytics event payloads cannot contain source code; prompts, responses, transcripts, or reasoning; filenames or paths; repository, project, or session names; coding provider, model, agent, tool, or command names, except that message outcomes carry a pinned identifier of which supported coding harness (for example Claude Code or Codex) ran the message, or "other" for any harness Sesori does not support; raw error text; OAuth identity; email address; IP address; or raw or hashed project, session, bridge, device, notification, or account identifiers.
 
 These payload restrictions apply specifically to Sesori-defined account-linked product analytics events. Firebase may separately process automatic installation-level data as described in Section 14, and the website analytics, mobile attribution, advertising audience, operational, support, security, crash, or diagnostic processing described elsewhere in this Privacy Policy is outside this event contract.
 
