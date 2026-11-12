@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, describe, it, mock } from "node:test";
 import { ObjectId } from "mongodb";
-import { DevicePlatform } from "../../src/models/device.js";
+import { DevicePlatform, DeviceTokenKind } from "../../src/models/device.js";
 import { parseActivationBackfillArgs, runActivationBackfillCli } from "../../src/scripts/backfill-activation.js";
 import type { DeviceToken } from "../../src/models/documents.js";
 import { ActivationStateRepository } from "../../src/repositories/activation-state-repo.js";
@@ -69,6 +69,7 @@ describe("activation backfill CLI", () => {
       _id: new ObjectId(),
       userId: new ObjectId(user.userId),
       token: `cli-backfill-token-${user.userId}`,
+      kind: DeviceTokenKind.RegistrationToken,
       platform: DevicePlatform.ios,
       createdAt: at,
       updatedAt: at,

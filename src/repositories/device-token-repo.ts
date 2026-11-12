@@ -1,7 +1,7 @@
 import { Collection, ObjectId } from "mongodb";
 import { MongoDbAccessor } from "../db/mongo-db-accessor.js";
 import { InternalServerError } from "../lib/errors.js";
-import type { DevicePlatform } from "../models/device.js";
+import { DeviceTokenKind, type DevicePlatform } from "../models/device.js";
 import type { DeviceToken } from "../models/documents.js";
 import { MongoDbDatabase, AuthDbCollection } from "../types/mongo.js";
 
@@ -12,7 +12,25 @@ export class DeviceTokenRepository {
     this.#collection = accessor.getCollection<DeviceToken>(MongoDbDatabase.Auth, AuthDbCollection.DeviceTokens);
   }
 
-  async upsertToken(userId: string, token: string, platform: DevicePlatform, deviceId?: string): Promise<void> {
+  // Rows written before FID support hold registration tokens and have no
+  // kind. Idempotent, so it runs on every startup and also catches rows a
+  // previous version wrote during a rolling deploy.
+  async backfillKind(): Promise<number> {
+    const result = await this.#collection.updateMany(
+      { kind: { $exists: false } },
+      { $set: { kind: DeviceTokenKind.RegistrationToken } },
+    );
+    return result.modifiedCount;
+  }
+
+  async upsertToken(params: {
+    userId: string;
+    token: string;
+    kind: DeviceTokenKind;
+    platform: DevicePlatform;
+    deviceId?: string;
+  }): Promise<void> {
+    const { userId, token, kind, platform, deviceId } = params;
     if (!ObjectId.isValid(userId)) {
       throw new InternalServerError({ debugMessage: "Invalid device token userId" });
     }
@@ -28,6 +46,7 @@ export class DeviceTokenRepository {
         {
           $set: {
             userId: objectUserId,
+            kind,
             platform,
             // A client that omits deviceId must not erase a previously learned
             // one, but a new owner must not inherit the old owner's device.
@@ -72,6 +91,25 @@ export class DeviceTokenRepository {
     await this.#collection.deleteOne({ token, userId: new ObjectId(userId) });
   }
 
+  async deleteInstallationIdForUser(userId: string, fid: string): Promise<void> {
+    await this.#collection.deleteOne({
+      token: fid,
+      kind: DeviceTokenKind.InstallationId,
+      userId: new ObjectId(userId),
+    });
+  }
+
+  async deleteRegistrationTokensForDevice(params: { userId: string; deviceId: string }): Promise<void> {
+    await this.#collection.deleteMany({
+      userId: new ObjectId(params.userId),
+      deviceId: params.deviceId,
+      // Not an equality on RegistrationToken: a row a previous version wrote
+      // during a rolling deploy has no kind until the next startup backfill.
+      kind: { $ne: DeviceTokenKind.InstallationId },
+    });
+  }
+
+  // Matches by value alone, which is unique across both kinds.
   async deleteByTokens(tokens: string[]): Promise<void> {
     if (tokens.length === 0) return;
     await this.#collection.deleteMany({ token: { $in: tokens } });

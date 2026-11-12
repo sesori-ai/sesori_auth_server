@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, describe, it, mock } from "node:test";
-import { DevicePlatform } from "../../src/models/device.js";
+import { DevicePlatform, DeviceTokenKind } from "../../src/models/device.js";
 import { ActivationStateRepository } from "../../src/repositories/activation-state-repo.js";
 import { DeviceTokenRepository } from "../../src/repositories/device-token-repo.js";
 import { ActivationService } from "../../src/services/activation-service.js";
@@ -208,7 +208,12 @@ describe("Notification routes", () => {
   it("DELETE /notifications/tokens/:token returns 200 with auth", async () => {
     const user = await ctx.createUser();
     const token = "token/with:special?chars";
-    await deviceTokenRepo.upsertToken(user.userId, token, DevicePlatform.android);
+    await deviceTokenRepo.upsertToken({
+      userId: user.userId,
+      token,
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.android,
+    });
     const registerMock = mock.method(ctx.appClientPresenceService, "registerToken", async () => {
       throw new Error("deletion must not delegate through presence service");
     });
@@ -226,6 +231,160 @@ describe("Notification routes", () => {
     assert.equal(registerMock.mock.callCount(), 0);
     const tokens = await deviceTokenRepo.findByUserId(user.userId);
     assert.equal(tokens.length, 0);
+  });
+
+  describe("Firebase Installation IDs", () => {
+    const deviceA = "550e8400-e29b-41d4-a716-446655440000";
+    const deviceB = "6fa459ea-ee8a-4ca4-894e-db77e160355e";
+
+    const register = (accessToken: string, body: Record<string, string>) =>
+      ctx.app.inject({
+        method: "POST",
+        url: "/notifications/register-token",
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+        },
+        payload: JSON.stringify(body),
+      });
+
+    const storedKinds = async (userId: string) =>
+      new Map((await deviceTokenRepo.findByUserId(userId)).map((row) => [row.token, row.kind]));
+
+    it("POST /notifications/register-token stores a fid with its kind", async () => {
+      const user = await ctx.createUser();
+
+      const res = await register(user.accessToken, { fid: "fid-new", platform: "ios", deviceId: deviceA });
+
+      assert.equal(res.statusCode, 200);
+      assert.deepEqual(res.json(), { ok: true });
+      const rows = await deviceTokenRepo.findByUserId(user.userId);
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0]?.token, "fid-new");
+      assert.equal(rows[0]?.kind, DeviceTokenKind.InstallationId);
+      assert.equal(rows[0]?.platform, DevicePlatform.ios);
+      assert.equal(rows[0]?.deviceId, deviceA);
+      assert.ok((await activationStateRepo.findByUserId(user.userId))?.mobileSetupAt);
+    });
+
+    it("POST /notifications/register-token still stores a token with kind token", async () => {
+      const user = await ctx.createUser();
+
+      const res = await register(user.accessToken, { token: "fcm-token-kind", platform: "android" });
+
+      assert.equal(res.statusCode, 200);
+      assert.deepEqual(
+        await storedKinds(user.userId),
+        new Map([["fcm-token-kind", DeviceTokenKind.RegistrationToken]]),
+      );
+    });
+
+    it("POST /notifications/register-token requires exactly one of token or fid", async () => {
+      const user = await ctx.createUser();
+
+      for (const body of [
+        { token: "fcm-token-both", fid: "fid-both", platform: "ios" },
+        { platform: "ios" },
+        { fid: "", platform: "ios" },
+      ]) {
+        const res = await register(user.accessToken, body);
+        assert.equal(res.statusCode, 400, JSON.stringify(body));
+        assert.deepEqual(res.json(), { error: "bad_request" });
+      }
+      assert.equal((await deviceTokenRepo.findByUserId(user.userId)).length, 0);
+    });
+
+    it("a fid replaces only this user's token rows for the same deviceId", async () => {
+      const user = await ctx.createUser();
+      const otherUser = await ctx.createUser();
+      await register(user.accessToken, { token: "token-device-a", platform: "ios", deviceId: deviceA });
+      await register(user.accessToken, { token: "token-device-b", platform: "ios", deviceId: deviceB });
+      await register(user.accessToken, { token: "token-no-device", platform: "ios" });
+      await register(user.accessToken, { fid: "fid-device-a-old", platform: "ios", deviceId: deviceA });
+      await register(otherUser.accessToken, { token: "other-token-device-a", platform: "ios", deviceId: deviceA });
+
+      const res = await register(user.accessToken, { fid: "fid-device-a", platform: "ios", deviceId: deviceA });
+
+      assert.equal(res.statusCode, 200);
+      assert.deepEqual(
+        await storedKinds(user.userId),
+        new Map([
+          ["token-device-b", DeviceTokenKind.RegistrationToken],
+          ["token-no-device", DeviceTokenKind.RegistrationToken],
+          ["fid-device-a-old", DeviceTokenKind.InstallationId],
+          ["fid-device-a", DeviceTokenKind.InstallationId],
+        ]),
+      );
+      assert.deepEqual(
+        await storedKinds(otherUser.userId),
+        new Map([["other-token-device-a", DeviceTokenKind.RegistrationToken]]),
+      );
+    });
+
+    it("a fid without a deviceId leaves every token row alone", async () => {
+      const user = await ctx.createUser();
+      await register(user.accessToken, { token: "token-kept-a", platform: "ios", deviceId: deviceA });
+      await register(user.accessToken, { token: "token-kept-none", platform: "ios" });
+
+      const res = await register(user.accessToken, { fid: "fid-no-device", platform: "ios" });
+
+      assert.equal(res.statusCode, 200);
+      assert.deepEqual(
+        await storedKinds(user.userId),
+        new Map([
+          ["token-kept-a", DeviceTokenKind.RegistrationToken],
+          ["token-kept-none", DeviceTokenKind.RegistrationToken],
+          ["fid-no-device", DeviceTokenKind.InstallationId],
+        ]),
+      );
+    });
+
+    it("a token registration leaves the same device's fid alone", async () => {
+      const user = await ctx.createUser();
+      await register(user.accessToken, { fid: "fid-kept", platform: "ios", deviceId: deviceA });
+
+      const res = await register(user.accessToken, { token: "token-after-fid", platform: "ios", deviceId: deviceA });
+
+      assert.equal(res.statusCode, 200);
+      assert.deepEqual(
+        await storedKinds(user.userId),
+        new Map([
+          ["fid-kept", DeviceTokenKind.InstallationId],
+          ["token-after-fid", DeviceTokenKind.RegistrationToken],
+        ]),
+      );
+    });
+
+    it("DELETE /notifications/fids/:fid removes only the caller's fid", async () => {
+      const user = await ctx.createUser();
+      const otherUser = await ctx.createUser();
+      await register(user.accessToken, { fid: "fid-to-delete", platform: "ios", deviceId: deviceA });
+      await register(user.accessToken, { token: "token-not-a-fid", platform: "ios" });
+      await register(otherUser.accessToken, { fid: "fid-other-user", platform: "ios" });
+
+      const remove = (accessToken: string | null, value: string) =>
+        ctx.app.inject({
+          method: "DELETE",
+          url: `/notifications/fids/${encodeURIComponent(value)}`,
+          headers: accessToken ? { authorization: `Bearer ${accessToken}` } : {},
+        });
+
+      assert.equal((await remove(null, "fid-to-delete")).statusCode, 401);
+      for (const value of ["fid-to-delete", "token-not-a-fid", "fid-other-user", "fid-unknown"]) {
+        const res = await remove(user.accessToken, value);
+        assert.equal(res.statusCode, 200, value);
+        assert.deepEqual(res.json(), { ok: true }, value);
+      }
+
+      assert.deepEqual(
+        await storedKinds(user.userId),
+        new Map([["token-not-a-fid", DeviceTokenKind.RegistrationToken]]),
+      );
+      assert.deepEqual(
+        await storedKinds(otherUser.userId),
+        new Map([["fid-other-user", DeviceTokenKind.InstallationId]]),
+      );
+    });
   });
 
   it("POST /notifications/send returns 200 and calls notificationService.sendToUser", async () => {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { ObjectId } from "mongodb";
 import { InternalServerError } from "../../src/lib/errors.js";
-import { DevicePlatform } from "../../src/models/device.js";
+import { DevicePlatform, DeviceTokenKind } from "../../src/models/device.js";
 import type { DeviceToken } from "../../src/models/documents.js";
 import { DeviceTokenRepository } from "../../src/repositories/device-token-repo.js";
 import { AuthDbCollection, MongoDbDatabase } from "../../src/types/mongo.js";
@@ -24,19 +24,78 @@ describe("DeviceTokenRepository", () => {
   it("upsertToken creates new token", async () => {
     const user = await ctx.createUser();
 
-    await repo.upsertToken(user.userId, "token-create", DevicePlatform.ios);
+    await repo.upsertToken({
+      userId: user.userId,
+      token: "token-create",
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.ios,
+    });
 
     const tokens = await repo.findByUserId(user.userId);
     assert.equal(tokens.length, 1);
     assert.equal(tokens[0]?.token, "token-create");
+    assert.equal(tokens[0]?.kind, DeviceTokenKind.RegistrationToken);
     assert.equal(tokens[0]?.platform, "ios");
+  });
+
+  it("upsertToken stores a Firebase Installation ID with its kind", async () => {
+    const user = await ctx.createUser();
+
+    await repo.upsertToken({
+      userId: user.userId,
+      token: "fid-create",
+      kind: DeviceTokenKind.InstallationId,
+      platform: DevicePlatform.ios,
+    });
+
+    const tokens = await repo.findByUserId(user.userId);
+    assert.equal(tokens.length, 1);
+    assert.equal(tokens[0]?.token, "fid-create");
+    assert.equal(tokens[0]?.kind, DeviceTokenKind.InstallationId);
+  });
+
+  it("backfillKind marks rows without a kind as registration tokens", async () => {
+    const user = await ctx.createUser();
+    const collection = ctx.dbAccessor.getCollection(MongoDbDatabase.Auth, AuthDbCollection.DeviceTokens);
+    const at = new Date("2026-06-01T10:00:00.000Z");
+    await collection.insertOne({
+      userId: new ObjectId(user.userId),
+      token: `legacy-token-${user.userId}`,
+      platform: DevicePlatform.ios,
+      createdAt: at,
+      updatedAt: at,
+    });
+    await repo.upsertToken({
+      userId: user.userId,
+      token: `fid-${user.userId}`,
+      kind: DeviceTokenKind.InstallationId,
+      platform: DevicePlatform.ios,
+    });
+
+    assert.equal(await repo.backfillKind(), 1);
+    assert.equal(await repo.backfillKind(), 0);
+
+    const kindsByToken = new Map((await repo.findByUserId(user.userId)).map((row) => [row.token, row.kind]));
+    assert.deepEqual(
+      kindsByToken,
+      new Map([
+        [`legacy-token-${user.userId}`, DeviceTokenKind.RegistrationToken],
+        [`fid-${user.userId}`, DeviceTokenKind.InstallationId],
+      ]),
+    );
   });
 
   it("upsertToken stores the deviceId that scopes notification settings", async () => {
     const user = await ctx.createUser();
     const deviceId = "550e8400-e29b-41d4-a716-446655440000";
 
-    await repo.upsertToken(user.userId, "token-with-device", DevicePlatform.ios, deviceId);
+    await repo.upsertToken({
+      userId: user.userId,
+      token: "token-with-device",
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.ios,
+      deviceId,
+    });
 
     const tokens = await repo.findByUserId(user.userId);
     assert.equal(tokens[0]?.deviceId, deviceId);
@@ -45,7 +104,12 @@ describe("DeviceTokenRepository", () => {
   it("upsertToken defaults deviceId to null when the client omits it", async () => {
     const user = await ctx.createUser();
 
-    await repo.upsertToken(user.userId, "token-no-device", DevicePlatform.ios);
+    await repo.upsertToken({
+      userId: user.userId,
+      token: "token-no-device",
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.ios,
+    });
 
     const tokens = await repo.findByUserId(user.userId);
     assert.equal(tokens[0]?.deviceId, null);
@@ -55,8 +119,19 @@ describe("DeviceTokenRepository", () => {
     const user = await ctx.createUser();
     const deviceId = "6ba7b810-9dad-41d1-80b4-00c04fd430c8";
 
-    await repo.upsertToken(user.userId, "token-sticky-device", DevicePlatform.ios, deviceId);
-    await repo.upsertToken(user.userId, "token-sticky-device", DevicePlatform.android);
+    await repo.upsertToken({
+      userId: user.userId,
+      token: "token-sticky-device",
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.ios,
+      deviceId,
+    });
+    await repo.upsertToken({
+      userId: user.userId,
+      token: "token-sticky-device",
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.android,
+    });
 
     const tokens = await repo.findByUserId(user.userId);
     assert.equal(tokens[0]?.deviceId, deviceId);
@@ -68,8 +143,19 @@ describe("DeviceTokenRepository", () => {
     const first = await ctx.createUser();
     const second = await ctx.createUser();
 
-    await repo.upsertToken(first.userId, "token-recycled", DevicePlatform.ios, "550e8400-e29b-41d4-a716-446655440000");
-    await repo.upsertToken(second.userId, "token-recycled", DevicePlatform.ios);
+    await repo.upsertToken({
+      userId: first.userId,
+      token: "token-recycled",
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.ios,
+      deviceId: "550e8400-e29b-41d4-a716-446655440000",
+    });
+    await repo.upsertToken({
+      userId: second.userId,
+      token: "token-recycled",
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.ios,
+    });
 
     assert.deepEqual(await repo.findByUserId(first.userId), []);
     const tokens = await repo.findByUserId(second.userId);
@@ -80,13 +166,23 @@ describe("DeviceTokenRepository", () => {
   it("upsertToken preserves createdAt for a same-owner mobile-to-mobile update", async () => {
     const user = await ctx.createUser();
 
-    await repo.upsertToken(user.userId, "token-idempotent", DevicePlatform.ios);
+    await repo.upsertToken({
+      userId: user.userId,
+      token: "token-idempotent",
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.ios,
+    });
     const first = await repo.findByUserId(user.userId);
     const firstCreatedAt = first[0]?.createdAt;
     const firstUpdatedAt = first[0]?.updatedAt;
 
     await new Promise((resolve) => setTimeout(resolve, 10));
-    await repo.upsertToken(user.userId, "token-idempotent", DevicePlatform.android);
+    await repo.upsertToken({
+      userId: user.userId,
+      token: "token-idempotent",
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.android,
+    });
 
     const second = await repo.findByUserId(user.userId);
     assert.equal(second.length, 1);
@@ -100,12 +196,22 @@ describe("DeviceTokenRepository", () => {
 
   it("upsertToken preserves createdAt for a same-owner desktop-to-desktop update", async () => {
     const user = await ctx.createUser();
-    await repo.upsertToken(user.userId, "token-desktop-retry", DevicePlatform.macos);
+    await repo.upsertToken({
+      userId: user.userId,
+      token: "token-desktop-retry",
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.macos,
+    });
     const first = (await repo.findByUserId(user.userId))[0];
     assert.ok(first);
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    await repo.upsertToken(user.userId, "token-desktop-retry", DevicePlatform.linux);
+    await repo.upsertToken({
+      userId: user.userId,
+      token: "token-desktop-retry",
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.linux,
+    });
 
     const updated = (await repo.findByUserId(user.userId))[0];
     assert.ok(updated);
@@ -116,12 +222,22 @@ describe("DeviceTokenRepository", () => {
 
   it("upsertToken preserves createdAt for a same-owner mobile-to-desktop update", async () => {
     const user = await ctx.createUser();
-    await repo.upsertToken(user.userId, "token-mobile-to-desktop", DevicePlatform.ios);
+    await repo.upsertToken({
+      userId: user.userId,
+      token: "token-mobile-to-desktop",
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.ios,
+    });
     const first = (await repo.findByUserId(user.userId))[0];
     assert.ok(first);
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    await repo.upsertToken(user.userId, "token-mobile-to-desktop", DevicePlatform.macos);
+    await repo.upsertToken({
+      userId: user.userId,
+      token: "token-mobile-to-desktop",
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.macos,
+    });
 
     const updated = (await repo.findByUserId(user.userId))[0];
     assert.ok(updated);
@@ -132,12 +248,22 @@ describe("DeviceTokenRepository", () => {
 
   it("upsertToken preserves createdAt for a same-owner desktop-to-mobile update", async () => {
     const user = await ctx.createUser();
-    await repo.upsertToken(user.userId, "token-desktop-to-mobile", DevicePlatform.macos);
+    await repo.upsertToken({
+      userId: user.userId,
+      token: "token-desktop-to-mobile",
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.macos,
+    });
     const first = (await repo.findByUserId(user.userId))[0];
     assert.ok(first);
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    await repo.upsertToken(user.userId, "token-desktop-to-mobile", DevicePlatform.ios);
+    await repo.upsertToken({
+      userId: user.userId,
+      token: "token-desktop-to-mobile",
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.ios,
+    });
 
     const updated = (await repo.findByUserId(user.userId))[0];
     assert.ok(updated);
@@ -150,12 +276,22 @@ describe("DeviceTokenRepository", () => {
     const firstUser = await ctx.createUser();
     const secondUser = await ctx.createUser();
 
-    await repo.upsertToken(firstUser.userId, "token-transferred", DevicePlatform.ios);
+    await repo.upsertToken({
+      userId: firstUser.userId,
+      token: "token-transferred",
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.ios,
+    });
     const firstRegistration = (await repo.findByUserId(firstUser.userId))[0];
     assert.ok(firstRegistration);
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    await repo.upsertToken(secondUser.userId, "token-transferred", DevicePlatform.android);
+    await repo.upsertToken({
+      userId: secondUser.userId,
+      token: "token-transferred",
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.android,
+    });
 
     assert.equal((await repo.findByUserId(firstUser.userId)).length, 0);
     const transferred = (await repo.findByUserId(secondUser.userId))[0];
@@ -168,14 +304,29 @@ describe("DeviceTokenRepository", () => {
   it("upsertToken serializes concurrent owner and platform transitions", async () => {
     const firstUser = await ctx.createUser();
     const secondUser = await ctx.createUser();
-    await repo.upsertToken(firstUser.userId, "token-concurrent-transition", DevicePlatform.macos);
+    await repo.upsertToken({
+      userId: firstUser.userId,
+      token: "token-concurrent-transition",
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.macos,
+    });
     const seeded = (await repo.findByUserId(firstUser.userId))[0];
     assert.ok(seeded);
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     await Promise.all([
-      repo.upsertToken(firstUser.userId, "token-concurrent-transition", DevicePlatform.ios),
-      repo.upsertToken(secondUser.userId, "token-concurrent-transition", DevicePlatform.linux),
+      repo.upsertToken({
+        userId: firstUser.userId,
+        token: "token-concurrent-transition",
+        kind: DeviceTokenKind.RegistrationToken,
+        platform: DevicePlatform.ios,
+      }),
+      repo.upsertToken({
+        userId: secondUser.userId,
+        token: "token-concurrent-transition",
+        kind: DeviceTokenKind.RegistrationToken,
+        platform: DevicePlatform.linux,
+      }),
     ]);
 
     const firstOwnerTokens = await repo.findByUserId(firstUser.userId);
@@ -194,7 +345,13 @@ describe("DeviceTokenRepository", () => {
 
   it("upsertToken rejects an invalid user id", async () => {
     await assert.rejects(
-      () => repo.upsertToken("invalid-id", "token-invalid", DevicePlatform.ios),
+      () =>
+        repo.upsertToken({
+          userId: "invalid-id",
+          token: "token-invalid",
+          kind: DeviceTokenKind.RegistrationToken,
+          platform: DevicePlatform.ios,
+        }),
       (error: unknown) => {
         assert.ok(error instanceof InternalServerError);
         assert.equal(error.debugMessage, "Invalid device token userId");
@@ -206,8 +363,18 @@ describe("DeviceTokenRepository", () => {
   it("findByUserId returns all tokens for user", async () => {
     const user = await ctx.createUser();
 
-    await repo.upsertToken(user.userId, "token-list-1", DevicePlatform.ios);
-    await repo.upsertToken(user.userId, "token-list-2", DevicePlatform.android);
+    await repo.upsertToken({
+      userId: user.userId,
+      token: "token-list-1",
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.ios,
+    });
+    await repo.upsertToken({
+      userId: user.userId,
+      token: "token-list-2",
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.android,
+    });
 
     const tokens = await repo.findByUserId(user.userId);
     assert.equal(tokens.length, 2);
@@ -220,7 +387,12 @@ describe("DeviceTokenRepository", () => {
 
     for (const platform of Object.values(DevicePlatform)) {
       const user = await ctx.createUser();
-      await repo.upsertToken(user.userId, `presence-${platform}`, platform);
+      await repo.upsertToken({
+        userId: user.userId,
+        token: `presence-${platform}`,
+        kind: DeviceTokenKind.RegistrationToken,
+        platform,
+      });
       assert.equal(await repo.hasAnyForUser(user.userId), true, platform);
     }
 
@@ -238,6 +410,7 @@ describe("DeviceTokenRepository", () => {
         _id: new ObjectId(),
         userId: new ObjectId(user.userId),
         token: `desktop-token-${user.userId}`,
+        kind: DeviceTokenKind.RegistrationToken,
         platform: DevicePlatform.macos,
         createdAt: desktopAt,
         updatedAt: desktopAt,
@@ -246,6 +419,7 @@ describe("DeviceTokenRepository", () => {
         _id: new ObjectId(),
         userId: new ObjectId(user.userId),
         token: `earliest-mobile-token-${user.userId}`,
+        kind: DeviceTokenKind.RegistrationToken,
         platform: DevicePlatform.ios,
         createdAt: firstMobileAt,
         updatedAt: firstMobileAt,
@@ -254,6 +428,7 @@ describe("DeviceTokenRepository", () => {
         _id: new ObjectId(),
         userId: new ObjectId(user.userId),
         token: `later-mobile-token-${user.userId}`,
+        kind: DeviceTokenKind.RegistrationToken,
         platform: DevicePlatform.android,
         createdAt: secondMobileAt,
         updatedAt: secondMobileAt,
@@ -312,7 +487,12 @@ describe("DeviceTokenRepository", () => {
   it("deleteByToken removes specific token", async () => {
     const user = await ctx.createUser();
 
-    await repo.upsertToken(user.userId, "token-delete-one", DevicePlatform.ios);
+    await repo.upsertToken({
+      userId: user.userId,
+      token: "token-delete-one",
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.ios,
+    });
     await repo.deleteByToken("token-delete-one");
 
     const tokens = await repo.findByUserId(user.userId);
@@ -322,9 +502,24 @@ describe("DeviceTokenRepository", () => {
   it("deleteByTokens removes provided tokens", async () => {
     const user = await ctx.createUser();
 
-    await repo.upsertToken(user.userId, "token-delete-many-1", DevicePlatform.ios);
-    await repo.upsertToken(user.userId, "token-delete-many-2", DevicePlatform.android);
-    await repo.upsertToken(user.userId, "token-delete-many-3", DevicePlatform.ios);
+    await repo.upsertToken({
+      userId: user.userId,
+      token: "token-delete-many-1",
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.ios,
+    });
+    await repo.upsertToken({
+      userId: user.userId,
+      token: "token-delete-many-2",
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.android,
+    });
+    await repo.upsertToken({
+      userId: user.userId,
+      token: "token-delete-many-3",
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.ios,
+    });
 
     await repo.deleteByTokens(["token-delete-many-1", "token-delete-many-2"]);
 
@@ -336,8 +531,18 @@ describe("DeviceTokenRepository", () => {
   it("deleteAllForUser removes all tokens for user", async () => {
     const user = await ctx.createUser();
 
-    await repo.upsertToken(user.userId, "token-delete-all-1", DevicePlatform.ios);
-    await repo.upsertToken(user.userId, "token-delete-all-2", DevicePlatform.android);
+    await repo.upsertToken({
+      userId: user.userId,
+      token: "token-delete-all-1",
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.ios,
+    });
+    await repo.upsertToken({
+      userId: user.userId,
+      token: "token-delete-all-2",
+      kind: DeviceTokenKind.RegistrationToken,
+      platform: DevicePlatform.android,
+    });
 
     await repo.deleteAllForUser(user.userId);
 

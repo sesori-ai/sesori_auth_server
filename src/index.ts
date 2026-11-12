@@ -93,6 +93,10 @@ async function main() {
   const glossaryRepo = new GlossaryEntryRepository(dbAccessor);
   const dailyUsageRepo = new DailyUsageRepository(dbAccessor);
   const deviceTokenRepo = new DeviceTokenRepository(dbAccessor);
+  const backfilledDeviceTokens = await deviceTokenRepo.backfillKind();
+  if (backfilledDeviceTokens > 0) {
+    console.log(`[DeviceTokens] Backfilled kind "token" on ${backfilledDeviceTokens} rows`);
+  }
   const bridgeRepo = new BridgeRepository(dbAccessor);
   const activationStateRepo = new ActivationStateRepository(dbAccessor);
   const settingsRepo = new SettingsConfigurationRepository(dbAccessor);

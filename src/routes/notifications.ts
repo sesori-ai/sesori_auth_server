@@ -4,9 +4,11 @@ import {
   registerTokenBodySchema,
   sendNotificationBodySchema,
   bridgeStatusBodySchema,
+  unregisterFidParamsSchema,
   type RegisterTokenBody,
   type SendNotificationBody,
   type BridgeStatusBody,
+  type UnregisterFidParams,
 } from "../models/api.js";
 import { BridgeConnectionNotificationPolicy, BridgeStatusEvent, bridgeStatusFromWire } from "../models/bridge.js";
 import type { DeviceTokenRepository } from "../repositories/device-token-repo.js";
@@ -69,6 +71,7 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
       await appClientPresenceService.registerToken({
         userId,
         token: bodyResult.data.token,
+        kind: bodyResult.data.kind,
         platform: bodyResult.data.platform,
         deviceId: bodyResult.data.deviceId,
       });
@@ -88,6 +91,21 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
       const userId = getUserId(request);
       const token = decodeURIComponent(request.params.token);
       await deviceTokenRepo.deleteByTokenForUser(userId, token);
+      return { ok: true };
+    },
+  );
+
+  fastify.delete<{ Params: UnregisterFidParams; Reply: { ok: true } }>(
+    "/notifications/fids/:fid",
+    { preHandler: requireAuth },
+    async (request) => {
+      const paramsResult = unregisterFidParamsSchema.safeParse(request.params);
+      if (!paramsResult.success) {
+        throw new BadRequestError({ debugMessage: "Invalid fid", nestedError: paramsResult.error.issues });
+      }
+
+      const userId = getUserId(request);
+      await deviceTokenRepo.deleteInstallationIdForUser(userId, paramsResult.data.fid);
       return { ok: true };
     },
   );

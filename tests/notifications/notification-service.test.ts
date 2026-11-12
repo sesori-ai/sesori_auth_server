@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { describe, it } from "node:test";
 import type { Messaging } from "firebase-admin/messaging";
+import { DeviceTokenKind } from "../../src/models/device.js";
 import { NotificationCategory } from "../../src/models/notification.js";
 import type { DeviceTokenRepository } from "../../src/repositories/device-token-repo.js";
 import {
@@ -16,7 +17,8 @@ const allowAllSettings: NotificationSettingsResolver = {
 };
 
 type MockResponse = { success: boolean; error?: { code: string } };
-type MockToken = { userId: string; token: string; platform: string };
+// kind is optional so a row written before the backfill can be modelled.
+type MockToken = { userId: string; token: string; kind?: DeviceTokenKind; platform: string };
 
 function createMockMessaging(responses: MockResponse[]) {
   const calls: unknown[][] = [];
@@ -94,6 +96,55 @@ describe("NotificationService", () => {
     const secondMessage = messaging.calls[0]?.[1] as { token?: string };
     assert.equal(firstMessage.token, "token-a");
     assert.equal(secondMessage.token, "token-b");
+  });
+
+  it("sends a fid message to FID rows and a token message to token rows in one batch", async () => {
+    const tokenRepo = createMockDeviceTokenRepo([
+      { userId: "user-1", token: "token-a", kind: DeviceTokenKind.RegistrationToken, platform: "ios" },
+      { userId: "user-1", token: "fid-b", kind: DeviceTokenKind.InstallationId, platform: "ios" },
+      { userId: "user-1", token: "token-without-kind", platform: "android" },
+    ]);
+    const messaging = createMockMessaging([{ success: true }, { success: true }, { success: true }]);
+    const service = new NotificationService(tokenRepo.repo, messaging.messaging, allowAllSettings);
+
+    const result = await service.sendToUser("user-1", payload);
+
+    assert.deepEqual(result, { devicesNotified: 3, retryableFailures: 0 });
+    assert.equal(messaging.calls.length, 1);
+    const targets = (messaging.calls[0] ?? []).map((message) => {
+      const { token, fid } = message as { token?: string; fid?: string };
+      return { token, fid };
+    });
+    assert.deepEqual(targets, [
+      { token: "token-a", fid: undefined },
+      { token: undefined, fid: "fid-b" },
+      { token: "token-without-kind", fid: undefined },
+    ]);
+    const fidMessage = messaging.calls[0]?.[1] as { notification?: unknown; data?: unknown };
+    assert.deepEqual(fidMessage.notification, { title: payload.title, body: payload.body });
+    assert.equal((fidMessage.data as { category?: string }).category, payload.category);
+  });
+
+  it("deletes a FID row when Firebase reports the installation ID not registered", async () => {
+    const tokenRepo = createMockDeviceTokenRepo([
+      { userId: "user-1", token: "token-live", kind: DeviceTokenKind.RegistrationToken, platform: "ios" },
+      { userId: "user-1", token: "fid-stale", kind: DeviceTokenKind.InstallationId, platform: "ios" },
+      { userId: "user-1", token: "fid-live", kind: DeviceTokenKind.InstallationId, platform: "android" },
+    ]);
+    const messaging = createMockMessaging([
+      { success: true },
+      { success: false, error: { code: "messaging/installation-id-not-registered" } },
+      { success: true },
+    ]);
+    const service = new NotificationService(tokenRepo.repo, messaging.messaging, allowAllSettings);
+
+    const result = await service.sendToUser("user-1", payload);
+
+    assert.deepEqual(result, { devicesNotified: 2, retryableFailures: 0 });
+    assert.deepEqual(
+      tokenRepo.getStoredTokens().map((t) => t.token),
+      ["token-live", "fid-live"],
+    );
   });
 
   it("flattens projectId into FCM data payload", async () => {
