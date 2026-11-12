@@ -433,6 +433,52 @@ describe("Product analytics event schema", () => {
     }
   });
 
+  const HARNESSES = [
+    "opencode",
+    "codex",
+    "github_copilot",
+    "cursor",
+    "claude_code",
+    "hermes_agent",
+    "pi",
+    "oh_my_pi",
+    "deepseek",
+    "grok_build",
+    "antigravity",
+    "other",
+  ];
+  const MESSAGE_EVENTS = ["session_message_sent", "session_created_with_message"];
+
+  it("accepts every harness value on both message events, and their omission", () => {
+    for (const name of MESSAGE_EVENTS) {
+      const valid = firstParams({ params: EVENT_PARAMS[name] ?? {} });
+      assert.equal(productAnalyticsEventBodySchema.safeParse(eventBody({ name, params: valid })).success, true, name);
+      for (const harness of HARNESSES) {
+        const result = productAnalyticsEventBodySchema.safeParse(eventBody({ name, params: { ...valid, harness } }));
+        assert.deepEqual(result.success ? result.data.params : null, { ...valid, harness }, `${name} ${harness}`);
+      }
+    }
+  });
+
+  it("rejects harness values outside the closed set and harness on other events", () => {
+    for (const name of MESSAGE_EVENTS) {
+      const valid = firstParams({ params: EVENT_PARAMS[name] ?? {} });
+      for (const harness of ["my-private-fork", "Claude Code", "CODEX", "unknown", "", null, 1]) {
+        const result = productAnalyticsEventBodySchema.safeParse({
+          ...eventBody({ name, params: valid }),
+          params: { ...valid, harness },
+        });
+        assert.equal(result.success, false, `${name} ${JSON.stringify(harness)}`);
+      }
+    }
+
+    const creationFailed = firstParams({ params: EVENT_PARAMS.session_creation_failed ?? {} });
+    const result = productAnalyticsEventBodySchema.safeParse(
+      eventBody({ name: "session_creation_failed", params: { ...creationFailed, harness: "codex" } }),
+    );
+    assert.equal(result.success, false);
+  });
+
   const invalidEnvelopes: Array<[string, Record<string, unknown>]> = [
     ["an unknown event name", { name: "made_up_event" }],
     ["an unknown top-level field", { sessionTitle: "free text" }],
@@ -618,6 +664,23 @@ describe("POST /product-analytics/events", () => {
     });
   }
 
+  it("stores the harness of a message event as a param", async () => {
+    const user = await ctx.createUser();
+    const params = { submission_kind: "text", input_mode: "typed", workspace_kind: "project", harness: "claude_code" };
+
+    const response = await post({
+      accessToken: user.accessToken,
+      body: eventBody({ name: "session_created_with_message", params }),
+    });
+
+    assert.equal(response.statusCode, 204);
+    const rows = await rowsFor({ userId: user.userId });
+    assert.deepEqual(
+      rows.map((row) => row.params),
+      [params],
+    );
+  });
+
   const rejectedBodies: Array<[string, unknown]> = [
     ["an unknown event name", { ...VALID_BODY, name: "made_up_event" }],
     ["an unknown param", { ...VALID_BODY, params: { decision: "once", extra: "x" } }],
@@ -627,6 +690,13 @@ describe("POST /product-analytics/events", () => {
     [
       "a voice-assisted command",
       eventBody({ name: "session_message_sent", params: { submission_kind: "command", input_mode: "voice_assisted" } }),
+    ],
+    [
+      "an unknown harness",
+      eventBody({
+        name: "session_message_sent",
+        params: { submission_kind: "text", input_mode: "typed", harness: "my-private-fork" },
+      }),
     ],
     ["time older than 72 hours", { ...VALID_BODY, occurredAtMicros: (Date.now() - 73 * 3_600_000) * 1000 }],
     ["time over 300 seconds ahead", { ...VALID_BODY, occurredAtMicros: (Date.now() + 3_600_000) * 1000 }],
