@@ -282,6 +282,21 @@ export enum ProductAnalyticsSideQuestionOutcome {
   Failed = "failed",
 }
 
+// What became of a dictation's words. Optional, with ProductAnalyticsVoiceMode,
+// because released desktop versions send no voice params.
+export enum ProductAnalyticsVoiceFinish {
+  Sent = "sent",
+  Edited = "edited",
+  CutOff = "cut_off",
+}
+
+// How a dictation actually ran; a fallback reports `after_recording`.
+export enum ProductAnalyticsVoiceMode {
+  Live = "live",
+  AfterRecording = "after_recording",
+  OnDevice = "on_device",
+}
+
 function eventBodySchema<TName extends ProductAnalyticsEventName, TParams extends z.ZodType>(input: {
   name: TName;
   params: TParams;
@@ -362,7 +377,10 @@ export const productAnalyticsEventBodySchema = z.discriminatedUnion("name", [
   }),
   eventBodySchema({
     name: ProductAnalyticsEventName.VoiceTranscriptionCompleted,
-    params: noEventParamsSchema,
+    params: z.strictObject({
+      finish: z.enum(ProductAnalyticsVoiceFinish).optional(),
+      mode: z.enum(ProductAnalyticsVoiceMode).optional(),
+    }),
   }),
   eventBodySchema({ name: ProductAnalyticsEventName.SessionQuestionAnswered, params: noEventParamsSchema }),
   eventBodySchema({ name: ProductAnalyticsEventName.SessionQuestionRejected, params: noEventParamsSchema }),

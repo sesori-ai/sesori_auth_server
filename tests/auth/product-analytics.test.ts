@@ -503,6 +503,42 @@ describe("Product analytics event schema", () => {
     assert.equal(result.success, false);
   });
 
+  const VOICE_FINISHES = ["sent", "edited", "cut_off"];
+  const VOICE_MODES = ["live", "after_recording", "on_device"];
+
+  it("accepts every voice finish and mode, and their omission", () => {
+    const accepted = [
+      {},
+      ...VOICE_FINISHES.map((finish) => ({ finish })),
+      ...VOICE_MODES.map((mode) => ({ mode })),
+      ...paramCombinations({ params: { finish: VOICE_FINISHES, mode: VOICE_MODES } }),
+    ];
+    for (const params of accepted) {
+      const result = productAnalyticsEventBodySchema.safeParse(
+        eventBody({ name: "voice_transcription_completed", params }),
+      );
+      assert.deepEqual(result.success ? result.data.params : null, params, JSON.stringify(params));
+    }
+  });
+
+  it("rejects voice finish and mode values outside their closed sets", () => {
+    for (const params of [
+      { finish: "free text" },
+      { finish: "live" },
+      { mode: "sent" },
+      { mode: "voice_assisted" },
+      { finish: "sent", mode: "Live" },
+      { finish: null },
+      { mode: "" },
+    ]) {
+      const result = productAnalyticsEventBodySchema.safeParse({
+        ...eventBody({ name: "voice_transcription_completed", params: {} }),
+        params,
+      });
+      assert.equal(result.success, false, JSON.stringify(params));
+    }
+  });
+
   const invalidEnvelopes: Array<[string, Record<string, unknown>]> = [
     ["an unknown event name", { name: "made_up_event" }],
     ["an unknown top-level field", { sessionTitle: "free text" }],

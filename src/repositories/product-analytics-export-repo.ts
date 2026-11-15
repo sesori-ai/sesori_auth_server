@@ -96,6 +96,9 @@ const desktopEventParamColumns = [
   "target_online",
   "action",
   "pinned",
+  // NULL for voice events from desktop versions that predate them.
+  "voice_finish",
+  "voice_mode",
 ];
 
 // Every other wire param is stored under its own name.
@@ -103,6 +106,10 @@ const desktopEventColumnByRenamedParam = new Map([
   ["answer", "feedback_answer"],
   ["input", "feedback_input"],
   ["source", "feedback_source"],
+  // Only voice_transcription_completed sends these; the prefix keeps `mode`
+  // apart from the message events' input_mode.
+  ["finish", "voice_finish"],
+  ["mode", "voice_mode"],
 ]);
 
 function desktopEventColumn(input: { eventName: ProductAnalyticsEventName; param: string }): string {
