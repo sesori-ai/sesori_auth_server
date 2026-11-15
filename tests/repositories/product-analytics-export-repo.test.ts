@@ -322,6 +322,8 @@ describe("ProductAnalyticsExportRepository", () => {
       nullable("target_online"),
       nullable("action"),
       nullable("pinned"),
+      nullable("voice_finish"),
+      nullable("voice_mode"),
     ]);
   });
 
@@ -392,6 +394,11 @@ describe("ProductAnalyticsExportRepository", () => {
           ...desktopEvent,
           eventName: ProductAnalyticsEventName.SessionPinChanged,
           params: { pinned: "false" },
+        },
+        {
+          ...desktopEvent,
+          eventName: ProductAnalyticsEventName.VoiceTranscriptionCompleted,
+          params: { finish: "cut_off", mode: "after_recording" },
         },
       ],
     });
@@ -540,6 +547,18 @@ describe("ProductAnalyticsExportRepository", () => {
         platform: "MACOS",
         app_version: "1.2.3",
       },
+      {
+        voice_finish: "cut_off",
+        voice_mode: "after_recording",
+        event_name: "voice_transcription_completed",
+        source_export_date: "2026-07-27",
+        received_at: "2026-07-27T23:30:00.000Z",
+        occurred_at_micros: "1785000000000123",
+        schema_version: 1,
+        user_key: "c".repeat(64),
+        platform: "MACOS",
+        app_version: "1.2.3",
+      },
     ]);
   });
 
@@ -553,7 +572,7 @@ describe("ProductAnalyticsExportRepository", () => {
     assert.ok(query);
     const [columnList, selectList] = query.sql.split("SELECT");
     const columns = (productAnalyticsPermanentTableSchemas.get("desktop_product_events") ?? []).map(({ name }) => name);
-    assert.equal(columns.length, 34);
+    assert.equal(columns.length, 36);
     assert.deepEqual(
       columnList
         .split("(")[1]
