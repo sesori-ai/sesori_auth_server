@@ -90,6 +90,12 @@ const desktopEventParamColumns = [
   "file_source",
   // NULL for message events from desktop versions that predate it.
   "harness",
+  "outcome",
+  "entry",
+  "switch_source",
+  "target_online",
+  "action",
+  "pinned",
 ];
 
 // Every other wire param is stored under its own name.
@@ -104,6 +110,12 @@ function desktopEventColumn(input: { eventName: ProductAnalyticsEventName; param
   if (input.eventName === ProductAnalyticsEventName.PromptFilesSent && input.param === "source") {
     return "file_source";
   }
+
+  // computer_switched's `source` says where a computer switch started.
+  if (input.eventName === ProductAnalyticsEventName.ComputerSwitched && input.param === "source") {
+    return "switch_source";
+  }
+
   return desktopEventColumnByRenamedParam.get(input.param) ?? input.param;
 }
 

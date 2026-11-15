@@ -94,6 +94,12 @@ export enum ProductAnalyticsEventName {
   BridgeRunCommandShared = "bridge_run_command_shared",
   ProductScreenViewed = "product_screen_viewed",
   PromptFilesSent = "prompt_files_sent",
+  HarnessInstallFinished = "harness_install_finished",
+  TranscriptPromptsOpened = "transcript_prompts_opened",
+  ComputerSwitched = "computer_switched",
+  ComputerManaged = "computer_managed",
+  SessionPinChanged = "session_pin_changed",
+  SideQuestionAsked = "side_question_asked",
 }
 
 // Uppercase to match GA4's IOS and ANDROID in the same warehouse column.
@@ -214,8 +220,9 @@ export enum ProductAnalyticsFileSource {
   Mixed = "mixed",
 }
 
-// Which shipped coding harness ran a message; `other` covers any harness
-// Sesori does not ship. Optional because released desktop versions omit it.
+// Which shipped coding harness ran a message or side question; `other` covers
+// any harness Sesori does not ship. Optional on the message events because
+// released desktop versions omit it there.
 export enum ProductAnalyticsHarness {
   Opencode = "opencode",
   Codex = "codex",
@@ -229,6 +236,50 @@ export enum ProductAnalyticsHarness {
   GrokBuild = "grok_build",
   Antigravity = "antigravity",
   Other = "other",
+}
+
+// A boolean param, which the client sends as its string form.
+export enum ProductAnalyticsBoolean {
+  True = "true",
+  False = "false",
+}
+
+// A client-triggered managed harness runtime install. The harness and any
+// failure text stay off the wire.
+export enum ProductAnalyticsHarnessInstallOutcome {
+  Completed = "completed",
+  Failed = "failed",
+}
+
+// What opened the Prompts screen.
+export enum ProductAnalyticsPromptsEntry {
+  SessionBar = "session_bar",
+  Pinch = "pinch",
+}
+
+// Where a switch to another computer started.
+export enum ProductAnalyticsComputerSwitchSource {
+  Menu = "menu",
+  OfflineScreen = "offline_screen",
+  Settings = "settings",
+  Alert = "alert",
+  Notification = "notification",
+  ComputersPage = "computers_page",
+  CommandPalette = "command_palette",
+}
+
+// What the user did to a computer from the Computers page.
+export enum ProductAnalyticsComputerManageAction {
+  Renamed = "renamed",
+  Removed = "removed",
+}
+
+// How one side question ended.
+export enum ProductAnalyticsSideQuestionOutcome {
+  Answered = "answered",
+  NoAnswer = "no_answer",
+  Unavailable = "unavailable",
+  Failed = "failed",
 }
 
 function eventBodySchema<TName extends ProductAnalyticsEventName, TParams extends z.ZodType>(input: {
@@ -357,6 +408,36 @@ export const productAnalyticsEventBodySchema = z.discriminatedUnion("name", [
     params: z.strictObject({
       file_count: z.enum(ProductAnalyticsFileCountBucket),
       source: z.enum(ProductAnalyticsFileSource),
+    }),
+  }),
+  eventBodySchema({
+    name: ProductAnalyticsEventName.HarnessInstallFinished,
+    params: z.strictObject({ outcome: z.enum(ProductAnalyticsHarnessInstallOutcome) }),
+  }),
+  eventBodySchema({
+    name: ProductAnalyticsEventName.TranscriptPromptsOpened,
+    params: z.strictObject({ entry: z.enum(ProductAnalyticsPromptsEntry) }),
+  }),
+  eventBodySchema({
+    name: ProductAnalyticsEventName.ComputerSwitched,
+    params: z.strictObject({
+      source: z.enum(ProductAnalyticsComputerSwitchSource),
+      target_online: z.enum(ProductAnalyticsBoolean),
+    }),
+  }),
+  eventBodySchema({
+    name: ProductAnalyticsEventName.ComputerManaged,
+    params: z.strictObject({ action: z.enum(ProductAnalyticsComputerManageAction) }),
+  }),
+  eventBodySchema({
+    name: ProductAnalyticsEventName.SessionPinChanged,
+    params: z.strictObject({ pinned: z.enum(ProductAnalyticsBoolean) }),
+  }),
+  eventBodySchema({
+    name: ProductAnalyticsEventName.SideQuestionAsked,
+    params: z.strictObject({
+      harness: z.enum(ProductAnalyticsHarness),
+      outcome: z.enum(ProductAnalyticsSideQuestionOutcome),
     }),
   }),
 ]);

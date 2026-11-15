@@ -307,6 +307,21 @@ const CONTENT_STATES = ["empty", "non_empty"];
 const FEEDBACK_SOURCES = ["automatic", "settings"];
 const SURFACES = ["connect_setup", "connected_empty", "bridge_offline"];
 const INSTALL_PARAMS = { surface: SURFACES, method: ["curl", "powershell", "npm", "bun"], os: ["unix", "windows"] };
+const BOOLEANS = ["true", "false"];
+const HARNESSES = [
+  "opencode",
+  "codex",
+  "github_copilot",
+  "cursor",
+  "claude_code",
+  "hermes_agent",
+  "pi",
+  "oh_my_pi",
+  "deepseek",
+  "grok_build",
+  "antigravity",
+  "other",
+];
 
 const EVENT_PARAMS: Record<string, Record<string, string[]>> = {
   analytics_schema_ready: {},
@@ -356,6 +371,15 @@ const EVENT_PARAMS: Record<string, Record<string, string[]>> = {
     ],
   },
   prompt_files_sent: { file_count: ["1", "2_4", "5_plus"], source: ["picker", "drop", "paste", "mixed"] },
+  harness_install_finished: { outcome: ["completed", "failed"] },
+  transcript_prompts_opened: { entry: ["session_bar", "pinch"] },
+  computer_switched: {
+    source: ["menu", "offline_screen", "settings", "alert", "notification", "computers_page", "command_palette"],
+    target_online: BOOLEANS,
+  },
+  computer_managed: { action: ["renamed", "removed"] },
+  session_pin_changed: { pinned: BOOLEANS },
+  side_question_asked: { harness: HARNESSES, outcome: ["answered", "no_answer", "unavailable", "failed"] },
 };
 
 function paramCombinations(input: { params: Record<string, string[]> }): Record<string, string>[] {
@@ -388,8 +412,8 @@ const VALID_BODY = eventBody({ name: "session_permission_answered", params: { de
 const RATE_LIMIT_CLIENT_ADDRESS = "198.51.100.61";
 
 describe("Product analytics event schema", () => {
-  it("covers exactly the 24 contract events", () => {
-    assert.equal(Object.keys(EVENT_PARAMS).length, 24);
+  it("covers exactly the 30 contract events", () => {
+    assert.equal(Object.keys(EVENT_PARAMS).length, 30);
     assert.deepEqual(
       [...productAnalyticsEventBodySchema.options.map((option) => option.shape.name.value)].sort(),
       Object.keys(EVENT_PARAMS).sort(),
@@ -433,20 +457,20 @@ describe("Product analytics event schema", () => {
     }
   });
 
-  const HARNESSES = [
-    "opencode",
-    "codex",
-    "github_copilot",
-    "cursor",
-    "claude_code",
-    "hermes_agent",
-    "pi",
-    "oh_my_pi",
-    "deepseek",
-    "grok_build",
-    "antigravity",
-    "other",
-  ];
+  it("accepts boolean params only in their lowercase string form", () => {
+    const cases: Array<[string, Record<string, unknown>]> = [
+      ["session_pin_changed", { pinned: true }],
+      ["session_pin_changed", { pinned: "True" }],
+      ["session_pin_changed", { pinned: "1" }],
+      ["computer_switched", { source: "menu", target_online: false }],
+      ["computer_switched", { source: "menu", target_online: "FALSE" }],
+    ];
+    for (const [name, params] of cases) {
+      const result = productAnalyticsEventBodySchema.safeParse({ ...eventBody({ name, params: {} }), params });
+      assert.equal(result.success, false, `${name} ${JSON.stringify(params)}`);
+    }
+  });
+
   const MESSAGE_EVENTS = ["session_message_sent", "session_created_with_message"];
 
   it("accepts every harness value on both message events, and their omission", () => {
