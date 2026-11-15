@@ -316,6 +316,12 @@ describe("ProductAnalyticsExportRepository", () => {
       nullable("file_count"),
       nullable("file_source"),
       nullable("harness"),
+      nullable("outcome"),
+      nullable("entry"),
+      nullable("switch_source"),
+      nullable("target_online"),
+      nullable("action"),
+      nullable("pinned"),
     ]);
   });
 
@@ -356,6 +362,36 @@ describe("ProductAnalyticsExportRepository", () => {
           ...desktopEvent,
           eventName: ProductAnalyticsEventName.SessionMessageSent,
           params: { submission_kind: "text", input_mode: "typed" },
+        },
+        {
+          ...desktopEvent,
+          eventName: ProductAnalyticsEventName.ComputerSwitched,
+          params: { source: "command_palette", target_online: "true" },
+        },
+        {
+          ...desktopEvent,
+          eventName: ProductAnalyticsEventName.SideQuestionAsked,
+          params: { harness: "codex", outcome: "no_answer" },
+        },
+        {
+          ...desktopEvent,
+          eventName: ProductAnalyticsEventName.HarnessInstallFinished,
+          params: { outcome: "completed" },
+        },
+        {
+          ...desktopEvent,
+          eventName: ProductAnalyticsEventName.TranscriptPromptsOpened,
+          params: { entry: "pinch" },
+        },
+        {
+          ...desktopEvent,
+          eventName: ProductAnalyticsEventName.ComputerManaged,
+          params: { action: "renamed" },
+        },
+        {
+          ...desktopEvent,
+          eventName: ProductAnalyticsEventName.SessionPinChanged,
+          params: { pinned: "false" },
         },
       ],
     });
@@ -436,6 +472,74 @@ describe("ProductAnalyticsExportRepository", () => {
         platform: "MACOS",
         app_version: "1.2.3",
       },
+      {
+        switch_source: "command_palette",
+        target_online: "true",
+        event_name: "computer_switched",
+        source_export_date: "2026-07-27",
+        received_at: "2026-07-27T23:30:00.000Z",
+        occurred_at_micros: "1785000000000123",
+        schema_version: 1,
+        user_key: "c".repeat(64),
+        platform: "MACOS",
+        app_version: "1.2.3",
+      },
+      {
+        harness: "codex",
+        outcome: "no_answer",
+        event_name: "side_question_asked",
+        source_export_date: "2026-07-27",
+        received_at: "2026-07-27T23:30:00.000Z",
+        occurred_at_micros: "1785000000000123",
+        schema_version: 1,
+        user_key: "c".repeat(64),
+        platform: "MACOS",
+        app_version: "1.2.3",
+      },
+      {
+        outcome: "completed",
+        event_name: "harness_install_finished",
+        source_export_date: "2026-07-27",
+        received_at: "2026-07-27T23:30:00.000Z",
+        occurred_at_micros: "1785000000000123",
+        schema_version: 1,
+        user_key: "c".repeat(64),
+        platform: "MACOS",
+        app_version: "1.2.3",
+      },
+      {
+        entry: "pinch",
+        event_name: "transcript_prompts_opened",
+        source_export_date: "2026-07-27",
+        received_at: "2026-07-27T23:30:00.000Z",
+        occurred_at_micros: "1785000000000123",
+        schema_version: 1,
+        user_key: "c".repeat(64),
+        platform: "MACOS",
+        app_version: "1.2.3",
+      },
+      {
+        action: "renamed",
+        event_name: "computer_managed",
+        source_export_date: "2026-07-27",
+        received_at: "2026-07-27T23:30:00.000Z",
+        occurred_at_micros: "1785000000000123",
+        schema_version: 1,
+        user_key: "c".repeat(64),
+        platform: "MACOS",
+        app_version: "1.2.3",
+      },
+      {
+        pinned: "false",
+        event_name: "session_pin_changed",
+        source_export_date: "2026-07-27",
+        received_at: "2026-07-27T23:30:00.000Z",
+        occurred_at_micros: "1785000000000123",
+        schema_version: 1,
+        user_key: "c".repeat(64),
+        platform: "MACOS",
+        app_version: "1.2.3",
+      },
     ]);
   });
 
@@ -449,7 +553,7 @@ describe("ProductAnalyticsExportRepository", () => {
     assert.ok(query);
     const [columnList, selectList] = query.sql.split("SELECT");
     const columns = (productAnalyticsPermanentTableSchemas.get("desktop_product_events") ?? []).map(({ name }) => name);
-    assert.equal(columns.length, 28);
+    assert.equal(columns.length, 34);
     assert.deepEqual(
       columnList
         .split("(")[1]
