@@ -101,6 +101,7 @@ export enum ProductAnalyticsEventName {
   SessionPinChanged = "session_pin_changed",
   SideQuestionAsked = "side_question_asked",
   SessionMessageEdited = "session_message_edited",
+  ScheduledTaskSaved = "scheduled_task_saved",
 }
 
 // Uppercase to match GA4's IOS and ANDROID in the same warehouse column.
@@ -206,6 +207,7 @@ export enum ProductAnalyticsScreen {
   SessionDiffs = "session_diffs",
   ScheduledTasks = "scheduled_tasks",
   ScheduledTaskDetail = "scheduled_task_detail",
+  ScheduledTaskEditor = "scheduled_task_editor",
 }
 
 // How many saved files an accepted prompt carried, bucketed.
@@ -293,6 +295,36 @@ export enum ProductAnalyticsMessageEditOutcome {
   BranchPointUnavailable = "branch_point_unavailable",
   Refused = "refused",
   Failed = "failed",
+}
+
+// Whether a confirmed scheduled-task save created the task or edited it.
+export enum ProductAnalyticsScheduledTaskAction {
+  Created = "created",
+  Edited = "edited",
+}
+
+// A scheduled task's repeat preset.
+export enum ProductAnalyticsScheduledTaskRepeat {
+  Once = "once",
+  Daily = "daily",
+  Weekdays = "weekdays",
+  Weekly = "weekly",
+  EveryHours = "every_hours",
+}
+
+export enum ProductAnalyticsScheduledTaskRunMode {
+  NewSession = "new_session",
+  SameSession = "same_session",
+}
+
+export enum ProductAnalyticsScheduledTaskApprovalMode {
+  Ask = "ask",
+  ApproveAll = "approve_all",
+}
+
+export enum ProductAnalyticsScheduledTaskMissedRunPolicy {
+  RunWhenBack = "run_when_back",
+  WaitForNext = "wait_for_next",
 }
 
 // What became of a dictation's words. Optional, with ProductAnalyticsVoiceMode,
@@ -476,6 +508,18 @@ export const productAnalyticsEventBodySchema = z.discriminatedUnion("name", [
     params: z.strictObject({
       harness: z.enum(ProductAnalyticsHarness),
       outcome: z.enum(ProductAnalyticsMessageEditOutcome),
+    }),
+  }),
+  eventBodySchema({
+    name: ProductAnalyticsEventName.ScheduledTaskSaved,
+    params: z.strictObject({
+      action: z.enum(ProductAnalyticsScheduledTaskAction),
+      repeat_kind: z.enum(ProductAnalyticsScheduledTaskRepeat),
+      run_mode: z.enum(ProductAnalyticsScheduledTaskRunMode),
+      approval_mode: z.enum(ProductAnalyticsScheduledTaskApprovalMode),
+      missed_run_policy: z.enum(ProductAnalyticsScheduledTaskMissedRunPolicy),
+      // Only a same-session task sends it.
+      auto_compact: z.enum(ProductAnalyticsBoolean).optional(),
     }),
   }),
 ]);

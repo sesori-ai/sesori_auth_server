@@ -99,6 +99,12 @@ const desktopEventParamColumns = [
   // NULL for voice events from desktop versions that predate them.
   "voice_finish",
   "voice_mode",
+  // scheduled_task_saved; auto_compact only for same-session tasks.
+  "repeat_kind",
+  "run_mode",
+  "approval_mode",
+  "missed_run_policy",
+  "auto_compact",
 ];
 
 // Every other wire param is stored under its own name.

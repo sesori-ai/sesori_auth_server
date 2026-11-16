@@ -370,6 +370,7 @@ const EVENT_PARAMS: Record<string, Record<string, string[]>> = {
       "session_diffs",
       "scheduled_tasks",
       "scheduled_task_detail",
+      "scheduled_task_editor",
     ],
   },
   prompt_files_sent: { file_count: ["1", "2_4", "5_plus"], source: ["picker", "drop", "paste", "mixed"] },
@@ -385,6 +386,14 @@ const EVENT_PARAMS: Record<string, Record<string, string[]>> = {
   session_message_edited: {
     harness: HARNESSES,
     outcome: ["succeeded", "refused_busy", "branch_point_unavailable", "refused", "failed"],
+  },
+  // auto_compact is optional; its own test covers it.
+  scheduled_task_saved: {
+    action: ["created", "edited"],
+    repeat_kind: ["once", "daily", "weekdays", "weekly", "every_hours"],
+    run_mode: ["new_session", "same_session"],
+    approval_mode: ["ask", "approve_all"],
+    missed_run_policy: ["run_when_back", "wait_for_next"],
   },
 };
 
@@ -418,8 +427,8 @@ const VALID_BODY = eventBody({ name: "session_permission_answered", params: { de
 const RATE_LIMIT_CLIENT_ADDRESS = "198.51.100.61";
 
 describe("Product analytics event schema", () => {
-  it("covers exactly the 31 contract events", () => {
-    assert.equal(Object.keys(EVENT_PARAMS).length, 31);
+  it("covers exactly the 32 contract events", () => {
+    assert.equal(Object.keys(EVENT_PARAMS).length, 32);
     assert.deepEqual(
       [...productAnalyticsEventBodySchema.options.map((option) => option.shape.name.value)].sort(),
       Object.keys(EVENT_PARAMS).sort(),
@@ -541,6 +550,20 @@ describe("Product analytics event schema", () => {
         ...eventBody({ name: "voice_transcription_completed", params: {} }),
         params,
       });
+      assert.equal(result.success, false, JSON.stringify(params));
+    }
+  });
+
+  it("accepts a scheduled task's auto_compact only as a boolean", () => {
+    const valid = firstParams({ params: EVENT_PARAMS.scheduled_task_saved });
+    for (const autoCompact of BOOLEANS) {
+      const params = { ...valid, run_mode: "same_session", auto_compact: autoCompact };
+      const result = productAnalyticsEventBodySchema.safeParse(eventBody({ name: "scheduled_task_saved", params }));
+      assert.deepEqual(result.success ? result.data.params : null, params, JSON.stringify(params));
+    }
+    for (const autoCompact of ["True", "1", "free text"]) {
+      const params = { ...valid, auto_compact: autoCompact };
+      const result = productAnalyticsEventBodySchema.safeParse(eventBody({ name: "scheduled_task_saved", params }));
       assert.equal(result.success, false, JSON.stringify(params));
     }
   });
