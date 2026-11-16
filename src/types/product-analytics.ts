@@ -100,6 +100,7 @@ export enum ProductAnalyticsEventName {
   ComputerManaged = "computer_managed",
   SessionPinChanged = "session_pin_changed",
   SideQuestionAsked = "side_question_asked",
+  SessionMessageEdited = "session_message_edited",
 }
 
 // Uppercase to match GA4's IOS and ANDROID in the same warehouse column.
@@ -203,6 +204,8 @@ export enum ProductAnalyticsScreen {
   NewSession = "new_session",
   SessionDetail = "session_detail",
   SessionDiffs = "session_diffs",
+  ScheduledTasks = "scheduled_tasks",
+  ScheduledTaskDetail = "scheduled_task_detail",
 }
 
 // How many saved files an accepted prompt carried, bucketed.
@@ -279,6 +282,16 @@ export enum ProductAnalyticsSideQuestionOutcome {
   Answered = "answered",
   NoAnswer = "no_answer",
   Unavailable = "unavailable",
+  Failed = "failed",
+}
+
+// How the bridge answered one edit and resend of an earlier message. `failed`
+// means the request failed or timed out, so the edit may or may not have run.
+export enum ProductAnalyticsMessageEditOutcome {
+  Succeeded = "succeeded",
+  RefusedBusy = "refused_busy",
+  BranchPointUnavailable = "branch_point_unavailable",
+  Refused = "refused",
   Failed = "failed",
 }
 
@@ -456,6 +469,13 @@ export const productAnalyticsEventBodySchema = z.discriminatedUnion("name", [
     params: z.strictObject({
       harness: z.enum(ProductAnalyticsHarness),
       outcome: z.enum(ProductAnalyticsSideQuestionOutcome),
+    }),
+  }),
+  eventBodySchema({
+    name: ProductAnalyticsEventName.SessionMessageEdited,
+    params: z.strictObject({
+      harness: z.enum(ProductAnalyticsHarness),
+      outcome: z.enum(ProductAnalyticsMessageEditOutcome),
     }),
   }),
 ]);

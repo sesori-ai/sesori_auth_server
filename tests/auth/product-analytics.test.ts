@@ -368,6 +368,8 @@ const EVENT_PARAMS: Record<string, Record<string, string[]>> = {
       "new_session",
       "session_detail",
       "session_diffs",
+      "scheduled_tasks",
+      "scheduled_task_detail",
     ],
   },
   prompt_files_sent: { file_count: ["1", "2_4", "5_plus"], source: ["picker", "drop", "paste", "mixed"] },
@@ -380,6 +382,10 @@ const EVENT_PARAMS: Record<string, Record<string, string[]>> = {
   computer_managed: { action: ["renamed", "removed"] },
   session_pin_changed: { pinned: BOOLEANS },
   side_question_asked: { harness: HARNESSES, outcome: ["answered", "no_answer", "unavailable", "failed"] },
+  session_message_edited: {
+    harness: HARNESSES,
+    outcome: ["succeeded", "refused_busy", "branch_point_unavailable", "refused", "failed"],
+  },
 };
 
 function paramCombinations(input: { params: Record<string, string[]> }): Record<string, string>[] {
@@ -412,8 +418,8 @@ const VALID_BODY = eventBody({ name: "session_permission_answered", params: { de
 const RATE_LIMIT_CLIENT_ADDRESS = "198.51.100.61";
 
 describe("Product analytics event schema", () => {
-  it("covers exactly the 30 contract events", () => {
-    assert.equal(Object.keys(EVENT_PARAMS).length, 30);
+  it("covers exactly the 31 contract events", () => {
+    assert.equal(Object.keys(EVENT_PARAMS).length, 31);
     assert.deepEqual(
       [...productAnalyticsEventBodySchema.options.map((option) => option.shape.name.value)].sort(),
       Object.keys(EVENT_PARAMS).sort(),
