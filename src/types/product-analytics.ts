@@ -101,6 +101,7 @@ export enum ProductAnalyticsEventName {
   SessionPinChanged = "session_pin_changed",
   SideQuestionAsked = "side_question_asked",
   SessionMessageEdited = "session_message_edited",
+  SessionSentToSession = "session_sent_to_session",
 }
 
 // Uppercase to match GA4's IOS and ANDROID in the same warehouse column.
@@ -295,6 +296,18 @@ export enum ProductAnalyticsMessageEditOutcome {
   Failed = "failed",
 }
 
+// How one send of a session into another ended. `unsupported` is a bridge that
+// predates sending; `unconfirmed` means the answer never arrived, so the send
+// may or may not have finished.
+export enum ProductAnalyticsSessionSendOutcome {
+  Sent = "sent",
+  RefusedBusy = "refused_busy",
+  RefusedOther = "refused_other",
+  Failed = "failed",
+  Unsupported = "unsupported",
+  Unconfirmed = "unconfirmed",
+}
+
 // What became of a dictation's words. Optional, with ProductAnalyticsVoiceMode,
 // because released desktop versions send no voice params.
 export enum ProductAnalyticsVoiceFinish {
@@ -476,6 +489,13 @@ export const productAnalyticsEventBodySchema = z.discriminatedUnion("name", [
     params: z.strictObject({
       harness: z.enum(ProductAnalyticsHarness),
       outcome: z.enum(ProductAnalyticsMessageEditOutcome),
+    }),
+  }),
+  eventBodySchema({
+    name: ProductAnalyticsEventName.SessionSentToSession,
+    params: z.strictObject({
+      harness: z.enum(ProductAnalyticsHarness),
+      outcome: z.enum(ProductAnalyticsSessionSendOutcome),
     }),
   }),
 ]);
