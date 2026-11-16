@@ -369,6 +369,14 @@ const messageSubmissionShape = {
   harness: z.enum(ProductAnalyticsHarness).optional(),
 };
 
+// Only a same-session task carries auto_compact.
+function autoCompactIsSameSession(input: {
+  run_mode: ProductAnalyticsScheduledTaskRunMode;
+  auto_compact?: ProductAnalyticsBoolean;
+}): boolean {
+  return input.run_mode === ProductAnalyticsScheduledTaskRunMode.SameSession || input.auto_compact === undefined;
+}
+
 function commandIsTyped(input: {
   submission_kind: ProductAnalyticsSubmissionKind;
   input_mode: ProductAnalyticsInputMode;
@@ -512,15 +520,16 @@ export const productAnalyticsEventBodySchema = z.discriminatedUnion("name", [
   }),
   eventBodySchema({
     name: ProductAnalyticsEventName.ScheduledTaskSaved,
-    params: z.strictObject({
-      action: z.enum(ProductAnalyticsScheduledTaskAction),
-      repeat_kind: z.enum(ProductAnalyticsScheduledTaskRepeat),
-      run_mode: z.enum(ProductAnalyticsScheduledTaskRunMode),
-      approval_mode: z.enum(ProductAnalyticsScheduledTaskApprovalMode),
-      missed_run_policy: z.enum(ProductAnalyticsScheduledTaskMissedRunPolicy),
-      // Only a same-session task sends it.
-      auto_compact: z.enum(ProductAnalyticsBoolean).optional(),
-    }),
+    params: z
+      .strictObject({
+        action: z.enum(ProductAnalyticsScheduledTaskAction),
+        repeat_kind: z.enum(ProductAnalyticsScheduledTaskRepeat),
+        run_mode: z.enum(ProductAnalyticsScheduledTaskRunMode),
+        approval_mode: z.enum(ProductAnalyticsScheduledTaskApprovalMode),
+        missed_run_policy: z.enum(ProductAnalyticsScheduledTaskMissedRunPolicy),
+        auto_compact: z.enum(ProductAnalyticsBoolean).optional(),
+      })
+      .refine(autoCompactIsSameSession),
   }),
 ]);
 

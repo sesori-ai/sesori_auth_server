@@ -554,7 +554,7 @@ describe("Product analytics event schema", () => {
     }
   });
 
-  it("accepts a scheduled task's auto_compact only as a boolean", () => {
+  it("accepts a scheduled task's auto_compact only as a same-session boolean", () => {
     const valid = firstParams({ params: EVENT_PARAMS.scheduled_task_saved });
     for (const autoCompact of BOOLEANS) {
       const params = { ...valid, run_mode: "same_session", auto_compact: autoCompact };
@@ -562,7 +562,12 @@ describe("Product analytics event schema", () => {
       assert.deepEqual(result.success ? result.data.params : null, params, JSON.stringify(params));
     }
     for (const autoCompact of ["True", "1", "free text"]) {
-      const params = { ...valid, auto_compact: autoCompact };
+      const params = { ...valid, run_mode: "same_session", auto_compact: autoCompact };
+      const result = productAnalyticsEventBodySchema.safeParse(eventBody({ name: "scheduled_task_saved", params }));
+      assert.equal(result.success, false, JSON.stringify(params));
+    }
+    for (const autoCompact of BOOLEANS) {
+      const params = { ...valid, run_mode: "new_session", auto_compact: autoCompact };
       const result = productAnalyticsEventBodySchema.safeParse(eventBody({ name: "scheduled_task_saved", params }));
       assert.equal(result.success, false, JSON.stringify(params));
     }
