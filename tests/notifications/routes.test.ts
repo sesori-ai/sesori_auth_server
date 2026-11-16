@@ -432,6 +432,40 @@ describe("Notification routes", () => {
     });
   });
 
+  it("POST /notifications/send keeps data.taskId", async () => {
+    const user = await ctx.createUser();
+
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/notifications/send",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({
+        category: "session_message",
+        title: "Scheduled task can't start",
+        body: "The project folder is missing.",
+        collapseKey: null,
+        data: {
+          category: "session_message",
+          eventType: "scheduled_task_run_failed",
+          bridgeId: "br_bridge0001",
+          taskId: "task-123",
+        },
+      }),
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(sendCalls.length, 1);
+    assert.deepEqual(sendCalls[0]?.payload.data, {
+      category: "session_message",
+      eventType: "scheduled_task_run_failed",
+      bridgeId: "br_bridge0001",
+      taskId: "task-123",
+    });
+  });
+
   it("POST /notifications/send returns 400 with a malformed data.bridgeId", async () => {
     const user = await ctx.createUser();
 
