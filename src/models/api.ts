@@ -298,6 +298,8 @@ export const notificationDataSchema = z.object({
   projectId: z.string().nullable().optional(),
   // The computer the session runs on, so tapping the push opens that computer.
   bridgeId: bridgeIdSchema.nullable().optional(),
+  // The scheduled task a push is about, so tapping it opens that task.
+  taskId: z.string().nullable().optional(),
 });
 
 export const sendNotificationBodySchema = z.object({

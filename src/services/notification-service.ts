@@ -31,6 +31,7 @@ export interface NotificationData {
   sessionId?: string | null;
   projectId?: string | null;
   bridgeId?: string | null;
+  taskId?: string | null;
 }
 
 interface BaseNotificationPayload {
@@ -159,6 +160,9 @@ export class NotificationService {
       }
       if (payload.data.bridgeId) {
         flatData["bridgeId"] = payload.data.bridgeId;
+      }
+      if (payload.data.taskId) {
+        flatData["taskId"] = payload.data.taskId;
       }
     }
 
