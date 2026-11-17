@@ -395,6 +395,10 @@ const EVENT_PARAMS: Record<string, Record<string, string[]>> = {
     approval_mode: ["ask", "approve_all"],
     missed_run_policy: ["run_when_back", "wait_for_next"],
   },
+  session_sent_to_session: {
+    harness: HARNESSES,
+    outcome: ["sent", "refused_busy", "refused_other", "failed", "unsupported", "unconfirmed"],
+  },
 };
 
 function paramCombinations(input: { params: Record<string, string[]> }): Record<string, string>[] {
@@ -427,8 +431,8 @@ const VALID_BODY = eventBody({ name: "session_permission_answered", params: { de
 const RATE_LIMIT_CLIENT_ADDRESS = "198.51.100.61";
 
 describe("Product analytics event schema", () => {
-  it("covers exactly the 32 contract events", () => {
-    assert.equal(Object.keys(EVENT_PARAMS).length, 32);
+  it("covers exactly the 33 contract events", () => {
+    assert.equal(Object.keys(EVENT_PARAMS).length, 33);
     assert.deepEqual(
       [...productAnalyticsEventBodySchema.options.map((option) => option.shape.name.value)].sort(),
       Object.keys(EVENT_PARAMS).sort(),
