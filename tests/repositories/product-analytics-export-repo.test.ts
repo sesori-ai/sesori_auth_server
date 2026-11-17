@@ -324,6 +324,11 @@ describe("ProductAnalyticsExportRepository", () => {
       nullable("pinned"),
       nullable("voice_finish"),
       nullable("voice_mode"),
+      nullable("repeat_kind"),
+      nullable("run_mode"),
+      nullable("approval_mode"),
+      nullable("missed_run_policy"),
+      nullable("auto_compact"),
     ]);
   });
 
@@ -409,6 +414,18 @@ describe("ProductAnalyticsExportRepository", () => {
           ...desktopEvent,
           eventName: ProductAnalyticsEventName.VoiceTranscriptionCompleted,
           params: { finish: "cut_off", mode: "after_recording" },
+        },
+        {
+          ...desktopEvent,
+          eventName: ProductAnalyticsEventName.ScheduledTaskSaved,
+          params: {
+            action: "edited",
+            repeat_kind: "weekly",
+            run_mode: "same_session",
+            approval_mode: "ask",
+            missed_run_policy: "wait_for_next",
+            auto_compact: "false",
+          },
         },
       ],
     });
@@ -593,6 +610,22 @@ describe("ProductAnalyticsExportRepository", () => {
         platform: "MACOS",
         app_version: "1.2.3",
       },
+      {
+        action: "edited",
+        repeat_kind: "weekly",
+        run_mode: "same_session",
+        approval_mode: "ask",
+        missed_run_policy: "wait_for_next",
+        auto_compact: "false",
+        event_name: "scheduled_task_saved",
+        source_export_date: "2026-07-27",
+        received_at: "2026-07-27T23:30:00.000Z",
+        occurred_at_micros: "1785000000000123",
+        schema_version: 1,
+        user_key: "c".repeat(64),
+        platform: "MACOS",
+        app_version: "1.2.3",
+      },
     ]);
   });
 
@@ -606,7 +639,7 @@ describe("ProductAnalyticsExportRepository", () => {
     assert.ok(query);
     const [columnList, selectList] = query.sql.split("SELECT");
     const columns = (productAnalyticsPermanentTableSchemas.get("desktop_product_events") ?? []).map(({ name }) => name);
-    assert.equal(columns.length, 36);
+    assert.equal(columns.length, 41);
     assert.deepEqual(
       columnList
         .split("(")[1]

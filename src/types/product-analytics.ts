@@ -101,6 +101,7 @@ export enum ProductAnalyticsEventName {
   SessionPinChanged = "session_pin_changed",
   SideQuestionAsked = "side_question_asked",
   SessionMessageEdited = "session_message_edited",
+  ScheduledTaskSaved = "scheduled_task_saved",
   SessionSentToSession = "session_sent_to_session",
 }
 
@@ -207,6 +208,7 @@ export enum ProductAnalyticsScreen {
   SessionDiffs = "session_diffs",
   ScheduledTasks = "scheduled_tasks",
   ScheduledTaskDetail = "scheduled_task_detail",
+  ScheduledTaskEditor = "scheduled_task_editor",
 }
 
 // How many saved files an accepted prompt carried, bucketed.
@@ -296,6 +298,36 @@ export enum ProductAnalyticsMessageEditOutcome {
   Failed = "failed",
 }
 
+// Whether a confirmed scheduled-task save created the task or edited it.
+export enum ProductAnalyticsScheduledTaskAction {
+  Created = "created",
+  Edited = "edited",
+}
+
+// A scheduled task's repeat preset.
+export enum ProductAnalyticsScheduledTaskRepeat {
+  Once = "once",
+  Daily = "daily",
+  Weekdays = "weekdays",
+  Weekly = "weekly",
+  EveryHours = "every_hours",
+}
+
+export enum ProductAnalyticsScheduledTaskRunMode {
+  NewSession = "new_session",
+  SameSession = "same_session",
+}
+
+export enum ProductAnalyticsScheduledTaskApprovalMode {
+  Ask = "ask",
+  ApproveAll = "approve_all",
+}
+
+export enum ProductAnalyticsScheduledTaskMissedRunPolicy {
+  RunWhenBack = "run_when_back",
+  WaitForNext = "wait_for_next",
+}
+
 // How one send of a session into another ended. `unsupported` is a bridge that
 // predates sending; `unconfirmed` means the answer never arrived, so the send
 // may or may not have finished.
@@ -349,6 +381,14 @@ const messageSubmissionShape = {
   input_mode: z.enum(ProductAnalyticsInputMode),
   harness: z.enum(ProductAnalyticsHarness).optional(),
 };
+
+// Only a same-session task carries auto_compact.
+function autoCompactIsSameSession(input: {
+  run_mode: ProductAnalyticsScheduledTaskRunMode;
+  auto_compact?: ProductAnalyticsBoolean;
+}): boolean {
+  return input.run_mode === ProductAnalyticsScheduledTaskRunMode.SameSession || input.auto_compact === undefined;
+}
 
 function commandIsTyped(input: {
   submission_kind: ProductAnalyticsSubmissionKind;
@@ -490,6 +530,19 @@ export const productAnalyticsEventBodySchema = z.discriminatedUnion("name", [
       harness: z.enum(ProductAnalyticsHarness),
       outcome: z.enum(ProductAnalyticsMessageEditOutcome),
     }),
+  }),
+  eventBodySchema({
+    name: ProductAnalyticsEventName.ScheduledTaskSaved,
+    params: z
+      .strictObject({
+        action: z.enum(ProductAnalyticsScheduledTaskAction),
+        repeat_kind: z.enum(ProductAnalyticsScheduledTaskRepeat),
+        run_mode: z.enum(ProductAnalyticsScheduledTaskRunMode),
+        approval_mode: z.enum(ProductAnalyticsScheduledTaskApprovalMode),
+        missed_run_policy: z.enum(ProductAnalyticsScheduledTaskMissedRunPolicy),
+        auto_compact: z.enum(ProductAnalyticsBoolean).optional(),
+      })
+      .refine(autoCompactIsSameSession),
   }),
   eventBodySchema({
     name: ProductAnalyticsEventName.SessionSentToSession,
