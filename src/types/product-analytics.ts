@@ -390,6 +390,15 @@ function autoCompactIsSameSession(input: {
   return input.run_mode === ProductAnalyticsScheduledTaskRunMode.SameSession || input.auto_compact === undefined;
 }
 
+// A one-off task runs when the bridge is back whatever its policy, so the app
+// leaves missed_run_policy off; every repeating task carries it.
+function missedRunPolicyUnlessOnce(input: {
+  repeat_kind: ProductAnalyticsScheduledTaskRepeat;
+  missed_run_policy?: ProductAnalyticsScheduledTaskMissedRunPolicy;
+}): boolean {
+  return input.repeat_kind === ProductAnalyticsScheduledTaskRepeat.Once || input.missed_run_policy !== undefined;
+}
+
 function commandIsTyped(input: {
   submission_kind: ProductAnalyticsSubmissionKind;
   input_mode: ProductAnalyticsInputMode;
@@ -539,10 +548,11 @@ export const productAnalyticsEventBodySchema = z.discriminatedUnion("name", [
         repeat_kind: z.enum(ProductAnalyticsScheduledTaskRepeat),
         run_mode: z.enum(ProductAnalyticsScheduledTaskRunMode),
         approval_mode: z.enum(ProductAnalyticsScheduledTaskApprovalMode),
-        missed_run_policy: z.enum(ProductAnalyticsScheduledTaskMissedRunPolicy),
+        missed_run_policy: z.enum(ProductAnalyticsScheduledTaskMissedRunPolicy).optional(),
         auto_compact: z.enum(ProductAnalyticsBoolean).optional(),
       })
-      .refine(autoCompactIsSameSession),
+      .refine(autoCompactIsSameSession)
+      .refine(missedRunPolicyUnlessOnce),
   }),
   eventBodySchema({
     name: ProductAnalyticsEventName.SessionSentToSession,

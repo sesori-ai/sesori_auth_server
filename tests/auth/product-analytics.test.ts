@@ -387,10 +387,12 @@ const EVENT_PARAMS: Record<string, Record<string, string[]>> = {
     harness: HARNESSES,
     outcome: ["succeeded", "refused_busy", "branch_point_unavailable", "refused", "failed"],
   },
-  // auto_compact is optional; its own test covers it.
+  // auto_compact is optional, and missed_run_policy is optional on a one-off
+  // task; their own tests cover both. `daily` comes first so the omission
+  // check below drops missed_run_policy from a repeating task.
   scheduled_task_saved: {
     action: ["created", "edited"],
-    repeat_kind: ["once", "daily", "weekdays", "weekly", "every_hours"],
+    repeat_kind: ["daily", "weekdays", "weekly", "every_hours", "once"],
     run_mode: ["new_session", "same_session"],
     approval_mode: ["ask", "approve_all"],
     missed_run_policy: ["run_when_back", "wait_for_next"],
@@ -555,6 +557,17 @@ describe("Product analytics event schema", () => {
         params,
       });
       assert.equal(result.success, false, JSON.stringify(params));
+    }
+  });
+
+  it("accepts a scheduled task without missed_run_policy only when it is one-off", () => {
+    const { missed_run_policy: _omitted, ...withoutPolicy } = firstParams({
+      params: EVENT_PARAMS.scheduled_task_saved,
+    });
+    for (const repeatKind of EVENT_PARAMS.scheduled_task_saved.repeat_kind) {
+      const params = { ...withoutPolicy, repeat_kind: repeatKind };
+      const result = productAnalyticsEventBodySchema.safeParse(eventBody({ name: "scheduled_task_saved", params }));
+      assert.equal(result.success, repeatKind === "once", repeatKind);
     }
   });
 
