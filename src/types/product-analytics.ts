@@ -103,6 +103,7 @@ export enum ProductAnalyticsEventName {
   SessionMessageEdited = "session_message_edited",
   ScheduledTaskSaved = "scheduled_task_saved",
   SessionSentToSession = "session_sent_to_session",
+  SessionForked = "session_forked",
 }
 
 // Uppercase to match GA4's IOS and ANDROID in the same warehouse column.
@@ -293,6 +294,15 @@ export enum ProductAnalyticsSideQuestionOutcome {
 export enum ProductAnalyticsMessageEditOutcome {
   Succeeded = "succeeded",
   RefusedBusy = "refused_busy",
+  BranchPointUnavailable = "branch_point_unavailable",
+  Refused = "refused",
+  Failed = "failed",
+}
+
+// How the bridge answered one fork of a session. `failed` means the request
+// failed or timed out, so the fork may or may not exist.
+export enum ProductAnalyticsSessionForkOutcome {
+  Succeeded = "succeeded",
   BranchPointUnavailable = "branch_point_unavailable",
   Refused = "refused",
   Failed = "failed",
@@ -559,6 +569,13 @@ export const productAnalyticsEventBodySchema = z.discriminatedUnion("name", [
     params: z.strictObject({
       harness: z.enum(ProductAnalyticsHarness),
       outcome: z.enum(ProductAnalyticsSessionSendOutcome),
+    }),
+  }),
+  eventBodySchema({
+    name: ProductAnalyticsEventName.SessionForked,
+    params: z.strictObject({
+      harness: z.enum(ProductAnalyticsHarness),
+      outcome: z.enum(ProductAnalyticsSessionForkOutcome),
     }),
   }),
 ]);
