@@ -62,10 +62,15 @@ describe("Desktop product event export path", () => {
     );
   }
 
-  async function exportBatches(input: { batchLimit: number }) {
+  async function exportBatches(input: { batchLimit: number; onUnknownEventName?: (eventName: string) => void }) {
     const batches = [];
     const repo = new ProductAnalyticsEventRepository({ accessor: ctx.dbAccessor });
-    for await (const batch of repo.findExportBatches({ start: windowStart, end: windowEnd, ...input })) {
+    for await (const batch of repo.findExportBatches({
+      start: windowStart,
+      end: windowEnd,
+      batchLimit: input.batchLimit,
+      onUnknownEventName: input.onUnknownEventName ?? (() => assert.fail("unexpected unknown event name")),
+    })) {
       batches.push(batch);
     }
     return batches;
@@ -98,6 +103,35 @@ describe("Desktop product event export path", () => {
       (await exportBatches({ batchLimit: 3 })).map((batch) => batch.length),
       [3],
     );
+  });
+
+  it("skips and reports a stored event whose name this build doesn't know", async () => {
+    await storeEvents({ receivedAts: [midWindow] });
+    await ctx.dbAccessor
+      .getCollection<Document>(MongoDbDatabase.Auth, AuthDbCollection.ProductAnalyticsEvents)
+      .insertOne({
+        _id: new ObjectId(),
+        userKey: "a".repeat(64),
+        // A name a newer server accepts before this export image is rolled.
+        eventName: "future_event",
+        occurredAtMicros: midWindow.getTime() * 1000 + 1,
+        receivedAt: midWindow,
+        schemaVersion: 1,
+        platform: ProductAnalyticsEventPlatform.Windows,
+        appVersion: "1.2.3",
+        params: {},
+      });
+    const unknownEventNames: string[] = [];
+
+    const rows = (
+      await exportBatches({ batchLimit: 10, onUnknownEventName: (eventName) => unknownEventNames.push(eventName) })
+    ).flat();
+
+    assert.deepEqual(
+      rows.map((row) => row.eventName),
+      [ProductAnalyticsEventName.FeedbackPromptAnswered],
+    );
+    assert.deepEqual(unknownEventNames, ["future_event"]);
   });
 
   it("fails closed on a malformed stored row without logging its values", async (t) => {

@@ -4,9 +4,14 @@ import { InternalServerError } from "../lib/errors.js";
 import { productAnalyticsEventSchema, type ProductAnalyticsEvent } from "../models/documents.js";
 import type { ProductAnalyticsDesktopEvent } from "../models/product-analytics-export.js";
 import { AuthDbCollection, MongoDbDatabase } from "../types/mongo.js";
-import { productAnalyticsUserKeySchema, type ProductAnalyticsEventBody } from "../types/product-analytics.js";
+import {
+  ProductAnalyticsEventName,
+  productAnalyticsUserKeySchema,
+  type ProductAnalyticsEventBody,
+} from "../types/product-analytics.js";
 
 const DUPLICATE_KEY_ERROR_CODE = 11000;
+const knownEventNames: ReadonlySet<string> = new Set(Object.values(ProductAnalyticsEventName));
 
 export class ProductAnalyticsEventRepository {
   readonly #collection: Collection<ProductAnalyticsEvent>;
@@ -41,17 +46,28 @@ export class ProductAnalyticsEventRepository {
     }
   }
 
-  /** Yields events with `receivedAt` in `[start, end)`, served by the TTL index, in batches of `batchLimit`. */
+  /**
+   * Yields events with `receivedAt` in `[start, end)`, served by the TTL index, in batches of `batchLimit`.
+   * An event name this build doesn't know (stored by a newer server) is reported
+   * through `onUnknownEventName` and skipped; any other malformed row fails the export.
+   */
   async *findExportBatches(input: {
     start: Date;
     end: Date;
     batchLimit: number;
+    onUnknownEventName: (eventName: string) => void;
   }): AsyncGenerator<ProductAnalyticsDesktopEvent[]> {
     const cursor = this.#collection
       .find({ receivedAt: { $gte: input.start, $lt: input.end } })
       .batchSize(input.batchLimit);
     let batch: ProductAnalyticsDesktopEvent[] = [];
     for await (const document of cursor) {
+      const eventName: unknown = document.eventName;
+      if (typeof eventName === "string" && !knownEventNames.has(eventName)) {
+        input.onUnknownEventName(eventName);
+        continue;
+      }
+
       const parsed = productAnalyticsEventSchema.safeParse(document);
       if (!parsed.success) {
         // An issue's path can hold a stored params key, so the issues aren't logged.
