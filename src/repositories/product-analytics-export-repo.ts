@@ -105,6 +105,9 @@ const desktopEventParamColumns = [
   "approval_mode",
   "missed_run_policy",
   "auto_compact",
+  // question_page_finished.
+  "question_count",
+  "has_images",
 ];
 
 // Every other wire param is stored under its own name.

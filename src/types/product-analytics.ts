@@ -104,6 +104,7 @@ export enum ProductAnalyticsEventName {
   ScheduledTaskSaved = "scheduled_task_saved",
   SessionSentToSession = "session_sent_to_session",
   SessionForked = "session_forked",
+  QuestionPageFinished = "question_page_finished",
 }
 
 // Uppercase to match GA4's IOS and ANDROID in the same warehouse column.
@@ -306,6 +307,21 @@ export enum ProductAnalyticsSessionForkOutcome {
   BranchPointUnavailable = "branch_point_unavailable",
   Refused = "refused",
   Failed = "failed",
+}
+
+// How the bridge confirmed an agent's question page ended: Submit accepted, or
+// the page dismissed.
+export enum ProductAnalyticsQuestionPageOutcome {
+  Answered = "answered",
+  Dismissed = "dismissed",
+}
+
+// How many questions a question page carried, bucketed.
+export enum ProductAnalyticsQuestionCountBucket {
+  Zero = "0",
+  One = "1",
+  TwoToFive = "2_5",
+  SixPlus = "6_plus",
 }
 
 // Whether a confirmed scheduled-task save created the task or edited it.
@@ -576,6 +592,14 @@ export const productAnalyticsEventBodySchema = z.discriminatedUnion("name", [
     params: z.strictObject({
       harness: z.enum(ProductAnalyticsHarness),
       outcome: z.enum(ProductAnalyticsSessionForkOutcome),
+    }),
+  }),
+  eventBodySchema({
+    name: ProductAnalyticsEventName.QuestionPageFinished,
+    params: z.strictObject({
+      outcome: z.enum(ProductAnalyticsQuestionPageOutcome),
+      question_count: z.enum(ProductAnalyticsQuestionCountBucket),
+      has_images: z.enum(ProductAnalyticsBoolean),
     }),
   }),
 ]);

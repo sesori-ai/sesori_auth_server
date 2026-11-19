@@ -329,6 +329,8 @@ describe("ProductAnalyticsExportRepository", () => {
       nullable("approval_mode"),
       nullable("missed_run_policy"),
       nullable("auto_compact"),
+      nullable("question_count"),
+      nullable("has_images"),
     ]);
   });
 
@@ -394,6 +396,11 @@ describe("ProductAnalyticsExportRepository", () => {
           ...desktopEvent,
           eventName: ProductAnalyticsEventName.SessionForked,
           params: { harness: "codex", outcome: "branch_point_unavailable" },
+        },
+        {
+          ...desktopEvent,
+          eventName: ProductAnalyticsEventName.QuestionPageFinished,
+          params: { outcome: "dismissed", question_count: "2_5", has_images: "true" },
         },
         {
           ...desktopEvent,
@@ -572,6 +579,19 @@ describe("ProductAnalyticsExportRepository", () => {
         app_version: "1.2.3",
       },
       {
+        outcome: "dismissed",
+        question_count: "2_5",
+        has_images: "true",
+        event_name: "question_page_finished",
+        source_export_date: "2026-07-27",
+        received_at: "2026-07-27T23:30:00.000Z",
+        occurred_at_micros: "1785000000000123",
+        schema_version: 1,
+        user_key: "c".repeat(64),
+        platform: "MACOS",
+        app_version: "1.2.3",
+      },
+      {
         outcome: "completed",
         event_name: "harness_install_finished",
         source_export_date: "2026-07-27",
@@ -656,7 +676,7 @@ describe("ProductAnalyticsExportRepository", () => {
     assert.ok(query);
     const [columnList, selectList] = query.sql.split("SELECT");
     const columns = (productAnalyticsPermanentTableSchemas.get("desktop_product_events") ?? []).map(({ name }) => name);
-    assert.equal(columns.length, 41);
+    assert.equal(columns.length, 43);
     assert.deepEqual(
       columnList
         .split("(")[1]

@@ -405,6 +405,11 @@ const EVENT_PARAMS: Record<string, Record<string, string[]>> = {
     harness: HARNESSES,
     outcome: ["succeeded", "branch_point_unavailable", "refused", "failed"],
   },
+  question_page_finished: {
+    outcome: ["answered", "dismissed"],
+    question_count: ["0", "1", "2_5", "6_plus"],
+    has_images: BOOLEANS,
+  },
 };
 
 function paramCombinations(input: { params: Record<string, string[]> }): Record<string, string>[] {
@@ -437,8 +442,8 @@ const VALID_BODY = eventBody({ name: "session_permission_answered", params: { de
 const RATE_LIMIT_CLIENT_ADDRESS = "198.51.100.61";
 
 describe("Product analytics event schema", () => {
-  it("covers exactly the 34 contract events", () => {
-    assert.equal(Object.keys(EVENT_PARAMS).length, 34);
+  it("covers exactly the 35 contract events", () => {
+    assert.equal(Object.keys(EVENT_PARAMS).length, 35);
     assert.deepEqual(
       [...productAnalyticsEventBodySchema.options.map((option) => option.shape.name.value)].sort(),
       Object.keys(EVENT_PARAMS).sort(),
@@ -482,6 +487,17 @@ describe("Product analytics event schema", () => {
     }
   });
 
+  it("rejects a raw question count", () => {
+    for (const question_count of ["2", "6", "12", 1]) {
+      const params = { outcome: "answered", question_count, has_images: "false" };
+      const result = productAnalyticsEventBodySchema.safeParse({
+        ...eventBody({ name: "question_page_finished", params: {} }),
+        params,
+      });
+      assert.equal(result.success, false, JSON.stringify(params));
+    }
+  });
+
   it("accepts boolean params only in their lowercase string form", () => {
     const cases: Array<[string, Record<string, unknown>]> = [
       ["session_pin_changed", { pinned: true }],
@@ -489,6 +505,7 @@ describe("Product analytics event schema", () => {
       ["session_pin_changed", { pinned: "1" }],
       ["computer_switched", { source: "menu", target_online: false }],
       ["computer_switched", { source: "menu", target_online: "FALSE" }],
+      ["question_page_finished", { outcome: "answered", question_count: "1", has_images: false }],
     ];
     for (const [name, params] of cases) {
       const result = productAnalyticsEventBodySchema.safeParse({ ...eventBody({ name, params: {} }), params });
