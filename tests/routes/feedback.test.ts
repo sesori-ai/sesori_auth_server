@@ -124,17 +124,17 @@ describe("/feedback routes", () => {
   it("never logs the message text of a rejected submission", async () => {
     const user = await ctx.createUser();
     const secret = `sk-live-${"x".repeat(4000)}`;
-    const errorLog = mock.method(console, "error", () => {});
+    const rejectionLog = mock.method(console, "info", () => {});
 
     try {
       const res = await postFeedback(user.accessToken, { ...VALID_BODY, message: secret });
 
       assert.equal(res.statusCode, 400);
-      assert.ok(errorLog.mock.callCount() > 0, "the rejection is still logged");
-      const logged = JSON.stringify(errorLog.mock.calls.map((call) => call.arguments));
+      assert.ok(rejectionLog.mock.callCount() > 0, "the rejection is still logged");
+      const logged = JSON.stringify(rejectionLog.mock.calls.map((call) => call.arguments));
       assert.equal(logged.includes("sk-live-"), false);
     } finally {
-      errorLog.mock.restore();
+      rejectionLog.mock.restore();
     }
   });
 
