@@ -54,6 +54,7 @@ type ProductAnalyticsExportEventRepository = {
     start: Date;
     end: Date;
     batchLimit: number;
+    onUnknownEventName: (eventName: string) => void;
   }): AsyncIterable<ProductAnalyticsDesktopEvent[]>;
 };
 
@@ -95,6 +96,9 @@ export type ProductAnalyticsExportReport = ProductAnalyticsExportProgress & {
   preferenceAfterCutoffAccounts: number;
   latePreferenceRowsRemoved: number;
   cohortRows: number;
+  /** Stored events skipped because this build doesn't know their name; a later run picks them up. */
+  unknownDesktopEventsSkipped: number;
+  unknownDesktopEventNames: string[];
 };
 
 function cohortWeekFor(accountCreatedAt: Date): string {
@@ -391,9 +395,15 @@ export class ProductAnalyticsExportService {
         end: desktopEventWindowEnd,
       };
       let desktopEventRows = 0;
+      let unknownDesktopEventsSkipped = 0;
+      const unknownDesktopEventNames = new Set<string>();
       for await (const events of this.#eventRepo.findExportBatches({
         ...desktopEventWindow,
         batchLimit: this.#batchLimit,
+        onUnknownEventName: (eventName) => {
+          unknownDesktopEventsSkipped += 1;
+          unknownDesktopEventNames.add(eventName);
+        },
       })) {
         await this.#exportRepo.appendDesktopEvents({ run, events });
         desktopEventRows += events.length;
@@ -500,6 +510,8 @@ export class ProductAnalyticsExportService {
         preferenceAfterCutoffAccounts,
         latePreferenceRowsRemoved,
         cohortRows: cohortRows.length,
+        unknownDesktopEventsSkipped,
+        unknownDesktopEventNames: [...unknownDesktopEventNames].sort(),
       };
     } finally {
       if (run) {

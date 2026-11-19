@@ -104,7 +104,7 @@ class FakeEventRepository {
   ) {}
 
   async *findExportBatches(input: { start: Date; end: Date; batchLimit: number }) {
-    this.inputs.push(input);
+    this.inputs.push({ start: input.start, end: input.end, batchLimit: input.batchLimit });
     this.onScan();
     yield* this.batches;
   }

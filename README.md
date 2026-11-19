@@ -861,7 +861,12 @@ midday manual run reads the same window as the daily one, and re-running changes
 nothing. Rows aren't filtered by preference or internal status here, because the
 warehouse owns those exclusions. An outage of up to 7 days recovers fully; a
 longer one loses the oldest desktop days: the job reads only 7 days, and rows
-expire after 9. A desktop failure fails the whole run.
+expire after 9. A desktop failure fails the whole run. The one exception is a
+stored event whose name the export image doesn't know yet, accepted by a newer
+auth server deployed first: the run skips it and reports the count and names as
+`unknownDesktopEventsSkipped` and `unknownDesktopEventNames` in its completion
+log. Once the image is rolled to a build that knows the name, the next run
+rewrites those days and includes the skipped events.
 
 The promotion transaction appends aggregate source, exclusion, reconciliation,
 cutoff, and freshness metadata to
