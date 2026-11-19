@@ -14,12 +14,14 @@ RUN date -u +%Y-%m-%dT%H:%M:%SZ > dist/built-at.txt
 # loose ref, or packed ref). Copying the whole context never fails, so a
 # context without .git (a git worktree has only a .git file) writes an empty
 # file and the server falls back to GIT_COMMIT_SHA.
+# No ${var...} operators: App Platform's kaniko expands RUN lines for its
+# layer cache key and rejects them ("missing ':' in substitution").
 COPY . /tmp/context/
 RUN cd /tmp/context && head="$(cat .git/HEAD 2>/dev/null)"; \
-    case "$head" in "ref: "*) \
-      ref="${head#ref: }"; \
-      head="$(cat ".git/$ref" 2>/dev/null || grep " $ref\$" .git/packed-refs 2>/dev/null | cut -d ' ' -f 1)";; \
-    esac; \
+    ref="$(printf '%s\n' "$head" | sed -n 's/^ref: //p')"; \
+    if [ -n "$ref" ]; then \
+      head="$(cat ".git/$ref" 2>/dev/null || awk -v ref="$ref" '$2 == ref { print $1 }' .git/packed-refs 2>/dev/null)"; \
+    fi; \
     printf '%s\n' "$head" > /app/dist/commit.txt
 
 FROM node:22.22.1-slim
