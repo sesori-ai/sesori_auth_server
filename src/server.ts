@@ -121,9 +121,19 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
 
   app.decorateRequest("user", null);
 
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error, request, reply) => {
     if (error instanceof ApiError) {
-      if (error.debugMessage || error.nestedError) {
+      const hasDetail = Boolean(error.debugMessage || error.nestedError);
+
+      if (hasDetail && error.errorCode < 500) {
+        // A refused request is normal operation, not a server fault: one plain
+        // stdout line, no stack. The route template, never request.url, because
+        // some routes carry tokens in their query string.
+        console.info(
+          `Rejected ${request.method} ${request.routeOptions.url ?? "unmatched route"} with ${error.errorCode}: ` +
+            `${error.debugMessage ?? error.message}${describeRejectionCause({ cause: error.nestedError })}`,
+        );
+      } else if (hasDetail) {
         console.error(`[${error.name}] ${error.debugMessage ?? error.message}`, error.nestedError ?? "");
       }
 
@@ -321,4 +331,17 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
   });
 
   return app;
+}
+
+/** One-line suffix for a refusal's cause: an Error's own message, or other detail such as zod issues as JSON. */
+function describeRejectionCause({ cause }: { cause: unknown }): string {
+  if (cause === undefined || cause === null) {
+    return "";
+  }
+
+  if (cause instanceof Error) {
+    return ` (${cause.message})`;
+  }
+
+  return ` (${JSON.stringify(cause)})`;
 }

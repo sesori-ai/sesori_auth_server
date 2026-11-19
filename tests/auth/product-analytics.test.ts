@@ -848,7 +848,7 @@ describe("POST /product-analytics/events", () => {
 
   it("logs only issue codes and paths for a rejected body", async () => {
     const user = await ctx.createUser();
-    const errorLog = mock.method(console, "error", () => {});
+    const rejectionLog = mock.method(console, "info", () => {});
 
     try {
       const unknownKeys = await post({
@@ -873,15 +873,15 @@ describe("POST /product-analytics/events", () => {
       for (const response of [unknownKeys, badValue, unknownName, stale]) {
         assert.equal(response.body.includes("secret"), false);
       }
-      assert.ok(errorLog.mock.callCount() > 0, "the rejection is still logged");
-      const logged = JSON.stringify(errorLog.mock.calls.map((call) => call.arguments));
+      assert.ok(rejectionLog.mock.callCount() > 0, "the rejection is still logged");
+      const logged = JSON.stringify(rejectionLog.mock.calls.map((call) => call.arguments));
       assert.ok(logged.includes("unrecognized_keys"));
       assert.equal(logged.includes("secret"), false);
       assert.equal(logged.includes("987654321"), false);
       assert.equal(logged.includes(user.accessToken), false);
       assert.equal(logged.includes(user.userId), false);
     } finally {
-      errorLog.mock.restore();
+      rejectionLog.mock.restore();
     }
   });
 

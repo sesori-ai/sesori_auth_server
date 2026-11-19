@@ -15,6 +15,7 @@ import type { DeviceTokenRepository } from "../repositories/device-token-repo.js
 import type { BridgeService } from "./bridge-service.js";
 import { TokenService } from "./token-service.js";
 import argon2 from "argon2";
+import jwt from "jsonwebtoken";
 
 type AuthTokensResult = {
   accessToken: string;
@@ -212,6 +213,10 @@ export class AuthService {
       userId = result.data.userId;
       tokenVersion = result.data.tokenVersion;
     } catch (error) {
+      if (error instanceof jwt.TokenExpiredError) {
+        throw new UnauthenticatedError({ debugMessage: `Refresh token expired at ${error.expiredAt.toISOString()}` });
+      }
+
       throw new UnauthenticatedError({ debugMessage: "Refresh token verification failed", nestedError: error });
     }
 
