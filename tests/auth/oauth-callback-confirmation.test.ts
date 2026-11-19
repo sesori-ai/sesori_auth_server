@@ -164,6 +164,7 @@ function createTestServices(params: {
     productAnalyticsPreferenceService: {} as AppServices["productAnalyticsPreferenceService"],
     productAnalyticsEventService: {} as AppServices["productAnalyticsEventService"],
     builtAt: null,
+    builtCommit: null,
   };
 }
 

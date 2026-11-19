@@ -4,6 +4,7 @@ import { clientIpSourceSchema, ClientIpSource, trustedIngressCidrsSchema } from 
 import { productAnalyticsPseudonymizationKeySchema } from "./types/product-analytics.js";
 import { isValidResendWebhookSigningSecret } from "./services/resend-webhook-verifier.js";
 import { OPTIONAL_EMAIL_MAX_DAILY_CAP, OptionalEmailRecipientBasis } from "./types/optional-email.js";
+import { parseCommitId } from "./lib/build-info.js";
 
 const appleConfigSchema = z.object({
   APPLE_CLIENT_ID: z.string().min(1, "APPLE_CLIENT_ID is required"),
@@ -52,8 +53,8 @@ const baseConfigSchema = z.object({
     .pipe(z.array(z.string().min(1)).min(1)),
   RELAY_URL: z.string().min(1, "RELAY_URL is required"),
   RELAY_WEBHOOK_SECRET: z.string().optional(),
-  // Git commit this deployment was built from, reported by `GET /version`.
-  // Bound by the deploy platform (DigitalOcean App Platform: `${_self.COMMIT_HASH}`).
+  // Fallback commit for `GET /version` when the image carries none, such as
+  // a build context without `.git`; the Docker build normally supplies it.
   // Anything that is not a hex commit id, including an unresolved binding,
   // resolves to undefined so the endpoint reports "unknown" instead of
   // failing startup over a diagnostic value. A rejected non-empty value is
@@ -62,17 +63,17 @@ const baseConfigSchema = z.object({
     .string()
     .optional()
     .transform((value) => {
-      const trimmed = value?.trim().toLowerCase();
-      if (!trimmed) {
+      if (!value?.trim()) {
         return undefined;
       }
 
-      if (!/^[0-9a-f]{7,64}$/.test(trimmed)) {
+      const commit = parseCommitId(value);
+      if (!commit) {
         console.warn('[Config] GIT_COMMIT_SHA is set but is not a hex commit id; GET /version reports "unknown"');
         return undefined;
       }
 
-      return trimmed;
+      return commit;
     }),
   CLIENT_IP_SOURCE: clientIpSourceSchema.default(ClientIpSource.Socket),
   CLOUDFLARE_INGRESS_CIDRS: trustedIngressCidrsSchema,
