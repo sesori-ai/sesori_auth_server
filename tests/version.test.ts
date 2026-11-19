@@ -5,10 +5,11 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { after, before, describe, it } from "node:test";
 import type { FastifyInstance } from "fastify";
-import { getBuiltAtUrl, readBuiltAt } from "../src/lib/build-info.js";
+import { getBuiltAtUrl, getCommitUrl, readBuiltAt, readCommit } from "../src/lib/build-info.js";
 import { createTestApp } from "./helpers/setup.js";
 
 const COMMIT = "81b811f0123456789abcdef0123456789abcdef0";
+const BUILT_COMMIT = "38eac50123456789abcdef0123456789abcdef01";
 const BUILT_AT = "2026-11-08T09:30:00Z";
 const RELAY_SECRET = "relay-secret-that-must-not-leak";
 
@@ -49,6 +50,19 @@ describe("GET /version", () => {
       assert.deepEqual(Object.keys(res.json()).sort(), ["builtAt", "commit"]);
       assert.equal(res.body.includes(RELAY_SECRET), false);
       assert.equal(res.body.includes("mongodb"), false);
+    });
+  });
+
+  describe("with a commit from the image build", () => {
+    it("reports it ahead of GIT_COMMIT_SHA", async () => {
+      const ctx = await createTestApp({ configOverrides: { GIT_COMMIT_SHA: COMMIT }, builtCommit: BUILT_COMMIT });
+      try {
+        const res = await ctx.app.inject({ method: "GET", url: "/version" });
+
+        assert.equal(res.json().commit, BUILT_COMMIT);
+      } finally {
+        await ctx.cleanup();
+      }
     });
   });
 
@@ -113,5 +127,37 @@ describe("readBuiltAt", () => {
 
   it("resolves next to the compiled entrypoint", () => {
     assert.equal(getBuiltAtUrl("file:///app/dist/index.js").href, "file:///app/dist/built-at.txt");
+  });
+});
+
+describe("readCommit", () => {
+  let dir: string;
+
+  before(() => {
+    dir = mkdtempSync(join(tmpdir(), "commit-"));
+  });
+
+  after(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function fileWith(name: string, contents: string): URL {
+    const path = join(dir, name);
+    writeFileSync(path, contents);
+    return pathToFileURL(path);
+  }
+
+  it("reads the commit the Dockerfile writes", () => {
+    assert.equal(readCommit(fileWith("valid.txt", `${BUILT_COMMIT.toUpperCase()}\n`)), BUILT_COMMIT);
+  });
+
+  it("returns null when the build context had no git metadata", () => {
+    assert.equal(readCommit(pathToFileURL(join(dir, "missing.txt"))), null);
+    assert.equal(readCommit(fileWith("empty.txt", "\n")), null);
+    assert.equal(readCommit(fileWith("ref.txt", "ref: refs/heads/master\n")), null);
+  });
+
+  it("resolves next to the compiled entrypoint", () => {
+    assert.equal(getCommitUrl("file:///app/dist/index.js").href, "file:///app/dist/commit.txt");
   });
 });

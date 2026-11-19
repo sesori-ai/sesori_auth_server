@@ -17,7 +17,7 @@ import {
 import { loadConfig } from "./config.js";
 import { MongoDbAccessor } from "./db/mongo-db-accessor.js";
 import { MongoDbConnector } from "./db/mongo-db-connector.js";
-import { getBuiltAtUrl, readBuiltAt } from "./lib/build-info.js";
+import { getBuiltAtUrl, getCommitUrl, readBuiltAt, readCommit } from "./lib/build-info.js";
 import { getLegalDocumentUrl } from "./lib/legal-document-paths.js";
 import stateStore from "./lib/state-store.js";
 import { InstallScriptService } from "./services/install-script-service.js";
@@ -297,6 +297,7 @@ async function main() {
     optionalEmail,
     realtime,
     builtAt: readBuiltAt(getBuiltAtUrl(import.meta.url)),
+    builtCommit: readCommit(getCommitUrl(import.meta.url)),
   });
 
   const address = await app.listen({ port: config.PORT, host: "0.0.0.0" });

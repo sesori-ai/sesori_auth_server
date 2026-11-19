@@ -101,6 +101,7 @@ export type TestAppOverrides = {
   asyncTranscriptionPublicErrorPolicy?: AsyncTranscriptionPublicErrorPolicy;
   configOverrides?: Partial<Config>;
   builtAt?: string | null;
+  builtCommit?: string | null;
   optionalEmail?: {
     unsubscribeService?: OptionalEmailUnsubscribeService;
     webhook?: {
@@ -297,6 +298,7 @@ export async function createTestApp(overrides?: TestAppOverrides): Promise<TestC
           }
         : undefined,
     builtAt: overrides?.builtAt ?? null,
+    builtCommit: overrides?.builtCommit ?? null,
   });
   await app.ready();
 

@@ -10,6 +10,17 @@ RUN npm run build
 # Build time for GET /version. It sits after the compile step, so a cached
 # layer keeps the time those exact compiled sources were first built.
 RUN date -u +%Y-%m-%dT%H:%M:%SZ > dist/built-at.txt
+# Commit for GET /version, resolved from the checkout's .git (detached HEAD,
+# loose ref, or packed ref). Copying the whole context never fails, so a
+# context without .git (a git worktree has only a .git file) writes an empty
+# file and the server falls back to GIT_COMMIT_SHA.
+COPY . /tmp/context/
+RUN cd /tmp/context && head="$(cat .git/HEAD 2>/dev/null)"; \
+    case "$head" in "ref: "*) \
+      ref="${head#ref: }"; \
+      head="$(cat ".git/$ref" 2>/dev/null || grep " $ref\$" .git/packed-refs 2>/dev/null | cut -d ' ' -f 1)";; \
+    esac; \
+    printf '%s\n' "$head" > /app/dist/commit.txt
 
 FROM node:22.22.1-slim
 

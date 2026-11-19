@@ -81,6 +81,8 @@ export type AppServices = {
   realtime?: Omit<VoiceRealtimeRouteOptions, "preAuthRateLimit" | "requireAuth">;
   /** Image build time reported by `GET /version`; null outside a Docker build. */
   builtAt: string | null;
+  /** Commit the Docker build resolved from `.git`; null when the build context had none. */
+  builtCommit: string | null;
 };
 
 export async function buildApp(services: AppServices): Promise<FastifyInstance> {
@@ -156,7 +158,7 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
   // build time, never any other configuration. no-store keeps a proxy from
   // answering for a deploy that has since been replaced.
   const versionReply: VersionReply = {
-    commit: services.config.GIT_COMMIT_SHA ?? UNKNOWN_COMMIT,
+    commit: services.builtCommit ?? services.config.GIT_COMMIT_SHA ?? UNKNOWN_COMMIT,
     builtAt: services.builtAt,
   };
   app.get<{ Reply: VersionReply }>("/version", { config: { rateLimit: false } }, async (_request, reply) => {
