@@ -64,11 +64,12 @@ async function main() {
     connectionString: config.MONGODB_URI,
     clientOptions: {
       connectTimeoutMS: 10_000,
-      // Driver 7.8 made `timeoutMS` a no-op (CVE-2026-119179), so the 10 s
-      // bound it gave every operation is kept per stage instead.
+      // Driver 7.8 made `timeoutMS` a no-op (CVE-2026-119179). These keep the
+      // 10 s bound on finding a server and on getting a pooled connection.
+      // socketTimeoutMS stays unset (no limit): startup index builds and
+      // backfills can legitimately wait longer than 10 s on one reply.
       serverSelectionTimeoutMS: 10_000,
       waitQueueTimeoutMS: 10_000,
-      socketTimeoutMS: 10_000,
       maxPoolSize: 50,
       minPoolSize: 5,
       maxIdleTimeMS: 60_000,
