@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import http from "node:http";
 import { after, afterEach, before, describe, it, mock } from "node:test";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { LogController, type FastifyInstance } from "fastify";
 import { ApiError } from "../../src/lib/errors.js";
 import { DeviceTokenRepository } from "../../src/repositories/device-token-repo.js";
 import { appClientRoutes } from "../../src/routes/app-clients.js";
@@ -252,7 +252,7 @@ describe("app-client status route failure and disconnect mapping", () => {
   });
 
   async function buildRouteApp(service: object): Promise<FastifyInstance> {
-    const app = Fastify({ disableRequestLogging: true });
+    const app = Fastify({ logController: new LogController({ disableRequestLogging: true }) });
     apps.push(app);
     app.decorateRequest("user", null);
     app.setErrorHandler((error, _request, reply) => {

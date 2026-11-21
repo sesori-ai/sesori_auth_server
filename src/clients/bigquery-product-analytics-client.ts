@@ -65,13 +65,11 @@ export class BigQueryProductAnalyticsClient {
       }
     }
     await dataset.createTable(input.tableId, {
-      schema: input.schema.map(
-        (field): TableField => ({
-          name: field.name,
-          type: field.type,
-          ...(field.mode === undefined ? {} : { mode: field.mode }),
-        }),
-      ),
+      schema: input.schema.map((field): TableField => ({
+        name: field.name,
+        type: field.type,
+        ...(field.mode === undefined ? {} : { mode: field.mode }),
+      })),
       ...(input.expiresAt ? { expirationTime: input.expiresAt.getTime().toString() } : {}),
     });
   }

@@ -1,7 +1,7 @@
-FROM node:22.22.1-slim AS builder
+FROM node:26.13.1-slim AS builder
 
 WORKDIR /app
-RUN npm install -g npm@11.12.1
+RUN npm install -g npm@12.2.2
 COPY package.json package-lock.json .npmrc ./
 RUN npm ci
 COPY tsconfig.json ./
@@ -24,10 +24,10 @@ RUN cd /tmp/context && head="$(cat .git/HEAD 2>/dev/null)"; \
     fi; \
     printf '%s\n' "$head" > /app/dist/commit.txt
 
-FROM node:22.22.1-slim
+FROM node:26.13.1-slim
 
 WORKDIR /app
-RUN npm install -g npm@11.12.1
+RUN npm install -g npm@12.2.2
 COPY package.json package-lock.json .npmrc ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY assets/legal/ ./assets/legal/

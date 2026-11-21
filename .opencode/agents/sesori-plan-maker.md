@@ -418,7 +418,7 @@ Before interviewing or reviewing:
 - independently discover each repository's default branch. The auth server and
   relay currently use `master`; the apps monorepo currently uses `main`.
 
-This is a Node.js 22, strict TypeScript, Fastify, ESM service. Plans must
+This is a Node.js 26, strict TypeScript, Fastify, ESM service. Plans must
 preserve NodeNext imports with `.js` suffixes, constructor injection for
 stateful dependencies, `src/index.ts` as the production composition root, and
 `src/server.ts` as the Fastify composition and route-registration boundary.

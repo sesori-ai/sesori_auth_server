@@ -64,7 +64,11 @@ async function main() {
     connectionString: config.MONGODB_URI,
     clientOptions: {
       connectTimeoutMS: 10_000,
-      timeoutMS: 10_000,
+      // Driver 7.8 made `timeoutMS` a no-op (CVE-2026-119179), so the 10 s
+      // bound it gave every operation is kept per stage instead.
+      serverSelectionTimeoutMS: 10_000,
+      waitQueueTimeoutMS: 10_000,
+      socketTimeoutMS: 10_000,
       maxPoolSize: 50,
       minPoolSize: 5,
       maxIdleTimeMS: 60_000,
