@@ -266,7 +266,7 @@ Before work, read root `AGENTS.md`, `README.md`, `package.json`,
 relevant history, and configured external references needed by the step. Read
 nested `AGENTS.md` files if they are introduced under an affected path.
 
-This is a Node.js 22, strict TypeScript, Fastify, ESM service. Preserve NodeNext
+This is a Node.js 26, strict TypeScript, Fastify, ESM service. Preserve NodeNext
 imports with `.js` suffixes. Stateful dependencies use constructor injection and
 are composed in `src/index.ts`; typed `AppServices`, middleware construction,
 Fastify setup, and route registration live in `src/server.ts`.

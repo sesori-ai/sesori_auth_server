@@ -5,7 +5,7 @@
   "description": "Node.js auth server for Sesori Mobile App",
   "main": "dist/index.js",
   "engines": {
-    "node": ">=22.22.1 <23.0.0"
+    "node": ">=26.13.1 <27.0.0"
   },
   "scripts": {
     "start": "tsx src/index.ts",
@@ -32,38 +32,43 @@
     "circular-dependencies": "madge --circular --ts-config ./tsconfig.json ./src/index.ts"
   },
   "dependencies": {
-    "@fastify/cors": "^11.2.0",
-    "@fastify/multipart": "^10.0.0",
+    "@fastify/cors": "^11.4.3",
+    "@fastify/multipart": "^10.1.8",
     "@fastify/proxy-addr": "^5.1.2",
-    "@fastify/rate-limit": "^11.0.0",
-    "@fastify/websocket": "^11.3.0",
-    "@google-cloud/bigquery": "^8.3.1",
-    "@soniox/node": "^2.2.0",
-    "argon2": "^0.45.0",
-    "fastify": "^5.12.1",
-    "firebase-admin": "^14.1.0",
-    "jose": "^6.2.0",
+    "@fastify/rate-limit": "^11.2.2",
+    "@fastify/websocket": "^11.3.7",
+    "@google-cloud/bigquery": "^9.6.1",
+    "@soniox/node": "^2.5.0",
+    "argon2": "^0.45.2",
+    "fastify": "^5.12.8",
+    "firebase-admin": "^14.5.1",
+    "jose": "^6.2.17",
     "jsonwebtoken": "^9.0.3",
-    "lru-cache": "^11.3.5",
-    "mongodb": "^7.2.0",
-    "music-metadata": "^11.12.3",
-    "openai": "^6.45.0",
-    "ws": "^8.21.1",
-    "zod": "^4.6.6"
+    "lru-cache": "^11.5.3",
+    "mongodb": "^7.9.0",
+    "music-metadata": "^12.5.0",
+    "openai": "^7.57.0",
+    "ws": "^8.23.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/jsonwebtoken": "^9.0.10",
-    "@types/node": "^22.19.17",
-    "@types/ws": "^8.18.1",
-    "eslint": "^10.2.1",
+    "@types/node": "^26.6.6",
+    "@types/ws": "^8.18.2",
+    "eslint": "^10.15.0",
     "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-prettier": "^5.5.5",
+    "eslint-plugin-prettier": "^5.5.7",
     "madge": "^8.0.0",
-    "mongodb-memory-server": "^11.1.0",
-    "prettier": "^3.8.3",
+    "mongodb-memory-server": "^11.3.0",
+    "prettier": "^3.10.1",
     "tsx": "^4.23.15",
-    "typescript": "^5.9.3",
-    "typescript-eslint": "^8.59.0"
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.2"
+  },
+  "overrides": {
+    "madge": {
+      "typescript": "$typescript"
+    }
   }
 }

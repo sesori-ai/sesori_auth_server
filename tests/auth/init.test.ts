@@ -1,6 +1,6 @@
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { LogController, type FastifyInstance } from "fastify";
 import type { Config } from "../../src/config.js";
 import type { GithubClient } from "../../src/clients/auth/github-client.js";
 import type { GoogleClient } from "../../src/clients/auth/google-client.js";
@@ -21,7 +21,7 @@ describe("OAuth init routes", () => {
   let pendingAuthStore: PendingAuthStore;
 
   before(async () => {
-    app = Fastify({ disableRequestLogging: true });
+    app = Fastify({ logController: new LogController({ disableRequestLogging: true }) });
     pendingAuthStore = new PendingAuthStore();
 
     app.setErrorHandler((error, _request, reply) => {

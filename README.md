@@ -13,7 +13,7 @@ Authentication service for [Sesori Mobile App](https://github.com/sesori-ai/seso
 
 | Concern    | Choice                            |
 | ---------- | --------------------------------- |
-| Runtime    | Node.js 22                        |
+| Runtime    | Node.js 26                        |
 | Framework  | Fastify                           |
 | Validation | Zod (all request/response types)  |
 | Database   | MongoDB (official driver, no ODM) |
@@ -28,7 +28,7 @@ Authentication service for [Sesori Mobile App](https://github.com/sesori-ai/seso
 > environment.
 
 ```bash
-# Prerequisites: Node.js 22+ and authorized SOPS/age access
+# Prerequisites: Node.js 26+ and authorized SOPS/age access
 
 # Install dependencies
 npm install

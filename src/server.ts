@@ -1,4 +1,4 @@
-import Fastify, { FastifyInstance } from "fastify";
+import Fastify, { FastifyInstance, LogController } from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import websocket from "@fastify/websocket";
@@ -92,7 +92,7 @@ export async function buildApp(services: AppServices): Promise<FastifyInstance> 
   });
 
   const app = Fastify({
-    disableRequestLogging: true,
+    logController: new LogController({ disableRequestLogging: true }),
   });
 
   await app.register(cors, {

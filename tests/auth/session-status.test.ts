@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
-import Fastify, { type FastifyInstance, type InjectOptions, type LightMyRequestResponse } from "fastify";
+import Fastify, { LogController, type FastifyInstance, type InjectOptions, type LightMyRequestResponse } from "fastify";
 import { ApiError } from "../../src/lib/errors.js";
 import { sessionStatusRoutes } from "../../src/routes/auth/session-status.js";
 import { PendingAuthStore } from "../../src/services/pending-auth-store.js";
@@ -27,7 +27,7 @@ describe("GET /auth/session/status", () => {
 
   beforeEach(async () => {
     pendingAuthStore = new PendingAuthStore({ sessionTtlMs: 120_000 });
-    app = Fastify({ disableRequestLogging: true });
+    app = Fastify({ logController: new LogController({ disableRequestLogging: true }) });
 
     app.setErrorHandler((error, _request, reply) => {
       if (error instanceof ApiError) {
